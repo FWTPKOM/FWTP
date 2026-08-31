@@ -39,7 +39,11 @@ const linie = [
         typ: "autobus",
         nazwa: "Linia autobusowa 110"
     },
-  
+   {
+        numer: "126",
+        typ: "autobus",
+        nazwa: "Linia autobusowa 126"
+    },
 
     // =====================
     // TRAMWAJE
