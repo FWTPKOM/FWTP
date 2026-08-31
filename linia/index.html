@@ -412,7 +412,34 @@
     }
 
 }
+/* =========================================================
+   LEGENDA WARIANTÓW
+   ========================================================= */
 
+.legenda-wariantow {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 12px 15px;
+    margin-bottom: 15px;
+    font-size: 14px;
+}
+
+.legenda-wariantow strong {
+    display: block;
+    margin-bottom: 7px;
+}
+
+.legenda-wariant {
+    display: inline-block;
+    margin-right: 18px;
+    margin-bottom: 4px;
+}
+
+.legenda-litera {
+    font-weight: bold;
+    margin-right: 4px;
+}
 </style>
 
 </head>
@@ -529,7 +556,11 @@ href="../linie/"
 >
     Ładowanie rozkładu...
 </div>
-
+<div
+    id="legendaWariantow"
+    class="legenda-wariantow"
+    style="display:none;"
+></div>
 <div
     id="przystanki"
     class="przystanki"
@@ -551,24 +582,15 @@ href="../linie/"
    FWTP – ROZKŁAD JAZDY
    ========================================================= */
 
-
-/* =========================================================
-   ZMIENNE
-   ========================================================= */
-
 let daneLinii = null;
-
 let numerLinii = null;
-
 let aktualnyKierunek = 0;
-
 let aktualnyDzien = "dzisiaj";
-
 let wybranaData = new Date();
 
 
 /* =========================================================
-   ODCZYT NUMERU LINII Z URL
+   ODCZYT NUMERU LINII
    ========================================================= */
 
 const parametry =
@@ -601,40 +623,19 @@ else {
 
 
 /* =========================================================
-   USUWANIE WADLIWEGO POLA „godziny”
-   
-   Twoje JSON-y mają:
-   
-   "godziny": [
-       {"godzina":"06","minuty":["17,"46"]}
-   ]
-   
-   Pole to jest niepotrzebne, ponieważ dane są już
-   w „kursy”.
-
-   Funkcja usuwa całe pole „godziny” przed JSON.parse().
+   USUWANIE POLA „godziny”
    ========================================================= */
 
-function usunPoleGodziny(
-    tekst
-) {
+function usunPoleGodziny(tekst) {
 
     const pozycja =
         tekst.search(
             /"godziny"\s*:\s*\[/
         );
 
-
     if (pozycja === -1) {
-
         return tekst;
-
     }
-
-
-    /*
-     * Znajdujemy początek tablicy.
-     */
 
     const poczatekTablicy =
         tekst.indexOf(
@@ -642,27 +643,14 @@ function usunPoleGodziny(
             pozycja
         );
 
-
     if (poczatekTablicy === -1) {
-
         return tekst;
-
     }
 
-
     let poziom = 0;
-
     let wStringu = false;
-
     let ucieczka = false;
-
     let koniecTablicy = -1;
-
-
-    /*
-     * Szukamy końca tablicy,
-     * uwzględniając nawiasy i stringi.
-     */
 
     for (
         let i = poczatekTablicy;
@@ -670,101 +658,54 @@ function usunPoleGodziny(
         i++
     ) {
 
-        const znak =
-            tekst[i];
-
+        const znak = tekst[i];
 
         if (ucieczka) {
-
             ucieczka = false;
-
             continue;
-
         }
-
 
         if (
             znak === "\\"
             &&
             wStringu
         ) {
-
             ucieczka = true;
-
             continue;
-
         }
 
-
-        if (
-            znak === '"'
-        ) {
-
-            wStringu =
-                !wStringu;
-
+        if (znak === '"') {
+            wStringu = !wStringu;
             continue;
-
         }
-
 
         if (wStringu) {
-
             continue;
-
         }
-
 
         if (znak === "[") {
-
             poziom++;
-
         }
-
 
         if (znak === "]") {
 
             poziom--;
 
             if (poziom === 0) {
-
                 koniecTablicy = i;
-
                 break;
-
             }
 
         }
 
     }
 
-
-    if (
-        koniecTablicy === -1
-    ) {
-
+    if (koniecTablicy === -1) {
         return tekst;
-
     }
 
-
-    /*
-     * Zakres:
-     *
-     * "godziny": [...]
-     */
-
-    let poczatek =
-        pozycja;
-
-    let koniec =
-        koniecTablicy + 1;
-
-
-    /*
-     * Jeżeli po tablicy znajduje się przecinek,
-     * usuwamy go również.
-     */
+    let poczatek = pozycja;
+    let koniec = koniecTablicy + 1;
 
     while (
         koniec < tekst.length
@@ -773,26 +714,14 @@ function usunPoleGodziny(
             tekst[koniec]
         )
     ) {
-
         koniec++;
-
     }
-
 
     if (
         tekst[koniec] === ","
     ) {
-
         koniec++;
-
     }
-
-
-    /*
-     * Jeżeli „godziny” jest ostatnim polem obiektu,
-     * może znajdować się przed przecinkiem należącym
-     * do poprzedniego pola. Obsługujemy typowy przypadek.
-     */
 
     let wynik =
         tekst.substring(
@@ -804,26 +733,11 @@ function usunPoleGodziny(
             koniec
         );
 
-
-    /*
-     * Usuwamy ewentualny przecinek:
-     *
-     * kursy: [...]
-     * ,
-     *
-     * kierunki...
-     */
-
     wynik =
         wynik.replace(
             /,\s*,/g,
             ","
         );
-
-
-    /*
-     * Usuwamy przecinek bezpośrednio przed }
-     */
 
     wynik =
         wynik.replace(
@@ -831,9 +745,7 @@ function usunPoleGodziny(
             "}"
         );
 
-
     return wynik;
-
 }
 
 
@@ -843,16 +755,6 @@ function usunPoleGodziny(
 
 async function pobierzDane() {
 
-    /*
-     * GitHub Pages:
-     *
-     * /FWTP/linia/?linia=126
-     *
-     * =>
-     *
-     * /FWTP/dane/126.json
-     */
-
     const adres =
         "../dane/" +
         encodeURIComponent(
@@ -860,12 +762,10 @@ async function pobierzDane() {
         ) +
         ".json";
 
-
     console.log(
         "FWTP – pobieram:",
         adres
     );
-
 
     try {
 
@@ -876,7 +776,6 @@ async function pobierzDane() {
                     cache: "no-cache"
                 }
             );
-
 
         if (!odpowiedz.ok) {
 
@@ -890,31 +789,16 @@ async function pobierzDane() {
 
         }
 
-
         let tekst =
             await odpowiedz.text();
 
-
-        if (
-            !tekst.trim()
-        ) {
+        if (!tekst.trim()) {
 
             throw new Error(
                 "Plik JSON jest pusty."
             );
 
         }
-
-
-        console.log(
-            "FWTP – długość JSON:",
-            tekst.length
-        );
-
-
-        /*
-         * Najpierw próbujemy normalnie.
-         */
 
         try {
 
@@ -924,69 +808,23 @@ async function pobierzDane() {
                 );
 
         }
-        catch (
-            pierwszyBlad
-        ) {
+        catch (pierwszyBlad) {
 
             console.warn(
                 "FWTP – zwykły JSON.parse nie powiódł się."
             );
-
-
-            /*
-             * Usuwamy wadliwe / zbędne
-             * pole „godziny”.
-             */
 
             const oczyszczonyJSON =
                 usunPoleGodziny(
                     tekst
                 );
 
-
-            console.log(
-                "FWTP – próbuję odczytać JSON bez pola godziny."
-            );
-
-
-            try {
-
-                daneLinii =
-                    JSON.parse(
-                        oczyszczonyJSON
-                    );
-
-            }
-            catch (
-                drugiBlad
-            ) {
-
-                console.error(
-                    "Oryginalny JSON:",
-                    tekst
-                );
-
-
-                console.error(
-                    "Oczyszczony JSON:",
+            daneLinii =
+                JSON.parse(
                     oczyszczonyJSON
                 );
 
-
-                throw new Error(
-                    "JSON jest nieprawidłowy. " +
-                    "Błąd: " +
-                    drugiBlad.message
-                );
-
-            }
-
         }
-
-
-        /*
-         * Podstawowa kontrola struktury.
-         */
 
         if (
             !daneLinii
@@ -1000,7 +838,6 @@ async function pobierzDane() {
 
         }
 
-
         if (
             !Array.isArray(
                 daneLinii.rozkłady
@@ -1013,12 +850,10 @@ async function pobierzDane() {
 
         }
 
-
         console.log(
             "FWTP – JSON załadowany poprawnie:",
             daneLinii
         );
-
 
         uruchomStrone();
 
@@ -1029,7 +864,6 @@ async function pobierzDane() {
             "FWTP – BŁĄD:",
             blad
         );
-
 
         pokazBlad(
             "Nie udało się załadować linii " +
@@ -1055,7 +889,6 @@ function uruchomStrone() {
         daneLinii.linia ||
         numerLinii;
 
-
     document.getElementById(
         "trasa"
     ).textContent =
@@ -1065,16 +898,12 @@ function uruchomStrone() {
             numerLinii
         );
 
-
     wybranaData =
         new Date();
 
-
     aktualnyKierunek = 0;
 
-
     pokazRozklad();
-
 }
 
 
@@ -1082,9 +911,7 @@ function uruchomStrone() {
    NORMALIZACJA TEKSTU
    ========================================================= */
 
-function normalizujTekst(
-    tekst
-) {
+function normalizujTekst(tekst) {
 
     return String(
         tekst || ""
@@ -1105,39 +932,25 @@ function normalizujTekst(
    TYP DNIA
    ========================================================= */
 
-function okreslTypDnia(
-    data
-) {
+function okreslTypDnia(data) {
 
     const dzien =
         data.getDay();
 
-
-    if (
-        dzien === 6
-    ) {
-
+    if (dzien === 6) {
         return "sobota";
-
     }
 
-
-    if (
-        dzien === 0
-    ) {
-
+    if (dzien === 0) {
         return "niedziela";
-
     }
-
 
     return "roboczy";
-
 }
 
 
 /* =========================================================
-   ZNAJDŹ ODPOWIEDNI ROZKŁAD
+   ZNAJDŹ ROZKŁAD
    ========================================================= */
 
 function znajdzRozklad() {
@@ -1145,31 +958,16 @@ function znajdzRozklad() {
     const rozklady =
         daneLinii.rozkłady || [];
 
-
     if (
         rozklady.length === 0
     ) {
-
         return null;
-
     }
-
 
     const typDnia =
         okreslTypDnia(
             wybranaData
         );
-
-
-    console.log(
-        "FWTP – typ dnia:",
-        typDnia
-    );
-
-
-    /*
-     * SOBOTA
-     */
 
     if (
         typDnia === "sobota"
@@ -1185,25 +983,17 @@ function znajdzRozklad() {
                     rozklad.nazwa
                 );
 
-
             if (
                 nazwa.includes(
                     "sobot"
                 )
             ) {
-
                 return rozklad;
-
             }
 
         }
 
     }
-
-
-    /*
-     * NIEDZIELA
-     */
 
     if (
         typDnia === "niedziela"
@@ -1219,19 +1009,15 @@ function znajdzRozklad() {
                     rozklad.nazwa
                 );
 
-
             if (
                 nazwa.includes(
                     "niedziel"
                 )
             ) {
-
                 return rozklad;
-
             }
 
         }
-
 
         for (
             const rozklad
@@ -1242,7 +1028,6 @@ function znajdzRozklad() {
                 normalizujTekst(
                     rozklad.nazwa
                 );
-
 
             if (
                 (
@@ -1263,19 +1048,12 @@ function znajdzRozklad() {
                     "swiat"
                 )
             ) {
-
                 return rozklad;
-
             }
 
         }
 
     }
-
-
-    /*
-     * PONIEDZIAŁEK – PIĄTEK
-     */
 
     if (
         typDnia === "roboczy"
@@ -1290,7 +1068,6 @@ function znajdzRozklad() {
                 normalizujTekst(
                     rozklad.nazwa
                 );
-
 
             if (
                 nazwa.includes(
@@ -1315,22 +1092,14 @@ function znajdzRozklad() {
                     )
                 )
             ) {
-
                 return rozklad;
-
             }
 
         }
 
     }
 
-
-    /*
-     * FALLBACK
-     */
-
     return rozklady[0];
-
 }
 
 
@@ -1345,13 +1114,10 @@ function generujKierunki() {
             "kierunki"
         );
 
-
     kontener.innerHTML = "";
-
 
     const rozklad =
         znajdzRozklad();
-
 
     if (
         !rozklad
@@ -1360,11 +1126,8 @@ function generujKierunki() {
             rozklad.kierunki
         )
     ) {
-
         return;
-
     }
-
 
     rozklad.kierunki.forEach(
         function(
@@ -1377,10 +1140,8 @@ function generujKierunki() {
                     "button"
                 );
 
-
             przycisk.className =
                 "kierunek-btn";
-
 
             if (
                 index ===
@@ -1393,7 +1154,6 @@ function generujKierunki() {
 
             }
 
-
             const przystanki =
                 Array.isArray(
                     kierunek.przystanki
@@ -1403,10 +1163,8 @@ function generujKierunki() {
                     :
                     [];
 
-
             let nazwaKierunku =
                 "";
-
 
             if (
                 przystanki.length > 0
@@ -1417,13 +1175,11 @@ function generujKierunki() {
                         przystanki.length - 1
                     ];
 
-
                 nazwaKierunku =
                     ostatni.nazwa ||
                     "";
 
             }
-
 
             if (
                 !nazwaKierunku
@@ -1437,10 +1193,8 @@ function generujKierunki() {
 
             }
 
-
             przycisk.textContent =
                 nazwaKierunku;
-
 
             przycisk.onclick =
                 function() {
@@ -1450,7 +1204,6 @@ function generujKierunki() {
                     );
 
                 };
-
 
             kontener.appendChild(
                 przycisk
@@ -1466,16 +1219,12 @@ function generujKierunki() {
    ZMIANA KIERUNKU
    ========================================================= */
 
-function zmienKierunek(
-    index
-) {
+function zmienKierunek(index) {
 
     aktualnyKierunek =
         index;
 
-
     pokazRozklad();
-
 }
 
 
@@ -1483,13 +1232,10 @@ function zmienKierunek(
    WYBÓR DNIA
    ========================================================= */
 
-function wybierzDzien(
-    dzien
-) {
+function wybierzDzien(dzien) {
 
     aktualnyDzien =
         dzien;
-
 
     document
         .querySelectorAll(
@@ -1505,16 +1251,13 @@ function wybierzDzien(
             }
         );
 
-
     const kalendarz =
         document.getElementById(
             "kalendarz"
         );
 
-
     kalendarz.style.display =
         "none";
-
 
     if (
         dzien === "dzisiaj"
@@ -1526,12 +1269,10 @@ function wybierzDzien(
             "aktywny"
         );
 
-
         wybranaData =
             new Date();
 
     }
-
 
     if (
         dzien === "jutro"
@@ -1543,17 +1284,14 @@ function wybierzDzien(
             "aktywny"
         );
 
-
         wybranaData =
             new Date();
-
 
         wybranaData.setDate(
             wybranaData.getDate() + 1
         );
 
     }
-
 
     if (
         dzien === "kalendarz"
@@ -1565,10 +1303,8 @@ function wybierzDzien(
             "aktywny"
         );
 
-
         kalendarz.style.display =
             "block";
-
 
         document.getElementById(
             "wybranaData"
@@ -1579,10 +1315,8 @@ function wybierzDzien(
 
     }
 
-
     const rozklad =
         znajdzRozklad();
-
 
     if (
         !rozklad
@@ -1598,9 +1332,7 @@ function wybierzDzien(
 
     }
 
-
     pokazRozklad();
-
 }
 
 
@@ -1616,38 +1348,22 @@ document
         "change",
         function() {
 
-            if (
-                !this.value
-            ) {
-
+            if (!this.value) {
                 return;
-
             }
 
-
             const czesci =
-                this.value.split(
-                    "-"
-                );
-
+                this.value.split("-");
 
             wybranaData =
                 new Date(
-                    Number(
-                        czesci[0]
-                    ),
-                    Number(
-                        czesci[1]
-                    ) - 1,
-                    Number(
-                        czesci[2]
-                    )
+                    Number(czesci[0]),
+                    Number(czesci[1]) - 1,
+                    Number(czesci[2])
                 );
-
 
             const rozklad =
                 znajdzRozklad();
-
 
             if (
                 !rozklad
@@ -1663,7 +1379,6 @@ document
 
             }
 
-
             pokazRozklad();
 
         }
@@ -1671,66 +1386,398 @@ document
 
 
 /* =========================================================
-   GŁÓWNE WYŚWIETLANIE ROZKŁADU
+   LINIA DZIENNA / NOCNA
    ========================================================= */
 
-function pokazRozklad() {
+function czyLiniaNocna() {
+
+    const numer =
+        String(
+            daneLinii?.linia ||
+            numerLinii ||
+            ""
+        )
+        .trim()
+        .toUpperCase();
+
+    /*
+     * Linie nocne mają N.
+     *
+     * Przykładowo:
+     * N01
+     * N02
+     * N14
+     */
+
+    return numer.startsWith("N");
+}
+
+
+/* =========================================================
+   NORMALIZACJA CZASU
+   ========================================================= */
+
+function rozbijCzas(czas) {
+
+    const tekst =
+        String(
+            czas || ""
+        ).trim();
+
+    const dopasowanie =
+        tekst.match(
+            /^(\d{1,2}):(\d{2})$/
+        );
+
+    if (!dopasowanie) {
+        return null;
+    }
+
+    return {
+
+        godzina:
+            Number(
+                dopasowanie[1]
+            ),
+
+        minuta:
+            dopasowanie[2],
+
+        tekst:
+            tekst
+
+    };
+}
+
+
+/* =========================================================
+   KLUCZ WARIANTU
+   ========================================================= */
+
+function pobierzWariant(kurs) {
+
+    if (!kurs) {
+        return "";
+    }
+
+    return String(
+        kurs.wariant ||
+        kurs.wariant_litery ||
+        kurs.wariantLitera ||
+        kurs.symbol ||
+        ""
+    ).trim();
+
+}
+
+
+/* =========================================================
+   KLUCZ TRASY KURSU
+   ========================================================= */
+
+/*
+ * Funkcja sprawdza różne możliwe pola,
+ * ponieważ generator JSON może mieć różne
+ * nazwy pól dotyczących trasy.
+ */
+
+function pobierzTraseKursu(kurs) {
+
+    if (!kurs) {
+        return "";
+    }
+
+    const mozliwePola = [
+
+        "trasa",
+        "trasaKursu",
+        "trasa_kursu",
+        "relacja",
+        "wariantTrasy",
+        "wariant_trasy",
+        "kierunek",
+        "kierunekTrasy",
+        "przebieg"
+
+    ];
+
+    for (
+        const pole
+        of mozliwePola
+    ) {
+
+        if (
+            kurs[pole] !==
+            undefined
+            &&
+            kurs[pole] !==
+            null
+            &&
+            String(
+                kurs[pole]
+            ).trim() !== ""
+        ) {
+
+            return normalizujTekst(
+                kurs[pole]
+            );
+
+        }
+
+    }
+
+    return "";
+}
+
+
+/* =========================================================
+   CZY WARIANT RZECZYWIŚCIE JEST POTRZEBNY
+   ========================================================= */
+
+function czyPokazacWariant(
+    kurs,
+    wszystkieKursy
+) {
+
+    const wariant =
+        pobierzWariant(
+            kurs
+        );
+
+    if (!wariant) {
+        return false;
+    }
+
+    /*
+     * Jeżeli JSON posiada informację
+     * o rzeczywistej trasie, porównujemy ją.
+     */
+
+    const trasa =
+        pobierzTraseKursu(
+            kurs
+        );
+
+    if (trasa) {
+
+        const trasy =
+            wszystkieKursy
+                .map(
+                    function(k) {
+                        return pobierzTraseKursu(k);
+                    }
+                )
+                .filter(
+                    function(t) {
+                        return t !== "";
+                    }
+                );
+
+        const unikalneTrasy =
+            [...new Set(trasy)];
+
+        /*
+         * Jeżeli wszystkie kursy mają
+         * tę samą trasę, litera nie jest potrzebna.
+         */
+
+        if (
+            unikalneTrasy.length <= 1
+        ) {
+
+            return false;
+
+        }
+
+        return true;
+
+    }
+
+
+    /*
+     * Jeżeli JSON nie ma osobnego pola trasy,
+     * nie pokazujemy wariantu tylko dlatego,
+     * że istnieje litera.
+     *
+     * Wyjątek:
+     * jeśli dla tego samego numeru kursu
+     * wariant występuje jako rzeczywiste oznaczenie.
+     */
+
+    return false;
+}
+
+
+/* =========================================================
+   LEGENDĘ WARIANTÓW
+   ========================================================= */
+
+function generujLegende(
+    przystanki
+) {
+
+    const kontener =
+        document.getElementById(
+            "legendaWariantow"
+        );
+
+    if (!kontener) {
+        return;
+    }
+
+    const warianty =
+        new Map();
+
+    przystanki.forEach(
+        function(przystanek) {
+
+            const kursy =
+                Array.isArray(
+                    przystanek.kursy
+                )
+                    ?
+                    przystanek.kursy
+                    :
+                    [];
+
+            kursy.forEach(
+                function(kurs) {
+
+                    const litera =
+                        pobierzWariant(
+                            kurs
+                        );
+
+                    if (!litera) {
+                        return;
+                    }
+
+                    /*
+                     * Szukamy możliwego opisu wariantu.
+                     */
+
+                    const opis =
+                        kurs.opisWariantu ||
+                        kurs.opis_wariantu ||
+                        kurs.wariantOpis ||
+                        kurs.wariant_opis ||
+                        kurs.opis ||
+                        "";
+
+                    if (
+                        opis
+                        &&
+                        !warianty.has(
+                            litera
+                        )
+                    ) {
+
+                        warianty.set(
+                            litera,
+                            String(opis)
+                        );
+
+                    }
+
+                }
+            );
+
+        }
+    );
 
     if (
-        !daneLinii
+        warianty.size === 0
     ) {
+
+        kontener.style.display =
+            "none";
+
+        kontener.innerHTML =
+            "";
 
         return;
 
     }
 
+    kontener.innerHTML =
+        "<strong>Oznaczenia:</strong>";
+
+    warianty.forEach(
+        function(
+            opis,
+            litera
+        ) {
+
+            const element =
+                document.createElement(
+                    "span"
+                );
+
+            element.className =
+                "legenda-wariant";
+
+            element.innerHTML =
+                '<span class="legenda-litera">' +
+                litera +
+                '</span>' +
+                opis;
+
+            kontener.appendChild(
+                element
+            );
+
+        }
+    );
+
+    kontener.style.display =
+        "block";
+}
+
+
+/* =========================================================
+   GŁÓWNE WYŚWIETLANIE
+   ========================================================= */
+
+function pokazRozklad() {
+
+    if (!daneLinii) {
+        return;
+    }
 
     const rozklad =
         znajdzRozklad();
 
-
     generujKierunki();
-
 
     const kontener =
         document.getElementById(
             "przystanki"
         );
 
-
     const typ =
         document.getElementById(
             "typRozkladu"
         );
 
-
-    if (
-        !rozklad
-    ) {
+    if (!rozklad) {
 
         typ.textContent =
             "Brak rozkładu";
-
 
         kontener.innerHTML =
             '<div class="brak-danych">' +
             'Brak danych rozkładu.' +
             '</div>';
 
-
         return;
-
     }
-
 
     typ.textContent =
         rozklad.nazwa ||
         "Rozkład jazdy";
 
-
     const kierunki =
         rozklad.kierunki || [];
-
 
     if (
         kierunki.length === 0
@@ -1741,11 +1788,8 @@ function pokazRozklad() {
             'Ten rozkład nie zawiera kierunków.' +
             '</div>';
 
-
         return;
-
     }
-
 
     if (
         aktualnyKierunek < 0
@@ -1758,19 +1802,16 @@ function pokazRozklad() {
 
     }
 
-
     const kierunek =
         kierunki[
             aktualnyKierunek
         ];
 
-
     const przystanki =
         kierunek.przystanki || [];
 
-
-    kontener.innerHTML = "";
-
+    kontener.innerHTML =
+        "";
 
     if (
         przystanki.length === 0
@@ -1781,17 +1822,22 @@ function pokazRozklad() {
             'Brak przystanków w tym kierunku.' +
             '</div>';
 
-
         return;
-
     }
 
-
     /*
-     * =====================================================
-     * PRZYSTANKI
-     * =====================================================
+     * LEGENDĘ generujemy raz
+     * dla całego kierunku.
      */
+
+    generujLegende(
+        przystanki
+    );
+
+
+    /* =====================================================
+       PRZYSTANKI
+       ===================================================== */
 
     przystanki.forEach(
         function(
@@ -1804,38 +1850,30 @@ function pokazRozklad() {
                     "div"
                 );
 
-
             blok.className =
                 "przystanek";
 
 
-            /*
-             * NAGŁÓWEK
-             */
+            /* =================================================
+               NAGŁÓWEK
+               ================================================= */
 
             const naglowek =
                 document.createElement(
                     "div"
                 );
 
-
             naglowek.className =
                 "przystanek-naglowek";
 
-
-            /*
-             * LP
-             */
 
             const lp =
                 document.createElement(
                     "span"
                 );
 
-
             lp.className =
                 "lp";
-
 
             lp.textContent =
                 przystanek.lp ||
@@ -1844,38 +1882,26 @@ function pokazRozklad() {
                 );
 
 
-            /*
-             * NAZWA
-             */
-
             const nazwa =
                 document.createElement(
                     "span"
                 );
 
-
             nazwa.className =
                 "nazwa-przystanku";
-
 
             nazwa.textContent =
                 przystanek.nazwa ||
                 "Przystanek";
 
 
-            /*
-             * NUMER
-             */
-
             const nr =
                 document.createElement(
                     "span"
                 );
 
-
             nr.className =
                 "numer-przystanku";
-
 
             if (
                 przystanek.nr !==
@@ -1895,7 +1921,6 @@ function pokazRozklad() {
 
             }
 
-
             naglowek.appendChild(
                 lp
             );
@@ -1908,40 +1933,22 @@ function pokazRozklad() {
                 nr
             );
 
-
             blok.appendChild(
                 naglowek
             );
 
 
-            /*
-             * =================================================
-             * GODZINY
-             * =================================================
-             */
+            /* =================================================
+               GODZINY
+               ================================================= */
 
             const godziny =
                 document.createElement(
                     "div"
                 );
 
-
             godziny.className =
                 "godziny";
-
-
-            /*
-             * UWAGA:
-             *
-             * Nie korzystamy z:
-             *
-             * przystanek.godziny
-             *
-             * tylko z:
-             *
-             * przystanek.kursy
-             *
-             */
 
             const kursy =
                 Array.isArray(
@@ -1966,17 +1973,17 @@ function pokazRozklad() {
             else {
 
                 /*
-                 * Grupowanie:
+                 * =================================================
+                 * NAJWAŻNIEJSZA ZMIANA
                  *
-                 * 06:17
-                 * 06:46
+                 * NIE SORTUJEMY GODZIN NUMERYCZNIE.
                  *
-                 * =>
-                 *
-                 * 06 | 17 | 46
+                 * Zachowujemy kolejność kursów
+                 * dokładnie taką, jaka jest w JSON.
+                 * =================================================
                  */
 
-                const grupyGodzin = {};
+                const grupyGodzin = new Map();
 
 
                 kursy.forEach(
@@ -1995,304 +2002,256 @@ function pokazRozklad() {
 
                         }
 
-
-                        let czas =
+                        const czas =
                             String(
                                 kurs.czas ||
                                 ""
                             ).trim();
 
-
-                        /*
-                         * Akceptujemy:
-                         *
-                         * 6:17
-                         * 06:17
-                         */
-
-                        const dopasowanie =
-                            czas.match(
-                                /^(\d{1,2}):(\d{2})$/
+                        const daneCzasu =
+                            rozbijCzas(
+                                czas
                             );
 
-
-                        if (
-                            !dopasowanie
-                        ) {
-
+                        if (!daneCzasu) {
                             return;
-
                         }
 
 
                         const godzina =
-                            Number(
-                                dopasowanie[1]
-                            );
+                            daneCzasu.godzina;
 
 
-                        const minuta =
-                            dopasowanie[2];
-
+                        /*
+                         * UWAGA:
+                         *
+                         * Jeżeli godzina pojawia się pierwszy raz,
+                         * tworzymy ją W TYM MOMENCIE.
+                         *
+                         * Dzięki temu:
+                         *
+                         * 23:50
+                         * 23:58
+                         * 00:12
+                         * 00:40
+                         *
+                         * daje:
+                         *
+                         * 23
+                         * 00
+                         *
+                         * a nie:
+                         *
+                         * 00
+                         * 23
+                         */
 
                         if (
-                            !Number.isFinite(
+                            !grupyGodzin.has(
                                 godzina
                             )
                         ) {
 
-                            return;
+                            grupyGodzin.set(
+                                godzina,
+                                []
+                            );
 
                         }
 
 
-                        if (
-                            !grupyGodzin[
+                        grupyGodzin
+                            .get(
                                 godzina
-                            ]
-                        ) {
+                            )
+                            .push({
 
-                            grupyGodzin[
-                                godzina
-                            ] = [];
+                                minuta:
+                                    daneCzasu.minuta,
 
-                        }
+                                wariant:
+                                    pobierzWariant(
+                                        kurs
+                                    ),
 
+                                numer:
+                                    kurs.numer ||
+                                    "",
 
-                        grupyGodzin[
-                            godzina
-                        ].push({
+                                kurs:
+                                    kurs
 
-                            minuta:
-                                minuta,
-
-                            wariant:
-                                kurs.wariant ||
-                                "",
-
-                            numer:
-                                kurs.numer ||
-                                ""
-
-                        });
+                            });
 
                     }
                 );
 
 
                 /*
-                 * Sortowanie godzin.
+                 * =================================================
+                 * KLUCZOWA RZECZ:
+                 *
+                 * NIE MA:
+                 *
+                 * Object.keys(...).sort(...)
+                 *
+                 * Map zachowuje kolejność dodawania.
+                 * =================================================
                  */
 
                 const posortowaneGodziny =
-                    Object.keys(
-                        grupyGodzin
-                    )
-                    .map(
-                        Number
-                    )
-                    .sort(
-                        function(
-                            a,
-                            b
-                        ) {
-
-                            return a - b;
-
-                        }
+                    Array.from(
+                        grupyGodzin.keys()
                     );
 
 
-                if (
-                    posortowaneGodziny.length === 0
-                ) {
+                posortowaneGodziny.forEach(
+                    function(
+                        godzina
+                    ) {
 
-                    godziny.innerHTML =
-                        '<div class="brak-godzin">' +
-                        'Brak poprawnych godzin.' +
-                        '</div>';
+                        const wiersz =
+                            document.createElement(
+                                "div"
+                            );
 
-                }
-                else {
-
-                    /*
-                     * Tworzymy jeden wiersz
-                     * dla każdej godziny.
-                     */
-
-                    posortowaneGodziny.forEach(
-                        function(
-                            godzina
-                        ) {
-
-                            const wiersz =
-                                document.createElement(
-                                    "div"
-                                );
+                        wiersz.className =
+                            "wiersz-godziny";
 
 
-                            wiersz.className =
-                                "wiersz-godziny";
+                        /*
+                         * GODZINA
+                         */
+
+                        const kolumnaGodziny =
+                            document.createElement(
+                                "div"
+                            );
+
+                        kolumnaGodziny.className =
+                            "kolumna-godzina";
+
+                        kolumnaGodziny.textContent =
+                            String(
+                                godzina
+                            ).padStart(
+                                2,
+                                "0"
+                            );
+
+                        wiersz.appendChild(
+                            kolumnaGodziny
+                        );
 
 
-                            /*
-                             * GODZINA
-                             */
+                        /*
+                         * MINUTY
+                         *
+                         * UWAGA:
+                         * również NIE SORTUJEMY minut.
+                         *
+                         * Zachowujemy kolejność kursów
+                         * z JSON.
+                         */
 
-                            const kolumnaGodziny =
-                                document.createElement(
-                                    "div"
-                                );
-
-
-                            kolumnaGodziny.className =
-                                "kolumna-godzina";
-
-
-                            kolumnaGodziny.textContent =
-                                String(
-                                    godzina
-                                ).padStart(
-                                    2,
-                                    "0"
-                                );
-
-
-                            wiersz.appendChild(
-                                kolumnaGodziny
+                        const lista =
+                            grupyGodzin.get(
+                                godzina
                             );
 
 
-                            /*
-                             * MINUTY
-                             */
+                        lista.forEach(
+                            function(
+                                daneKursu
+                            ) {
 
-                            const lista =
-                                grupyGodzin[
-                                    godzina
-                                ];
-
-
-                            lista.sort(
-                                function(
-                                    a,
-                                    b
-                                ) {
-
-                                    return Number(
-                                        a.minuta
-                                    )
-                                    -
-                                    Number(
-                                        b.minuta
+                                const kolumna =
+                                    document.createElement(
+                                        "div"
                                     );
 
-                                }
-                            );
+                                kolumna.className =
+                                    "kolumna-minuta";
 
 
-                            lista.forEach(
-                                function(
-                                    kurs
+                                const minuta =
+                                    document.createElement(
+                                        "span"
+                                    );
+
+                                minuta.className =
+                                    "minuta";
+
+                                minuta.textContent =
+                                    daneKursu.minuta;
+
+                                kolumna.appendChild(
+                                    minuta
+                                );
+
+
+                                /*
+                                 * WARIANT
+                                 */
+
+                                const pokazWariant =
+                                    czyPokazacWariant(
+                                        daneKursu.kurs,
+                                        kursy
+                                    );
+
+
+                                if (
+                                    pokazWariant
                                 ) {
 
-                                    const kolumna =
-                                        document.createElement(
-                                            "div"
-                                        );
-
-
-                                    kolumna.className =
-                                        "kolumna-minuta";
-
-
-                                    /*
-                                     * MINUTA
-                                     */
-
-                                    const minuta =
+                                    const wariant =
                                         document.createElement(
                                             "span"
                                         );
 
+                                    wariant.className =
+                                        "wariant-minuty";
 
-                                    minuta.className =
-                                        "minuta";
-
-
-                                    minuta.textContent =
-                                        kurs.minuta;
-
+                                    wariant.textContent =
+                                        daneKursu.wariant;
 
                                     kolumna.appendChild(
-                                        minuta
-                                    );
-
-
-                                    /*
-                                     * WARIANT
-                                     */
-
-                                    if (
-                                        kurs.wariant
-                                        &&
-                                        String(
-                                            kurs.wariant
-                                        ).trim() !== ""
-                                    ) {
-
-                                        const wariant =
-                                            document.createElement(
-                                                "span"
-                                            );
-
-
-                                        wariant.className =
-                                            "wariant-minuty";
-
-
-                                        wariant.textContent =
-                                            kurs.wariant;
-
-
-                                        kolumna.appendChild(
-                                            wariant
-                                        );
-
-                                    }
-
-
-                                    /*
-                                     * NUMER KURSU
-                                     */
-
-                                    if (
-                                        kurs.numer
-                                    ) {
-
-                                        kolumna.title =
-                                            "Kurs " +
-                                            kurs.numer;
-
-                                    }
-
-
-                                    wiersz.appendChild(
-                                        kolumna
+                                        wariant
                                     );
 
                                 }
-                            );
 
 
-                            godziny.appendChild(
-                                wiersz
-                            );
+                                /*
+                                 * NUMER KURSU
+                                 */
 
-                        }
-                    );
+                                if (
+                                    daneKursu.numer
+                                ) {
 
-                }
+                                    kolumna.title =
+                                        "Kurs " +
+                                        daneKursu.numer;
+
+                                }
+
+
+                                wiersz.appendChild(
+                                    kolumna
+                                );
+
+                            }
+                        );
+
+
+                        godziny.appendChild(
+                            wiersz
+                        );
+
+                    }
+                );
 
             }
 
@@ -2300,7 +2259,6 @@ function pokazRozklad() {
             blok.appendChild(
                 godziny
             );
-
 
             kontener.appendChild(
                 blok
@@ -2316,13 +2274,10 @@ function pokazRozklad() {
    FORMAT DATY
    ========================================================= */
 
-function formatujDateInput(
-    data
-) {
+function formatujDateInput(data) {
 
     const rok =
         data.getFullYear();
-
 
     const miesiac =
         String(
@@ -2332,7 +2287,6 @@ function formatujDateInput(
             "0"
         );
 
-
     const dzien =
         String(
             data.getDate()
@@ -2341,7 +2295,6 @@ function formatujDateInput(
             "0"
         );
 
-
     return (
         rok +
         "-" +
@@ -2349,7 +2302,6 @@ function formatujDateInput(
         "-" +
         dzien
     );
-
 }
 
 
@@ -2367,24 +2319,32 @@ function pokazBlad(
     ).textContent =
         "Błąd";
 
-
     document.getElementById(
         "trasa"
     ).textContent =
         "";
-
 
     document.getElementById(
         "kierunki"
     ).innerHTML =
         "";
 
-
     document.getElementById(
         "typRozkladu"
     ).style.display =
         "none";
 
+    const legenda =
+        document.getElementById(
+            "legendaWariantow"
+        );
+
+    if (legenda) {
+
+        legenda.style.display =
+            "none";
+
+    }
 
     document.getElementById(
         "przystanki"
@@ -2399,13 +2359,8 @@ function pokazBlad(
         opis +
 
         '</div>';
-
 }
 
-
-/* =========================================================
-   DEBUG
-   ========================================================= */
 
 console.log(
     "FWTP – linia/index.html uruchomiony"
