@@ -6,9 +6,9 @@ const linie = [
     // =====================
 
     {
-        numer: "101",
+        numer: "100",
         typ: "autobus",
-        nazwa: "Linia autobusowa 101"
+        nazwa: "Linia autobusowa 100"
     },
 
     {
