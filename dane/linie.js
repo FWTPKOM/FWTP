@@ -1,4 +1,4 @@
-```javascript
+
 const linie = [
 
     // =====================
@@ -76,4 +76,3 @@ const linie = [
     }
 
 ];
-```
