@@ -209,52 +209,104 @@
         font-size: 13px;
     }
 
-    /* =====================================================
-       GODZINY
-       ===================================================== */
+ 
+/* =====================================================
+   GODZINY – UKŁAD JAK W ROZKŁADZIE WTP
+   ===================================================== */
 
-    .godziny {
-        display: grid;
-        grid-template-columns: repeat(8, 1fr);
+.godziny {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+.wiersz-godziny {
+    display: grid;
+    grid-template-columns: 55px repeat(10, minmax(45px, 1fr));
+    min-height: 48px;
+    border-bottom: 1px solid #eee;
+}
+
+.kolumna-godzina {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    font-weight: bold;
+    background: #f7f7f7;
+    border-right: 1px solid #ddd;
+}
+
+.kolumna-minuta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 500;
+    border-right: 1px solid #eee;
+    position: relative;
+    min-height: 48px;
+}
+
+.kolumna-minuta:last-child {
+    border-right: none;
+}
+
+.kolumna-minuta:hover {
+    background: #f5f8fb;
+}
+
+.minuta {
+    display: block;
+}
+
+.wariant-minuty {
+    display: block;
+    font-size: 9px;
+    line-height: 10px;
+    color: #777;
+    margin-top: 1px;
+    font-weight: bold;
+}
+
+.pusta-minuta {
+    color: transparent;
+}
+
+/* brak danych */
+.brak-godzin {
+    padding: 15px;
+    color: #777;
+    font-size: 14px;
+}
+
+/* TELEFON */
+@media (max-width: 800px) {
+
+    .wiersz-godziny {
+        grid-template-columns: 45px repeat(6, minmax(42px, 1fr));
     }
 
-    .godzina {
-        padding: 13px 5px;
-        text-align: center;
-        border-right: 1px solid #eee;
-        border-bottom: 1px solid #eee;
-        font-size: 17px;
-        font-weight: 500;
+}
+
+@media (max-width: 550px) {
+
+    .wiersz-godziny {
+        grid-template-columns: 40px repeat(4, minmax(45px, 1fr));
+        overflow-x: auto;
     }
 
-    .godzina:nth-child(8n) {
-        border-right: none;
+    .kolumna-godzina {
+        font-size: 15px;
     }
 
-    .godzina:hover {
-        background: #f5f8fb;
+    .kolumna-minuta {
+        font-size: 15px;
+        min-height: 44px;
     }
 
-    /* =====================================================
-       WARIANT KURSU
-       ===================================================== */
-
-    .godzina-wariant {
-        display: block;
-        font-size: 10px;
-        color: #777;
-        margin-top: 2px;
-    }
-
-    /* =====================================================
-       BRAK GODZIN
-       ===================================================== */
-
-    .brak-godzin {
-        padding: 15px;
-        color: #777;
-        font-size: 14px;
-    }
+}
 
     /* =====================================================
        ŁADOWANIE
@@ -1672,124 +1724,318 @@ function pokazRozklad() {
 
 
 
+         
+/*
+ * -----------------------------------------------
+ * GODZINY
+ * UKŁAD:
+ *
+ * 7 | 23 | 25 | 27 | 28 | 30 | ...
+ * 8 | 00 | 01 | 02 | 03 | 04 | ...
+ *
+ * Pierwsza kolumna = godzina
+ * Pozostałe kolumny = minuty
+ * -----------------------------------------------
+ */
+
+const godziny =
+    document.createElement(
+        "div"
+    );
+
+godziny.className =
+    "godziny";
+
+
+const kursy =
+    Array.isArray(
+        przystanek.kursy
+    )
+        ?
+        przystanek.kursy
+        :
+        [];
+
+
+if (kursy.length === 0) {
+
+    godziny.innerHTML =
+        '<div class="brak-godzin">' +
+        'Brak odjazdów' +
+        '</div>';
+
+}
+else {
+
+    /*
+     * Grupujemy kursy według godziny.
+     *
+     * np.
+     *
+     * 07:23
+     * 07:25
+     * 07:27
+     *
+     * trafiają do:
+     *
+     * 7 | 23 | 25 | 27
+     */
+
+    const grupyGodzin = {};
+
+
+    kursy.forEach(
+        function(kurs) {
+
+            if (
+                !kurs ||
+                typeof kurs !== "object"
+            ) {
+                return;
+            }
+
+
+            let czas =
+                String(
+                    kurs.czas || ""
+                ).trim();
+
+
             /*
-             * -----------------------------------------------
-             * GODZINY
-             * -----------------------------------------------
+             * Pusta komórka / brak czasu
+             *
+             * Nie traktujemy jej jako odjazdu.
              */
 
-            const godziny =
-                document.createElement(
-                    "div"
+            if (
+                czas === "" ||
+                czas === "00:00"
+            ) {
+
+                return;
+
+            }
+
+
+            /*
+             * Sprawdzenie HH:MM
+             */
+
+            const dopasowanie =
+                czas.match(
+                    /^(\d{1,2}):(\d{2})$/
                 );
 
 
-            godziny.className =
-                "godziny";
+            if (!dopasowanie) {
+                return;
+            }
 
 
-            /*
-             * WAŻNE:
-             *
-             * JSON ma:
-             *
-             * "kursy": [
-             *   {
-             *      "numer": "110.1001",
-             *      "czas": "05:10",
-             *      "wariant": "D"
-             *   }
-             * ]
-             *
-             * Dlatego NIE używamy:
-             *
-             * przystanek.godziny
-             *
-             * tylko:
-             *
-             * przystanek.kursy
-             */
+            const godzina =
+                Number(
+                    dopasowanie[1]
+                );
 
-            const kursy =
-                Array.isArray(
-                    przystanek.kursy
-                )
-                    ?
-                    przystanek.kursy
-                    :
-                    [];
+
+            const minuta =
+                dopasowanie[2];
 
 
             if (
-                kursy.length === 0
+                !Number.isFinite(
+                    godzina
+                )
+            ) {
+                return;
+            }
+
+
+            if (
+                !grupyGodzin[godzina]
             ) {
 
-                godziny.innerHTML =
-                    '<div class="brak-godzin">' +
-                    'Brak odjazdów' +
-                    '</div>';
+                grupyGodzin[godzina] = [];
 
             }
-            else {
-
-                kursy.forEach(
-                    function (
-                        kurs
-                    ) {
-
-                        /*
-                         * Kurs może być
-                         * obiektem.
-                         */
-
-                        if (
-                            !kurs ||
-                            typeof kurs !==
-                            "object"
-                        ) {
-
-                            return;
-
-                        }
 
 
-                        const czas =
-                            kurs.czas ||
-                            "";
+            grupyGodzin[godzina].push({
+
+                minuta:
+                    minuta,
+
+                wariant:
+                    kurs.wariant ||
+                    "",
+
+                numer:
+                    kurs.numer ||
+                    ""
+
+            });
+
+        }
+    );
 
 
-                        if (
-                            !czas
-                        ) {
+    /*
+     * Sortowanie godzin
+     */
 
-                            return;
+    const posortowaneGodziny =
+        Object.keys(
+            grupyGodzin
+        )
+        .map(
+            Number
+        )
+        .sort(
+            function(a, b) {
+                return a - b;
+            }
+        );
 
-                        }
+
+    /*
+     * Jeżeli nie ma żadnego
+     * poprawnego czasu.
+     */
+
+    if (
+        posortowaneGodziny.length === 0
+    ) {
+
+        godziny.innerHTML =
+            '<div class="brak-godzin">' +
+            'Brak poprawnych godzin' +
+            '</div>';
+
+    }
+    else {
+
+        /*
+         * Każda godzina = osobny wiersz
+         */
+
+        posortowaneGodziny.forEach(
+            function(godzina) {
+
+                const wiersz =
+                    document.createElement(
+                        "div"
+                    );
+
+                wiersz.className =
+                    "wiersz-godziny";
 
 
-                        const element =
+                /*
+                 * --------------------------------
+                 * PIERWSZA KOLUMNA – GODZINA
+                 * --------------------------------
+                 */
+
+                const kolumnaGodziny =
+                    document.createElement(
+                        "div"
+                    );
+
+                kolumnaGodziny.className =
+                    "kolumna-godzina";
+
+
+                kolumnaGodziny.textContent =
+                    String(
+                        godzina
+                    );
+
+
+                wiersz.appendChild(
+                    kolumnaGodziny
+                );
+
+
+                /*
+                 * --------------------------------
+                 * MINUTY
+                 * --------------------------------
+                 */
+
+                const lista =
+                    grupyGodzin[
+                        godzina
+                    ];
+
+
+                /*
+                 * Sortujemy minuty
+                 */
+
+                lista.sort(
+                    function(a, b) {
+
+                        return Number(
+                            a.minuta
+                        )
+                        -
+                        Number(
+                            b.minuta
+                        );
+
+                    }
+                );
+
+
+                lista.forEach(
+                    function(kurs) {
+
+                        const kolumna =
                             document.createElement(
                                 "div"
                             );
 
 
-                        element.className =
-                            "godzina";
-
-
-                        element.textContent =
-                            czas;
+                        kolumna.className =
+                            "kolumna-minuta";
 
 
                         /*
-                         * Wariant kursu
+                         * MINUTA
+                         */
+
+                        const minuta =
+                            document.createElement(
+                                "span"
+                            );
+
+
+                        minuta.className =
+                            "minuta";
+
+
+                        minuta.textContent =
+                            kurs.minuta;
+
+
+                        kolumna.appendChild(
+                            minuta
+                        );
+
+
+                        /*
+                         * WARIANT
                          *
-                         * Pokazujemy go tylko,
-                         * jeżeli istnieje.
+                         * Pokazujemy tylko wtedy,
+                         * gdy JSON faktycznie zawiera
+                         * wariant.
                          */
 
                         if (
-                            kurs.wariant
+                            kurs.wariant &&
+                            String(
+                                kurs.wariant
+                            ).trim() !== ""
                         ) {
 
                             const wariant =
@@ -1799,14 +2045,14 @@ function pokazRozklad() {
 
 
                             wariant.className =
-                                "godzina-wariant";
+                                "wariant-minuty";
 
 
                             wariant.textContent =
                                 kurs.wariant;
 
 
-                            element.appendChild(
+                            kolumna.appendChild(
                                 wariant
                             );
 
@@ -1814,51 +2060,45 @@ function pokazRozklad() {
 
 
                         /*
-                         * Numer kursu
-                         * zapisujemy jako tooltip.
+                         * Tooltip z numerem kursu
                          */
 
                         if (
                             kurs.numer
                         ) {
 
-                            element.title =
+                            kolumna.title =
                                 "Kurs " +
                                 kurs.numer;
 
                         }
 
 
-                        godziny.appendChild(
-                            element
+                        wiersz.appendChild(
+                            kolumna
                         );
 
                     }
                 );
 
 
-                /*
-                 * Jeżeli wszystkie kursy
-                 * nie miały poprawnego czasu.
-                 */
-
-                if (
-                    godziny.children.length === 0
-                ) {
-
-                    godziny.innerHTML =
-                        '<div class="brak-godzin">' +
-                        'Brak poprawnych godzin' +
-                        '</div>';
-
-                }
+                godziny.appendChild(
+                    wiersz
+                );
 
             }
+        );
+
+    }
+
+}
 
 
-            blok.appendChild(
-                godziny
-            );
+blok.appendChild(
+    godziny
+);
+
+
 
 
             kontener.appendChild(
