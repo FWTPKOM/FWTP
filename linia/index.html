@@ -614,6 +614,107 @@
 
 }
 
+
+/* =========================================================
+   WIDOK LISTY PRZYSTANKÓW
+   ========================================================= */
+
+.lista-przystankow {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.przystanek-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 7px;
+    cursor: pointer;
+    text-align: left;
+    transition: 0.15s;
+    font-family: inherit;
+}
+
+.przystanek-btn:hover {
+    border-color: #0066cc;
+    background: #f8fbff;
+}
+
+.przystanek-btn .lp {
+    min-width: 35px;
+    font-weight: bold;
+    color: #777;
+}
+
+.przystanek-btn .przystanek-nazwa {
+    font-size: 16px;
+    font-weight: bold;
+    color: #222;
+}
+
+.przystanek-btn .przystanek-nr {
+    margin-left: auto;
+    color: #777;
+    font-size: 13px;
+}
+
+.powrot-przystanki {
+    margin-bottom: 15px;
+}
+
+.powrot-przystanki button {
+    border: none;
+    background: none;
+    padding: 0;
+    color: #0066cc;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.powrot-przystanki button:hover {
+    text-decoration: underline;
+}
+
+.naglowek-przystanku-widok {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+}
+
+.naglowek-przystanku-widok .nazwa {
+    font-size: 26px;
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.naglowek-przystanku-widok .numer {
+    color: #777;
+    font-size: 14px;
+}
+
+@media (max-width: 550px) {
+    .przystanek-btn {
+        padding: 13px 12px;
+    }
+
+    .przystanek-btn .przystanek-nazwa {
+        font-size: 15px;
+    }
+
+    .naglowek-przystanku-widok .nazwa {
+        font-size: 22px;
+    }
+}
+
 </style>
 
 </head>
@@ -682,7 +783,7 @@
 ></div>
 
 
-<div class="dni">
+<div class="dni" style="display:none;">
 
 
 <button
@@ -725,6 +826,17 @@
     id="wybranaData"
 >
 
+</div>
+
+
+<div
+    id="powrotPrzystanki"
+    class="powrot-przystanki"
+    style="display:none;"
+>
+    <button onclick="pokazListePrzystankowZPowrotem()">
+        ← Przystanki
+    </button>
 </div>
 
 
@@ -772,6 +884,8 @@ let aktualnyKierunek = 0;
 let aktualnyDzien = "dzisiaj";
 
 let wybranaData = new Date();
+
+let wybranyPrzystanek = null;
 
 
 
@@ -1157,34 +1271,87 @@ async function pobierzDane() {
 
 function uruchomStrone() {
 
-    document.getElementById(
-        "numerLinii"
-    ).textContent =
-        daneLinii.linia ||
-        numerLinii;
+    document.getElementById("numerLinii").textContent =
+        daneLinii.linia || numerLinii;
 
-
-    document.getElementById(
-        "trasa"
-    ).textContent =
+    document.getElementById("trasa").textContent =
         daneLinii.trasa ||
-        (
-            "Rozkład jazdy linii " +
-            numerLinii
-        );
+        ("Rozkład jazdy linii " + numerLinii);
 
-
-    wybranaData =
-        new Date();
-
-
+    wybranaData = new Date();
     aktualnyKierunek = 0;
+    wybranyPrzystanek = null;
 
+    const parametrKierunku =
+        parametry.get("kierunek");
+
+    if (
+        parametrKierunku !== null &&
+        parametrKierunku !== ""
+    ) {
+        const liczbaKierunku = Number(parametrKierunku);
+
+        if (
+            Number.isInteger(liczbaKierunku) &&
+            liczbaKierunku >= 0
+        ) {
+            aktualnyKierunek = liczbaKierunku;
+        }
+    }
+
+    const parametrPrzystanku =
+        parametry.get("przystanek");
+
+    if (parametrPrzystanku) {
+
+        const rozklad = znajdzRozklad();
+
+        if (
+            rozklad &&
+            Array.isArray(rozklad.kierunki)
+        ) {
+
+            const kierunek =
+                rozklad.kierunki[aktualnyKierunek];
+
+            if (
+                kierunek &&
+                Array.isArray(kierunek.przystanki)
+            ) {
+
+                let znaleziony =
+                    kierunek.przystanki.find(
+                        function(przystanek) {
+                            return String(przystanek.nr ?? "").trim()
+                                === String(parametrPrzystanku).trim();
+                        }
+                    );
+
+                if (!znaleziony) {
+
+                    const indeks =
+                        Number(parametrPrzystanku);
+
+                    if (
+                        Number.isInteger(indeks) &&
+                        indeks >= 0 &&
+                        indeks < kierunek.przystanki.length
+                    ) {
+                        znaleziony =
+                            kierunek.przystanki[indeks];
+                    }
+                }
+
+                if (znaleziony) {
+                    wybranyPrzystanek = znaleziony;
+                }
+            }
+        }
+    }
 
     pokazRozklad();
 
 }
-
 
 
 /* =========================================================
@@ -1543,13 +1710,30 @@ function generujKierunki() {
 
 function zmienKierunek(index) {
 
-    aktualnyKierunek =
-        index;
+    aktualnyKierunek = index;
+    wybranyPrzystanek = null;
+
+    const url =
+        new URL(window.location.href);
+
+    url.searchParams.set(
+        "kierunek",
+        String(index)
+    );
+
+    url.searchParams.delete(
+        "przystanek"
+    );
+
+    window.history.pushState(
+        {},
+        "",
+        url
+    );
 
     pokazRozklad();
 
 }
-
 
 
 /* =========================================================
@@ -2178,539 +2362,593 @@ function utworzLegendePrzystanku(przystanek) {
 
 function pokazRozklad() {
 
-    if (
-        !daneLinii
-    ) {
-
+    if (!daneLinii) {
         return;
-
     }
-
 
     const rozklad =
         znajdzRozklad();
 
-
-    generujKierunki();
-
-
     const kontener =
-        document.getElementById(
-            "przystanki"
-        );
-
+        document.getElementById("przystanki");
 
     const typ =
-        document.getElementById(
-            "typRozkladu"
-        );
+        document.getElementById("typRozkladu");
 
+    const powrot =
+        document.getElementById("powrotPrzystanki");
 
-    if (
-        !rozklad
-    ) {
+    if (!rozklad) {
 
-        typ.textContent =
-            "Brak rozkładu";
-
+        typ.style.display = "block";
+        typ.textContent = "Brak rozkładu";
+        powrot.style.display = "none";
 
         kontener.innerHTML =
             '<div class="brak-danych">' +
             'Brak danych rozkładu.' +
             '</div>';
 
-
         return;
-
     }
-
-
-    typ.textContent =
-        rozklad.nazwa ||
-        "Rozkład jazdy";
-
 
     const kierunki =
         rozklad.kierunki || [];
 
+    if (kierunki.length === 0) {
 
-    if (
-        kierunki.length === 0
-    ) {
+        typ.style.display = "block";
+        typ.textContent = "Brak kierunków";
+        powrot.style.display = "none";
 
         kontener.innerHTML =
             '<div class="brak-danych">' +
             'Ten rozkład nie zawiera kierunków.' +
             '</div>';
 
-
         return;
-
     }
-
 
     if (
         aktualnyKierunek < 0 ||
-        aktualnyKierunek >=
-        kierunki.length
+        aktualnyKierunek >= kierunki.length
     ) {
-
         aktualnyKierunek = 0;
-
     }
 
+    generujKierunki();
+
+    if (!wybranyPrzystanek) {
+        pokazListePrzystankow(rozklad);
+        return;
+    }
 
     const kierunek =
-        kierunki[
-            aktualnyKierunek
-        ];
-
+        kierunki[aktualnyKierunek];
 
     const przystanki =
-        kierunek.przystanki || [];
+        Array.isArray(kierunek.przystanki)
+            ? kierunek.przystanki
+            : [];
 
+    let aktualnyPrzystanek = null;
+
+    if (
+        wybranyPrzystanek.nr !== undefined &&
+        wybranyPrzystanek.nr !== null
+    ) {
+        aktualnyPrzystanek =
+            przystanki.find(
+                function(przystanek) {
+                    return String(przystanek.nr ?? "").trim()
+                        === String(wybranyPrzystanek.nr).trim();
+                }
+            );
+    }
+
+    if (!aktualnyPrzystanek) {
+
+        aktualnyPrzystanek =
+            przystanki.find(
+                function(przystanek) {
+                    return (
+                        String(przystanek.nazwa ?? "").trim()
+                        === String(wybranyPrzystanek.nazwa ?? "").trim()
+                        &&
+                        String(przystanek.lp ?? "").trim()
+                        === String(wybranyPrzystanek.lp ?? "").trim()
+                    );
+                }
+            );
+    }
+
+    if (!aktualnyPrzystanek) {
+
+        wybranyPrzystanek = null;
+        pokazListePrzystankow(rozklad);
+        return;
+    }
+
+    wybranyPrzystanek =
+        aktualnyPrzystanek;
+
+    pokazRozkladWybranegoPrzystanku(
+        rozklad,
+        aktualnyPrzystanek
+    );
+
+}
+
+
+/* =========================================================
+   LISTA PRZYSTANKÓW
+   ========================================================= */
+
+function pokazListePrzystankow(
+    rozklad = null
+) {
+
+    if (!rozklad) {
+        rozklad = znajdzRozklad();
+    }
+
+    const kontener =
+        document.getElementById("przystanki");
+
+    const typ =
+        document.getElementById("typRozkladu");
+
+    const powrot =
+        document.getElementById("powrotPrzystanki");
+
+    if (
+        !rozklad ||
+        !Array.isArray(rozklad.kierunki)
+    ) {
+        kontener.innerHTML =
+            '<div class="brak-danych">' +
+            'Brak danych przystanków.' +
+            '</div>';
+        return;
+    }
+
+    const kierunek =
+        rozklad.kierunki[aktualnyKierunek];
+
+    if (!kierunek) {
+        kontener.innerHTML =
+            '<div class="brak-danych">' +
+            'Brak wybranego kierunku.' +
+            '</div>';
+        return;
+    }
+
+    const przystanki =
+        Array.isArray(kierunek.przystanki)
+            ? kierunek.przystanki
+            : [];
+
+    wybranyPrzystanek = null;
+
+    powrot.style.display = "none";
+
+    const dni =
+        document.querySelector(".dni");
+
+    if (dni) {
+        dni.style.display = "none";
+    }
+
+    const kalendarz =
+        document.getElementById("kalendarz");
+
+    if (kalendarz) {
+        kalendarz.style.display = "none";
+    }
+
+    typ.style.display = "block";
+    typ.textContent = "Wybierz przystanek";
 
     kontener.innerHTML = "";
 
+    const lista =
+        document.createElement("div");
 
-    if (
-        przystanki.length === 0
-    ) {
+    lista.className =
+        "lista-przystankow";
 
-        kontener.innerHTML =
+    if (przystanki.length === 0) {
+
+        lista.innerHTML =
             '<div class="brak-danych">' +
             'Brak przystanków w tym kierunku.' +
             '</div>';
 
-
+        kontener.appendChild(lista);
         return;
-
     }
 
-
-
-    /* =====================================================
-       PRZYSTANKI
-       ===================================================== */
-
     przystanki.forEach(
-        function(
-            przystanek,
-            index
-        ) {
+        function(przystanek, index) {
 
+            const przycisk =
+                document.createElement("button");
 
-            const blok =
-                document.createElement(
-                    "div"
-                );
-
-
-            blok.className =
-                "przystanek";
-
-
-
-            /* =============================================
-               NAGŁÓWEK PRZYSTANKU
-               ============================================= */
-
-            const naglowek =
-                document.createElement(
-                    "div"
-                );
-
-
-            naglowek.className =
-                "przystanek-naglowek";
-
+            przycisk.type = "button";
+            przycisk.className = "przystanek-btn";
 
             const lp =
-                document.createElement(
-                    "span"
-                );
+                document.createElement("span");
 
-
-            lp.className =
-                "lp";
-
-
+            lp.className = "lp";
             lp.textContent =
-                przystanek.lp ||
-                (
-                    index + 1
-                );
-
+                przystanek.lp || (index + 1);
 
             const nazwa =
-                document.createElement(
-                    "span"
-                );
-
+                document.createElement("span");
 
             nazwa.className =
-                "nazwa-przystanku";
-
+                "przystanek-nazwa";
 
             nazwa.textContent =
-                przystanek.nazwa ||
-                "Przystanek";
-
+                przystanek.nazwa || "Przystanek";
 
             const nr =
-                document.createElement(
-                    "span"
-                );
-
+                document.createElement("span");
 
             nr.className =
-                "numer-przystanku";
-
+                "przystanek-nr";
 
             if (
-                przystanek.nr !==
-                undefined
-                &&
-                przystanek.nr !==
-                null
-                &&
-                String(
-                    przystanek.nr
-                ).trim() !== ""
+                przystanek.nr !== undefined &&
+                przystanek.nr !== null &&
+                String(przystanek.nr).trim() !== ""
             ) {
-
                 nr.textContent =
-                    "nr " +
-                    przystanek.nr;
-
+                    "nr " + przystanek.nr;
             }
 
-
-            naglowek.appendChild(
-                lp
-            );
-
-
-            naglowek.appendChild(
-                nazwa
-            );
-
-
-            naglowek.appendChild(
-                nr
-            );
-
-
-            blok.appendChild(
-                naglowek
-            );
-
-
-
-            /* =============================================
-               GODZINY
-               ============================================= */
-
-            const godziny =
-                document.createElement(
-                    "div"
-                );
-
-
-            godziny.className =
-                "godziny";
-
-
-            const kursy =
-                Array.isArray(
-                    przystanek.kursy
-                )
-                    ?
-                    przystanek.kursy
-                    :
-                    [];
-
-
-            if (
-                kursy.length === 0
-            ) {
-
-                godziny.innerHTML =
-                    '<div class="brak-godzin">' +
-                    'Brak odjazdów' +
-                    '</div>';
-
-            }
-            else {
-
-
-                let aktualnaGodzina = null;
-
-                let aktualnyWiersz = null;
-
-
-                kursy.forEach(
-                    function(
-                        kurs
-                    ) {
-
-
-                        if (
-                            !kurs ||
-                            typeof kurs !==
-                            "object"
-                        ) {
-
-                            return;
-
-                        }
-
-
-                        let czas =
-                            String(
-                                kurs.czas ||
-                                ""
-                            ).trim();
-
-
-                        const dopasowanie =
-                            czas.match(
-                                /^(\d{1,2}):(\d{2})$/
-                            );
-
-
-                        if (
-                            !dopasowanie
-                        ) {
-
-                            return;
-
-                        }
-
-
-                        const godzina =
-                            Number(
-                                dopasowanie[1]
-                            );
-
-
-                        const minuta =
-                            dopasowanie[2];
-
-
-                        if (
-                            !Number.isFinite(
-                                godzina
-                            )
-                        ) {
-
-                            return;
-
-                        }
-
-
-                        if (
-                            aktualnaGodzina ===
-                            null
-                            ||
-                            aktualnaGodzina !==
-                            godzina
-                        ) {
-
-
-                            aktualnaGodzina =
-                                godzina;
-
-
-                            aktualnyWiersz =
-                                document.createElement(
-                                    "div"
-                                );
-
-
-                            aktualnyWiersz.className =
-                                "wiersz-godziny";
-
-
-                            const kolumnaGodziny =
-                                document.createElement(
-                                    "div"
-                                );
-
-
-                            kolumnaGodziny.className =
-                                "kolumna-godzina";
-
-
-                            kolumnaGodziny.textContent =
-                                String(
-                                    godzina
-                                ).padStart(
-                                    2,
-                                    "0"
-                                );
-
-
-                            aktualnyWiersz.appendChild(
-                                kolumnaGodziny
-                            );
-
-
-                            godziny.appendChild(
-                                aktualnyWiersz
-                            );
-
-                        }
-
-
-
-                        /* =================================
-                           KOLUMNA MINUTY
-                           ================================= */
-
-                        const kolumna =
-                            document.createElement(
-                                "div"
-                            );
-
-
-                        kolumna.className =
-                            "kolumna-minuta";
-
-
-
-                        const minutaZWariantem =
-                            document.createElement(
-                                "span"
-                            );
-
-
-                        minutaZWariantem.className =
-                            "minuta-z-wariantem";
-
-
-
-                        const minutaElement =
-                            document.createElement(
-                                "span"
-                            );
-
-
-                        minutaElement.className =
-                            "minuta";
-
-
-                        minutaElement.textContent =
-                            minuta;
-
-
-                        minutaZWariantem.appendChild(
-                            minutaElement
-                        );
-
-
-
-                        /* =================================
-                           WARIANT
-                           ================================= */
-
-                        const wariant =
-                            pobierzWariant(
-                                kurs
-                            );
-
-
-                        if (
-                            wariant
-                        ) {
-
-
-                            const wariantElement =
-                                document.createElement(
-                                    "span"
-                                );
-
-
-                            wariantElement.className =
-                                "wariant-minuty";
-
-
-                            wariantElement.textContent =
-                                wariant;
-
-
-                            minutaZWariantem.appendChild(
-                                wariantElement
-                            );
-
-                        }
-
-
-
-                        kolumna.appendChild(
-                            minutaZWariantem
-                        );
-
-
-
-                        /* =================================
-                           NUMER KURSU
-                           ================================= */
-
-                        if (
-                            kurs.numer
-                        ) {
-
-                            kolumna.title =
-                                "Kurs " +
-                                kurs.numer;
-
-                        }
-
-
-                        aktualnyWiersz.appendChild(
-                            kolumna
-                        );
-
-                    }
-                );
-
-            }
-
-
-            blok.appendChild(
-                godziny
-            );
-
-
-
-            /* =============================================
-               LEGENDA WARIANTÓW
-               ============================================= */
-
-            const legenda =
-                utworzLegendePrzystanku(
-                    przystanek
-                );
-
-
-            if (
-                legenda
-            ) {
-
-                blok.appendChild(
-                    legenda
-                );
-
-            }
-
-
-            kontener.appendChild(
-                blok
-            );
-
+            przycisk.appendChild(lp);
+            przycisk.appendChild(nazwa);
+            przycisk.appendChild(nr);
+
+            przycisk.onclick =
+                function() {
+                    wybierzPrzystanek(
+                        przystanek,
+                        index
+                    );
+                };
+
+            lista.appendChild(przycisk);
         }
     );
+
+    kontener.appendChild(lista);
+
+}
+
+
+/* =========================================================
+   WYBÓR PRZYSTANKU
+   ========================================================= */
+
+function wybierzPrzystanek(
+    przystanek,
+    index
+) {
+
+    if (!przystanek) {
+        return;
+    }
+
+    wybranyPrzystanek =
+        przystanek;
+
+    const url =
+        new URL(window.location.href);
+
+    url.searchParams.set(
+        "kierunek",
+        String(aktualnyKierunek)
+    );
+
+    if (
+        przystanek.nr !== undefined &&
+        przystanek.nr !== null &&
+        String(przystanek.nr).trim() !== ""
+    ) {
+        url.searchParams.set(
+            "przystanek",
+            String(przystanek.nr)
+        );
+    }
+    else {
+        url.searchParams.set(
+            "przystanek",
+            String(index)
+        );
+    }
+
+    window.history.pushState(
+        {},
+        "",
+        url
+    );
+
+    pokazRozklad();
+
+}
+
+
+/* =========================================================
+   POWRÓT DO LISTY
+   ========================================================= */
+
+function pokazListePrzystankowZPowrotem() {
+
+    wybranyPrzystanek = null;
+
+    const url =
+        new URL(window.location.href);
+
+    url.searchParams.delete(
+        "przystanek"
+    );
+
+    window.history.pushState(
+        {},
+        "",
+        url
+    );
+
+    pokazRozklad();
+
+}
+
+
+/* =========================================================
+   ROZKŁAD WYBRANEGO PRZYSTANKU
+   ========================================================= */
+
+function pokazRozkladWybranegoPrzystanku(
+    rozklad,
+    przystanek
+) {
+
+    const kontener =
+        document.getElementById("przystanki");
+
+    const typ =
+        document.getElementById("typRozkladu");
+
+    const powrot =
+        document.getElementById("powrotPrzystanki");
+
+    powrot.style.display = "block";
+
+    const dni =
+        document.querySelector(".dni");
+
+    if (dni) {
+        dni.style.display = "flex";
+    }
+
+    const kalendarz =
+        document.getElementById("kalendarz");
+
+    if (aktualnyDzien !== "kalendarz") {
+        kalendarz.style.display = "none";
+    }
+
+    typ.style.display = "block";
+    typ.textContent =
+        rozklad.nazwa ||
+        "Rozkład jazdy";
+
+    kontener.innerHTML = "";
+
+    const naglowek =
+        document.createElement("div");
+
+    naglowek.className =
+        "naglowek-przystanku-widok";
+
+    const nazwa =
+        document.createElement("div");
+
+    nazwa.className = "nazwa";
+    nazwa.textContent =
+        przystanek.nazwa ||
+        "Przystanek";
+
+    const nr =
+        document.createElement("div");
+
+    nr.className = "numer";
+
+    if (
+        przystanek.nr !== undefined &&
+        przystanek.nr !== null &&
+        String(przystanek.nr).trim() !== ""
+    ) {
+        nr.textContent =
+            "nr " + przystanek.nr;
+    }
+
+    naglowek.appendChild(nazwa);
+    naglowek.appendChild(nr);
+
+    kontener.appendChild(naglowek);
+
+    const blok =
+        document.createElement("div");
+
+    blok.className =
+        "przystanek";
+
+    const godziny =
+        document.createElement("div");
+
+    godziny.className =
+        "godziny";
+
+    const kursy =
+        Array.isArray(przystanek.kursy)
+            ? przystanek.kursy
+            : [];
+
+    if (kursy.length === 0) {
+
+        godziny.innerHTML =
+            '<div class="brak-godzin">' +
+            'Brak odjazdów' +
+            '</div>';
+
+    }
+    else {
+
+        let aktualnaGodzina = null;
+        let aktualnyWiersz = null;
+
+        kursy.forEach(
+            function(kurs) {
+
+                if (
+                    !kurs ||
+                    typeof kurs !== "object"
+                ) {
+                    return;
+                }
+
+                const czas =
+                    String(kurs.czas || "").trim();
+
+                const dopasowanie =
+                    czas.match(
+                        /^(\d{1,2}):(\d{2})$/
+                    );
+
+                if (!dopasowanie) {
+                    return;
+                }
+
+                const godzina =
+                    Number(dopasowanie[1]);
+
+                const minuta =
+                    dopasowanie[2];
+
+                if (!Number.isFinite(godzina)) {
+                    return;
+                }
+
+                if (
+                    aktualnaGodzina === null ||
+                    aktualnaGodzina !== godzina
+                ) {
+
+                    aktualnaGodzina =
+                        godzina;
+
+                    aktualnyWiersz =
+                        document.createElement("div");
+
+                    aktualnyWiersz.className =
+                        "wiersz-godziny";
+
+                    const kolumnaGodziny =
+                        document.createElement("div");
+
+                    kolumnaGodziny.className =
+                        "kolumna-godzina";
+
+                    kolumnaGodziny.textContent =
+                        String(godzina).padStart(2, "0");
+
+                    aktualnyWiersz.appendChild(
+                        kolumnaGodziny
+                    );
+
+                    godziny.appendChild(
+                        aktualnyWiersz
+                    );
+                }
+
+                const kolumna =
+                    document.createElement("div");
+
+                kolumna.className =
+                    "kolumna-minuta";
+
+                const minutaZWariantem =
+                    document.createElement("span");
+
+                minutaZWariantem.className =
+                    "minuta-z-wariantem";
+
+                const minutaElement =
+                    document.createElement("span");
+
+                minutaElement.className =
+                    "minuta";
+
+                minutaElement.textContent =
+                    minuta;
+
+                minutaZWariantem.appendChild(
+                    minutaElement
+                );
+
+                const wariant =
+                    pobierzWariant(kurs);
+
+                if (wariant) {
+
+                    const wariantElement =
+                        document.createElement("span");
+
+                    wariantElement.className =
+                        "wariant-minuty";
+
+                    wariantElement.textContent =
+                        wariant;
+
+                    minutaZWariantem.appendChild(
+                        wariantElement
+                    );
+                }
+
+                kolumna.appendChild(
+                    minutaZWariantem
+                );
+
+                if (kurs.numer) {
+                    kolumna.title =
+                        "Kurs " + kurs.numer;
+                }
+
+                if (aktualnyWiersz) {
+                    aktualnyWiersz.appendChild(
+                        kolumna
+                    );
+                }
+            }
+        );
+    }
+
+    blok.appendChild(godziny);
+
+    const legenda =
+        utworzLegendePrzystanku(
+            przystanek
+        );
+
+    if (legenda) {
+        blok.appendChild(legenda);
+    }
+
+    kontener.appendChild(blok);
 
 }
 
@@ -2806,6 +3044,82 @@ function pokazBlad(
 
 }
 
+
+
+
+/* =========================================================
+   PRZYCISK WSTECZ / HISTORIA PRZEGLĄDARKI
+   ========================================================= */
+
+window.addEventListener(
+    "popstate",
+    function() {
+
+        const url =
+            new URL(window.location.href);
+
+        const parametrKierunku =
+            url.searchParams.get("kierunek");
+
+        const parametrPrzystanku =
+            url.searchParams.get("przystanek");
+
+        const liczbaKierunku =
+            Number(parametrKierunku);
+
+        aktualnyKierunek =
+            Number.isInteger(liczbaKierunku) &&
+            liczbaKierunku >= 0
+                ? liczbaKierunku
+                : 0;
+
+        wybranyPrzystanek = null;
+
+        const rozklad =
+            znajdzRozklad();
+
+        if (
+            parametrPrzystanku &&
+            rozklad &&
+            Array.isArray(rozklad.kierunki)
+        ) {
+
+            const kierunek =
+                rozklad.kierunki[
+                    aktualnyKierunek
+                ];
+
+            if (
+                kierunek &&
+                Array.isArray(kierunek.przystanki)
+            ) {
+
+                const znaleziony =
+                    kierunek.przystanki.find(
+                        function(przystanek) {
+
+                            return String(
+                                przystanek.nr ?? ""
+                            ).trim()
+                            ===
+                            String(
+                                parametrPrzystanku
+                            ).trim();
+
+                        }
+                    );
+
+                if (znaleziony) {
+                    wybranyPrzystanek =
+                        znaleziony;
+                }
+            }
+        }
+
+        pokazRozklad();
+
+    }
+);
 
 
 /* =========================================================
