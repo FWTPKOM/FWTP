@@ -331,12 +331,23 @@ function zbierzWariantyDlaKierunku(kierunek) {
 function aktualizujPrzyciskPowrotu() {
     const link = document.getElementById("linkPowrotu");
     if (!link) return;
-    if (wybranyPrzystanek !== null || widokKursuAktywny) {
-        link.textContent = "← Rozkład linii " + (daneLinii ? daneLinii.linia : numerLinii);
+    
+    if (widokKursuAktywny && wybranyPrzystanek !== null) {
+        link.textContent = "← Powrót do: " + wybranyPrzystanek.nazwa;
         link.href = "#";
         link.onclick = function(e) {
             e.preventDefault();
-            pokazListePrzystankowZPowrotem();
+            widokKursuAktywny = false;
+            pokazRozklad();
+        };
+    } else if (wybranyPrzystanek !== null) {
+        link.textContent = "← Trasa linii " + (daneLinii ? daneLinii.linia : numerLinii);
+        link.href = "#";
+        link.onclick = function(e) {
+            e.preventDefault();
+            wybranyPrzystanek = null;
+            aktualizujHistorieURL(null);
+            pokazRozklad();
         };
     } else {
         link.textContent = "← Linie";
@@ -474,16 +485,12 @@ function pokazListePrzystankow(rozklad) {
     const edges = Object.values(edgesMap);
 
     // 3. Klasyfikacja torów:
-    // track = 0: Główny prosty pion na osi (SPINE_X)
-    // track = 1: Odgałęzienie w prawo dla przystanków objazdowych (RIGHT_X)
-    // track = -1: Omijanie przystanków głównej osi po lewej (LEFT_X)
     let hasLeftBypass = false;
     edges.forEach(e => {
         if (isOnMainAxis[e.u] && isOnMainAxis[e.v]) {
             if (e.v - e.u === 1) {
                 e.track = 0;
             } else {
-                // Sprawdź czy między u a v są stacje głównej osi, czy tylko odnogi
                 let skipsMain = false;
                 for (let k = e.u + 1; k < e.v; k++) {
                     if (isOnMainAxis[k]) { skipsMain = true; break; }
@@ -492,16 +499,16 @@ function pokazListePrzystankow(rozklad) {
                     e.track = -1;
                     hasLeftBypass = true;
                 } else {
-                    e.track = 0; // Jedzie prosto osią główną obok stacji z odnogi
+                    e.track = 0;
                 }
             }
         } else {
-            e.track = 1; // Odgałęzienie na prawo
+            e.track = 1;
         }
     });
 
     const ROW_HEIGHT = 44;
-    const TRACK_W = 22; // Precyzyjny kąt 45 stopni (dx=22, dy=22)
+    const TRACK_W = 22;
     const SPINE_X = hasLeftBypass ? 44 : 26;
     const LEFT_X = SPINE_X - TRACK_W;
     const RIGHT_X = SPINE_X + TRACK_W;
@@ -529,7 +536,6 @@ function pokazListePrzystankow(rozklad) {
         let isFirstActive = (i === firstActiveIndex);
         let isLastActive = (i === lastActiveIndex);
         
-        // Solidna weryfikacja flagi Na Żądanie
         let isNz = (p.naZadanie === true || String(p.naZadanie).toLowerCase() === "true" || p.nz === true || String(p.nz).toLowerCase() === "true" || (typeof p.nazwa === "string" && p.nazwa.includes("(NŻ)")));
 
         let inactiveLines = '';
@@ -543,18 +549,15 @@ function pokazListePrzystankow(rozklad) {
             else inactiveLines += str;
         };
 
-        // Rysowanie połączeń
         edges.forEach(e => {
             let isEdgeActive = e.warianty.has(aktualnyWariant);
             
             if (e.track === 0) {
-                // Linia prosta na głównej osi
                 if (i === e.u) drawLine(SPINE_X, ROW_HEIGHT/2, SPINE_X, ROW_HEIGHT, isEdgeActive);
                 else if (i > e.u && i < e.v) drawLine(SPINE_X, 0, SPINE_X, ROW_HEIGHT, isEdgeActive);
                 else if (i === e.v) drawLine(SPINE_X, 0, SPINE_X, ROW_HEIGHT/2, isEdgeActive);
             } 
             else if (e.track === 1) {
-                // Odnoga w prawo
                 let startX = isOnMainAxis[e.u] ? SPINE_X : RIGHT_X;
                 let endX = isOnMainAxis[e.v] ? SPINE_X : RIGHT_X;
 
@@ -563,14 +566,12 @@ function pokazListePrzystankow(rozklad) {
                 else if (i === e.v) drawLine(RIGHT_X, 0, endX, ROW_HEIGHT/2, isEdgeActive);
             }
             else if (e.track === -1) {
-                // Ominięcie w lewo
                 if (i === e.u) drawLine(SPINE_X, ROW_HEIGHT/2, LEFT_X, ROW_HEIGHT, isEdgeActive);
                 else if (i > e.u && i < e.v) drawLine(LEFT_X, 0, LEFT_X, ROW_HEIGHT, isEdgeActive);
                 else if (i === e.v) drawLine(LEFT_X, 0, SPINE_X, ROW_HEIGHT/2, isEdgeActive);
             }
         });
 
-        // Węzeł przystanku
         let nodeX = isOnMainAxis[i] ? SPINE_X : RIGHT_X;
         let strokeColor = nodeActive ? (isFirstActive ? "#000" : "#e42313") : "#ccc";
         let fillColor = nodeActive ? (isFirstActive ? "#000" : "#e42313") : "#ccc";
@@ -605,7 +606,6 @@ function pokazListePrzystankow(rozklad) {
         nazwa.className = "przystanek-nazwa";
         nazwa.textContent = p.nazwa || "Przystanek";
 
-        // Numer przystanku po prawej stronie
         const nr = document.createElement("div");
         nr.className = "przystanek-nr";
         nr.textContent = p.nr || "";
@@ -614,11 +614,8 @@ function pokazListePrzystankow(rozklad) {
         btn.appendChild(nazwa);
         btn.appendChild(nr);
 
-        if (nodeActive) {
-            btn.onclick = () => wybierzPrzystanek(p, i);
-        } else {
-            btn.style.cursor = "default";
-        }
+        // Zawsze pozwalamy na kliknięcie w przystanek
+        btn.onclick = () => wybierzPrzystanek(p, i);
 
         lista.appendChild(btn);
     });
@@ -630,13 +627,6 @@ function wybierzPrzystanek(p, index) {
     wybranyPrzystanek = p;
     widokKursuAktywny = false;
     aktualizujHistorieURL(p.nr || p.nazwa);
-    pokazRozklad();
-}
-
-function pokazListePrzystankowZPowrotem() {
-    wybranyPrzystanek = null;
-    widokKursuAktywny = false;
-    aktualizujHistorieURL(null);
     pokazRozklad();
 }
 
@@ -728,9 +718,19 @@ function pokazCalyKurs(nrKursu) {
     document.getElementById("warianty-pojemnik").style.display = "none";
     kontener.innerHTML = "";
 
+    // SZUKAMY INDEKSU OBECNEGO PRZYSTANKU
+    let stopIndex = -1;
+    if (wybranyPrzystanek) {
+        stopIndex = kursPrzystanki.findIndex(p => (p.nr === wybranyPrzystanek.nr && p.nazwa === wybranyPrzystanek.nazwa) || p.nazwa === wybranyPrzystanek.nazwa);
+    }
+
+    // NAGŁÓWEK KIERUNKOWY
+    const currentStopName = (stopIndex !== -1) ? kursPrzystanki[stopIndex].nazwa : kursPrzystanki[0].nazwa;
+    const lastStopName = kursPrzystanki[kursPrzystanki.length - 1].nazwa;
+
     const widok = document.createElement("div");
     widok.className = "kurs-widok";
-    widok.innerHTML = `<div class="kurs-naglowek"><div class="kurs-tytul">Kurs ${nrKursu}</div><div class="kurs-informacja">Przebieg przez ${kursPrzystanki.length} przystanków</div></div>`;
+    widok.innerHTML = `<div class="kurs-naglowek"><div class="kurs-tytul">${currentStopName} &rarr; ${lastStopName}</div><div class="kurs-informacja">Kurs ${nrKursu} | Przebieg przez ${kursPrzystanki.length} przystanków</div></div>`;
     
     const lista = document.createElement("div");
     lista.className = "kurs-lista";
@@ -738,13 +738,9 @@ function pokazCalyKurs(nrKursu) {
     const czasWMinutach = cz => {
         const p = cz.split(":"); return p.length === 2 ? parseInt(p[0], 10) * 60 + parseInt(p[1], 10) : 0;
     };
-    const pierwszyCzas = czasWMinutach(kursPrzystanki[0].czas);
-
-    // SZUKAMY INDEKSU OBECNEGO PRZYSTANKU
-    let stopIndex = -1;
-    if (wybranyPrzystanek) {
-        stopIndex = kursPrzystanki.findIndex(p => (p.nr === wybranyPrzystanek.nr && p.nazwa === wybranyPrzystanek.nazwa) || p.nazwa === wybranyPrzystanek.nazwa);
-    }
+    
+    const startIndex = stopIndex !== -1 ? stopIndex : 0;
+    const baseTime = czasWMinutach(kursPrzystanki[startIndex].czas);
 
     kursPrzystanki.forEach((el, index) => {
         const isPast = stopIndex !== -1 && index < stopIndex;
@@ -753,16 +749,16 @@ function pokazCalyKurs(nrKursu) {
         const wiersz = document.createElement("div");
         wiersz.className = "kurs-przystanek" + (isCurrent ? " aktywny" : "");
         
-        let diff = czasWMinutach(el.czas) - pierwszyCzas;
-        if (diff < 0) diff += 24 * 60;
+        let diffText = "";
+        if (!isPast) {
+            let diff = czasWMinutach(el.czas) - baseTime;
+            if (diff < 0) diff += 24 * 60;
+            diffText = `${diff} min`;
+        }
 
-        // KOLORY DLA LINII I WĘZŁÓW W ZALEŻNOŚCI OD STATUSU (Przejechane / Obecny / Przyszłe)
         let strokeColor = isPast ? "#cccccc" : (isCurrent ? "#000000" : (index === 0 ? "#000000" : "#e42313"));
         let fillColor = isPast ? "#cccccc" : (isCurrent ? "#000000" : (index === 0 ? "#000000" : "#e42313"));
-        
-        // Kreska wchodząca do przystanku (z góry) jest szara, jeśli jesteśmy na obecnym lub przejechanym przystanku
         let topSegColor = isPast || isCurrent ? "#cccccc" : "#000000";
-        // Kreska wychodząca z przystanku (w dół) jest szara tylko dla przejechanych
         let botSegColor = isPast ? "#cccccc" : "#000000";
 
         let svgHtml = `<svg width="40" height="44" style="display:block; overflow:visible;">`;
@@ -784,14 +780,13 @@ function pokazCalyKurs(nrKursu) {
         }
         svgHtml += `</svg>`;
 
-        // STYLE TEKSTOWE
         let textStyling = isPast ? 'color: #aaaaaa; font-weight: normal;' : (isCurrent ? 'color: #000000; font-weight: 900; font-size: 17px;' : 'color: #000000; font-weight: bold;');
         let timeStyling = isPast ? 'color: #aaaaaa; font-weight: normal;' : (isCurrent ? 'color: #000000; font-weight: 900; font-size: 17px;' : 'color: #000000; font-weight: bold;');
         let nrStyling = isPast ? 'color: #cccccc;' : 'color: #777777;';
         let relTimeStyling = isPast ? 'color: #cccccc;' : (isCurrent ? 'color: #444444; font-weight: bold;' : 'color: #888888;');
 
         wiersz.innerHTML = `
-            <div class="kurs-czas-rel" style="${relTimeStyling}">${diff} min</div>
+            <div class="kurs-czas-rel" style="${relTimeStyling}">${diffText}</div>
             <div class="node-wrapper" style="width: 40px;">${svgHtml}</div>
             <div class="kurs-nazwa-box" style="${textStyling}">${el.nazwa}</div>
             <div class="kurs-nr" style="${nrStyling}">${el.nr || ''}</div>
