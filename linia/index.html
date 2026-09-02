@@ -341,7 +341,7 @@ function pokazRozklad() {
 }
 
 /* =========================================================
-   ZAAWANSOWANY GENERATOR GRAFU WTP (Z LOGIKĄ OMIJANIA)
+   ZAAWANSOWANY GENERATOR GRAFU WTP (CHANNEL ROUTING)
    ========================================================= */
 function pokazListePrzystankow(rozklad) {
     const kontener = document.getElementById("przystanki");
@@ -357,6 +357,7 @@ function pokazListePrzystankow(rozklad) {
     const wprz = document.getElementById("warianty-przyciski");
     
     let wariantyKierunku = [];
+    // Budowanie Wariantów Paska Górnego (bez przycisku "Wszystkie")
     if (wp && wprz) {
         wariantyKierunku = zbierzWariantyDlaKierunku(kierunek);
         if (wariantyKierunku.length > 0) {
@@ -371,7 +372,7 @@ function pokazListePrzystankow(rozklad) {
             }
 
             wariantyKierunku.forEach(w => {
-                if (w === "") return; // Pusty to baza, nie potrzebuje własnego przycisku z pustym tekstem
+                if (w === "") return; // Pusty to wariant bazowy, nie dający litery
                 const btn = document.createElement("button");
                 btn.className = "wariant-btn" + (aktualnyWariant === w ? " aktywny" : "");
                 btn.textContent = w;
@@ -389,69 +390,61 @@ function pokazListePrzystankow(rozklad) {
         return;
     }
 
-    // Wyznaczamy GŁÓWNY WARIANT (Oś Pionowa)
+    // Wyznaczamy GŁÓWNĄ OŚ (Wariant "A" lub bez litery)
     let mainWariant = wariantyKierunku.includes("") ? "" : (wariantyKierunku.includes("A") ? "A" : wariantyKierunku[0]);
 
-    // Oś główna: każdy przystanek, który w swoich kursach ma główny wariant, leży na osi
+    // Oś główna
     let isOnMainAxis = new Array(przystanki.length).fill(false);
     przystanki.forEach((p, i) => {
         isOnMainAxis[i] = (p.kursy || []).some(k => pobierzWariant(k) === mainWariant);
     });
 
-    // Zbieranie wszystkich ścieżek
+    // Zbieranie krawędzi dla aktualnego wariantu
     const tripPaths = {};
     przystanki.forEach((p, i) => {
         (p.kursy || []).forEach(k => {
-            if(!tripPaths[k.numer]) tripPaths[k.numer] = [];
-            tripPaths[k.numer].push({ index: i, wariant: pobierzWariant(k) });
+            let w = pobierzWariant(k);
+            if(w === aktualnyWariant) {
+                if(!tripPaths[k.numer]) tripPaths[k.numer] = [];
+                tripPaths[k.numer].push(i);
+            }
         });
     });
 
-    const edgesMap = {};
+    const edgesSet = new Set();
     Object.values(tripPaths).forEach(path => {
-        path.sort((a,b) => a.index - b.index);
+        path.sort((a,b) => a - b);
         for(let j=0; j < path.length - 1; j++) {
-            let u = path[j].index;
-            let v = path[j+1].index;
-            let w = path[j].wariant;
-            let key = u + "," + v;
-            if(!edgesMap[key]) edgesMap[key] = { u: u, v: v, warianty: new Set() };
-            if(w) edgesMap[key].warianty.add(w);
+            edgesSet.add(path[j] + "," + path[j+1]);
         }
     });
 
-    const edges = Object.values(edgesMap);
-
-    // Dzielimy krawędzie na te z lewej (skróty) i prawej (podjazdy)
-    const leftTracks = [];
-    const rightTracks = [];
-
-    edges.forEach(e => {
-        // Jeśli krawędź łączy punkty na głównej osi i pomija coś po drodze -> Omija z LEWEJ
-        if (isOnMainAxis[e.u] && isOnMainAxis[e.v] && e.v - e.u > 1) {
-            let t = 1;
-            while(true) {
-                if (!leftTracks[t]) leftTracks[t] = [];
-                let conflict = leftTracks[t].some(other => Math.max(e.u, other.u) < Math.min(e.v, other.v));
-                if (!conflict) {
-                    e.leftTrack = t;
-                    leftTracks[t].push(e);
-                    break;
-                }
-                t++;
-            }
-        } 
-        // Jeśli krawędź prowadzi z lub na przystanek nie będący główną osią -> Podjazd z PRAWEJ
-        else if (!isOnMainAxis[e.u] || !isOnMainAxis[e.v]) {
-            e.rightTrack = 1; // Proste odgałęzienie
-        }
+    const edges = Array.from(edgesSet).map(e => {
+        let parts = e.split(',');
+        return { u: parseInt(parts[0]), v: parseInt(parts[1]) };
     });
 
-    let maxLeftTrack = leftTracks.length > 0 ? leftTracks.length - 1 : 0;
     const ROW_HEIGHT = 44;
-    const TRACK_W = 22; // Idealny kąt 45 stopni
-    const SPINE_X = 26 + maxLeftTrack * TRACK_W; // Środek osi przesunięty, jeśli są obejścia z lewej
-    const SVG_W = SPINE_X + 44;
+    const TRACK_W = 22; // Idealne 45 stopni dla 44px
+    const SPINE_X = 26; 
+
+    // Kalkulacja torów - odgałęzienia na lewo / prawo
+    edges.forEach(e => {
+        e.isMain = isOnMainAxis[e.u] && isOnMainAxis[e.v];
+        
+        // Jeśli omija stacje i wraca na główną oś -> OMIJANIE (w lewo, od głównej osi)
+        if (e.isMain && e.v - e.u > 1) {
+            e.trackOffset = -1; // Tor po lewej stronie
+        } 
+        // Jeśli wyjeżdża lub wraca poza główną oś -> PODJAZD (w prawo)
+        else if (!isOnMainAxis[e.u] || !isOnMainAxis[e.v]) {
+            e.trackOffset = 1;  // Tor po prawej stronie
+        } 
+        // Główna oś
+        else {
+            e.trackOffset = 0;
+        }
+    });
 
     let firstActiveIndex = -1;
     let lastActiveIndex = -1;
@@ -466,6 +459,7 @@ function pokazListePrzystankow(rozklad) {
     const lista = document.createElement("div");
     lista.className = "lista-przystankow";
 
+    // 3. GENEROWANIE KAŻDEGO WIERSZA
     przystanki.forEach((p, i) => {
         let nodeActive = aktualnyWariant === null || (p.kursy || []).some(k => pobierzWariant(k) === aktualnyWariant);
         const btn = document.createElement("button");
@@ -475,8 +469,11 @@ function pokazListePrzystankow(rozklad) {
         let isFirstActive = (i === firstActiveIndex);
         let isLastActive = (i === lastActiveIndex);
         
-        // Rygorystyczne sprawdzenie na zadanie (=== true)
-        let isNz = p.naZadanie === true || p.nz === true || (p.nazwa && p.nazwa.includes("(NŻ)"));
+        // Rygorystyczne sprawdzenie stref NŻ (Niezamalowane środy) - tylko jeśli jest to wyraźne 'true'
+        let isNz = false;
+        if (p.naZadanie === true || p.nz === true) {
+            isNz = true;
+        }
 
         let inactiveLines = '';
         let activeLines = '';
@@ -488,49 +485,42 @@ function pokazListePrzystankow(rozklad) {
             if (isActive) activeLines += str; else inactiveLines += str;
         };
 
-        // Współrzędna X węzła. Jeśli na głównej osi -> SPINE, jeśli nie -> TRACK po prawej
-        let nodeX = isOnMainAxis[i] ? SPINE_X : SPINE_X + TRACK_W;
+        // Główny pion (szary, jeśli omijany lub jedziemy skrótem)
+        if (i > 0 && i < N) {
+            // Rysujemy podkładkę dla osi A.
+            drawLine(SPINE_X, 0, SPINE_X, ROW_HEIGHT, false); 
+        }
 
-        // Rysujemy połówki linii DLA KAŻDEJ KRAWĘDZI przechodzącej/wychodzącej z tego wiersza
+        // Rysujemy połówki krawędzi naszego aktywnego wariantu
         edges.forEach(e => {
-            let isActive = aktualnyWariant === null || e.warianty.has(aktualnyWariant);
-            
-            // Lewa strona (Skróty)
-            if (e.leftTrack > 0) {
-                let x_left = SPINE_X - e.leftTrack * TRACK_W;
-                if (i === e.u) drawLine(SPINE_X, ROW_HEIGHT/2, x_left, ROW_HEIGHT, isActive);
-                else if (i === e.v) drawLine(x_left, 0, SPINE_X, ROW_HEIGHT/2, isActive);
-                else if (i > e.u && i < e.v) drawLine(x_left, 0, x_left, ROW_HEIGHT, isActive);
-            } 
-            // Prawa strona i główna oś
-            else {
-                let startX = isOnMainAxis[e.u] ? SPINE_X : SPINE_X + TRACK_W;
-                let endX = isOnMainAxis[e.v] ? SPINE_X : SPINE_X + TRACK_W;
+            let trackX = SPINE_X + e.trackOffset * TRACK_W;
 
-                if (startX === endX) {
-                    if (i === e.u) drawLine(startX, ROW_HEIGHT/2, startX, ROW_HEIGHT, isActive);
-                    else if (i > e.u && i < e.v) drawLine(startX, 0, startX, ROW_HEIGHT, isActive);
-                    else if (i === e.v) drawLine(startX, 0, startX, ROW_HEIGHT/2, isActive);
-                } else {
-                    // Załamanie na inny tor
-                    if (e.v - e.u === 1) {
-                        if (i === e.u) drawLine(startX, ROW_HEIGHT/2, endX, ROW_HEIGHT, isActive);
-                        else if (i === e.v) drawLine(endX, 0, endX, ROW_HEIGHT/2, isActive);
-                    } else {
-                        if (i === e.u) drawLine(startX, ROW_HEIGHT/2, endX, ROW_HEIGHT, isActive);
-                        else if (i > e.u && i < e.v) drawLine(endX, 0, endX, ROW_HEIGHT, isActive);
-                        else if (i === e.v) drawLine(endX, 0, endX, ROW_HEIGHT/2, isActive);
-                    }
-                }
+            if (e.trackOffset === 0) { // Na głównej osi
+                if (i === e.u) drawLine(SPINE_X, ROW_HEIGHT/2, SPINE_X, ROW_HEIGHT, true);
+                else if (i > e.u && i < e.v) drawLine(SPINE_X, 0, SPINE_X, ROW_HEIGHT, true);
+                else if (i === e.v) drawLine(SPINE_X, 0, SPINE_X, ROW_HEIGHT/2, true);
+            } 
+            else if (e.trackOffset < 0) { // Omijanie po LEWEJ stronie
+                if (i === e.u) drawLine(SPINE_X, ROW_HEIGHT/2, trackX, ROW_HEIGHT, true);
+                else if (i > e.u && i < e.v) drawLine(trackX, 0, trackX, ROW_HEIGHT, true);
+                else if (i === e.v) drawLine(trackX, 0, SPINE_X, ROW_HEIGHT/2, true);
+            }
+            else if (e.trackOffset > 0) { // Zjazd po PRAWEJ stronie
+                let startX = isOnMainAxis[e.u] ? SPINE_X : trackX;
+                let endX = isOnMainAxis[e.v] ? SPINE_X : trackX;
+
+                if (i === e.u) drawLine(startX, ROW_HEIGHT/2, endX, ROW_HEIGHT, true);
+                else if (i > e.u && i < e.v) drawLine(endX, 0, endX, ROW_HEIGHT, true);
+                else if (i === e.v) drawLine(endX, 0, endX, ROW_HEIGHT/2, true);
             }
         });
 
-        // Węzeł SVG (na wierzchu)
+        // Węzeł SVG
+        let nodeX = isOnMainAxis[i] ? SPINE_X : SPINE_X + TRACK_W;
         let fill = nodeActive ? (isNz ? "#fff" : (isFirstActive ? "#000" : "#e42313")) : (isNz ? "#fff" : "#ccc");
         let stroke = nodeActive ? (isFirstActive ? "#000" : "#e42313") : "#ccc";
-        let sWidth = isNz ? "3" : "0";
-        let r = 5; // Idealny rozmiar wyśrodkowany
-        
+        let r = 5.5; 
+
         let nodeSvg = '';
         if (isFirstActive || isLastActive) {
             if (isNz) {
@@ -546,7 +536,7 @@ function pokazListePrzystankow(rozklad) {
             }
         }
 
-        let svgHtml = `<svg width="${SVG_W}" height="${ROW_HEIGHT}" style="display:block; overflow:visible;">
+        let svgHtml = `<svg width="100" height="${ROW_HEIGHT}" style="display:block; overflow:visible;">
             ${inactiveLines}
             ${activeLines}
             ${nodeSvg}
@@ -554,7 +544,7 @@ function pokazListePrzystankow(rozklad) {
 
         const nodeWrapper = document.createElement("div");
         nodeWrapper.className = "node-wrapper";
-        nodeWrapper.style.width = SVG_W + "px";
+        nodeWrapper.style.width = "85px";
         nodeWrapper.innerHTML = svgHtml;
 
         const nazwa = document.createElement("div");
@@ -662,8 +652,7 @@ function pokazCalyKurs(nrKursu) {
 
     przystankiK.forEach((p) => {
         const k = (p.kursy || []).find(x => x.numer === nrKursu);
-        // Rygorystyczny NŻ
-        let isNz = p.naZadanie === true || p.nz === true || (p.nazwa && p.nazwa.includes("(NŻ)"));
+        let isNz = p.naZadanie === true || p.nz === true;
         if (k) kursPrzystanki.push({ nazwa: p.nazwa, nr: p.nr, nz: isNz, czas: k.czas });
     });
 
@@ -696,10 +685,10 @@ function pokazCalyKurs(nrKursu) {
         if (index > 0) svgHtml += `<line x1="26" y1="0" x2="26" y2="22" stroke="#000" stroke-width="2.5" />`;
         if (index < kursPrzystanki.length - 1) svgHtml += `<line x1="26" y1="22" x2="26" y2="44" stroke="#000" stroke-width="2.5" />`;
         
-        let isNz = el.nz;
+        let isNz = el.nz === true;
         let fill = isNz ? "#fff" : (index === 0 ? "#000" : "#e42313");
         let stroke = index === 0 ? "#000" : "#e42313";
-        let r = 5;
+        let r = 5.5;
 
         if (index === 0 || index === kursPrzystanki.length - 1) {
             if (isNz) {
