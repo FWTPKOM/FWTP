@@ -88,6 +88,59 @@
 }
 
 /* =========================================================
+   WARIANTY (Zgodnie z oryginalnym designem)
+   ========================================================= */
+.warianty-pojemnik {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 15px 25px;
+    margin-bottom: 15px;
+}
+.warianty-info {
+    font-size: 15px;
+    color: #555;
+}
+.warianty-info strong {
+    color: #000;
+}
+.warianty-przyciski {
+    display: flex;
+    gap: 5px;
+}
+.wariant-btn {
+    padding: 8px 16px;
+    font-size: 18px;
+    font-weight: 900;
+    color: #706f6f;
+    background: transparent;
+    border: none;
+    border-bottom: 4px solid transparent;
+    cursor: pointer;
+    transition: 0.15s;
+    font-family: inherit;
+}
+.wariant-btn:hover {
+    color: #d61c12;
+}
+.wariant-btn.aktywny {
+    color: #d61c12;
+    border-bottom-color: #d61c12;
+}
+
+@media (max-width: 550px) {
+    .warianty-pojemnik {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 15px;
+    }
+}
+
+/* =========================================================
    DNI
    ========================================================= */
 .dni {
@@ -392,8 +445,8 @@
     border-radius: 50%;
 }
 .wezel.nz {
-    width: 9px;
-    height: 9px;
+    width: 8px;  /* Niezamalowana kropka "na żądanie" */
+    height: 8px;
     border-radius: 50%;
     background-color: #fff;
     border: 2px solid #e42313;
@@ -407,7 +460,7 @@
 .lista-przystankow {
     display: flex;
     flex-direction: column;
-    gap: 0; /* Zwarte dla linii */
+    gap: 0; /* Zwarte dla osi */
     border: 1px solid #ddd;
     border-radius: 8px;
     overflow: hidden;
@@ -625,6 +678,12 @@
 
 <div id="kierunki" class="kierunki"></div>
 
+<!-- Dodany pojemnik na warianty -->
+<div id="warianty-pojemnik" class="warianty-pojemnik" style="display:none;">
+    <div class="warianty-info"><strong>Uwaga!</strong> Ta linia ma różne warianty trasy.</div>
+    <div id="warianty-przyciski" class="warianty-przyciski"></div>
+</div>
+
 <div class="dni" style="display:none;">
     <button id="dzisiajBtn" class="dzien-btn aktywny" onclick="wybierzDzien('dzisiaj')">DZISIAJ</button>
     <button id="jutroBtn" class="dzien-btn" onclick="wybierzDzien('jutro')">JUTRO</button>
@@ -649,12 +708,13 @@
 
 <script>
 /* =========================================================
-   FWTP – ROZKŁAD JAZDY (v3.0 - Z osią czasu)
+   FWTP – ROZKŁAD JAZDY (v4.0 - Warianty A/B i kropki "Na Żądanie")
    ========================================================= */
 
 let daneLinii = null;
 let numerLinii = null;
 let aktualnyKierunek = 0;
+let aktualnyWariant = null; // Filtrowanie widoku
 let aktualnyDzien = "dzisiaj";
 let wybranaData = new Date();
 let wybranyPrzystanek = null;
@@ -746,6 +806,7 @@ function uruchomStrone() {
 
     wybranaData = new Date();
     aktualnyKierunek = 0;
+    aktualnyWariant = null;
     wybranyPrzystanek = null;
 
     const parametrKierunku = parametry.get("kierunek");
@@ -853,6 +914,7 @@ function generujKierunki() {
 
 function zmienKierunek(index) {
     aktualnyKierunek = index;
+    aktualnyWariant = null; // Resetujemy wariant po zmianie kierunku
     wybranyPrzystanek = null;
     const url = new URL(window.location.href);
     url.searchParams.set("kierunek", String(index));
@@ -991,6 +1053,24 @@ function utworzLegendePrzystanku(przystanek) {
     return legenda;
 }
 
+// Funkcja pomocnicza: zbiera wszystkie dostępne literki wariantów dla danego kierunku
+function zbierzWariantyDlaKierunku(kierunek) {
+    const znalezione = new Set();
+    if (!kierunek || !Array.isArray(kierunek.przystanki)) return [];
+    
+    kierunek.przystanki.forEach(function(p) {
+        if (Array.isArray(p.kursy)) {
+            p.kursy.forEach(function(k) {
+                const litera = pobierzWariant(k);
+                if (litera && String(litera).trim() !== "") {
+                    znalezione.add(String(litera).trim());
+                }
+            });
+        }
+    });
+    return Array.from(znalezione).sort();
+}
+
 function pokazRozklad() {
     if (!daneLinii) return;
     const rozklad = znajdzRozklad();
@@ -1003,6 +1083,7 @@ function pokazRozklad() {
         typ.textContent = "Brak rozkładu";
         powrot.style.display = "none";
         kontener.innerHTML = '<div class="brak-danych">Brak danych rozkładu.</div>';
+        document.getElementById("warianty-pojemnik").style.display = "none";
         return;
     }
 
@@ -1012,6 +1093,7 @@ function pokazRozklad() {
         typ.textContent = "Brak kierunków";
         powrot.style.display = "none";
         kontener.innerHTML = '<div class="brak-danych">Ten rozkład nie zawiera kierunków.</div>';
+        document.getElementById("warianty-pojemnik").style.display = "none";
         return;
     }
 
@@ -1051,22 +1133,26 @@ function pokazRozklad() {
 }
 
 /* =========================================================
-   LISTA PRZYSTANKÓW (Z WIZUALNĄ OSIĄ TRASY)
+   LISTA PRZYSTANKÓW (Z Filtrowaniem Wariantów i NŻ)
    ========================================================= */
 function pokazListePrzystankow(rozklad = null) {
     if (!rozklad) rozklad = znajdzRozklad();
     const kontener = document.getElementById("przystanki");
     const typ = document.getElementById("typRozkladu");
     const powrot = document.getElementById("powrotPrzystanki");
+    const wariantyPojemnik = document.getElementById("warianty-pojemnik");
+    const wariantyPrzyciski = document.getElementById("warianty-przyciski");
 
     if (!rozklad || !Array.isArray(rozklad.kierunki)) {
         kontener.innerHTML = '<div class="brak-danych">Brak danych przystanków.</div>';
+        if(wariantyPojemnik) wariantyPojemnik.style.display = "none";
         return;
     }
 
     const kierunek = rozklad.kierunki[aktualnyKierunek];
     if (!kierunek) {
         kontener.innerHTML = '<div class="brak-danych">Brak wybranego kierunku.</div>';
+        if(wariantyPojemnik) wariantyPojemnik.style.display = "none";
         return;
     }
 
@@ -1083,51 +1169,88 @@ function pokazListePrzystankow(rozklad = null) {
     typ.textContent = "Wybierz przystanek";
     kontener.innerHTML = "";
 
+    // Budowanie UI dla Wariantów (A, B, C...)
+    if (wariantyPojemnik && wariantyPrzyciski) {
+        const wariantyKierunku = zbierzWariantyDlaKierunku(kierunek);
+        
+        if (wariantyKierunku.length > 0) {
+            wariantyPojemnik.style.display = "flex";
+            wariantyPrzyciski.innerHTML = "";
+
+            const btnAll = document.createElement("button");
+            btnAll.className = "wariant-btn" + (aktualnyWariant === null ? " aktywny" : "");
+            btnAll.textContent = "A B"; // Używamy "Wszystkie"
+            btnAll.innerHTML = "Główna";
+            btnAll.onclick = function() { aktualnyWariant = null; pokazRozklad(); };
+            wariantyPrzyciski.appendChild(btnAll);
+
+            wariantyKierunku.forEach(function(w) {
+                const btn = document.createElement("button");
+                btn.className = "wariant-btn" + (aktualnyWariant === w ? " aktywny" : "");
+                btn.textContent = w;
+                btn.onclick = function() { aktualnyWariant = w; pokazRozklad(); };
+                wariantyPrzyciski.appendChild(btn);
+            });
+        } else {
+            wariantyPojemnik.style.display = "none";
+            aktualnyWariant = null;
+        }
+    }
+
+    // Filtrowanie przystanków do widoku osi (jeśli wybrany jest konkretny wariant)
+    let widocznePrzystanki = przystanki;
+    if (aktualnyWariant !== null) {
+        widocznePrzystanki = przystanki.filter(function(p) {
+            if (!Array.isArray(p.kursy)) return false;
+            return p.kursy.some(function(k) { return pobierzWariant(k) === aktualnyWariant; });
+        });
+    }
+
     const lista = document.createElement("div");
     lista.className = "lista-przystankow";
 
-    if (przystanki.length === 0) {
-        lista.innerHTML = '<div class="brak-danych">Brak przystanków w tym kierunku.</div>';
+    if (widocznePrzystanki.length === 0) {
+        lista.innerHTML = '<div class="brak-danych">Brak przystanków dla wybranego wariantu.</div>';
         kontener.appendChild(lista);
         return;
     }
 
-    przystanki.forEach(function(przystanek, index) {
+    widocznePrzystanki.forEach(function(przystanek, index) {
         const przycisk = document.createElement("button");
         przycisk.type = "button";
         przycisk.className = "przystanek-btn";
 
-        // LP
         const lp = document.createElement("div");
         lp.className = "lp";
         lp.textContent = przystanek.lp || (index + 1);
 
-        // Kształt wizualnej linii
+        // Oś trasy (linia i kropka)
         const nodeWrapper = document.createElement("div");
         nodeWrapper.className = "node-wrapper";
         
         const line = document.createElement("div");
         let lineClass = "middle";
         if (index === 0) lineClass = "start";
-        if (index === przystanki.length - 1) lineClass = "end";
+        if (index === widocznePrzystanki.length - 1) lineClass = "end";
         line.className = "linia-pionowa " + lineClass;
+
+        // Logika Przystanku na Żądanie (flaga lub dopisek NŻ)
+        const isNaZadanie = przystanek.naZadanie === true || przystanek.nz === true || (przystanek.nazwa && String(przystanek.nazwa).includes("(NŻ)"));
 
         const icon = document.createElement("div");
         icon.className = "wezel ";
         if (index === 0) icon.className += "square bg-black";
-        else if (index === przystanki.length - 1) icon.className += "square bg-red";
-        else if (przystanek.naZadanie === true) icon.className += "nz";
+        else if (index === widocznePrzystanki.length - 1) icon.className += "square bg-red";
+        else if (isNaZadanie) icon.className += "nz"; // Niezamalowana kropka na żądanie
         else icon.className += "circle bg-red";
 
         nodeWrapper.appendChild(line);
         nodeWrapper.appendChild(icon);
 
-        // Nazwa
         const nazwa = document.createElement("div");
         nazwa.className = "przystanek-nazwa";
         nazwa.textContent = przystanek.nazwa || "Przystanek";
 
-        // Nr
         const nr = document.createElement("div");
         nr.className = "przystanek-nr";
         if (przystanek.nr !== undefined && przystanek.nr !== null && String(przystanek.nr).trim() !== "") {
@@ -1182,7 +1305,7 @@ function czasWMinutach(czasString) {
 }
 
 /* =========================================================
-   WYŚWIETLANIE CAŁEGO KURSU (Z OSIĄ CZASU I RELATYWNYMI MINUTAMI)
+   WYŚWIETLANIE CAŁEGO KURSU (Oś czasu + NŻ)
    ========================================================= */
 function pokazCalyKurs(numerKursu) {
     if (!daneLinii || !numerKursu) return;
@@ -1207,6 +1330,7 @@ function pokazCalyKurs(numerKursu) {
                 nazwa: przystanek.nazwa || "Przystanek",
                 nr: przystanek.nr,
                 naZadanie: przystanek.naZadanie,
+                nz: przystanek.nz,
                 czas: String(kurs.czas || "").trim(),
                 kurs: kurs
             });
@@ -1221,6 +1345,9 @@ function pokazCalyKurs(numerKursu) {
         kontener.innerHTML = '<div class="brak-danych">Nie znaleziono przystanków dla tego kursu.</div>';
         return;
     }
+
+    const wariantyPojemnik = document.getElementById("warianty-pojemnik");
+    if (wariantyPojemnik) wariantyPojemnik.style.display = "none"; // Chowamy warianty w tym widoku
 
     const dni = document.querySelector(".dni");
     if (dni) dni.style.display = "none";
@@ -1260,16 +1387,17 @@ function pokazCalyKurs(numerKursu) {
             wiersz.classList.add("aktywny");
         }
 
-        // Czas relatywny (0 min, 1 min...)
         const aktualnyCzas = czasWMinutach(element.czas);
         let diff = aktualnyCzas - pierwszyCzas;
-        if (diff < 0) diff += 24 * 60; // Gdy przejdzie przez północ
+        if (diff < 0) diff += 24 * 60; // Nocne obejście
 
         const relTime = document.createElement("div");
         relTime.className = "kurs-czas-rel";
         relTime.textContent = diff + " min";
 
-        // Linia wizualna (Timeline)
+        // Logika Przystanku na Żądanie
+        const isNaZadanie = element.naZadanie === true || element.nz === true || (element.nazwa && String(element.nazwa).includes("(NŻ)"));
+
         const nodeWrapper = document.createElement("div");
         nodeWrapper.className = "node-wrapper";
         
@@ -1283,13 +1411,12 @@ function pokazCalyKurs(numerKursu) {
         icon.className = "wezel ";
         if (index === 0) icon.className += "square bg-black";
         else if (index === kursPrzystanki.length - 1) icon.className += "square bg-red";
-        else if (element.naZadanie === true) icon.className += "nz";
+        else if (isNaZadanie) icon.className += "nz"; // Kropka NŻ
         else icon.className += "circle bg-red";
 
         nodeWrapper.appendChild(line);
         nodeWrapper.appendChild(icon);
 
-        // Nazwa
         const nazwa = document.createElement("div");
         nazwa.className = "kurs-nazwa-box";
         nazwa.textContent = element.nazwa;
@@ -1300,7 +1427,6 @@ function pokazCalyKurs(numerKursu) {
             nazwa.appendChild(nrSpan);
         }
 
-        // Czas absolutny (12:04) - opcjonalnie zostawiony na skraju prawej strony jak w Twoim wcześniejszym widoku
         const czas = document.createElement("div");
         czas.className = "kurs-czas-abs";
         czas.textContent = element.czas || "—";
@@ -1308,7 +1434,6 @@ function pokazCalyKurs(numerKursu) {
         wiersz.appendChild(relTime);
         wiersz.appendChild(nodeWrapper);
         wiersz.appendChild(nazwa);
-        // Zostawiłem bezwzględny czas na końcu z prawej strony, bo to zawsze bardzo użyteczne. 
         wiersz.appendChild(czas); 
         lista.appendChild(wiersz);
     });
@@ -1321,6 +1446,8 @@ function pokazRozkladWybranegoPrzystanku(rozklad, przystanek) {
     const kontener = document.getElementById("przystanki");
     const typ = document.getElementById("typRozkladu");
     const powrot = document.getElementById("powrotPrzystanki");
+    const wariantyPojemnik = document.getElementById("warianty-pojemnik");
+    if (wariantyPojemnik) wariantyPojemnik.style.display = "none"; // Chowamy warianty
 
     powrot.style.display = "block";
 
@@ -1431,6 +1558,7 @@ function pokazBlad(tytul, opis) {
     document.getElementById("trasa").textContent = "";
     document.getElementById("kierunki").innerHTML = "";
     document.getElementById("typRozkladu").style.display = "none";
+    document.getElementById("warianty-pojemnik").style.display = "none";
     document.getElementById("przystanki").innerHTML = '<div class="blad"><strong>' + tytul + '</strong>' + opis + '</div>';
 }
 
@@ -1442,6 +1570,7 @@ window.addEventListener("popstate", function() {
     
     aktualnyKierunek = Number.isInteger(liczbaKierunku) && liczbaKierunku >= 0 ? liczbaKierunku : 0;
     wybranyPrzystanek = null;
+    aktualnyWariant = null;
 
     const rozklad = znajdzRozklad();
     if (parametrPrzystanku && rozklad && Array.isArray(rozklad.kierunki)) {
