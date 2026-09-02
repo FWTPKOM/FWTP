@@ -740,18 +740,34 @@ function pokazCalyKurs(nrKursu) {
     };
     const pierwszyCzas = czasWMinutach(kursPrzystanki[0].czas);
 
+    // SZUKAMY INDEKSU OBECNEGO PRZYSTANKU
+    let stopIndex = -1;
+    if (wybranyPrzystanek) {
+        stopIndex = kursPrzystanki.findIndex(p => (p.nr === wybranyPrzystanek.nr && p.nazwa === wybranyPrzystanek.nazwa) || p.nazwa === wybranyPrzystanek.nazwa);
+    }
+
     kursPrzystanki.forEach((el, index) => {
+        const isPast = stopIndex !== -1 && index < stopIndex;
+        const isCurrent = stopIndex !== -1 && index === stopIndex;
+
         const wiersz = document.createElement("div");
-        wiersz.className = "kurs-przystanek" + (wybranyPrzystanek && wybranyPrzystanek.nr === el.nr ? " aktywny" : "");
+        wiersz.className = "kurs-przystanek" + (isCurrent ? " aktywny" : "");
+        
         let diff = czasWMinutach(el.czas) - pierwszyCzas;
         if (diff < 0) diff += 24 * 60;
 
-        let strokeColor = index === 0 ? "#000" : "#e42313";
-        let fillColor = index === 0 ? "#000" : "#e42313";
+        // KOLORY DLA LINII I WĘZŁÓW W ZALEŻNOŚCI OD STATUSU (Przejechane / Obecny / Przyszłe)
+        let strokeColor = isPast ? "#cccccc" : (isCurrent ? "#000000" : (index === 0 ? "#000000" : "#e42313"));
+        let fillColor = isPast ? "#cccccc" : (isCurrent ? "#000000" : (index === 0 ? "#000000" : "#e42313"));
+        
+        // Kreska wchodząca do przystanku (z góry) jest szara, jeśli jesteśmy na obecnym lub przejechanym przystanku
+        let topSegColor = isPast || isCurrent ? "#cccccc" : "#000000";
+        // Kreska wychodząca z przystanku (w dół) jest szara tylko dla przejechanych
+        let botSegColor = isPast ? "#cccccc" : "#000000";
 
         let svgHtml = `<svg width="40" height="44" style="display:block; overflow:visible;">`;
-        if (index > 0) svgHtml += `<line x1="20" y1="0" x2="20" y2="22" stroke="#000" stroke-width="2.5" />`;
-        if (index < kursPrzystanki.length - 1) svgHtml += `<line x1="20" y1="22" x2="20" y2="44" stroke="#000" stroke-width="2.5" />`;
+        if (index > 0) svgHtml += `<line x1="20" y1="0" x2="20" y2="22" stroke="${topSegColor}" stroke-width="2.5" />`;
+        if (index < kursPrzystanki.length - 1) svgHtml += `<line x1="20" y1="22" x2="20" y2="44" stroke="${botSegColor}" stroke-width="2.5" />`;
         
         if (index === 0 || index === kursPrzystanki.length - 1) {
             if (el.nz) {
@@ -768,12 +784,18 @@ function pokazCalyKurs(nrKursu) {
         }
         svgHtml += `</svg>`;
 
+        // STYLE TEKSTOWE
+        let textStyling = isPast ? 'color: #aaaaaa; font-weight: normal;' : (isCurrent ? 'color: #000000; font-weight: 900; font-size: 17px;' : 'color: #000000; font-weight: bold;');
+        let timeStyling = isPast ? 'color: #aaaaaa; font-weight: normal;' : (isCurrent ? 'color: #000000; font-weight: 900; font-size: 17px;' : 'color: #000000; font-weight: bold;');
+        let nrStyling = isPast ? 'color: #cccccc;' : 'color: #777777;';
+        let relTimeStyling = isPast ? 'color: #cccccc;' : (isCurrent ? 'color: #444444; font-weight: bold;' : 'color: #888888;');
+
         wiersz.innerHTML = `
-            <div class="kurs-czas-rel">${diff} min</div>
+            <div class="kurs-czas-rel" style="${relTimeStyling}">${diff} min</div>
             <div class="node-wrapper" style="width: 40px;">${svgHtml}</div>
-            <div class="kurs-nazwa-box">${el.nazwa}</div>
-            <div class="kurs-nr">${el.nr || ''}</div>
-            <div class="kurs-czas-abs">${el.czas}</div>
+            <div class="kurs-nazwa-box" style="${textStyling}">${el.nazwa}</div>
+            <div class="kurs-nr" style="${nrStyling}">${el.nr || ''}</div>
+            <div class="kurs-czas-abs" style="${timeStyling}">${el.czas}</div>
         `;
         lista.appendChild(wiersz);
     });
