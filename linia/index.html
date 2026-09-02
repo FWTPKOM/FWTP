@@ -69,18 +69,18 @@
 .legenda-litera { font-size: 16px; min-width: 22px; }
 
 /* =========================================================
-   WIZUALNA OŚ TRASY (PERFEKCYJNA GRAFIKA SVG 45 STOPNI)
+   WIZUALNA OŚ TRASY (PERFEKCYJNA GRAFIKA SVG 45 STOPNI WTP)
    ========================================================= */
 .lista-przystankow { display: flex; flex-direction: column; gap: 0; background: white; padding: 15px 0; border: 1px solid #ddd; border-radius: 8px; }
 .przystanek-btn { width: 100%; display: flex; align-items: stretch; padding: 0; background: transparent; border: none; cursor: pointer; text-align: left; transition: 0.15s; font-family: inherit; height: 44px; margin: 0; }
 .przystanek-btn:hover .przystanek-nazwa { color: #0066cc; }
 
 /* KONTENER WĘZŁA SVG */
-.node-wrapper { width: 100px; height: 44px; position: relative; flex-shrink: 0; }
+.node-wrapper { height: 44px; position: relative; flex-shrink: 0; }
 .node-wrapper svg { position: absolute; top: 0; left: 0; overflow: visible; z-index: 10; }
 
 /* NAZWY PRZYSTANKÓW */
-.przystanek-nazwa { flex: 1; display: flex; align-items: center; font-size: 16px; font-weight: bold; color: #222; transition: color 0.15s; z-index: 11; }
+.przystanek-nazwa { flex: 1; display: flex; align-items: center; font-size: 16px; font-weight: bold; color: #222; padding-left: 10px; transition: color 0.15s; z-index: 11; }
 .przystanek-btn.inactive .przystanek-nazwa { color: #999; font-weight: normal; }
 .przystanek-btn.inactive:hover .przystanek-nazwa { color: #555; }
 .przystanek-nr { color: #777; font-size: 13px; display: flex; align-items: center; padding: 0 15px; z-index: 11; }
@@ -103,7 +103,7 @@
 .kurs-przystanek { display: flex; align-items: stretch; height: 44px; }
 .kurs-przystanek.aktywny { background: #f8fbff; }
 .kurs-czas-rel { width: 60px; display: flex; align-items: center; justify-content: flex-end; padding-right: 12px; color: #888; font-size: 13px; }
-.kurs-nazwa-box { flex: 1; display: flex; align-items: center; padding-left: 0; font-size: 15px; font-weight: bold; }
+.kurs-nazwa-box { flex: 1; display: flex; align-items: center; padding-left: 10px; font-size: 15px; font-weight: bold; }
 .kurs-nazwa-box span { font-weight: normal; color: #777; font-size: 13px; margin-left: 6px; }
 .kurs-czas-abs { width: 65px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 15px; }
 
@@ -341,7 +341,7 @@ function pokazRozklad() {
 }
 
 /* =========================================================
-   ZAAWANSOWANY GENERATOR DRZEWA (GRAFU) TRASY WTP
+   ZAAWANSOWANY GENERATOR GRAFU OMIJAJĄCEGO OD LEWEJ STRONY
    ========================================================= */
 function pokazListePrzystankow(rozklad) {
     const kontener = document.getElementById("przystanki");
@@ -356,14 +356,13 @@ function pokazListePrzystankow(rozklad) {
     const wp = document.getElementById("warianty-pojemnik");
     const wprz = document.getElementById("warianty-przyciski");
     
-    // Budowanie Wariantów Paska Górnego (Rozpoczyna od wariantu z listy)
     if (wp && wprz) {
         const wariantyKierunku = zbierzWariantyDlaKierunku(kierunek);
         if (wariantyKierunku.length > 0) {
             wp.style.display = "flex";
             wprz.innerHTML = "";
             
-            // Domyślnie ładujemy pierwszy wariant z listy (brak opcji 'Wszystkie')
+            // Domyślnie ładuje pierwszy wariant z brzegu i ignoruje brak wyboru.
             if (aktualnyWariant === null || !wariantyKierunku.includes(aktualnyWariant)) {
                 aktualnyWariant = wariantyKierunku[0]; 
             }
@@ -386,7 +385,7 @@ function pokazListePrzystankow(rozklad) {
         return;
     }
 
-    // 1. ZBIERANIE ŚCIEŻEK
+    const N = przystanki.length;
     const tripPaths = {};
     przystanki.forEach((p, i) => {
         (p.kursy || []).forEach(k => {
@@ -408,45 +407,37 @@ function pokazListePrzystankow(rozklad) {
         }
     });
 
-    const edges = Object.values(edgesMap);
-
-    // 2. WYLICZANIE POZYCJI (Objazd dodaje przystanki po PRAWEJ. Bypass idzie do LEWEJ)
-    const indent = new Array(przystanki.length).fill(0);
-    edges.forEach(e => {
-        if (e.v - e.u > 1) {
-            for(let k = e.u + 1; k < e.v; k++) indent[k] = 1;
-        }
+    const allBypasses = [];
+    Object.values(edgesMap).forEach(e => {
+        if (e.v - e.u > 1) allBypasses.push(e);
     });
 
-    // Kalkulacja torów "po lewej" dla szarych linii skrótowych
+    // Przesunięcia szarych linii ZAWSZE na lewo!
     const leftTracks = [];
-    edges.forEach(e => {
-        e.leftTrack = 0;
-        if (indent[e.u] === 0 && indent[e.v] === 0 && e.v - e.u > 1) {
-            let t = 1;
-            while(true) {
-                if (!leftTracks[t]) leftTracks[t] = [];
-                let conflict = leftTracks[t].some(other => Math.max(e.u, other.u) < Math.min(e.v, other.v));
-                if (!conflict) {
-                    e.leftTrack = t;
-                    leftTracks[t].push(e);
-                    break;
-                }
-                t++;
+    allBypasses.forEach(e => {
+        let t = 1;
+        while(true) {
+            if (!leftTracks[t]) leftTracks[t] = [];
+            let conflict = leftTracks[t].some(other => Math.max(e.u, other.u) < Math.min(e.v, other.v));
+            if (!conflict) {
+                e.track = t;
+                leftTracks[t].push(e);
+                break;
             }
+            t++;
         }
     });
 
-    let maxLeftTrack = leftTracks.length > 0 ? leftTracks.length - 1 : 0;
+    let maxTrack = leftTracks.length > 0 ? leftTracks.length - 1 : 0;
     const ROW_HEIGHT = 44;
-    const TRACK_W = 22; // Szerokość skosu dająca idealne 45 stopni przy H=44!
-    const SPINE_X = 26 + maxLeftTrack * TRACK_W;
+    const TRACK_W = 22; // Idealny kąt 45 stopni dla 44px
+    const SPINE_X = 26 + maxTrack * TRACK_W;
+    const SVG_W = SPINE_X + 20;
 
-    // Wyłapywanie aktywnego wariantu
     let firstActiveIndex = -1;
     let lastActiveIndex = -1;
     przystanki.forEach((p, i) => {
-        let nodeActive = aktualnyWariant === null || (p.kursy || []).some(k => pobierzWariant(k) === aktualnyWariant);
+        let nodeActive = aktualnyWariant && (p.kursy || []).some(k => pobierzWariant(k) === aktualnyWariant);
         if (nodeActive) {
             if (firstActiveIndex === -1) firstActiveIndex = i;
             lastActiveIndex = i;
@@ -456,9 +447,8 @@ function pokazListePrzystankow(rozklad) {
     const lista = document.createElement("div");
     lista.className = "lista-przystankow";
 
-    // 3. GENEROWANIE KAŻDEGO WIERSZA
     przystanki.forEach((p, i) => {
-        let nodeActive = aktualnyWariant === null || (p.kursy || []).some(k => pobierzWariant(k) === aktualnyWariant);
+        let nodeActive = aktualnyWariant && (p.kursy || []).some(k => pobierzWariant(k) === aktualnyWariant);
         
         const btn = document.createElement("button");
         btn.type = "button";
@@ -467,82 +457,74 @@ function pokazListePrzystankow(rozklad) {
         let isFirstActive = (i === firstActiveIndex);
         let isLastActive = (i === lastActiveIndex);
         
-        // Czyste renderowanie pustego NŻ
+        // Prawidłowa kontrola stref NŻ (Niezamalowane środy)
         let isNz = (p.naZadanie === true || String(p.naZadanie) === "true" || p.nz === true || String(p.nz) === "true" || (p.nazwa && p.nazwa.includes("(NŻ)")));
 
-        let svgHtml = `<svg width="100" height="${ROW_HEIGHT}" style="display:block; overflow:visible;">`;
-
-        let activeLines = '';
         let inactiveLines = '';
+        let activeLines = '';
 
-        const drawLine = (x1, y1, x2, y2, active) => {
-            let color = active ? "#000" : "#ccc";
-            let width = active ? 2.5 : 2;
-            let str = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${width}" stroke-linecap="round" />`;
-            if (active) activeLines += str;
-            else inactiveLines += str;
+        const drawLine = (x1, y1, x2, y2, isActive) => {
+            let color = isActive ? "#000" : "#ccc";
+            let w = isActive ? 2.5 : 2;
+            let str = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${w}" stroke-linecap="round" />`;
+            if (isActive) activeLines += str; else inactiveLines += str;
         };
 
-        edges.forEach(e => {
-            let active = aktualnyWariant === null || e.warianty.has(aktualnyWariant);
-            
-            if (e.leftTrack > 0) {
-                // Skróty przechodzą po lewej stronie
-                let X_mid = SPINE_X - e.leftTrack * TRACK_W;
-                if (i === e.u) drawLine(SPINE_X, ROW_HEIGHT/2, X_mid, ROW_HEIGHT, active);
-                else if (i > e.u && i < e.v - 1) drawLine(X_mid, 0, X_mid, ROW_HEIGHT, active);
-                else if (i === e.v - 1) drawLine(X_mid, 0, X_mid, ROW_HEIGHT, active);
-                else if (i === e.v) drawLine(X_mid, 0, SPINE_X, ROW_HEIGHT/2, active);
-            } else {
-                // Prawa strona i główna oś
-                let X_start = SPINE_X + indent[e.u] * TRACK_W;
-                let X_end = SPINE_X + indent[e.v] * TRACK_W;
-                
-                if (X_start === X_end) {
-                    if (i === e.u) drawLine(X_start, ROW_HEIGHT/2, X_start, ROW_HEIGHT, active);
-                    else if (i > e.u && i < e.v) drawLine(X_start, 0, X_start, ROW_HEIGHT, active);
-                    else if (i === e.v) drawLine(X_start, 0, X_start, ROW_HEIGHT/2, active);
-                } else {
-                    // Załamania pod kątem 45 stopni dla objazdów
-                    if (e.v - e.u === 1) {
-                        if (i === e.u) drawLine(X_start, ROW_HEIGHT/2, X_end, ROW_HEIGHT, active);
-                        else if (i === e.v) drawLine(X_end, 0, X_end, ROW_HEIGHT/2, active);
-                    } else {
-                        if (i === e.u) drawLine(X_start, ROW_HEIGHT/2, X_end, ROW_HEIGHT, active);
-                        else if (i > e.u && i < e.v) drawLine(X_end, 0, X_end, ROW_HEIGHT, active);
-                        else if (i === e.v) drawLine(X_end, 0, X_end, ROW_HEIGHT/2, active);
-                    }
-                }
+        // Rysujemy środek Osi (Spine)
+        if (i > 0) {
+            let edge = edgesMap[(i-1) + "," + i];
+            let isActive = edge && edge.warianty.has(aktualnyWariant);
+            drawLine(SPINE_X, 0, SPINE_X, ROW_HEIGHT/2, isActive);
+        }
+        if (i < N - 1) {
+            let edge = edgesMap[i + "," + (i+1)];
+            let isActive = edge && edge.warianty.has(aktualnyWariant);
+            drawLine(SPINE_X, ROW_HEIGHT/2, SPINE_X, ROW_HEIGHT, isActive);
+        }
+
+        // Rysujemy obejścia (Bypassy z LEWEJ)
+        allBypasses.forEach(e => {
+            let isActive = e.warianty.has(aktualnyWariant);
+            let X_b = SPINE_X - e.track * TRACK_W;
+
+            if (i === e.u) {
+                drawLine(SPINE_X, ROW_HEIGHT/2, X_b, ROW_HEIGHT, isActive);
+            } else if (i === e.v) {
+                drawLine(X_b, 0, SPINE_X, ROW_HEIGHT/2, isActive);
+            } else if (i > e.u && i < e.v) {
+                drawLine(X_b, 0, X_b, ROW_HEIGHT, isActive);
             }
         });
 
         // Węzeł SVG (na wierzchu)
-        let nodeX = SPINE_X + indent[i] * TRACK_W;
         let fill = nodeActive ? (isNz ? "#fff" : (isFirstActive ? "#000" : "#e42313")) : (isNz ? "#fff" : "#ccc");
         let stroke = nodeActive ? (isFirstActive ? "#000" : "#e42313") : "#ccc";
-        let sWidth = isNz ? "2.5" : "0";
-        let r = 5.5;
-
+        let r = isNz ? 4.5 : 6;
+        
         let nodeSvg = '';
         if (isFirstActive || isLastActive) {
             if (isNz) {
-                nodeSvg = `<rect x="${nodeX - r}" y="${(ROW_HEIGHT / 2) - r}" width="${r*2}" height="${r*2}" fill="#fff" stroke="${stroke}" stroke-width="2.5" />`;
+                nodeSvg = `<rect x="${SPINE_X - r}" y="${(ROW_HEIGHT/2) - r}" width="${r*2}" height="${r*2}" fill="#fff" stroke="${stroke}" stroke-width="3" />`;
             } else {
-                nodeSvg = `<rect x="${nodeX - r - 1}" y="${(ROW_HEIGHT / 2) - r - 1}" width="${(r+1)*2}" height="${(r+1)*2}" fill="${fill}" stroke="none" />`;
+                nodeSvg = `<rect x="${SPINE_X - 6}" y="${(ROW_HEIGHT/2) - 6}" width="12" height="12" fill="${fill}" stroke="none" />`;
             }
         } else {
             if (isNz) {
-                nodeSvg = `<circle cx="${nodeX}" cy="${ROW_HEIGHT / 2}" r="${r}" fill="#fff" stroke="${stroke}" stroke-width="2.5" />`;
+                nodeSvg = `<circle cx="${SPINE_X}" cy="${ROW_HEIGHT/2}" r="5" fill="#fff" stroke="${stroke}" stroke-width="3" />`;
             } else {
-                nodeSvg = `<circle cx="${nodeX}" cy="${ROW_HEIGHT / 2}" r="${r+1}" fill="${fill}" stroke="none" />`;
+                nodeSvg = `<circle cx="${SPINE_X}" cy="${ROW_HEIGHT/2}" r="6" fill="${fill}" stroke="none" />`;
             }
         }
 
-        svgHtml += inactiveLines + activeLines + nodeSvg + `</svg>`;
+        let svgHtml = `<svg width="${SVG_W}" height="${ROW_HEIGHT}" style="display:block; overflow:visible;">
+            ${inactiveLines}
+            ${activeLines}
+            ${nodeSvg}
+        </svg>`;
 
         const nodeWrapper = document.createElement("div");
         nodeWrapper.className = "node-wrapper";
-        nodeWrapper.style.width = (SPINE_X + TRACK_W + 15) + "px"; // Dynamiczne poszerzenie gdy potrzebne
+        nodeWrapper.style.width = SVG_W + "px";
         nodeWrapper.innerHTML = svgHtml;
 
         const nazwa = document.createElement("div");
@@ -678,34 +660,33 @@ function pokazCalyKurs(nrKursu) {
         let diff = czasWMinutach(el.czas) - pierwszyCzas;
         if (diff < 0) diff += 24 * 60;
 
-        let svgHtml = `<svg width="80" height="44" style="display:block; overflow:visible;">`;
-        if (index > 0) svgHtml += `<line x1="26" y1="0" x2="26" y2="22" stroke="#000" stroke-width="2.5" />`;
-        if (index < kursPrzystanki.length - 1) svgHtml += `<line x1="26" y1="22" x2="26" y2="44" stroke="#000" stroke-width="2.5" />`;
+        let svgHtml = `<svg width="50" height="44" style="display:block; overflow:visible;">`;
+        if (index > 0) svgHtml += `<line x1="25" y1="0" x2="25" y2="22" stroke="#000" stroke-width="2.5" />`;
+        if (index < kursPrzystanki.length - 1) svgHtml += `<line x1="25" y1="22" x2="25" y2="44" stroke="#000" stroke-width="2.5" />`;
         
         let isNz = el.nz === true;
         let fill = isNz ? "#fff" : (index === 0 ? "#000" : "#e42313");
         let stroke = index === 0 ? "#000" : "#e42313";
-        let sWidth = isNz ? "2.5" : "0";
         let r = 5.5;
 
         if (index === 0 || index === kursPrzystanki.length - 1) {
             if (isNz) {
-                svgHtml += `<rect x="${26 - r}" y="${22 - r}" width="${r*2}" height="${r*2}" fill="#fff" stroke="${stroke}" stroke-width="2.5" />`;
+                svgHtml += `<rect x="${25 - r}" y="${22 - r}" width="${r*2}" height="${r*2}" fill="#fff" stroke="${stroke}" stroke-width="3" />`;
             } else {
-                svgHtml += `<rect x="${26 - r - 1}" y="${22 - r - 1}" width="${(r+1)*2}" height="${(r+1)*2}" fill="${fill}" stroke="none" />`;
+                svgHtml += `<rect x="${25 - 6}" y="${22 - 6}" width="12" height="12" fill="${fill}" stroke="none" />`;
             }
         } else {
             if (isNz) {
-                svgHtml += `<circle cx="26" cy="22" r="${r}" fill="#fff" stroke="${stroke}" stroke-width="2.5" />`;
+                svgHtml += `<circle cx="25" cy="22" r="5" fill="#fff" stroke="${stroke}" stroke-width="3" />`;
             } else {
-                svgHtml += `<circle cx="26" cy="22" r="${r+1}" fill="${fill}" stroke="none" />`;
+                svgHtml += `<circle cx="25" cy="22" r="6" fill="${fill}" stroke="none" />`;
             }
         }
         svgHtml += `</svg>`;
 
         wiersz.innerHTML = `
             <div class="kurs-czas-rel">${diff} min</div>
-            <div class="node-wrapper">${svgHtml}</div>
+            <div class="node-wrapper" style="width: 50px;">${svgHtml}</div>
             <div class="kurs-nazwa-box">${el.nazwa}<span>${el.nr ? el.nr : ''}</span></div>
             <div class="kurs-czas-abs">${el.czas}</div>
         `;
