@@ -86,9 +86,7 @@ svg .wezel-staly { stroke: none !important; }
 
 /* NAZWY I NUMERY PRZYSTANKÓW */
 .przystanek-nazwa { flex: 1; display: flex; align-items: center; font-size: 16px; font-weight: bold; color: #000; padding-left: 12px; transition: color 0.15s; z-index: 11; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.przystanek-nazwa .nz-tag { font-size: 13px; font-weight: normal; color: #666; margin-left: 6px; }
 .przystanek-btn.inactive .przystanek-nazwa { color: #999; font-weight: normal; }
-.przystanek-btn.inactive .przystanek-nazwa .nz-tag { color: #bbb; }
 .przystanek-btn.inactive:hover .przystanek-nazwa { color: #555; }
 .przystanek-nr { margin-left: auto; display: flex; align-items: center; padding: 0 16px 0 10px; font-size: 14px; font-weight: bold; color: #666; font-family: "Barlow Semi Condensed", sans-serif; flex-shrink: 0; z-index: 11; }
 .przystanek-btn.inactive .przystanek-nr { color: #ccc; }
@@ -108,7 +106,6 @@ svg .wezel-staly { stroke: none !important; }
 .kurs-przystanek.aktywny { background: #f8fbff; }
 .kurs-czas-rel { width: 60px; display: flex; align-items: center; justify-content: flex-end; padding-right: 12px; color: #888; font-size: 13px; flex-shrink: 0; }
 .kurs-nazwa-box { flex: 1; display: flex; align-items: center; padding-left: 12px; font-size: 15px; font-weight: bold; color: #000; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.kurs-nazwa-box .nz-tag { font-weight: normal; color: #666; font-size: 13px; margin-left: 6px; }
 .kurs-nr { margin-left: auto; display: flex; align-items: center; padding-right: 15px; font-size: 13px; font-weight: bold; color: #777; font-family: "Barlow Semi Condensed", sans-serif; flex-shrink: 0; }
 .kurs-czas-abs { width: 65px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 15px; flex-shrink: 0; }
 
@@ -187,11 +184,6 @@ if (!numerLinii) {
 } else {
     document.getElementById("numerLinii").textContent = numerLinii;
     pobierzDane();
-}
-
-// NOWA FUNKCJA DO ROZPOZNAWANIA PRZYSTANKÓW NA ŻĄDANIE
-function czyPrzystanekNz(p) {
-    return p.naZadanie === true || p.naZadanie === "true";
 }
 
 function usunPoleGodziny(tekst) {
@@ -337,6 +329,9 @@ function zbierzWariantyDlaKierunku(kierunek) {
     return Array.from(set).sort();
 }
 
+/* =========================================================
+   ZARZĄDZANIE NAWIGACJĄ I PRZYCISKIEM POWROTU
+   ========================================================= */
 function aktualizujPrzyciskPowrotu() {
     const link = document.getElementById("linkPowrotu");
     if (!link) return;
@@ -401,6 +396,9 @@ function pokazRozklad() {
     pokazRozkladWybranegoPrzystanku(rozklad, akt);
 }
 
+/* =========================================================
+   GENERATOR TRASY (CHANNEL ROUTING: PROSTY A, ODNOGI PRAWO/LEWO)
+   ========================================================= */
 function pokazListePrzystankow(rozklad) {
     const kontener = document.getElementById("przystanki");
     const kierunek = rozklad.kierunki[aktualnyKierunek];
@@ -420,6 +418,7 @@ function pokazListePrzystankow(rozklad) {
             wp.style.display = "flex";
             wprz.innerHTML = "";
             
+            // Główny wariant A domyślnie aktywny
             if (aktualnyWariant === null || !wariantyKierunku.includes(aktualnyWariant)) {
                 if (wariantyKierunku.includes("A")) aktualnyWariant = "A";
                 else if (wariantyKierunku.includes("")) aktualnyWariant = "";
@@ -447,12 +446,14 @@ function pokazListePrzystankow(rozklad) {
 
     const N = przystanki.length;
 
+    // 1. Wyznaczenie głównej osi (Wariant A)
     let mainWariant = wariantyKierunku.includes("A") ? "A" : (wariantyKierunku.includes("") ? "" : wariantyKierunku[0]);
     let isOnMainAxis = new Array(N).fill(false);
     przystanki.forEach((p, i) => {
         isOnMainAxis[i] = (p.kursy || []).some(k => pobierzWariant(k) === mainWariant);
     });
 
+    // 2. Zbieranie unikalnych krawędzi kursów
     const tripPaths = {};
     przystanki.forEach((p, i) => {
         (p.kursy || []).forEach(k => {
@@ -476,10 +477,37 @@ function pokazListePrzystankow(rozklad) {
 
     const edges = Object.values(edgesMap);
 
-    // Sztywne ustawienie parametrów rysowania, aby zapobiec skakaniu struktury.
+    // 3. Klasyfikacja torów:
+    // track = 0: Główny prosty pion na osi (SPINE_X)
+    // track = 1: Odgałęzienie w prawo dla przystanków objazdowych (RIGHT_X)
+    // track = -1: Omijanie przystanków głównej osi po lewej (LEFT_X)
+    let hasLeftBypass = false;
+    edges.forEach(e => {
+        if (isOnMainAxis[e.u] && isOnMainAxis[e.v]) {
+            if (e.v - e.u === 1) {
+                e.track = 0;
+            } else {
+                // Sprawdź czy między u a v są stacje głównej osi, czy tylko odnogi
+                let skipsMain = false;
+                for (let k = e.u + 1; k < e.v; k++) {
+                    if (isOnMainAxis[k]) { skipsMain = true; break; }
+                }
+                if (skipsMain) {
+                    e.track = -1;
+                    hasLeftBypass = true;
+                } else {
+                    e.track = 0; // Jedzie prosto osią główną obok stacji z odnogi
+                }
+            }
+        } else {
+            e.track = 1; // Odgałęzienie na prawo
+        }
+    });
+
     const ROW_HEIGHT = 44;
-    const TRACK_W = 22; 
-    const SPINE_X = 26; 
+    const TRACK_W = 22; // Precyzyjny kąt 45 stopni (dx=22, dy=22)
+    const SPINE_X = hasLeftBypass ? 44 : 26;
+    const LEFT_X = SPINE_X - TRACK_W;
     const RIGHT_X = SPINE_X + TRACK_W;
     const SVG_W = RIGHT_X + 16;
 
@@ -505,8 +533,8 @@ function pokazListePrzystankow(rozklad) {
         let isFirstActive = (i === firstActiveIndex);
         let isLastActive = (i === lastActiveIndex);
         
-        // WYWOŁANIE NOWEJ FUNKCJI DLA (NŻ)
-        let isNz = czyPrzystanekNz(p);
+        // Rygorystyczna weryfikacja flagi Na Żądanie
+        let isNz = (p.naZadanie === true || p.naZadanie === "true" || p.nz === true || p.nz === "true" || (typeof p.nazwa === "string" && p.nazwa.includes("(NŻ)")));
 
         let inactiveLines = '';
         let activeLines = '';
@@ -519,22 +547,34 @@ function pokazListePrzystankow(rozklad) {
             else inactiveLines += str;
         };
 
+        // Rysowanie połączeń
         edges.forEach(e => {
             let isEdgeActive = e.warianty.has(aktualnyWariant);
-            let startX = isOnMainAxis[e.u] ? SPINE_X : RIGHT_X;
-            let endX = isOnMainAxis[e.v] ? SPINE_X : RIGHT_X;
+            
+            if (e.track === 0) {
+                // Linia prosta na głównej osi
+                if (i === e.u) drawLine(SPINE_X, ROW_HEIGHT/2, SPINE_X, ROW_HEIGHT, isEdgeActive);
+                else if (i > e.u && i < e.v) drawLine(SPINE_X, 0, SPINE_X, ROW_HEIGHT, isEdgeActive);
+                else if (i === e.v) drawLine(SPINE_X, 0, SPINE_X, ROW_HEIGHT/2, isEdgeActive);
+            } 
+            else if (e.track === 1) {
+                // Odnoga w prawo
+                let startX = isOnMainAxis[e.u] ? SPINE_X : RIGHT_X;
+                let endX = isOnMainAxis[e.v] ? SPINE_X : RIGHT_X;
 
-            if (startX === endX) {
-                if (i === e.u) drawLine(startX, ROW_HEIGHT/2, startX, ROW_HEIGHT, isEdgeActive);
-                else if (i > e.u && i < e.v) drawLine(startX, 0, startX, ROW_HEIGHT, isEdgeActive);
-                else if (i === e.v) drawLine(startX, 0, startX, ROW_HEIGHT/2, isEdgeActive);
-            } else {
-                if (i === e.u) drawLine(startX, ROW_HEIGHT/2, endX, ROW_HEIGHT, isEdgeActive);
-                else if (i === e.v) drawLine(endX, 0, endX, ROW_HEIGHT/2, isEdgeActive);
-                else if (i > e.u && i < e.v) drawLine(endX, 0, endX, ROW_HEIGHT, isEdgeActive);
+                if (i === e.u) drawLine(startX, ROW_HEIGHT/2, RIGHT_X, ROW_HEIGHT, isEdgeActive);
+                else if (i > e.u && i < e.v) drawLine(RIGHT_X, 0, RIGHT_X, ROW_HEIGHT, isEdgeActive);
+                else if (i === e.v) drawLine(RIGHT_X, 0, endX, ROW_HEIGHT/2, isEdgeActive);
+            }
+            else if (e.track === -1) {
+                // Ominięcie w lewo
+                if (i === e.u) drawLine(SPINE_X, ROW_HEIGHT/2, LEFT_X, ROW_HEIGHT, isEdgeActive);
+                else if (i > e.u && i < e.v) drawLine(LEFT_X, 0, LEFT_X, ROW_HEIGHT, isEdgeActive);
+                else if (i === e.v) drawLine(LEFT_X, 0, SPINE_X, ROW_HEIGHT/2, isEdgeActive);
             }
         });
 
+        // Węzeł przystanku
         let nodeX = isOnMainAxis[i] ? SPINE_X : RIGHT_X;
         let strokeColor = nodeActive ? (isFirstActive ? "#000" : "#e42313") : "#ccc";
         let fillColor = nodeActive ? (isFirstActive ? "#000" : "#e42313") : "#ccc";
@@ -567,13 +607,9 @@ function pokazListePrzystankow(rozklad) {
 
         const nazwa = document.createElement("div");
         nazwa.className = "przystanek-nazwa";
-        // UŻYCIE INNERHTML ABY DODATKOWY TAG SIĘ WYRENDEROWAŁ
-        if (isNz) {
-            nazwa.innerHTML = `${p.nazwa || "Przystanek"} <span class="nz-tag">na żądanie (nż)</span>`;
-        } else {
-            nazwa.textContent = p.nazwa || "Przystanek";
-        }
+        nazwa.textContent = p.nazwa || "Przystanek";
 
+        // Numer przystanku po prawej stronie
         const nr = document.createElement("div");
         nr.className = "przystanek-nr";
         nr.textContent = p.nr || "";
@@ -616,11 +652,9 @@ function pokazRozkladWybranegoPrzystanku(rozklad, przystanek) {
     document.getElementById("warianty-pojemnik").style.display = "none";
     kontener.innerHTML = "";
 
-    const isNz = czyPrzystanekNz(przystanek);
-
     const naglowek = document.createElement("div");
     naglowek.className = "naglowek-przystanku-widok";
-    naglowek.innerHTML = `<div class="nazwa">${przystanek.nazwa} ${isNz ? '<span style="font-size:18px; font-weight:normal; color:#666;">(nż)</span>' : ''}</div><div class="numer">${przystanek.nr ? 'Słupek: ' + przystanek.nr : ''} <span style="margin-left:8px; color:#888;">${isNz ? '• przystanek na żądanie' : '• przystanek stały'}</span></div>`;
+    naglowek.innerHTML = `<div class="nazwa">${przystanek.nazwa}</div><div class="numer">${przystanek.nr ? 'Słupek: ' + przystanek.nr : ''}</div>`;
     kontener.appendChild(naglowek);
 
     const blok = document.createElement("div");
@@ -687,7 +721,7 @@ function pokazCalyKurs(nrKursu) {
 
     przystankiK.forEach((p) => {
         const k = (p.kursy || []).find(x => x.numer === nrKursu);
-        let isNz = czyPrzystanekNz(p);
+        let isNz = (p.naZadanie === true || p.naZadanie === "true" || p.nz === true || p.nz === "true" || (typeof p.nazwa === "string" && p.nazwa.includes("(NŻ)")));
         if (k) kursPrzystanki.push({ nazwa: p.nazwa, nr: p.nr, nz: isNz, czas: k.czas });
     });
 
@@ -741,7 +775,7 @@ function pokazCalyKurs(nrKursu) {
         wiersz.innerHTML = `
             <div class="kurs-czas-rel">${diff} min</div>
             <div class="node-wrapper" style="width: 40px;">${svgHtml}</div>
-            <div class="kurs-nazwa-box">${el.nazwa}${el.nz ? ' <span class="nz-tag">na żądanie (nż)</span>' : ''}</div>
+            <div class="kurs-nazwa-box">${el.nazwa}</div>
             <div class="kurs-nr">${el.nr || ''}</div>
             <div class="kurs-czas-abs">${el.czas}</div>
         `;
