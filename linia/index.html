@@ -181,7 +181,7 @@ const parametry = new URLSearchParams(window.location.search);
 numerLinii = parametry.get("linia");
 
 if (!numerLinii) {
-    pokazBlad("Nie podano numeru linii.", "Użyj adresu w rodzaju: ?linia=126");
+    pokazBlad("Nie podano numeru linii.", "Wybierz linię z menu głównego.");
 } else {
     document.getElementById("numerLinii").textContent = numerLinii;
     pobierzDane();
@@ -213,7 +213,7 @@ async function pobierzDane() {
     const adres = "../dane/" + encodeURIComponent(numerLinii) + ".json";
     try {
         const odpowiedz = await fetch(adres, { cache: "no-cache" });
-        if (!odpowiedz.ok) throw new Error("Nie znaleziono pliku JSON.");
+        if (!odpowiedz.ok) throw new Error("Nie znaleziono pliku JSON dla linii " + numerLinii);
         let tekst = await odpowiedz.text();
         try { daneLinii = JSON.parse(tekst); } catch (e1) { daneLinii = JSON.parse(usunPoleGodziny(tekst)); }
         uruchomStrone();
@@ -424,7 +424,6 @@ function pokazListePrzystankow(rozklad) {
 
     // Dzielimy krawędzie na te z lewej (skróty) i prawej (podjazdy)
     const leftTracks = [];
-    const rightTracks = [];
 
     edges.forEach(e => {
         // Jeśli krawędź łączy punkty na głównej osi i pomija coś po drodze -> Omija z LEWEJ
@@ -662,7 +661,6 @@ function pokazCalyKurs(nrKursu) {
 
     przystankiK.forEach((p) => {
         const k = (p.kursy || []).find(x => x.numer === nrKursu);
-        // Rygorystyczny NŻ
         let isNz = p.naZadanie === true || p.nz === true || (p.nazwa && p.nazwa.includes("(NŻ)"));
         if (k) kursPrzystanki.push({ nazwa: p.nazwa, nr: p.nr, nz: isNz, czas: k.czas });
     });
@@ -696,7 +694,7 @@ function pokazCalyKurs(nrKursu) {
         if (index > 0) svgHtml += `<line x1="26" y1="0" x2="26" y2="22" stroke="#000" stroke-width="2.5" />`;
         if (index < kursPrzystanki.length - 1) svgHtml += `<line x1="26" y1="22" x2="26" y2="44" stroke="#000" stroke-width="2.5" />`;
         
-        let isNz = el.nz;
+        let isNz = el.nz === true;
         let fill = isNz ? "#fff" : (index === 0 ? "#000" : "#e42313");
         let stroke = index === 0 ? "#000" : "#e42313";
         let r = 5;
@@ -728,6 +726,44 @@ function pokazCalyKurs(nrKursu) {
     widok.appendChild(lista);
     kontener.appendChild(widok);
 }
+
+// =========================================================
+// NOWE: BŁĄD I EVENT WSTECZ
+// =========================================================
+function pokazBlad(tytul, opis) {
+    document.getElementById("numerLinii").textContent = "Błąd";
+    document.getElementById("trasa").textContent = "";
+    document.getElementById("kierunki").innerHTML = "";
+    document.getElementById("typRozkladu").style.display = "none";
+    const wp = document.getElementById("warianty-pojemnik");
+    if (wp) wp.style.display = "none";
+    document.getElementById("przystanki").innerHTML = '<div class="blad"><strong>' + tytul + '</strong>' + opis + '</div>';
+}
+
+window.addEventListener("popstate", function() {
+    const url = new URL(window.location.href);
+    const parametrKierunku = url.searchParams.get("kierunek");
+    const parametrPrzystanku = url.searchParams.get("przystanek");
+    const liczbaKierunku = Number(parametrKierunku);
+    
+    aktualnyKierunek = Number.isInteger(liczbaKierunku) && liczbaKierunku >= 0 ? liczbaKierunku : 0;
+    wybranyPrzystanek = null;
+    aktualnyWariant = null;
+
+    const rozklad = znajdzRozklad();
+    if (parametrPrzystanku && rozklad && Array.isArray(rozklad.kierunki)) {
+        const kierunek = rozklad.kierunki[aktualnyKierunek];
+        if (kierunek && Array.isArray(kierunek.przystanki)) {
+            const znaleziony = kierunek.przystanki.find(function(przystanek) {
+                return String(przystanek.nr ?? "").trim() === String(parametrPrzystanku).trim();
+            });
+            if (znaleziony) wybranyPrzystanek = znaleziony;
+        }
+    }
+    pokazRozklad();
+});
+
+console.log("FWTP – linia/index.html uruchomiony");
 
 </script>
 
