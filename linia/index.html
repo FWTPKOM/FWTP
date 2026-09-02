@@ -12,9 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600&display=swap" rel="stylesheet">
 
 <style>
-/* =========================================================
-   GŁÓWNY KONTENER I NAGŁÓWKI
-   ========================================================= */
+/* GŁÓWNY KONTENER I NAGŁÓWKI */
 .rozkład { max-width: 1100px; margin: 30px auto; padding: 0 15px; }
 .powrot { display: inline-block; margin-bottom: 20px; color: #0066cc; text-decoration: none; font-weight: bold; }
 .powrot:hover { text-decoration: underline; }
@@ -68,17 +66,19 @@
 .legenda-litera, .legenda-separator, .legenda-opis { color: black; font-size: 15px; }
 .legenda-litera { font-size: 16px; min-width: 22px; }
 
-/* WIZUALNA OŚ TRASY (ZAAWANSOWANA GRAFIKA SVG) */
+/* =========================================================
+   WIZUALNA OŚ TRASY (PERFEKCYJNA GRAFIKA SVG 45 STOPNI)
+   ========================================================= */
 .lista-przystankow { display: flex; flex-direction: column; gap: 0; background: white; padding: 10px 0; border: 1px solid #ddd; border-radius: 8px; }
 .przystanek-btn { width: 100%; display: flex; align-items: stretch; padding: 0; background: transparent; border: none; cursor: pointer; text-align: left; transition: 0.15s; font-family: inherit; height: 44px; margin: 0; }
 .przystanek-btn:hover .przystanek-nazwa { color: #0066cc; }
 
 /* KONTENER WĘZŁA SVG */
-.node-wrapper { width: 80px; height: 44px; position: relative; flex-shrink: 0; }
-.node-wrapper svg { position: absolute; top: 0; left: 0; overflow: visible; }
+.node-wrapper { width: 45px; height: 44px; position: relative; flex-shrink: 0; }
+.node-wrapper svg { position: absolute; top: 0; left: 0; overflow: visible; z-index: 10; }
 
-/* NAZWY PRZYSTANKÓW (Wyśrodkowane w pionie) */
-.przystanek-nazwa { flex: 1; display: flex; align-items: center; font-size: 16px; font-weight: bold; color: #222; padding-left: 5px; transition: color 0.15s; }
+/* NAZWY PRZYSTANKÓW */
+.przystanek-nazwa { flex: 1; display: flex; align-items: center; font-size: 16px; font-weight: bold; color: #222; padding-left: 20px; transition: color 0.15s; z-index: 11;}
 .przystanek-btn.inactive .przystanek-nazwa { color: #999; font-weight: normal; }
 .przystanek-btn.inactive:hover .przystanek-nazwa { color: #555; }
 
@@ -90,7 +90,7 @@
 .naglowek-przystanku-widok .nazwa { font-size: 26px; font-weight: bold; margin-bottom: 5px; }
 .naglowek-przystanku-widok .numer { color: #777; font-size: 14px; }
 
-/* WIDOK CAŁEGO KURSU (PROSTA LINIA) */
+/* WIDOK CAŁEGO KURSU */
 .kurs-widok { background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 15px; }
 .kurs-naglowek { background: #555; color: white; padding: 15px; font-family: "Barlow Semi Condensed", sans-serif; }
 .kurs-naglowek .kurs-tytul { font-size: 22px; margin-bottom: 5px; font-weight: 600; }
@@ -99,7 +99,7 @@
 .kurs-przystanek { display: flex; align-items: stretch; height: 44px; }
 .kurs-przystanek.aktywny { background: #f8fbff; }
 .kurs-czas-rel { width: 60px; display: flex; align-items: center; justify-content: flex-end; padding-right: 12px; color: #888; font-size: 13px; }
-.kurs-nazwa-box { flex: 1; display: flex; align-items: center; padding-left: 5px; font-size: 15px; font-weight: bold; }
+.kurs-nazwa-box { flex: 1; display: flex; align-items: center; padding-left: 20px; font-size: 15px; font-weight: bold; }
 .kurs-nazwa-box span { font-weight: normal; color: #777; font-size: 13px; margin-left: 6px; }
 .kurs-czas-abs { width: 65px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 15px; }
 
@@ -352,14 +352,14 @@ function pokazListePrzystankow(rozklad) {
     const wp = document.getElementById("warianty-pojemnik");
     const wprz = document.getElementById("warianty-przyciski");
     
-    // Budowanie Wariantów Paska Górnego (Rozpoczyna od A, brak "Cały schemat")
+    // Budowanie Wariantów Paska Górnego (Rozpoczyna od pierwszego z brzegu)
     if (wp && wprz) {
         const wariantyKierunku = zbierzWariantyDlaKierunku(kierunek);
         if (wariantyKierunku.length > 0) {
             wp.style.display = "flex";
             wprz.innerHTML = "";
             
-            // Domyślnie ładujemy pierwszy wariant z listy (Zazwyczaj jest to wariant "A")
+            // Domyślnie ładujemy pierwszy wariant z listy jeśli null
             if (aktualnyWariant === null || !wariantyKierunku.includes(aktualnyWariant)) {
                 aktualnyWariant = wariantyKierunku[0]; 
             }
@@ -404,17 +404,32 @@ function pokazListePrzystankow(rozklad) {
         }
     });
 
-    // 2. OBLICZANIE WCIĘĆ (DETOUR) - Objazd dla pomijanych przystanków
-    const indent = new Array(przystanki.length).fill(0);
-    Object.values(edgesMap).forEach(edge => {
-        if (edge.v - edge.u > 1) {
-            for(let k = edge.u + 1; k < edge.v; k++) {
-                indent[k] = 1;
+    const edges = Object.values(edgesMap);
+
+    // 2. PRZYPISYWANIE TORÓW (TRACKÓW) DO KRAWĘDZI OBKAZDOWYCH
+    // Główna oś (zawsze węzły + zwykłe przejścia u do u+1) to track 0.
+    const tracks = []; 
+    edges.forEach(e => {
+        if (e.v === e.u + 1) {
+            e.track = 0; // Trasa główna
+        } else {
+            // Szukamy wolnego toru obok (omijającego linię prostą)
+            let t = 1;
+            while(true) {
+                if (!tracks[t]) tracks[t] = [];
+                // Sprawdzamy czy dany tor t nakłada się z obecnym objazdem
+                let conflict = tracks[t].some(other => Math.max(e.u, other.u) < Math.min(e.v, other.v));
+                if (!conflict) {
+                    e.track = t;
+                    tracks[t].push(e);
+                    break;
+                }
+                t++;
             }
         }
     });
 
-    // Wyłapywanie pierwszego i ostatniego aktywnego przystanku wariantu
+    // Wyłapywanie pierwszego i ostatniego aktywnego przystanku
     let firstActiveIndex = -1;
     let lastActiveIndex = -1;
     przystanki.forEach((p, i) => {
@@ -428,8 +443,7 @@ function pokazListePrzystankow(rozklad) {
     const lista = document.createElement("div");
     lista.className = "lista-przystankow";
     const ROW_HEIGHT = 44;
-    const SPINE_X = 26;
-    const DETOUR_X = 56;
+    const TRACK_W = 22; // Szerokość skosu. dy=22, dx=22 -> daje to nam idealnie 45 stopni!
 
     // 3. GENEROWANIE KAŻDEGO WIERSZA TRASY
     przystanki.forEach((p, i) => {
@@ -442,83 +456,76 @@ function pokazListePrzystankow(rozklad) {
         let isFirstActive = (i === firstActiveIndex);
         let isLastActive = (i === lastActiveIndex);
         
-        // Prawidłowa kontrola flagi Na Żądanie
+        // Prawidłowa kontrola NŻ - puste koła, zamalowane kwadraty itp.
         let isNz = (p.naZadanie === true || String(p.naZadanie) === "true" || p.nz === true || String(p.nz) === "true" || (p.nazwa && p.nazwa.includes("(NŻ)")));
 
-        let nodeX = indent[i] === 0 ? SPINE_X : DETOUR_X;
+        let maxTrack = tracks.length > 0 ? tracks.length - 1 : 0;
+        let svgWidth = 26 + (maxTrack + 1) * TRACK_W + 10;
+        let svgHtml = `<svg width="${svgWidth}" height="${ROW_HEIGHT}" style="display:block; overflow:visible;">`;
 
-        // RYSOWANIE KRAWĘDZI SVG
-        let inactiveLines = '';
         let activeLines = '';
+        let inactiveLines = '';
 
-        Object.values(edgesMap).forEach(e => {
-            let startPt = { x: indent[e.u] ? DETOUR_X : SPINE_X, y: e.u * ROW_HEIGHT + (ROW_HEIGHT / 2) };
-            let endPt = { x: indent[e.v] ? DETOUR_X : SPINE_X, y: e.v * ROW_HEIGHT + (ROW_HEIGHT / 2) };
-            
-            let yStartGlobal = Math.max(startPt.y, i * ROW_HEIGHT);
-            let yEndGlobal = Math.min(endPt.y, i * ROW_HEIGHT + ROW_HEIGHT);
-            
-            if (yStartGlobal < yEndGlobal) {
-                let dy = endPt.y - startPt.y;
-                let dx = endPt.x - startPt.x;
-                let t1 = (yStartGlobal - startPt.y) / dy;
-                let t2 = (yEndGlobal - startPt.y) / dy;
-                
-                let x1 = startPt.x + t1 * dx;
-                let x2 = startPt.x + t2 * dx;
-                let y1 = yStartGlobal - i * ROW_HEIGHT;
-                let y2 = yEndGlobal - i * ROW_HEIGHT;
-                
-                let activeEdge = aktualnyWariant === null || e.warianty.has(aktualnyWariant);
-                let lineStr = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${activeEdge ? '#000' : '#ccc'}" stroke-width="${activeEdge ? 2.5 : 2}" />`;
-                
-                if (activeEdge) activeLines += lineStr;
-                else inactiveLines += lineStr;
+        const drawLine = (x1, y1, x2, y2, active) => {
+            let color = active ? "#000" : "#ccc";
+            let width = active ? 2.5 : 2;
+            let str = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="${width}" stroke-linecap="round" />`;
+            if (active) activeLines += str;
+            else inactiveLines += str;
+        };
+
+        // RYSOWANIE KRAWĘDZI SVG DLA DANEGO WIERSZA
+        edges.forEach(e => {
+            let active = aktualnyWariant === null || e.warianty.has(aktualnyWariant);
+            let t = e.track;
+            let X_spine = 26;
+            let X_track = 26 + t * TRACK_W;
+
+            if (e.u === i && e.v === i + 1) {
+                // Prosto w dół
+                drawLine(X_spine, 22, X_spine, 44, active);
+            }
+            if (e.u === i - 1 && e.v === i) {
+                // Prosto w górę
+                drawLine(X_spine, 0, X_spine, 22, active);
+            }
+            if (e.u === i && e.v > i + 1) {
+                // Odgałęzienie w prawo i dół (kąt 45 stopni)
+                drawLine(X_spine, 22, X_track, 44, active);
+            }
+            if (e.u < i && e.v === i && e.v > e.u + 1) {
+                // Powrót z odgałęzienia na główną oś (kąt 45 stopni)
+                drawLine(X_track, 0, X_spine, 22, active);
+            }
+            if (e.u < i && e.v > i) {
+                // Pionowa linia szara mijająca przystanek po prawej stronie
+                drawLine(X_track, 0, X_track, 44, active);
             }
         });
 
-        // RYSOWANIE WĘZŁA SVG
-        let fill, stroke, sWidth;
-        if (!nodeActive) {
-            stroke = "#ccc";
-            if (isNz) {
-                fill = "#fff";
-                sWidth = "3";
-            } else {
-                fill = "#ccc";
-                sWidth = "0";
-            }
-        } else {
-            stroke = isFirstActive ? "#000" : "#e42313";
-            if (isNz) {
-                fill = "#fff";
-                sWidth = "3";
-            } else {
-                fill = stroke;
-                sWidth = "0";
-            }
-        }
+        // RYSOWANIE SAMEGO WĘZŁA (Zawsze na głównej osi)
+        let fill = nodeActive ? (isNz ? "#fff" : (isFirstActive ? "#000" : "#e42313")) : (isNz ? "#fff" : "#ccc");
+        let stroke = nodeActive ? (isFirstActive ? "#000" : "#e42313") : "#ccc";
+        let sWidth = isNz ? "2.5" : "0";
 
+        let r = 5.5; // Zwiększony, ładny promień by wyłapać efekt NŻ
         let nodeSvg = '';
+
         if (isFirstActive || isLastActive) {
             if (isNz) {
-                nodeSvg = `<rect x="${nodeX - 4.5}" y="${(ROW_HEIGHT / 2) - 4.5}" width="9" height="9" fill="#fff" stroke="${stroke}" stroke-width="3" />`;
+                nodeSvg = `<rect x="${26 - r}" y="${22 - r}" width="${r*2}" height="${r*2}" fill="#fff" stroke="${stroke}" stroke-width="2.5" />`;
             } else {
-                nodeSvg = `<rect x="${nodeX - 6}" y="${(ROW_HEIGHT / 2) - 6}" width="12" height="12" fill="${fill}" stroke="none" />`;
+                nodeSvg = `<rect x="${26 - r - 1}" y="${22 - r - 1}" width="${(r+1)*2}" height="${(r+1)*2}" fill="${fill}" stroke="none" />`;
             }
         } else {
             if (isNz) {
-                nodeSvg = `<circle cx="${nodeX}" cy="${ROW_HEIGHT / 2}" r="4.5" fill="#fff" stroke="${stroke}" stroke-width="3" />`;
+                nodeSvg = `<circle cx="26" cy="22" r="${r}" fill="#fff" stroke="${stroke}" stroke-width="2.5" />`;
             } else {
-                nodeSvg = `<circle cx="${nodeX}" cy="${ROW_HEIGHT / 2}" r="6" fill="${fill}" stroke="none" />`;
+                nodeSvg = `<circle cx="26" cy="22" r="${r+1}" fill="${fill}" stroke="none" />`;
             }
         }
 
-        let svgHtml = `<svg width="80" height="${ROW_HEIGHT}" style="display:block; overflow:visible;">
-            ${inactiveLines}
-            ${activeLines}
-            ${nodeSvg}
-        </svg>`;
+        svgHtml += inactiveLines + activeLines + nodeSvg + `</svg>`;
 
         const nodeWrapper = document.createElement("div");
         nodeWrapper.className = "node-wrapper";
@@ -629,7 +636,7 @@ function pokazCalyKurs(nrKursu) {
 
     przystankiK.forEach((p) => {
         const k = (p.kursy || []).find(x => x.numer === nrKursu);
-        if (k) kursPrzystanki.push({ nazwa: p.nazwa, nr: p.nr, nz: p.naZadanie || p.nz || (p.nazwa && p.nazwa.includes("(NŻ)")), czas: k.czas });
+        if (k) kursPrzystanki.push({ nazwa: p.nazwa, nr: p.nr, nz: p.naZadanie || p.naZadanie === "true" || p.nz || p.nz === "true" || (p.nazwa && p.nazwa.includes("(NŻ)")), czas: k.czas });
     });
 
     const kontener = document.getElementById("przystanki");
@@ -664,19 +671,20 @@ function pokazCalyKurs(nrKursu) {
         let isNz = el.nz === true || String(el.nz) === "true";
         let fill = isNz ? "#fff" : (index === 0 ? "#000" : "#e42313");
         let stroke = index === 0 ? "#000" : "#e42313";
-        let sWidth = isNz ? "3" : "0";
+        let sWidth = isNz ? "2.5" : "0";
+        let r = 5.5;
 
         if (index === 0 || index === kursPrzystanki.length - 1) {
             if (isNz) {
-                svgHtml += `<rect x="21.5" y="17.5" width="9" height="9" fill="#fff" stroke="${stroke}" stroke-width="3" />`;
+                svgHtml += `<rect x="${26 - r}" y="${22 - r}" width="${r*2}" height="${r*2}" fill="#fff" stroke="${stroke}" stroke-width="2.5" />`;
             } else {
-                svgHtml += `<rect x="20" y="16" width="12" height="12" fill="${fill}" stroke="none" />`;
+                svgHtml += `<rect x="${26 - r - 1}" y="${22 - r - 1}" width="${(r+1)*2}" height="${(r+1)*2}" fill="${fill}" stroke="none" />`;
             }
         } else {
             if (isNz) {
-                svgHtml += `<circle cx="26" cy="22" r="4.5" fill="#fff" stroke="${stroke}" stroke-width="3" />`;
+                svgHtml += `<circle cx="26" cy="22" r="${r}" fill="#fff" stroke="${stroke}" stroke-width="2.5" />`;
             } else {
-                svgHtml += `<circle cx="26" cy="22" r="6" fill="${fill}" stroke="none" />`;
+                svgHtml += `<circle cx="26" cy="22" r="${r+1}" fill="${fill}" stroke="none" />`;
             }
         }
         svgHtml += `</svg>`;
