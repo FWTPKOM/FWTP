@@ -1016,7 +1016,7 @@ if ("scrollRestoration" in history) {
             Uwaga!
         </strong>
 
-        Ta linia ma różne warianty trasy..
+        Ta linia ma różne warianty trasy
 
     </div>
 
@@ -1878,7 +1878,7 @@ function generujKierunki() {
                     : "Kierunek " +
                       (
                         index + 1
-                      );
+                    );
 
             btn.onclick =
                 () => {
@@ -3157,7 +3157,71 @@ function pokazListePrzystankow(
 
 
     /* =====================================================
-       OŚ GŁÓWNA
+       POCZĄTEK WARIANTU
+       ===================================================== */
+
+    const variantStartIndex =
+        kursBazowy &&
+        Number.isInteger(
+            Number(
+                kursBazowy.startIndex
+            )
+        )
+            ? Number(
+                kursBazowy.startIndex
+            )
+            : firstActiveIndex;
+
+
+    /* =====================================================
+       KONIEC WARIANTU
+       
+       TO JEST WAŻNA POPRAWKA.
+       
+       Wcześniej kod rozpoznawał tylko początek
+       wariantu. Teraz wyznaczamy również ostatni
+       przystanek dokładnego kursu wariantowego.
+       ===================================================== */
+
+    let variantEndIndex =
+        lastActiveIndex;
+
+
+    if (
+        kursBazowy &&
+        Array.isArray(
+            kursBazowy.punkty
+        )
+    ) {
+
+        const punktyAktywne =
+            kursBazowy.punkty.filter(
+                punkt =>
+                    czasNaMinuty(
+                        punkt.czas
+                    ) !== null
+            );
+
+
+        if (
+            punktyAktywne.length > 0
+        ) {
+
+            variantEndIndex =
+                Math.max(
+                    ...punktyAktywne.map(
+                        punkt =>
+                            Number(
+                                punkt.index
+                            )
+                    )
+                );
+        }
+    }
+
+
+    /* =====================================================
+       ŚCIEŻKI KURSÓW
        ===================================================== */
 
     let mainWariant =
@@ -3198,7 +3262,7 @@ function pokazListePrzystankow(
 
 
     /* =====================================================
-       ŚCIEŻKI KURSÓW
+       ŚCIEŻKI
        ===================================================== */
 
     const tripPaths =
@@ -3529,41 +3593,52 @@ function pokazListePrzystankow(
                 );
 
 
-            /*
-             * WAŻNE:
-             *
-             * Zachowujemy kwadrat:
-             *
-             * 1. na początku wybranego wariantu
-             * 2. na końcu wybranego wariantu
-             *
-             * Nie zmieniamy kształtu innych punktów.
-             */
+            /* =================================================
+               ISTNIEJĄCE KWADRATY
+               ================================================= */
 
             const isFirstActive =
-    i === firstActiveIndex;
+                i === firstActiveIndex;
 
-const isLastActive =
-    i === lastActiveIndex;
 
-/*
- * Rzeczywisty początek wybranego wariantu.
- * Bierzemy go bezpośrednio z dokładnego kursu bazowego.
- */
-const variantStartIndex =
-    kursBazowy &&
-    Number.isInteger(
-        Number(kursBazowy.startIndex)
-    )
-        ? Number(kursBazowy.startIndex)
-        : firstActiveIndex;
+            const isLastActive =
+                i === lastActiveIndex;
 
-/*
- * Kwadrat pojawia się również wtedy,
- * gdy wariant zaczyna się w środku trasy.
- */
-const isVariantStart =
-    i === variantStartIndex;
+
+            /* =================================================
+               POCZĄTEK WARIANTU
+               ================================================= */
+
+            const isVariantStart =
+                i === variantStartIndex;
+
+
+            /* =================================================
+               KONIEC WARIANTU
+               
+               NOWA POPRAWKA
+               ================================================= */
+
+            const isVariantEnd =
+                i === variantEndIndex;
+
+
+            /*
+             * KWADRAT MA BYĆ:
+             *
+             * - tam gdzie był wcześniej,
+             * - na początku wariantu,
+             * - na końcu wariantu.
+             *
+             * Nie ma znaczenia, czy przystanek
+             * jest aktywny czy szary.
+             */
+
+            const shouldBeSquare =
+                isFirstActive ||
+                isLastActive ||
+                isVariantStart ||
+                isVariantEnd;
 
 
             const isNz =
@@ -3804,28 +3879,28 @@ const isVariantStart =
                ================================================= */
 
             const isBlackStart =
-    isFirstActive ||
-    isVariantStart;
+                isFirstActive ||
+                isVariantStart;
 
 
-const strokeColor =
-    !nodeActive
-        ? "#ccc"
-        : (
-            isBlackStart
-                ? "#000"
-                : "#e42313"
-        );
+            const strokeColor =
+                !nodeActive
+                    ? "#ccc"
+                    : (
+                        isBlackStart
+                            ? "#000"
+                            : "#e42313"
+                    );
 
 
-const fillColor =
-    !nodeActive
-        ? "#ccc"
-        : (
-            isBlackStart
-                ? "#000"
-                : "#e42313"
-        );
+            const fillColor =
+                !nodeActive
+                    ? "#ccc"
+                    : (
+                        isBlackStart
+                            ? "#000"
+                            : "#e42313"
+                    );
 
 
             let nodeSvg =
@@ -3835,19 +3910,16 @@ const fillColor =
             /* =================================================
                KSZTAŁT WĘZŁA
                
-               KWADRAT:
-               - pierwszy aktywny wariant
-               - ostatni aktywny wariant
+               UWAGA:
+               NIE sprawdzamy tutaj nodeActive.
                
-               KÓŁKO:
-               - wszystkie pozostałe
+               Dzięki temu szary przystanek może być
+               KWADRATEM.
                ================================================= */
 
-          if (
-    isFirstActive ||
-    isVariantStart ||
-    isLastActive
-) {
+            if (
+                shouldBeSquare
+            ) {
 
                 /*
                  * KWADRAT
@@ -3883,7 +3955,7 @@ const fillColor =
             } else {
 
                 /*
-                 * KÓŁKO
+                 * KOŁKO
                  */
 
                 if (isNz) {
@@ -4906,15 +4978,6 @@ function pokazCalyKurs(
             }
 
 
-            /*
-             * KOLOR:
-             *
-             * przeszłe = szare
-             * aktualne = czarne
-             * pierwszy = czarny
-             * pozostałe przyszłe = czerwone
-             */
-
             const strokeColor =
                 isPast
                     ? "#cccccc"
@@ -4996,11 +5059,6 @@ function pokazCalyKurs(
                     />`;
             }
 
-
-            /* =================================================
-               PIERWSZY I OSTATNI = KWADRAT
-               ŚRODKOWE = KÓŁKO
-               ================================================= */
 
             if (
                 isFirst ||
