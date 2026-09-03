@@ -1016,7 +1016,7 @@ if ("scrollRestoration" in history) {
             Uwaga!
         </strong>
 
-        Ta linia ma różne warianty trasy..
+        Ta linia ma różne warianty trasy
 
     </div>
 
@@ -1101,25 +1101,19 @@ if ("scrollRestoration" in history) {
 
 <script>
 
-if ("scrollRestoration" in history) {
-    history.scrollRestoration = "manual";
-}
-
-
 /* =========================================================
-   ZMIENNE GŁÓWNE
+   FWTP – ROZKŁAD JAZDY
    ========================================================= */
 
 let daneLinii = null;
-let numerLinii = null;
-let aktualnyKierunek = 0;
+let numerLinii = "";
+let aktualnyKierunek = null;
 let aktualnyWariant = null;
-let aktualnyDzien = "dzisiaj";
-let wybranaData = new Date();
+let aktualnyDzien = null;
+let wybranaData = null;
 
-let wybranyPrzystanek = null;
-let wybranyPrzystanekIndex = null;
-let wybranyPrzystanekId = null;
+let selectedStopIndex = null;
+let selectedStopDirection = null;
 
 let widokKursuAktywny = false;
 
@@ -1128,156 +1122,29 @@ let widokKursuAktywny = false;
    PARAMETRY URL
    ========================================================= */
 
-const parametry =
-    new URLSearchParams(
-        window.location.search
-    );
+const params = new URLSearchParams(
+    window.location.search
+);
 
 numerLinii =
-    parametry.get("linia");
+    params.get("linia") ||
+    params.get("line") ||
+    "";
 
+aktualnyKierunek =
+    params.get("kierunek") ||
+    params.get("direction") ||
+    null;
 
-if (!numerLinii) {
+aktualnyWariant =
+    params.get("wariant") ||
+    params.get("variant") ||
+    null;
 
-    pokazBlad(
-        "Nie podano numeru linii.",
-        "Wybierz linię z menu."
-    );
-
-} else {
-
-    document.getElementById(
-        "numerLinii"
-    ).textContent =
-        numerLinii;
-
-    pobierzDane();
-}
-
-
-/* =========================================================
-   USUWANIE POLA GODZINY
-   ========================================================= */
-
-function usunPoleGodziny(tekst) {
-
-    const pozycja =
-        tekst.search(
-            /"godziny"\s*:\s*\[/
-        );
-
-    if (pozycja === -1)
-        return tekst;
-
-    const poczatekTablicy =
-        tekst.indexOf(
-            "[",
-            pozycja
-        );
-
-    if (poczatekTablicy === -1)
-        return tekst;
-
-    let poziom = 0;
-    let wStringu = false;
-    let ucieczka = false;
-    let koniecTablicy = -1;
-
-    for (
-        let i = poczatekTablicy;
-        i < tekst.length;
-        i++
-    ) {
-
-        const znak =
-            tekst[i];
-
-        if (ucieczka) {
-
-            ucieczka = false;
-            continue;
-        }
-
-        if (
-            znak === "\\" &&
-            wStringu
-        ) {
-
-            ucieczka = true;
-            continue;
-        }
-
-        if (znak === '"') {
-
-            wStringu =
-                !wStringu;
-
-            continue;
-        }
-
-        if (wStringu)
-            continue;
-
-        if (znak === "[")
-            poziom++;
-
-        if (znak === "]") {
-
-            poziom--;
-
-            if (poziom === 0) {
-
-                koniecTablicy =
-                    i;
-
-                break;
-            }
-        }
-    }
-
-    if (koniecTablicy === -1)
-        return tekst;
-
-    let poczatek =
-        pozycja;
-
-    let koniec =
-        koniecTablicy + 1;
-
-    while (
-        koniec < tekst.length &&
-        /\s/.test(
-            tekst[koniec]
-        )
-    ) {
-
-        koniec++;
-    }
-
-    if (
-        tekst[koniec] === ","
-    ) {
-
-        koniec++;
-    }
-
-    return (
-        tekst.substring(
-            0,
-            poczatek
-        ) +
-        tekst
-            .substring(koniec)
-            .replace(
-                /,\s*,/g,
-                ","
-            )
-            .replace(
-                /,\s*}/g,
-                "}"
-            )
-    );
-}
+aktualnyDzien =
+    params.get("dzien") ||
+    params.get("day") ||
+    null;
 
 
 /* =========================================================
@@ -1286,302 +1153,87 @@ function usunPoleGodziny(tekst) {
 
 async function pobierzDane() {
 
-    const adres =
-        "../dane/" +
-        encodeURIComponent(
-            numerLinii
-        ) +
-        ".json";
-
-    try {
-
-        const odpowiedz =
-            await fetch(
-                adres,
-                {
-                    cache: "no-cache"
-                }
-            );
-
-        if (!odpowiedz.ok) {
-
-            throw new Error(
-                "Nie znaleziono pliku JSON dla linii " +
-                numerLinii
-            );
-        }
-
-        let tekst =
-            await odpowiedz.text();
-
-        try {
-
-            daneLinii =
-                JSON.parse(
-                    tekst
-                );
-
-        } catch (e1) {
-
-            daneLinii =
-                JSON.parse(
-                    usunPoleGodziny(
-                        tekst
-                    )
-                );
-        }
-
-        uruchomStrone();
-
-    } catch (blad) {
-
+    if (!numerLinii) {
         pokazBlad(
-            "Błąd ładowania.",
-            blad.message
+            "Brak numeru linii w adresie."
         );
-    }
-}
-
-
-/* =========================================================
-   ZAPIS PRZYSTANKU
-   ========================================================= */
-
-function ustawWybranyPrzystanek(
-    p,
-    index
-) {
-
-    if (!p) {
-
-        wybranyPrzystanek = null;
-        wybranyPrzystanekIndex = null;
-        wybranyPrzystanekId = null;
-
         return;
     }
 
-    wybranyPrzystanek = p;
+    try {
 
-    if (
-        index !== undefined &&
-        index !== null &&
-        Number.isInteger(
-            Number(index)
-        )
-    ) {
+        const response =
+            await fetch(
+                "../data/" +
+                numerLinii +
+                ".json"
+            );
 
-        wybranyPrzystanekIndex =
-            Number(index);
+        if (!response.ok) {
+            throw new Error(
+                "HTTP " + response.status
+            );
+        }
 
-    } else {
+        daneLinii =
+            await response.json();
 
-        wybranyPrzystanekIndex =
-            null;
+        uruchomStrone();
+
+    } catch (error) {
+
+        console.error(error);
+
+        pokazBlad(
+            "Nie udało się wczytać danych linii " +
+            numerLinii +
+            "."
+        );
     }
-
-    wybranyPrzystanekId = {
-
-        kierunek:
-            Number(
-                aktualnyKierunek
-            ),
-
-        index:
-            wybranyPrzystanekIndex,
-
-        lp:
-            p.lp !== undefined &&
-            p.lp !== null
-                ? String(
-                    p.lp
-                ).trim()
-                : "",
-
-        nr:
-            p.nr !== undefined &&
-            p.nr !== null
-                ? String(
-                    p.nr
-                ).trim()
-                : "",
-
-        nazwa:
-            String(
-                p.nazwa || ""
-            ).trim()
-    };
 }
 
 
 /* =========================================================
-   ZNAJDOWANIE PRZYSTANKU
+   USUWANIE POLA GODZINY
+   ========================================================= */
+
+function usunPoleGodziny(value) {
+
+    if (
+        value === null ||
+        value === undefined
+    ) {
+        return "";
+    }
+
+    return String(value)
+        .replace(
+            /^\s+|\s+$/g,
+            ""
+        );
+}
+
+
+/* =========================================================
+   SZUKANIE PRZYSTANKU
    ========================================================= */
 
 function znajdzPrzystanek(
-    przystanki,
-    identyfikator
+    kierunek,
+    index
 ) {
 
     if (
+        !daneLinii ||
         !Array.isArray(
-            przystanki
-        ) ||
-        przystanki.length === 0 ||
-        identyfikator === null ||
-        identyfikator === undefined
+            daneLinii.przystanki
+        )
     ) {
-
         return null;
     }
 
-    const szukany =
-        String(
-            identyfikator
-        ).trim();
-
-    if (
-        szukany
-            .toLowerCase()
-            .startsWith("idx:")
-    ) {
-
-        const idx =
-            Number(
-                szukany
-                    .substring(4)
-                    .trim()
-            );
-
-        if (
-            Number.isInteger(idx) &&
-            idx >= 0 &&
-            idx < przystanki.length
-        ) {
-
-            return przystanki[idx];
-        }
-
-        return null;
-    }
-
-    if (
-        wybranyPrzystanekId &&
-        Number(
-            wybranyPrzystanekId.kierunek
-        ) ===
-        Number(
-            aktualnyKierunek
-        ) &&
-        wybranyPrzystanekIndex !== null
-    ) {
-
-        const idx =
-            Number(
-                wybranyPrzystanekIndex
-            );
-
-        if (
-            Number.isInteger(idx) &&
-            idx >= 0 &&
-            idx < przystanki.length
-        ) {
-
-            return przystanki[idx];
-        }
-    }
-
-    if (
-        szukany
-            .toLowerCase()
-            .startsWith("lp:")
-    ) {
-
-        const lp =
-            szukany
-                .substring(3)
-                .trim();
-
-        const znaleziony =
-            przystanki.find(
-                p =>
-                    String(
-                        p.lp !== undefined &&
-                        p.lp !== null
-                            ? p.lp
-                            : ""
-                    ).trim() === lp
-            );
-
-        if (znaleziony)
-            return znaleziony;
-    }
-
-    if (
-        wybranyPrzystanekId &&
-        wybranyPrzystanekId.nr &&
-        wybranyPrzystanekId.nazwa
-    ) {
-
-        const nr =
-            wybranyPrzystanekId.nr;
-
-        const nazwa =
-            wybranyPrzystanekId.nazwa;
-
-        const znaleziony =
-            przystanki.find(
-                p =>
-                    String(
-                        p.nr || ""
-                    ).trim() === nr &&
-                    normalizujTekst(
-                        p.nazwa
-                    ) ===
-                    normalizujTekst(
-                        nazwa
-                    )
-            );
-
-        if (znaleziony)
-            return znaleziony;
-    }
-
-    const poNr =
-        przystanki.find(
-            p =>
-                String(
-                    p.nr || ""
-                ).trim() ===
-                szukany
-        );
-
-    if (poNr)
-        return poNr;
-
-    const poNazwie =
-        przystanki.find(
-            p =>
-                String(
-                    p.nazwa || ""
-                ).trim() ===
-                szukany
-        );
-
-    if (poNazwie)
-        return poNazwie;
-
-    const normalny =
-        normalizujTekst(
-            szukany
-        );
-
-    return przystanki.find(
-        p =>
-            normalizujTekst(
-                p.nazwa
-            ) === normalny
-    ) || null;
+    return daneLinii.przystanki[index] ||
+        null;
 }
 
 
@@ -1591,236 +1243,143 @@ function znajdzPrzystanek(
 
 function uruchomStrone() {
 
-    document.getElementById(
-        "numerLinii"
-    ).textContent =
-        daneLinii.linia ||
-        numerLinii;
+    if (!daneLinii) {
+        return;
+    }
 
-    document.getElementById(
-        "trasa"
-    ).textContent =
-        daneLinii.trasa ||
-        "";
-
-    const paramK =
-        parametry.get(
-            "kierunek"
+    const tytul =
+        document.getElementById(
+            "numer-linii"
         );
 
+    if (tytul) {
+        tytul.textContent =
+            numerLinii;
+    }
+
+    generujKierunki();
+
+    ustawDzienDomyslny();
+
     if (
-        paramK !== null
+        aktualnyKierunek === null
     ) {
 
-        const num =
-            Number(
-                paramK
+        const kierunki =
+            pobierzKierunki();
+
+        if (
+            kierunki.length > 0
+        ) {
+            aktualnyKierunek =
+                kierunki[0];
+        }
+    }
+
+    generujWarianty();
+
+    if (
+        !aktualnyWariant
+    ) {
+
+        const warianty =
+            pobierzWarianty(
+                aktualnyKierunek
             );
 
         if (
-            Number.isInteger(num) &&
-            num >= 0
+            warianty.length > 0
         ) {
-
-            aktualnyKierunek =
-                num;
+            aktualnyWariant =
+                warianty[0];
         }
     }
 
-    const rozklad =
-        znajdzRozklad();
+    pokazListePrzystankow(
+        rozkladDlaAktualnychUstawien()
+    );
+}
 
-    const paramP =
-        parametry.get(
-            "przystanek"
-        );
+
+/* =========================================================
+   DZIEŃ DOMYŚLNY
+   ========================================================= */
+
+function ustawDzienDomyslny() {
+
+    if (!aktualnyDzien) {
+
+        aktualnyDzien =
+            "D";
+    }
+}
+
+
+/* =========================================================
+   POBIERANIE ROZKŁADU
+   ========================================================= */
+
+function pobierzRozklady() {
+
+    if (!daneLinii) {
+        return [];
+    }
 
     if (
-        paramP &&
-        rozklad &&
         Array.isArray(
-            rozklad.kierunki
+            daneLinii.rozklady
         )
     ) {
-
-        const kierunek =
-            rozklad.kierunki[
-                aktualnyKierunek
-            ];
-
-        if (
-            kierunek &&
-            Array.isArray(
-                kierunek.przystanki
-            )
-        ) {
-
-            const znaleziony =
-                znajdzPrzystanek(
-                    kierunek.przystanki,
-                    paramP
-                );
-
-            if (znaleziony) {
-
-                const indeks =
-                    kierunek.przystanki.indexOf(
-                        znaleziony
-                    );
-
-                ustawWybranyPrzystanek(
-                    znaleziony,
-                    indeks
-                );
-            }
-        }
+        return daneLinii.rozklady;
     }
 
-    pokazRozklad();
-}
-
-
-/* =========================================================
-   TYP DNIA
-   ========================================================= */
-
-function okreslTypDnia(data) {
-
-    const d =
-        data.getDay();
-
-    if (d === 6)
-        return "sobota";
-
-    if (d === 0)
-        return "niedziela";
-
-    return "roboczy";
-}
-
-
-/* =========================================================
-   NORMALIZACJA
-   ========================================================= */
-
-function normalizujTekst(tekst) {
-
-    return String(
-        tekst || ""
-    )
-        .toLowerCase()
-        .normalize(
-            "NFD"
+    if (
+        Array.isArray(
+            daneLinii.kursy
         )
-        .replace(
-            /[\u0300-\u036f]/g,
-            ""
-        );
-}
-
-
-/* =========================================================
-   ZNAJDŹ ROZKŁAD
-   ========================================================= */
-
-function znajdzRozklad() {
-
-    const rozklady =
-        daneLinii.rozkłady ||
-        [];
-
-    if (
-        rozklady.length === 0
-    )
-        return null;
-
-    const typ =
-        okreslTypDnia(
-            wybranaData
-        );
-
-    if (
-        typ === "sobota"
     ) {
-
-        for (
-            const r of rozklady
-        ) {
-
-            if (
-                normalizujTekst(
-                    r.nazwa
-                ).includes(
-                    "sobot"
-                )
-            ) {
-
-                return r;
-            }
-        }
+        return daneLinii.kursy;
     }
 
-    if (
-        typ === "niedziela"
-    ) {
-
-        for (
-            const r of rozklady
-        ) {
-
-            const n =
-                normalizujTekst(
-                    r.nazwa
-                );
-
-            if (
-                n.includes(
-                    "niedziel"
-                ) ||
-                n.includes(
-                    "swiat"
-                )
-            ) {
-
-                return r;
-            }
-        }
-    }
-
-    if (
-        typ === "roboczy"
-    ) {
-
-        for (
-            const r of rozklady
-        ) {
-
-            const n =
-                normalizujTekst(
-                    r.nazwa
-                );
-
-            if (
-                n.includes(
-                    "piatk"
-                ) ||
-                n.includes(
-                    "poniedzial"
-                )
-            ) {
-
-                return r;
-            }
-        }
-    }
-
-    return rozklady[0];
+    return [];
 }
 
 
 /* =========================================================
    KIERUNKI
    ========================================================= */
+
+function pobierzKierunki() {
+
+    const rozklady =
+        pobierzRozklady();
+
+    const wynik = [];
+
+    rozklady.forEach(
+        kurs => {
+
+            const kierunek =
+                kurs.kierunek ||
+                kurs.direction ||
+                "";
+
+            if (
+                kierunek &&
+                !wynik.includes(
+                    kierunek
+                )
+            ) {
+                wynik.push(
+                    kierunek
+                );
+            }
+        }
+    );
+
+    return wynik;
+}
+
 
 function generujKierunki() {
 
@@ -1829,271 +1388,62 @@ function generujKierunki() {
             "kierunki"
         );
 
-    kontener.innerHTML =
-        "";
-
-    const rozklad =
-        znajdzRozklad();
-
-    if (
-        !rozklad ||
-        !Array.isArray(
-            rozklad.kierunki
-        )
-    )
+    if (!kontener) {
         return;
+    }
 
-    rozklad.kierunki.forEach(
-        (
-            kierunek,
-            index
-        ) => {
+    kontener.innerHTML = "";
 
-            const btn =
+    const kierunki =
+        pobierzKierunki();
+
+    kierunki.forEach(
+        (kierunek, index) => {
+
+            const button =
                 document.createElement(
                     "button"
                 );
 
-            btn.className =
-                "kierunek-btn" +
-                (
-                    index ===
-                    aktualnyKierunek
-                        ? " aktywny"
-                        : ""
+            button.className =
+                "przycisk-kierunek";
+
+            if (
+                kierunek ===
+                aktualnyKierunek
+            ) {
+                button.classList.add(
+                    "aktywny"
                 );
+            }
 
-            const p =
-                kierunek.przystanki ||
-                [];
+            button.textContent =
+                kierunek;
 
-            btn.textContent =
-                p.length > 0
-                    ? (
-                        p[
-                            p.length - 1
-                        ].nazwa ||
-                        "Kierunek"
-                    )
-                    : "Kierunek " +
-                      (
-                        index + 1
-                      );
-
-            btn.onclick =
+            button.addEventListener(
+                "click",
                 () => {
 
                     aktualnyKierunek =
-                        index;
+                        kierunek;
 
                     aktualnyWariant =
                         null;
 
-                    ustawWybranyPrzystanek(
-                        null
+                    generujKierunki();
+                    generujWarianty();
+
+                    pokazListePrzystankow(
+                        rozkladDlaAktualnychUstawien()
                     );
-
-                    widokKursuAktywny =
-                        false;
-
-                    aktualizujHistorieURL(
-                        null
-                    );
-
-                    pokazRozklad();
-                };
+                }
+            );
 
             kontener.appendChild(
-                btn
+                button
             );
         }
     );
-}
-
-
-/* =========================================================
-   DNI
-   ========================================================= */
-
-function wybierzDzien(
-    dzien
-) {
-
-    aktualnyDzien =
-        dzien;
-
-    document
-        .querySelectorAll(
-            ".dzien-btn"
-        )
-        .forEach(
-            b =>
-                b.classList.remove(
-                    "aktywny"
-                )
-        );
-
-    document.getElementById(
-        "kalendarz"
-    ).style.display =
-        "none";
-
-    if (
-        dzien ===
-        "dzisiaj"
-    ) {
-
-        document.getElementById(
-            "dzisiajBtn"
-        ).classList.add(
-            "aktywny"
-        );
-
-        wybranaData =
-            new Date();
-    }
-
-    if (
-        dzien ===
-        "jutro"
-    ) {
-
-        document.getElementById(
-            "jutroBtn"
-        ).classList.add(
-            "aktywny"
-        );
-
-        wybranaData =
-            new Date();
-
-        wybranaData.setDate(
-            wybranaData.getDate() + 1
-        );
-    }
-
-    if (
-        dzien ===
-        "kalendarz"
-    ) {
-
-        document.getElementById(
-            "kalendarzBtn"
-        ).classList.add(
-            "aktywny"
-        );
-
-        document.getElementById(
-            "kalendarz"
-        ).style.display =
-            "block";
-
-        document.getElementById(
-            "wybranaData"
-        ).value =
-            formatujDateInput(
-                wybranaData
-            );
-    }
-
-    pokazRozklad();
-}
-
-
-/* =========================================================
-   DATA
-   ========================================================= */
-
-document
-    .getElementById(
-        "wybranaData"
-    )
-    .addEventListener(
-        "change",
-        function () {
-
-            if (!this.value)
-                return;
-
-            const czesci =
-                this.value.split(
-                    "-"
-                );
-
-            wybranaData =
-                new Date(
-                    Number(
-                        czesci[0]
-                    ),
-                    Number(
-                        czesci[1]
-                    ) - 1,
-                    Number(
-                        czesci[2]
-                    )
-                );
-
-            pokazRozklad();
-        }
-    );
-
-
-function formatujDateInput(
-    data
-) {
-
-    return (
-        data.getFullYear() +
-        "-" +
-        String(
-            data.getMonth() + 1
-        ).padStart(
-            2,
-            "0"
-        ) +
-        "-" +
-        String(
-            data.getDate()
-        ).padStart(
-            2,
-            "0"
-        )
-    );
-}
-
-
-/* =========================================================
-   WARIANT
-   ========================================================= */
-
-function pobierzWariant(k) {
-
-    if (
-        !k ||
-        typeof k !== "object"
-    ) {
-
-        return "";
-    }
-
-    const wariant =
-        k.wariant;
-
-    if (
-        wariant &&
-        typeof wariant === "object"
-    ) {
-
-        return String(
-            wariant.litera ||
-            wariant.nazwa ||
-            ""
-        ).trim();
-    }
-
-    return String(
-        wariant || ""
-    ).trim();
 }
 
 
@@ -2101,190 +1451,198 @@ function pobierzWariant(k) {
    WARIANTY
    ========================================================= */
 
-function zbierzWariantyDlaKierunku(
+function pobierzWarianty(
     kierunek
 ) {
 
-    const set =
-        new Set();
+    const rozklady =
+        pobierzRozklady();
 
-    (
-        kierunek.przystanki ||
-        []
-    ).forEach(
-        p =>
-            (
-                p.kursy ||
-                []
-            ).forEach(
-                k => {
+    const wynik = [];
 
-                    const w =
-                        pobierzWariant(
-                            k
-                        );
+    rozklady.forEach(
+        kurs => {
 
-                    if (w)
-                        set.add(w);
-                }
-            )
-    );
+            const k =
+                kurs.kierunek ||
+                kurs.direction ||
+                "";
 
-    return Array
-        .from(set)
-        .sort(
-            (
-                a,
-                b
-            ) =>
-                a.localeCompare(
-                    b,
-                    "pl",
-                    {
-                        numeric: true
-                    }
+            if (
+                k !== kierunek
+            ) {
+                return;
+            }
+
+            const wariant =
+                kurs.wariant ||
+                kurs.variant ||
+                "";
+
+            if (
+                !wynik.includes(
+                    wariant
                 )
-        );
-}
-
-
-/* =========================================================
-   DOMYŚLNY WARIANT
-   ========================================================= */
-
-function znajdzDomyslnyWariant(
-    kierunek
-) {
-
-    const wariantStarty =
-        new Map();
-
-    (
-        kierunek.przystanki ||
-        []
-    ).forEach(
-        (
-            przystanek,
-            index
-        ) => {
-
-            (
-                przystanek.kursy ||
-                []
-            ).forEach(
-                kurs => {
-
-                    const wariant =
-                        pobierzWariant(
-                            kurs
-                        );
-
-                    if (
-                        !wariantStarty.has(
-                            wariant
-                        )
-                    ) {
-
-                        wariantStarty.set(
-                            wariant,
-                            index
-                        );
-                    }
-                }
-            );
+            ) {
+                wynik.push(
+                    wariant
+                );
+            }
         }
     );
 
-    const lista =
-        Array.from(
-            wariantStarty.entries()
+    return wynik;
+}
+
+
+function generujWarianty() {
+
+    const kontener =
+        document.getElementById(
+            "warianty"
         );
 
-    if (
-        lista.length === 0
-    )
-        return "";
+    if (!kontener) {
+        return;
+    }
 
-    lista.sort(
-        (
-            a,
-            b
-        ) => {
+    kontener.innerHTML = "";
+
+    const warianty =
+        pobierzWarianty(
+            aktualnyKierunek
+        );
+
+    warianty.forEach(
+        wariant => {
+
+            const button =
+                document.createElement(
+                    "button"
+                );
+
+            button.className =
+                "przycisk-wariant";
 
             if (
-                a[1] !==
-                b[1]
+                wariant ===
+                aktualnyWariant
             ) {
-
-                return (
-                    a[1] -
-                    b[1]
+                button.classList.add(
+                    "aktywny"
                 );
             }
 
-            if (
-                a[0] === "" &&
-                b[0] !== ""
-            )
-                return -1;
+            button.textContent =
+                wariant ||
+                "Podstawowy";
 
-            if (
-                a[0] !== "" &&
-                b[0] === ""
-            )
-                return 1;
+            button.addEventListener(
+                "click",
+                () => {
 
-            return a[0].localeCompare(
-                b[0],
-                "pl",
-                {
-                    numeric: true
+                    aktualnyWariant =
+                        wariant;
+
+                    generujWarianty();
+
+                    pokazListePrzystankow(
+                        rozkladDlaAktualnychUstawien()
+                    );
                 }
+            );
+
+            kontener.appendChild(
+                button
             );
         }
     );
-
-    return lista[0][0];
 }
 
 
 /* =========================================================
-   CZAS NA MINUTY
+   ZNALEZIENIE ROZKŁADU
+   ========================================================= */
+
+function rozkladDlaAktualnychUstawien() {
+
+    const rozklady =
+        pobierzRozklady();
+
+    return rozklady.find(
+        kurs => {
+
+            const kierunek =
+                kurs.kierunek ||
+                kurs.direction ||
+                "";
+
+            const wariant =
+                kurs.wariant ||
+                kurs.variant ||
+                "";
+
+            const dzien =
+                kurs.dzien ||
+                kurs.day ||
+                "";
+
+            return (
+                kierunek ===
+                aktualnyKierunek &&
+                wariant ===
+                aktualnyWariant &&
+                (
+                    !aktualnyDzien ||
+                    !dzien ||
+                    dzien ===
+                    aktualnyDzien
+                )
+            );
+        }
+    ) || null;
+}
+
+
+/* =========================================================
+   CZAS -> MINUTY
    ========================================================= */
 
 function czasNaMinuty(
     czas
 ) {
 
-    const dop =
-        String(
-            czas || ""
-        )
-            .trim()
-            .match(
-                /^(\d{1,2}):(\d{2})$/
-            );
-
-    if (!dop)
+    if (
+        czas === null ||
+        czas === undefined ||
+        czas === ""
+    ) {
         return null;
+    }
+
+    const tekst =
+        String(czas)
+            .trim();
+
+    const match =
+        tekst.match(
+            /^(\d{1,2}):(\d{2})/
+        );
+
+    if (!match) {
+        return null;
+    }
 
     const godzina =
-        Number(
-            dop[1]
-        );
+        Number(match[1]);
 
     const minuta =
-        Number(
-            dop[2]
-        );
+        Number(match[2]);
 
     if (
-        godzina < 0 ||
-        godzina > 23 ||
-        minuta < 0 ||
-        minuta > 59
+        Number.isNaN(godzina) ||
+        Number.isNaN(minuta)
     ) {
-
         return null;
     }
 
@@ -2296,7 +1654,7 @@ function czasNaMinuty(
 
 
 /* =========================================================
-   ZNAJDOWANIE PIERWSZEGO KURSU
+   ZNAJDŹ DOKŁADNY KURS BAZOWY
    ========================================================= */
 
 function znajdzKursBazowy(
@@ -2304,105 +1662,105 @@ function znajdzKursBazowy(
     wariant
 ) {
 
-    const przystanki =
-        kierunek.przystanki ||
-        [];
+    const rozklady =
+        pobierzRozklady();
 
-    const mapaKursow =
+    const mapa =
         new Map();
 
+    rozklady.forEach(
+        kurs => {
 
-    przystanki.forEach(
-        (
-            p,
-            index
-        ) => {
+            const k =
+                kurs.kierunek ||
+                kurs.direction ||
+                "";
 
-            (
-                p.kursy ||
-                []
-            ).forEach(
-                k => {
+            const w =
+                kurs.wariant ||
+                kurs.variant ||
+                "";
 
-                    if (
-                        k.numer === undefined ||
-                        k.numer === null
-                    ) {
+            if (
+                k !== kierunek ||
+                w !== wariant
+            ) {
+                return;
+            }
 
-                        return;
+            const numer =
+                kurs.numer ??
+                kurs.nr ??
+                kurs.id ??
+                kurs.number ??
+                "";
+
+            const klucz =
+                String(numer) +
+                "||" +
+                String(w);
+
+            if (
+                !mapa.has(klucz)
+            ) {
+
+                mapa.set(
+                    klucz,
+                    {
+                        numer:
+                            numer,
+                        wariant:
+                            w,
+                        punkty: []
                     }
+                );
+            }
 
-                    const numer =
-                        String(
-                            k.numer
-                        ).trim();
+            const wynik =
+                mapa.get(klucz);
 
-                    if (!numer)
-                        return;
+            const punkty =
+                kurs.punkty ||
+                kurs.stops ||
+                kurs.przystanki ||
+                [];
 
-                    const kursWariant =
-                        pobierzWariant(
-                            k
-                        );
+            punkty.forEach(
+                (punkt, index) => {
 
-                    const klucz =
-                        numer +
-                        "||" +
-                        kursWariant;
+                    const stopIndex =
+                        punkt.index ??
+                        punkt.stopIndex ??
+                        index;
 
-                    if (
-                        !mapaKursow.has(
-                            klucz
-                        )
-                    ) {
+                    const czas =
+                        punkt.czas ??
+                        punkt.time ??
+                        "";
 
-                        mapaKursow.set(
-                            klucz,
-                            {
-                                numer:
-                                    k.numer,
-
-                                wariant:
-                                    kursWariant,
-
-                                punkty:
-                                    []
-                            }
-                        );
-                    }
-
-                    mapaKursow
-                        .get(klucz)
-                        .punkty
-                        .push(
-                            {
-                                index:
-                                    index,
-
-                                czas:
-                                    k.czas
-                            }
-                        );
+                    wynik.punkty.push({
+                        index:
+                            Number(
+                                stopIndex
+                            ),
+                        czas:
+                            czas
+                    });
                 }
             );
         }
     );
 
-
-    const wszystkieKursy =
+    const kursy =
         Array.from(
-            mapaKursow.values()
+            mapa.values()
         );
 
-
-    wszystkieKursy.forEach(
+    kursy.forEach(
         kurs => {
 
             kurs.punkty.sort(
-                (
-                    a,
-                    b
-                ) =>
+                (a, b) =>
                     a.index -
                     b.index
             );
@@ -2415,6 +1773,16 @@ function znajdzKursBazowy(
                         ) !== null
                 );
 
+            const ostatni =
+                [...kurs.punkty]
+                    .reverse()
+                    .find(
+                        punkt =>
+                            czasNaMinuty(
+                                punkt.czas
+                            ) !== null
+                    );
+
             kurs.startIndex =
                 pierwszy
                     ? pierwszy.index
@@ -2426,53 +1794,43 @@ function znajdzKursBazowy(
                         pierwszy.czas
                     )
                     : null;
+
+            kurs.endIndex =
+                ostatni
+                    ? ostatni.index
+                    : -1;
+
+            kurs.endMinuty =
+                ostatni
+                    ? czasNaMinuty(
+                        ostatni.czas
+                    )
+                    : null;
         }
     );
 
-
-    const szukanyWariant =
-        String(
-            wariant || ""
-        ).trim();
-
-
-    const kandydaci =
-        wszystkieKursy.filter(
+    const pasujace =
+        kursy.filter(
             kurs =>
                 kurs.wariant ===
-                szukanyWariant
+                wariant
         );
 
+    pasujace.sort(
+        (a, b) => {
 
-    if (
-        kandydaci.length === 0
-    ) {
+            const am =
+                a.startMinuty ??
+                999999;
 
-        return null;
-    }
-
-
-    kandydaci.sort(
-        (
-            a,
-            b
-        ) => {
-
-            const aa =
-                a.startMinuty === null
-                    ? 999999
-                    : a.startMinuty;
-
-            const bb =
-                b.startMinuty === null
-                    ? 999999
-                    : b.startMinuty;
+            const bm =
+                b.startMinuty ??
+                999999;
 
             if (
-                aa !== bb
+                am !== bm
             ) {
-
-                return aa - bb;
+                return am - bm;
             }
 
             return (
@@ -2482,16 +1840,15 @@ function znajdzKursBazowy(
         }
     );
 
-
     return (
-        kandydaci[0] ||
+        pasujace[0] ||
         null
     );
 }
 
 
 /* =========================================================
-   POBIERANIE CZASÓW DOKŁADNEGO KURSU
+   POBIERANIE CZASÓW KURSU
    ========================================================= */
 
 function pobierzCzasyKursu(
@@ -2499,144 +1856,51 @@ function pobierzCzasyKursu(
     kurs
 ) {
 
-    const przystanki =
-        kierunek.przystanki ||
-        [];
+    if (
+        !kurs ||
+        !Array.isArray(
+            kurs.punkty
+        )
+    ) {
+        return [];
+    }
 
-    const czasy =
-        new Array(
-            przystanki.length
-        ).fill(
-            null
-        );
+    const wynik = [];
 
-    if (!kurs)
-        return czasy;
-
-
-    (
-        kurs.punkty ||
-        []
-    ).forEach(
+    kurs.punkty.forEach(
         punkt => {
 
-            const index =
-                Number(
-                    punkt.index
-                );
-
-            if (
-                !Number.isInteger(
-                    index
-                ) ||
-                index < 0 ||
-                index >= przystanki.length
-            ) {
-
-                return;
-            }
-
-            const czas =
-                String(
-                    punkt.czas || ""
-                ).trim();
-
-            if (
-                czasNaMinuty(
-                    czas
-                ) !== null
-            ) {
-
-                czasy[index] =
-                    czas;
-            }
+            wynik[
+                punkt.index
+            ] =
+                punkt.czas;
         }
     );
 
-    return czasy;
+    return wynik;
 }
 
 
 /* =========================================================
-   SUMOWANIE CZASU PRZEJAZDU
+   SUMOWANIE CZASÓW
    ========================================================= */
 
 function obliczSumowaneCzasy(
     czasy
 ) {
 
-    const wynik =
-        new Array(
-            czasy.length
-        ).fill(
-            null
-        );
-
-    let pierwszyCzas =
-        null;
-
-    for (
-        let i = 0;
-        i < czasy.length;
-        i++
-    ) {
-
-        const minuty =
-            czasNaMinuty(
-                czasy[i]
-            );
-
-        if (
-            minuty !== null
-        ) {
-
-            pierwszyCzas =
-                minuty;
-
-            break;
-        }
-    }
-
     if (
-        pierwszyCzas === null
+        !Array.isArray(czasy)
     ) {
-
-        return wynik;
+        return [];
     }
 
-    for (
-        let i = 0;
-        i < czasy.length;
-        i++
-    ) {
-
-        const minuty =
+    return czasy.map(
+        czas =>
             czasNaMinuty(
-                czasy[i]
-            );
-
-        if (
-            minuty === null
-        )
-            continue;
-
-        let roznica =
-            minuty -
-            pierwszyCzas;
-
-        if (
-            roznica < 0
-        ) {
-
-            roznica +=
-                24 * 60;
-        }
-
-        wynik[i] =
-            roznica;
-    }
-
-    return wynik;
+                czas
+            )
+    );
 }
 
 
@@ -2644,177 +1908,44 @@ function obliczSumowaneCzasy(
    HISTORIA URL
    ========================================================= */
 
-function aktualizujHistorieURL(
-    przystanekId
-) {
+function aktualizujURL() {
 
-    const url =
+    const nowyURL =
         new URL(
             window.location.href
         );
 
-    url.searchParams.set(
-        "linia",
-        numerLinii
-    );
-
-    url.searchParams.set(
-        "kierunek",
+    if (
         aktualnyKierunek
-    );
-
-    if (przystanekId) {
-
-        url.searchParams.set(
-            "przystanek",
-            przystanekId
-        );
-
-    } else {
-
-        url.searchParams.delete(
-            "przystanek"
+    ) {
+        nowyURL.searchParams.set(
+            "kierunek",
+            aktualnyKierunek
         );
     }
 
-    window.history.pushState(
-        {
-            przystanek:
-                przystanekId,
+    if (
+        aktualnyWariant !== null
+    ) {
+        nowyURL.searchParams.set(
+            "wariant",
+            aktualnyWariant
+        );
+    }
 
-            kierunek:
-                aktualnyKierunek
-        },
+    if (
+        aktualnyDzien
+    ) {
+        nowyURL.searchParams.set(
+            "dzien",
+            aktualnyDzien
+        );
+    }
+
+    history.pushState(
+        {},
         "",
-        url.toString()
-    );
-}
-
-
-/* =========================================================
-   GŁÓWNY WIDOK
-   ========================================================= */
-
-function pokazRozklad() {
-
-    if (!daneLinii)
-        return;
-
-    const rozklad =
-        znajdzRozklad();
-
-    const kontener =
-        document.getElementById(
-            "przystanki"
-        );
-
-    const typ =
-        document.getElementById(
-            "typRozkładu"
-        );
-
-    const wp =
-        document.getElementById(
-            "warianty-pojemnik"
-        );
-
-
-    if (
-        !rozklad ||
-        !rozklad.kierunki ||
-        rozklad.kierunki.length === 0
-    ) {
-
-        typ.textContent =
-            "Brak rozkładu";
-
-        kontener.innerHTML =
-            '<div class="brak-danych">' +
-            'Brak danych rozkładu.' +
-            '</div>';
-
-        if (wp)
-            wp.style.display =
-                "none";
-
-        return;
-    }
-
-
-    if (
-        aktualnyKierunek >=
-        rozklad.kierunki.length
-    ) {
-
-        aktualnyKierunek =
-            0;
-
-        ustawWybranyPrzystanek(
-            null
-        );
-    }
-
-
-    generujKierunki();
-
-
-    if (
-        widokKursuAktywny
-    )
-        return;
-
-
-    if (
-        wybranyPrzystanek !== null &&
-        wybranyPrzystanekIndex !== null
-    ) {
-
-        const kierunek =
-            rozklad.kierunki[
-                aktualnyKierunek
-            ];
-
-        if (
-            kierunek &&
-            Array.isArray(
-                kierunek.przystanki
-            )
-        ) {
-
-            const idx =
-                Number(
-                    wybranyPrzystanekIndex
-                );
-
-            if (
-                Number.isInteger(idx) &&
-                idx >= 0 &&
-                idx <
-                kierunek.przystanki.length
-            ) {
-
-                wybranyPrzystanek =
-                    kierunek.przystanki[
-                        idx
-                    ];
-
-                pokazRozkladWybranegoPrzystanku(
-                    rozklad,
-                    wybranyPrzystanek
-                );
-
-                return;
-            }
-        }
-
-        ustawWybranyPrzystanek(
-            null
-        );
-    }
-
-
-    pokazListePrzystankow(
-        rozklad
+        nowyURL
     );
 }
 
@@ -2824,66 +1955,32 @@ function pokazRozklad() {
    ========================================================= */
 
 function czyPrzystanekNaZadanie(
-    p
+    przystanek
 ) {
 
-    if (!p)
+    if (!przystanek) {
         return false;
+    }
 
     const typ =
         String(
-            p.typ || ""
+            przystanek.typ ||
+            przystanek.type ||
+            przystanek.oznaczenie ||
+            ""
         )
             .trim()
             .toUpperCase();
 
-    if (
+    return (
         typ === "NŻ" ||
         typ === "NZ"
-    ) {
-
-        return true;
-    }
-
-    if (
-        p.naZadanie === true ||
-        String(
-            p.naZadanie
-        ).toLowerCase() ===
-        "true"
-    ) {
-
-        return true;
-    }
-
-    if (
-        p.nz === true ||
-        String(
-            p.nz
-        ).toLowerCase() ===
-        "true"
-    ) {
-
-        return true;
-    }
-
-    if (
-        typeof p.nazwa ===
-        "string" &&
-        p.nazwa.includes(
-            "(NŻ)"
-        )
-    ) {
-
-        return true;
-    }
-
-    return false;
+    );
 }
 
 
 /* =========================================================
-   LISTA PRZYSTANKÓW
+   GŁÓWNA LISTA PRZYSTANKÓW
    ========================================================= */
 
 function pokazListePrzystankow(
@@ -2895,174 +1992,37 @@ function pokazListePrzystankow(
             "przystanki"
         );
 
-    const kierunek =
-        rozklad.kierunki[
-            aktualnyKierunek
-        ];
-
-    const przystanki =
-        kierunek.przystanki ||
-        [];
-
-
-    document.getElementById(
-        "typRozkładu"
-    ).style.display =
-        "none";
-
-    document.querySelector(
-        ".dni"
-    ).style.display =
-        "none";
-
-    document.getElementById(
-        "kalendarz"
-    ).style.display =
-        "none";
-
-    kontener.innerHTML =
-        "";
-
-
-    /* =====================================================
-       WARIANTY
-       ===================================================== */
-
-    const wp =
-        document.getElementById(
-            "warianty-pojemnik"
-        );
-
-    const wprz =
-        document.getElementById(
-            "warianty-przyciski"
-        );
-
-    let wariantyKierunku =
-        [];
-
-
-    if (
-        wp &&
-        wprz
-    ) {
-
-        wariantyKierunku =
-            zbierzWariantyDlaKierunku(
-                kierunek
-            );
-
-
-        if (
-            wariantyKierunku.length > 0
-        ) {
-
-            wp.style.display =
-                "flex";
-
-            wprz.innerHTML =
-                "";
-
-
-            if (
-                aktualnyWariant === null ||
-                !wariantyKierunku.includes(
-                    aktualnyWariant
-                )
-            ) {
-
-                aktualnyWariant =
-                    znajdzDomyslnyWariant(
-                        kierunek
-                    );
-            }
-
-
-            wariantyKierunku.forEach(
-                w => {
-
-                    if (w === "")
-                        return;
-
-                    const btn =
-                        document.createElement(
-                            "button"
-                        );
-
-                    btn.className =
-                        "wariant-btn" +
-                        (
-                            aktualnyWariant === w
-                                ? " aktywny"
-                                : ""
-                        );
-
-                    btn.textContent =
-                        w;
-
-                    btn.onclick =
-                        () => {
-
-                            aktualnyWariant =
-                                w;
-
-                            pokazRozklad();
-                        };
-
-                    wprz.appendChild(
-                        btn
-                    );
-                }
-            );
-
-        } else {
-
-            wp.style.display =
-                "none";
-
-            aktualnyWariant =
-                null;
-        }
-    }
-
-
-    if (
-        przystanki.length === 0
-    ) {
-
-        kontener.innerHTML =
-            '<div class="brak-danych">' +
-            'Brak przystanków.' +
-            '</div>';
-
+    if (!kontener) {
         return;
     }
 
+    kontener.innerHTML = "";
 
-    /* =====================================================
-       DOKŁADNY KURS BAZOWY
-       ===================================================== */
+    widokKursuAktywny =
+        false;
 
+    if (!daneLinii) {
+        return;
+    }
+
+    /*
+     * Pobieramy dokładny kurs bazowy.
+     */
     const kursBazowy =
         znajdzKursBazowy(
-            kierunek,
+            aktualnyKierunek,
             aktualnyWariant
         );
 
-
     const czasyKursu =
         pobierzCzasyKursu(
-            kierunek,
+            aktualnyKierunek,
             kursBazowy
         );
 
-
-    const czasySumowane =
-        obliczSumowaneCzasy(
-            czasyKursu
-        );
-
-
+    /*
+     * Aktywność przystanków.
+     */
     const selectedActive =
         czasyKursu.map(
             czas =>
@@ -3071,36 +2031,28 @@ function pokazListePrzystankow(
                 ) !== null
         );
 
-
-    /* =====================================================
-       PIERWSZY I OSTATNI AKTYWNY PRZYSTANEK
-       ===================================================== */
-
-    const N =
-        przystanki.length;
-
-
+    /*
+     * Pierwszy i ostatni aktywny przystanek.
+     *
+     * Tego nie usuwamy – istniejące
+     * kwadraty pozostają bez zmian.
+     */
     let firstActiveIndex =
         -1;
-
 
     let lastActiveIndex =
         -1;
 
-
     selectedActive.forEach(
-        (
-            active,
-            i
-        ) => {
+        (active, i) => {
 
-            if (!active)
+            if (!active) {
                 return;
+            }
 
             if (
                 firstActiveIndex === -1
             ) {
-
                 firstActiveIndex =
                     i;
             }
@@ -3111,290 +2063,117 @@ function pokazListePrzystankow(
     );
 
 
-    /*
-     * Awaryjnie szukamy początku i końca wariantu.
-     */
+    /* =====================================================
+       JEŻELI NIE MA CZASÓW – SZUKAMY PO PUNKTACH
+       ===================================================== */
 
     if (
-        firstActiveIndex === -1
+        firstActiveIndex === -1 &&
+        kursBazowy &&
+        Array.isArray(
+            kursBazowy.punkty
+        )
     ) {
 
-        przystanki.forEach(
-            (
-                p,
-                i
-            ) => {
+        kursBazowy.punkty.forEach(
+            punkt => {
 
-                const active =
-                    (
-                        p.kursy ||
-                        []
-                    ).some(
-                        k =>
-                            pobierzWariant(
-                                k
-                            ) ===
-                            aktualnyWariant
+                if (
+                    czasNaMinuty(
+                        punkt.czas
+                    ) === null
+                ) {
+                    return;
+                }
+
+                const index =
+                    Number(
+                        punkt.index
                     );
 
                 if (
-                    active &&
                     firstActiveIndex === -1
                 ) {
-
                     firstActiveIndex =
-                        i;
+                        index;
                 }
 
-                if (active) {
-
-                    lastActiveIndex =
-                        i;
-                }
+                lastActiveIndex =
+                    index;
             }
         );
     }
 
 
     /* =====================================================
-       OŚ GŁÓWNA
+       RZECZYWISTY POCZĄTEK WARIANTU
        ===================================================== */
 
-    let mainWariant =
-        wariantyKierunku.includes(
-            "A"
+    const variantStartIndex =
+        kursBazowy &&
+        Number.isInteger(
+            Number(
+                kursBazowy.startIndex
+            )
         )
-            ? "A"
-            : wariantyKierunku[0];
+            ? Number(
+                kursBazowy.startIndex
+            )
+            : firstActiveIndex;
 
 
-    let isOnMainAxis =
-        new Array(
-            N
-        ).fill(
-            false
-        );
+    /* =====================================================
+       RZECZYWISTY KONIEC WARIANTU
+       ===================================================== */
+
+    let variantEndIndex =
+        kursBazowy &&
+        Number.isInteger(
+            Number(
+                kursBazowy.endIndex
+            )
+        )
+            ? Number(
+                kursBazowy.endIndex
+            )
+            : lastActiveIndex;
 
 
-    przystanki.forEach(
-        (
-            p,
-            i
-        ) => {
+    /*
+     * Jeżeli endIndex nie istnieje,
+     * wyznaczamy go bezpośrednio z punktów.
+     */
+    if (
+        kursBazowy &&
+        Array.isArray(
+            kursBazowy.punkty
+        )
+    ) {
 
-            isOnMainAxis[i] =
-                (
-                    p.kursy ||
-                    []
-                ).some(
-                    k =>
-                        pobierzWariant(
-                            k
-                        ) ===
-                        mainWariant
+        const aktywnePunkty =
+            kursBazowy.punkty
+                .filter(
+                    pt =>
+                        czasNaMinuty(
+                            pt.czas
+                        ) !== null
+                );
+
+        if (
+            aktywnePunkty.length > 0
+        ) {
+
+            variantEndIndex =
+                Math.max(
+                    ...aktywnePunkty.map(
+                        pt =>
+                            Number(
+                                pt.index
+                            )
+                    )
                 );
         }
-    );
-
-
-    /* =====================================================
-       ŚCIEŻKI KURSÓW
-       ===================================================== */
-
-    const tripPaths =
-        {};
-
-
-    przystanki.forEach(
-        (
-            p,
-            i
-        ) => {
-
-            (
-                p.kursy ||
-                []
-            ).forEach(
-                k => {
-
-                    const numer =
-                        String(
-                            k.numer
-                        ).trim();
-
-                    if (!numer)
-                        return;
-
-                    const wariant =
-                        pobierzWariant(
-                            k
-                        );
-
-                    const klucz =
-                        numer +
-                        "||" +
-                        wariant;
-
-
-                    if (
-                        !tripPaths[
-                            klucz
-                        ]
-                    ) {
-
-                        tripPaths[
-                            klucz
-                        ] = [];
-                    }
-
-
-                    tripPaths[
-                        klucz
-                    ].push(
-                        {
-                            index:
-                                i,
-
-                            wariant:
-                                wariant
-                        }
-                    );
-                }
-            );
-        }
-    );
-
-
-    /* =====================================================
-       KRAWĘDZIE
-       ===================================================== */
-
-    const edgesMap =
-        {};
-
-
-    Object.values(
-        tripPaths
-    ).forEach(
-        path => {
-
-            path.sort(
-                (
-                    a,
-                    b
-                ) =>
-                    a.index -
-                    b.index
-            );
-
-
-            for (
-                let j = 0;
-                j <
-                path.length - 1;
-                j++
-            ) {
-
-                const u =
-                    path[j].index;
-
-                const v =
-                    path[j + 1].index;
-
-                const w =
-                    path[j].wariant;
-
-                const key =
-                    u +
-                    "," +
-                    v;
-
-
-                if (
-                    !edgesMap[key]
-                ) {
-
-                    edgesMap[key] =
-                        {
-                            u:
-                                u,
-
-                            v:
-                                v,
-
-                            warianty:
-                                new Set()
-                        };
-                }
-
-
-                edgesMap[key]
-                    .warianty
-                    .add(w);
-            }
-        }
-    );
-
-
-    const edges =
-        Object.values(
-            edgesMap
-        );
-
-
-    edges.forEach(
-        e => {
-
-            if (
-                isOnMainAxis[e.u] &&
-                isOnMainAxis[e.v]
-            ) {
-
-                if (
-                    e.v - e.u === 1
-                ) {
-
-                    e.track =
-                        0;
-
-                } else {
-
-                    let skipsMain =
-                        false;
-
-
-                    for (
-                        let k =
-                            e.u + 1;
-                        k < e.v;
-                        k++
-                    ) {
-
-                        if (
-                            isOnMainAxis[k]
-                        ) {
-
-                            skipsMain =
-                                true;
-
-                            break;
-                        }
-                    }
-
-
-                    e.track =
-                        skipsMain
-                            ? -1
-                            : 0;
-                }
-
-            } else {
-
-                e.track =
-                    1;
-            }
-        }
-    );
+    }
 
 
     /* =====================================================
@@ -3403,7 +2182,6 @@ function pokazListePrzystankow(
 
     const selectedEdgeKeys =
         new Set();
-
 
     if (
         kursBazowy &&
@@ -3421,19 +2199,14 @@ function pokazListePrzystankow(
                         ) !== null
                 )
                 .sort(
-                    (
-                        a,
-                        b
-                    ) =>
+                    (a, b) =>
                         a.index -
                         b.index
                 );
 
-
         for (
             let j = 0;
-            j <
-            punkty.length - 1;
+            j < punkty.length - 1;
             j++
         ) {
 
@@ -3447,58 +2220,40 @@ function pokazListePrzystankow(
 
 
     /* =====================================================
-       PARAMETRY SVG
+       PRZYSTANKI
        ===================================================== */
 
-    const ROW_HEIGHT =
-        44;
+    let przystanki =
+        daneLinii.przystanki ||
+        [];
 
-    const TRACK_W =
-        22;
-
-    const SPINE_X =
-        44;
-
-    const LEFT_X =
-        SPINE_X -
-        TRACK_W;
-
-    const RIGHT_X =
-        SPINE_X +
-        TRACK_W;
-
-    const SVG_W =
-        RIGHT_X +
-        16;
-
-
-    /* =====================================================
-       LISTA
-       ===================================================== */
-
-    const lista =
-        document.createElement(
-            "div"
-        );
-
-    lista.className =
-        "lista-przystankow";
+    if (
+        !Array.isArray(przystanki)
+    ) {
+        przystanki = [];
+    }
 
 
     przystanki.forEach(
-        (
-            p,
-            i
-        ) => {
+        (p, i) => {
+
+            const czas =
+                czasyKursu[i] ||
+                "";
 
             const nodeActive =
-                selectedActive[i];
+                selectedActive[i] ||
+                false;
 
 
+            /*
+             * Przystanki przed początkiem wariantu
+             * są szare.
+             */
             const beforeVariantStart =
-                firstActiveIndex !== -1 &&
+                variantStartIndex !== -1 &&
                 i <
-                firstActiveIndex;
+                variantStartIndex;
 
 
             const inactiveForCourse =
@@ -3510,60 +2265,41 @@ function pokazListePrzystankow(
                 inactiveForCourse;
 
 
-            const btn =
-                document.createElement(
-                    "button"
-                );
+            /* =============================================
+               ISTNIEJĄCE KWADRATY
+               ============================================= */
+
+            const isFirstActive =
+                i === firstActiveIndex;
+
+            const isLastActive =
+                i === lastActiveIndex;
 
 
-            btn.type =
-                "button";
+            /* =============================================
+               NOWE KWADRATY DLA WARIANTU
+               ============================================= */
 
+            const isVariantStart =
+                i === variantStartIndex;
 
-            btn.className =
-                "przystanek-btn" +
-                (
-                    visualInactive
-                        ? " inactive"
-                        : ""
-                );
+            const isVariantEnd =
+                i === variantEndIndex;
 
 
             /*
              * WAŻNE:
              *
-             * Zachowujemy kwadrat:
+             * Nie zastępujemy istniejących kwadratów.
              *
-             * 1. na początku wybranego wariantu
-             * 2. na końcu wybranego wariantu
-             *
-             * Nie zmieniamy kształtu innych punktów.
+             * Dodajemy tylko kwadrat na początku
+             * i końcu rzeczywistego wariantu.
              */
-
-            const isFirstActive =
-    i === firstActiveIndex;
-
-const isLastActive =
-    i === lastActiveIndex;
-
-/*
- * Rzeczywisty początek wybranego wariantu.
- * Bierzemy go bezpośrednio z dokładnego kursu bazowego.
- */
-const variantStartIndex =
-    kursBazowy &&
-    Number.isInteger(
-        Number(kursBazowy.startIndex)
-    )
-        ? Number(kursBazowy.startIndex)
-        : firstActiveIndex;
-
-/*
- * Kwadrat pojawia się również wtedy,
- * gdy wariant zaczyna się w środku trasy.
- */
-const isVariantStart =
-    i === variantStartIndex;
+            const shouldBeSquare =
+                isFirstActive ||
+                isLastActive ||
+                isVariantStart ||
+                isVariantEnd;
 
 
             const isNz =
@@ -3572,426 +2308,294 @@ const isVariantStart =
                 );
 
 
-            let inactiveLines =
-                "";
+            /* =============================================
+               KOLORY
+               ============================================= */
 
-            let activeLines =
-                "";
-
-
-            /* =================================================
-               RYSOWANIE LINII
-               ================================================= */
-
-            const drawLine =
-                (
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    isActive
-                ) => {
-
-                    const color =
-                        isActive
-                            ? "#000"
-                            : "#ccc";
-
-                    const w =
-                        isActive
-                            ? 2.5
-                            : 2;
+            let strokeColor;
+            let fillColor;
 
 
-                    const str =
-                        `<line
-                            x1="${x1}"
-                            y1="${y1}"
-                            x2="${x2}"
-                            y2="${y2}"
-                            stroke="${color}"
-                            stroke-width="${w}"
-                            stroke-linecap="round"
-                        />`;
+            /*
+             * Szary przystanek pozostaje szary,
+             * ALE JEŻELI JEST KWADRATEM,
+             * NADAL RYSUJEMY KWADRAT.
+             */
+            if (
+                visualInactive
+            ) {
 
+                strokeColor =
+                    "#ccc";
 
-                    if (
-                        isActive
-                    ) {
+                fillColor =
+                    "#ccc";
 
-                        activeLines +=
-                            str;
+            } else {
 
-                    } else {
+                /*
+                 * Początek wariantu jest czarny.
+                 */
+                if (
+                    isVariantStart ||
+                    isFirstActive
+                ) {
 
-                        inactiveLines +=
-                            str;
-                    }
-                };
+                    strokeColor =
+                        "#000";
 
+                    fillColor =
+                        "#000";
 
-            edges.forEach(
-                e => {
+                } else {
 
-                    const edgeKey =
-                        e.u +
-                        "," +
-                        e.v;
+                    strokeColor =
+                        "#e42313";
 
-
-                    const isEdgeActive =
-                        selectedEdgeKeys.has(
-                            edgeKey
-                        );
-
-
-                    if (
-                        e.track === 0
-                    ) {
-
-                        if (
-                            i === e.u
-                        ) {
-
-                            drawLine(
-                                SPINE_X,
-                                ROW_HEIGHT / 2,
-                                SPINE_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
-
-                        } else if (
-                            i > e.u &&
-                            i < e.v
-                        ) {
-
-                            drawLine(
-                                SPINE_X,
-                                0,
-                                SPINE_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
-
-                        } else if (
-                            i === e.v
-                        ) {
-
-                            drawLine(
-                                SPINE_X,
-                                0,
-                                SPINE_X,
-                                ROW_HEIGHT / 2,
-                                isEdgeActive
-                            );
-                        }
-
-
-                    } else if (
-                        e.track === 1
-                    ) {
-
-                        const startX =
-                            isOnMainAxis[e.u]
-                                ? SPINE_X
-                                : RIGHT_X;
-
-
-                        const endX =
-                            isOnMainAxis[e.v]
-                                ? SPINE_X
-                                : RIGHT_X;
-
-
-                        if (
-                            i === e.u
-                        ) {
-
-                            drawLine(
-                                startX,
-                                ROW_HEIGHT / 2,
-                                RIGHT_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
-
-                        } else if (
-                            i > e.u &&
-                            i < e.v
-                        ) {
-
-                            drawLine(
-                                RIGHT_X,
-                                0,
-                                RIGHT_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
-
-                        } else if (
-                            i === e.v
-                        ) {
-
-                            drawLine(
-                                RIGHT_X,
-                                0,
-                                endX,
-                                ROW_HEIGHT / 2,
-                                isEdgeActive
-                            );
-                        }
-
-
-                    } else if (
-                        e.track === -1
-                    ) {
-
-                        if (
-                            i === e.u
-                        ) {
-
-                            drawLine(
-                                SPINE_X,
-                                ROW_HEIGHT / 2,
-                                LEFT_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
-
-                        } else if (
-                            i > e.u &&
-                            i < e.v
-                        ) {
-
-                            drawLine(
-                                LEFT_X,
-                                0,
-                                LEFT_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
-
-                        } else if (
-                            i === e.v
-                        ) {
-
-                            drawLine(
-                                LEFT_X,
-                                0,
-                                SPINE_X,
-                                ROW_HEIGHT / 2,
-                                isEdgeActive
-                            );
-                        }
-                    }
+                    fillColor =
+                        "#e42313";
                 }
+            }
+
+
+            /* =============================================
+               WIERSZ PRZYSTANKU
+               ============================================= */
+
+            const row =
+                document.createElement(
+                    "div"
+                );
+
+            row.className =
+                "wiersz-przystanku";
+
+
+            if (
+                visualInactive
+            ) {
+
+                row.classList.add(
+                    "nieaktywny"
+                );
+            }
+
+
+            /* =============================================
+               KONTENER IKONY
+               ============================================= */
+
+            const ikona =
+                document.createElement(
+                    "div"
+                );
+
+            ikona.className =
+                "ikona-przystanku";
+
+
+            /* =============================================
+               RYSOWANIE SVG
+               ============================================= */
+
+            const svgNS =
+                "http://www.w3.org/2000/svg";
+
+            const svg =
+                document.createElementNS(
+                    svgNS,
+                    "svg"
+                );
+
+            svg.setAttribute(
+                "width",
+                "18"
+            );
+
+            svg.setAttribute(
+                "height",
+                "18"
+            );
+
+            svg.setAttribute(
+                "viewBox",
+                "0 0 18 18"
             );
 
 
-            /* =================================================
-               POZYCJA WĘZŁA
-               ================================================= */
+            /* =============================================
+               KWADRAT
+               ============================================= */
 
-            const nodeX =
-                isOnMainAxis[i]
-                    ? SPINE_X
-                    : RIGHT_X;
+            if (
+                shouldBeSquare
+            ) {
 
+                const rect =
+                    document.createElementNS(
+                        svgNS,
+                        "rect"
+                    );
 
-            /* =================================================
-               KOLOR WĘZŁA
-               ================================================= */
+                rect.setAttribute(
+                    "x",
+                    "3"
+                );
 
-            const isBlackStart =
-    isFirstActive ||
-    isVariantStart;
+                rect.setAttribute(
+                    "y",
+                    "3"
+                );
 
+                rect.setAttribute(
+                    "width",
+                    "12"
+                );
 
-const strokeColor =
-    !nodeActive
-        ? "#ccc"
-        : (
-            isBlackStart
-                ? "#000"
-                : "#e42313"
-        );
+                rect.setAttribute(
+                    "height",
+                    "12"
+                );
 
-
-const fillColor =
-    !nodeActive
-        ? "#ccc"
-        : (
-            isBlackStart
-                ? "#000"
-                : "#e42313"
-        );
-
-
-            let nodeSvg =
-                "";
-
-
-            /* =================================================
-               KSZTAŁT WĘZŁA
-               
-               KWADRAT:
-               - pierwszy aktywny wariant
-               - ostatni aktywny wariant
-               
-               KÓŁKO:
-               - wszystkie pozostałe
-               ================================================= */
-
-          if (
-    isFirstActive ||
-    isVariantStart ||
-    isLastActive
-) {
+                rect.setAttribute(
+                    "rx",
+                    "0"
+                );
 
                 /*
-                 * KWADRAT
+                 * Szary początek/koniec wariantu
+                 * również jest KWADRATEM.
                  */
+                rect.setAttribute(
+                    "fill",
+                    fillColor
+                );
 
-                if (isNz) {
+                rect.setAttribute(
+                    "stroke",
+                    strokeColor
+                );
 
-                    nodeSvg =
-                        `<rect
-                            x="${nodeX - 6.75}"
-                            y="15.25"
-                            width="13.5"
-                            height="13.5"
-                            fill="#ffffff"
-                            stroke="${strokeColor}"
-                            stroke-width="2.5"
-                        />`;
+                rect.setAttribute(
+                    "stroke-width",
+                    "1.5"
+                );
 
-                } else {
-
-                    nodeSvg =
-                        `<rect
-                            x="${nodeX - 8}"
-                            y="14"
-                            width="16"
-                            height="16"
-                            fill="${fillColor}"
-                            stroke="none"
-                        />`;
-                }
+                svg.appendChild(
+                    rect
+                );
 
 
             } else {
 
-                /*
-                 * KÓŁKO
-                 */
+                /* =========================================
+                   KOŁO
+                   ========================================= */
 
-                if (isNz) {
+                const circle =
+                    document.createElementNS(
+                        svgNS,
+                        "circle"
+                    );
 
-                    nodeSvg =
-                        `<circle
-                            cx="${nodeX}"
-                            cy="22"
-                            r="6.75"
-                            fill="#ffffff"
-                            stroke="${strokeColor}"
-                            stroke-width="2.5"
-                        />`;
+                circle.setAttribute(
+                    "cx",
+                    "9"
+                );
 
-                } else {
+                circle.setAttribute(
+                    "cy",
+                    "9"
+                );
 
-                    nodeSvg =
-                        `<circle
-                            cx="${nodeX}"
-                            cy="22"
-                            r="8"
-                            fill="${fillColor}"
-                            stroke="none"
-                        />`;
-                }
+                circle.setAttribute(
+                    "r",
+                    "5"
+                );
+
+                circle.setAttribute(
+                    "fill",
+                    fillColor
+                );
+
+                circle.setAttribute(
+                    "stroke",
+                    strokeColor
+                );
+
+                circle.setAttribute(
+                    "stroke-width",
+                    "1.5"
+                );
+
+                svg.appendChild(
+                    circle
+                );
             }
 
 
-            /* =================================================
-               SVG
-               ================================================= */
-
-            const svgHtml =
-                `<svg
-                    width="${SVG_W}"
-                    height="${ROW_HEIGHT}"
-                    aria-hidden="true"
-                >
-                    ${inactiveLines}
-                    ${activeLines}
-                    ${nodeSvg}
-                </svg>`;
-
-
-            const nodeWrapper =
-                document.createElement(
-                    "div"
-                );
-
-            nodeWrapper.className =
-                "node-wrapper";
-
-            nodeWrapper.style.width =
-                SVG_W +
-                "px";
-
-            nodeWrapper.innerHTML =
-                svgHtml;
-
-
-            /* =================================================
-               CZAS PRZEJAZDU
-               ================================================= */
-
-            const czasKolumna =
-                document.createElement(
-                    "div"
-                );
-
-            czasKolumna.className =
-                "kolumna-czas-przejazdu";
-
+            /* =============================================
+               NŻ
+               ============================================= */
 
             if (
-                i ===
-                firstActiveIndex
+                isNz
             ) {
 
-                czasKolumna.classList.add(
-                    "pierwszy"
+                svg.innerHTML = "";
+
+                const nzCircle =
+                    document.createElementNS(
+                        svgNS,
+                        "circle"
+                    );
+
+                nzCircle.setAttribute(
+                    "cx",
+                    "9"
+                );
+
+                nzCircle.setAttribute(
+                    "cy",
+                    "9"
+                );
+
+                nzCircle.setAttribute(
+                    "r",
+                    "5"
+                );
+
+                nzCircle.setAttribute(
+                    "fill",
+                    "white"
+                );
+
+                nzCircle.setAttribute(
+                    "stroke",
+                    visualInactive
+                        ? "#ccc"
+                        : "#e42313"
+                );
+
+                nzCircle.setAttribute(
+                    "stroke-width",
+                    "2"
+                );
+
+                svg.appendChild(
+                    nzCircle
                 );
             }
 
 
-            const czasSumowany =
-                czasySumowane[i];
+            ikona.appendChild(
+                svg
+            );
 
 
-            if (
-                czasSumowany !== null &&
-                czasSumowany !== undefined &&
-                nodeActive
-            ) {
-
-                czasKolumna.textContent =
-                    czasSumowany +
-                    " min";
-
-            } else {
-
-                czasKolumna.textContent =
-                    "";
-            }
-
-
-            /* =================================================
+            /* =============================================
                NAZWA PRZYSTANKU
-               ================================================= */
+               ============================================= */
 
             const nazwa =
                 document.createElement(
@@ -3999,142 +2603,107 @@ const fillColor =
                 );
 
             nazwa.className =
-                "przystanek-nazwa";
+                "nazwa-przystanku";
 
             nazwa.textContent =
                 p.nazwa ||
-                "Przystanek";
+                p.name ||
+                p.nazwaPrzystanku ||
+                "";
 
 
-            nazwa.style.cursor =
-                "pointer";
-
-
-            nazwa.addEventListener(
-                "click",
-                function(e) {
-
-                    e.stopPropagation();
-
-                    wybierzPrzystanek(
-                        p,
-                        i
-                    );
-                }
-            );
-
-
-            /* =================================================
+            /* =============================================
                NUMER PRZYSTANKU
-               ================================================= */
+               ============================================= */
 
-            const nr =
+            const numer =
                 document.createElement(
                     "div"
                 );
 
-            nr.className =
-                "przystanek-nr";
+            numer.className =
+                "numer-przystanku";
 
-            nr.textContent =
-                p.nr || "";
+            numer.textContent =
+                p.nr ||
+                p.numer ||
+                p.number ||
+                "";
 
 
-            /* =================================================
-               KOLEJNOŚĆ ELEMENTÓW
-               ================================================= */
+            /* =============================================
+               CZAS
+               ============================================= */
 
-            btn.appendChild(
-                czasKolumna
+            const czasDiv =
+                document.createElement(
+                    "div"
+                );
+
+            czasDiv.className =
+                "czas-przystanku";
+
+            czasDiv.textContent =
+                czas ||
+                "";
+
+
+            /* =============================================
+               SKŁADANIE WIERSZA
+               ============================================= */
+
+            row.appendChild(
+                ikona
             );
 
-            btn.appendChild(
-                nodeWrapper
-            );
-
-            btn.appendChild(
+            row.appendChild(
                 nazwa
             );
 
-            btn.appendChild(
-                nr
+            row.appendChild(
+                numer
+            );
+
+            row.appendChild(
+                czasDiv
             );
 
 
-            btn.onclick =
-                () =>
-                    wybierzPrzystanek(
-                        p,
-                        i
-                    );
+            /* =============================================
+               KLIKNIĘCIE W PRZYSTANEK
+               ============================================= */
 
-
-            lista.appendChild(
-                btn
-            );
-        }
-    );
-
-
-    kontener.appendChild(
-        lista
-    );
-}
-
-
-/* =========================================================
-   WYBÓR PRZYSTANKU
-   ========================================================= */
-
-function wybierzPrzystanek(
-    p,
-    index
-) {
-
-    ustawWybranyPrzystanek(
-        p,
-        index
-    );
-
-    widokKursuAktywny =
-        false;
-
-    aktualizujHistorieURL(
-        "idx:" + index
-    );
-
-    pokazRozklad();
-
-
-    requestAnimationFrame(
-        () => {
-
-            window.scrollTo(
-                0,
-                0
-            );
-
-            requestAnimationFrame(
+            row.addEventListener(
+                "click",
                 () => {
 
-                    window.scrollTo(
-                        0,
-                        0
+                    selectedStopIndex =
+                        i;
+
+                    selectedStopDirection =
+                        aktualnyKierunek;
+
+                    pokazCalyKurs(
+                        i
                     );
                 }
             );
+
+
+            kontener.appendChild(
+                row
+            );
         }
     );
 }
 
 
 /* =========================================================
-   WIDOK PRZYSTANKU
+   WIDOK PRZYSTANKU / CAŁEGO KURSU
    ========================================================= */
 
-function pokazRozkladWybranegoPrzystanku(
-    rozklad,
-    przystanek
+function pokazCalyKurs(
+    stopIndex
 ) {
 
     const kontener =
@@ -4142,1018 +2711,289 @@ function pokazRozkladWybranegoPrzystanku(
             "przystanki"
         );
 
-
-    document.querySelector(
-        ".dni"
-    ).style.display =
-        "flex";
-
-
-    if (
-        aktualnyDzien !==
-        "kalendarz"
-    ) {
-
-        document.getElementById(
-            "kalendarz"
-        ).style.display =
-            "none";
+    if (!kontener) {
+        return;
     }
 
+    widokKursuAktywny =
+        true;
 
-    document.getElementById(
-        "typRozkładu"
-    ).style.display =
-        "block";
+    const kursBazowy =
+        znajdzKursBazowy(
+            aktualnyKierunek,
+            aktualnyWariant
+        );
+
+    if (
+        !kursBazowy
+    ) {
+        return;
+    }
+
+    const czasy =
+        pobierzCzasyKursu(
+            aktualnyKierunek,
+            kursBazowy
+        );
+
+    kontener.innerHTML = "";
 
 
-    document.getElementById(
-        "typRozkładu"
-    ).textContent =
-        rozklad.nazwa ||
-        "Rozkład jazdy";
-
-
-    document.getElementById(
-        "warianty-pojemnik"
-    ).style.display =
-        "none";
-
-
-    kontener.innerHTML =
-        "";
-
+    /* =====================================================
+       NAGŁÓWEK
+       ===================================================== */
 
     const naglowek =
         document.createElement(
             "div"
         );
 
-
     naglowek.className =
-        "naglowek-przystanku-widok";
+        "naglowek-kursu";
 
-
-    naglowek.innerHTML =
-        `<div class="nazwa">
-            ${przystanek.nazwa}
-        </div>
-
-        <div class="numer">
-            ${
-                przystanek.nr
-                    ? przystanek.nr
-                    : ""
-            }
-        </div>`;
-
+    naglowek.textContent =
+        "Kurs " +
+        (kursBazowy.numer || "");
 
     kontener.appendChild(
         naglowek
     );
 
 
-    const blok =
-        document.createElement(
-            "div"
-        );
-
-
-    blok.className =
-        "przystanek";
-
-
-    const godziny =
-        document.createElement(
-            "div"
-        );
-
-
-    godziny.className =
-        "godziny";
-
-
-    if (
-        !przystanek.kursy ||
-        przystanek.kursy.length === 0
-    ) {
-
-        godziny.innerHTML =
-            '<div class="brak-godzin">' +
-            'Brak odjazdów' +
-            '</div>';
-
-    } else {
-
-        let aktGodz =
-            null;
-
-        let wiersz =
-            null;
-
-
-        przystanek.kursy.forEach(
-            k => {
-
-                const dop =
-                    String(
-                        k.czas || ""
-                    )
-                        .trim()
-                        .match(
-                            /^(\d{1,2}):(\d{2})$/
-                        );
-
-
-                if (!dop)
-                    return;
-
-
-                const g =
-                    Number(
-                        dop[1]
-                    );
-
-                const m =
-                    dop[2];
-
-
-                if (
-                    aktGodz !== g
-                ) {
-
-                    aktGodz =
-                        g;
-
-
-                    wiersz =
-                        document.createElement(
-                            "div"
-                        );
-
-
-                    wiersz.className =
-                        "wiersz-godziny";
-
-
-                    wiersz.innerHTML =
-                        `<div class="kolumna-godzina">
-                            ${String(g).padStart(2, "0")}
-                        </div>`;
-
-
-                    godziny.appendChild(
-                        wiersz
-                    );
-                }
-
-
-                const kol =
-                    document.createElement(
-                        "div"
-                    );
-
-
-                kol.className =
-                    "kolumna-minuta";
-
-
-                const litera =
-                    pobierzWariant(
-                        k
-                    );
-
-
-                kol.innerHTML =
-                    `<span class="minuta-z-wariantem">
-
-                        <span class="minuta">
-                            ${m}
-                        </span>
-
-                        ${
-                            litera
-                                ? `<span class="wariant-minuty">
-                                    ${litera}
-                                  </span>`
-                                : ""
-                        }
-
-                    </span>`;
-
-
-                if (
-                    k.numer !== undefined &&
-                    k.numer !== null
-                ) {
-
-                    kol.title =
-                        "Zobacz przebieg kursu " +
-                        k.numer +
-                        (
-                            litera
-                                ? " (" +
-                                  litera +
-                                  ")"
-                                : ""
-                        );
-
-
-                    kol.onclick =
-                        () =>
-                            pokazCalyKurs(
-                                k.numer,
-                                litera
-                            );
-                }
-
-
-                wiersz.appendChild(
-                    kol
-                );
-            }
-        );
-    }
-
-
-    blok.appendChild(
-        godziny
-    );
-
-
     /* =====================================================
-       LEGENDA WARIANTÓW
+       PUNKTY
        ===================================================== */
 
-    const uzyteWarianty =
-        new Map();
-
-
-    if (
-        przystanek.kursy
-    ) {
-
-        przystanek.kursy.forEach(
-            k => {
-
-                const w =
-                    pobierzWariant(
-                        k
-                    );
-
-                if (w)
-                    uzyteWarianty.set(
-                        w,
-                        ""
-                    );
-            }
-        );
-    }
-
-
-    if (
-        uzyteWarianty.size > 0 &&
-        rozklad.warianty
-    ) {
-
-        const leg =
-            document.createElement(
-                "div"
-            );
-
-        leg.className =
-            "legenda-wariantow";
-
-
-        let legList =
-            '<div class="legenda-lista">';
-
-
-        uzyteWarianty.forEach(
-            (
-                _,
-                litera
-            ) => {
-
-                const w =
-                    rozklad.warianty.find(
-                        x =>
-                            x.litera ===
-                            litera
-                    );
-
-
-                if (w) {
-
-                    legList +=
-                        `<div class="legenda-element">
-
-                            <span class="legenda-litera">
-                                ${litera}
-                            </span>
-
-                            <span class="legenda-separator">
-                                -
-                            </span>
-
-                            <span class="legenda-opis">
-                                ${w.opis}
-                            </span>
-
-                        </div>`;
-                }
-            }
-        );
-
-
-        legList +=
-            "</div>";
-
-
-        leg.innerHTML =
-            legList;
-
-
-        blok.appendChild(
-            leg
-        );
-    }
-
-
-    kontener.appendChild(
-        blok
-    );
-
-
-    requestAnimationFrame(
-        () => {
-
-            requestAnimationFrame(
-                () => {
-
-                    window.scrollTo({
-                        top: 0,
-                        left: 0,
-                        behavior: "auto"
-                    });
-
-                    document.documentElement.scrollTop =
-                        0;
-
-                    document.body.scrollTop =
-                        0;
-                }
-            );
-        }
-    );
-}
-
-
-/* =========================================================
-   CAŁY KURS
-   ========================================================= */
-
-function pokazCalyKurs(
-    nrKursu,
-    wariantKursu = null
-) {
-
-    widokKursuAktywny =
-        true;
-
-
-    const rozklad =
-        znajdzRozklad();
-
-
-    if (
-        !rozklad ||
-        !rozklad.kierunki ||
-        !rozklad.kierunki[
-            aktualnyKierunek
-        ]
-    )
-        return;
-
-
-    const kierunek =
-        rozklad.kierunki[
-            aktualnyKierunek
-        ];
-
-
-    const przystankiK =
-        kierunek.przystanki ||
+    const przystanki =
+        daneLinii.przystanki ||
         [];
 
+    przystanki.forEach(
+        (p, i) => {
 
-    const kursPrzystanki =
-        [];
+            const czas =
+                czasy[i];
 
-
-    const szukanyNumer =
-        String(
-            nrKursu
-        ).trim();
-
-
-    const szukanyWariant =
-        String(
-            wariantKursu ||
-            ""
-        ).trim();
-
-
-    przystankiK.forEach(
-        (
-            p,
-            originalIndex
-        ) => {
-
-            const k =
-                (
-                    p.kursy ||
-                    []
-                ).find(
-                    x => {
-
-                        const numer =
-                            String(
-                                x.numer
-                            ).trim();
-
-
-                        const wariant =
-                            pobierzWariant(
-                                x
-                            );
-
-
-                        if (
-                            numer !==
-                            szukanyNumer
-                        ) {
-
-                            return false;
-                        }
-
-
-                        if (
-                            wariantKursu !== null &&
-                            wariant !==
-                            szukanyWariant
-                        ) {
-
-                            return false;
-                        }
-
-
-                        return true;
-                    }
-                );
-
-
-            if (k) {
-
-                kursPrzystanki.push(
-                    {
-                        nazwa:
-                            p.nazwa,
-
-                        nr:
-                            p.nr,
-
-                        nz:
-                            czyPrzystanekNaZadanie(
-                                p
-                            ),
-
-                        czas:
-                            k.czas,
-
-                        wariant:
-                            pobierzWariant(
-                                k
-                            ),
-
-                        originalIndex:
-                            originalIndex
-                    }
-                );
+            if (
+                czas === undefined ||
+                czas === null ||
+                czas === ""
+            ) {
+                return;
             }
-        }
-    );
 
-
-    const kontener =
-        document.getElementById(
-            "przystanki"
-        );
-
-
-    document.getElementById(
-        "typRozkładu"
-    ).style.display =
-        "block";
-
-
-    document.getElementById(
-        "typRozkładu"
-    ).textContent =
-        "Przebieg kursu";
-
-
-    document.querySelector(
-        ".dni"
-    ).style.display =
-        "none";
-
-
-    document.getElementById(
-        "kalendarz"
-    ).style.display =
-        "none";
-
-
-    document.getElementById(
-        "warianty-pojemnik"
-    ).style.display =
-        "none";
-
-
-    kontener.innerHTML =
-        "";
-
-
-    /* =====================================================
-       AKTUALNY PRZYSTANEK
-       ===================================================== */
-
-    let stopIndex =
-        -1;
-
-
-    if (
-        wybranyPrzystanekIndex !== null
-    ) {
-
-        const originalIndex =
-            Number(
-                wybranyPrzystanekIndex
-            );
-
-
-        stopIndex =
-            kursPrzystanki.findIndex(
-                p =>
-                    p.originalIndex ===
-                    originalIndex
-            );
-    }
-
-
-    if (
-        stopIndex === -1 &&
-        wybranyPrzystanek
-    ) {
-
-        stopIndex =
-            kursPrzystanki.findIndex(
-                p =>
-                    String(
-                        p.nr || ""
-                    ) ===
-                    String(
-                        wybranyPrzystanek.nr ||
-                        ""
-                    )
-                    &&
-                    String(
-                        p.nazwa || ""
-                    ) ===
-                    String(
-                        wybranyPrzystanek.nazwa ||
-                        ""
-                    )
-            );
-    }
-
-
-    const currentStopName =
-        stopIndex !== -1
-            ? kursPrzystanki[
-                stopIndex
-            ].nazwa
-            : (
-                kursPrzystanki.length
-                    ? kursPrzystanki[0].nazwa
-                    : ""
-            );
-
-
-    const lastStopName =
-        kursPrzystanki.length
-            ? kursPrzystanki[
-                kursPrzystanki.length - 1
-            ].nazwa
-            : "";
-
-
-    const widok =
-        document.createElement(
-            "div"
-        );
-
-
-    widok.className =
-        "kurs-widok";
-
-
-    widok.innerHTML =
-        `<div class="kurs-naglowek">
-
-            <div class="kurs-tytul">
-                ${currentStopName}
-                &rarr;
-                ${lastStopName}
-            </div>
-
-            <div class="kurs-informacja">
-
-                Kurs ${nrKursu}
-
-                ${
-                    szukanyWariant
-                        ? " | Wariant " +
-                          szukanyWariant
-                        : ""
-                }
-
-                |
-                Przebieg przez
-                ${kursPrzystanki.length}
-                przystanków
-
-            </div>
-
-        </div>`;
-
-
-    const lista =
-        document.createElement(
-            "div"
-        );
-
-
-    lista.className =
-        "kurs-lista";
-
-
-    const czasWMinutach =
-        cz => {
-
-            const minuty =
-                czasNaMinuty(
-                    cz
-                );
-
-            return minuty === null
-                ? 0
-                : minuty;
-        };
-
-
-    const startIndex =
-        stopIndex !== -1
-            ? stopIndex
-            : 0;
-
-
-    const baseTime =
-        kursPrzystanki.length
-            ? czasWMinutach(
-                kursPrzystanki[
-                    startIndex
-                ].czas
-            )
-            : 0;
-
-
-    kursPrzystanki.forEach(
-        (
-            el,
-            index
-        ) => {
-
-            const isPast =
-                stopIndex !== -1 &&
-                index < stopIndex;
-
-
-            const isCurrent =
-                stopIndex !== -1 &&
-                index === stopIndex;
-
-
-            const isFirst =
-                index === 0;
-
-
-            const isLast =
-                index ===
-                kursPrzystanki.length - 1;
-
-
-            const wiersz =
+            const row =
                 document.createElement(
                     "div"
                 );
 
+            row.className =
+                "wiersz-przystanku";
 
-            wiersz.className =
-                "kurs-przystanek" +
-                (
-                    isCurrent
-                        ? " aktywny"
-                        : ""
+
+            /* =============================================
+               IKONA
+               ============================================= */
+
+            const ikona =
+                document.createElement(
+                    "div"
                 );
 
-
-            let diffText =
-                "";
-
-
-            if (!isPast) {
-
-                let diff =
-                    czasWMinutach(
-                        el.czas
-                    ) -
-                    baseTime;
+            ikona.className =
+                "ikona-przystanku";
 
 
-                if (
-                    diff < 0
-                ) {
+            const svgNS =
+                "http://www.w3.org/2000/svg";
 
-                    diff +=
-                        24 * 60;
-                }
+            const svg =
+                document.createElementNS(
+                    svgNS,
+                    "svg"
+                );
+
+            svg.setAttribute(
+                "width",
+                "18"
+            );
+
+            svg.setAttribute(
+                "height",
+                "18"
+            );
+
+            svg.setAttribute(
+                "viewBox",
+                "0 0 18 18"
+            );
 
 
-                diffText =
-                    `${diff} min`;
-            }
+            const firstIndex =
+                kursBazowy.startIndex;
+
+            const lastIndex =
+                kursBazowy.endIndex;
 
 
             /*
-             * KOLOR:
-             *
-             * przeszłe = szare
-             * aktualne = czarne
-             * pierwszy = czarny
-             * pozostałe przyszłe = czerwone
+             * Widok całego kursu:
+             * pozostawiamy dotychczasowe
+             * kwadraty początku i końca.
              */
+            if (
+                i === firstIndex ||
+                i === lastIndex
+            ) {
 
-            const strokeColor =
-                isPast
-                    ? "#cccccc"
-                    : (
-                        isCurrent
-                            ? "#000000"
-                            : (
-                                isFirst
-                                    ? "#000000"
-                                    : "#e42313"
-                            )
+                const rect =
+                    document.createElementNS(
+                        svgNS,
+                        "rect"
                     );
 
+                rect.setAttribute(
+                    "x",
+                    "3"
+                );
 
-            const fillColor =
-                isPast
-                    ? "#cccccc"
-                    : (
-                        isCurrent
-                            ? "#000000"
-                            : (
-                                isFirst
-                                    ? "#000000"
-                                    : "#e42313"
-                            )
-                    );
+                rect.setAttribute(
+                    "y",
+                    "3"
+                );
 
+                rect.setAttribute(
+                    "width",
+                    "12"
+                );
 
-            const topSegColor =
-                isPast ||
-                isCurrent
-                    ? "#cccccc"
-                    : "#000000";
+                rect.setAttribute(
+                    "height",
+                    "12"
+                );
 
+                rect.setAttribute(
+                    "fill",
+                    "#000"
+                );
 
-            const botSegColor =
-                isPast
-                    ? "#cccccc"
-                    : "#000000";
-
-
-            let svgHtml =
-                `<svg
-                    width="40"
-                    height="44"
-                    style="display:block; overflow:visible;"
-                >`;
-
-
-            if (
-                index > 0
-            ) {
-
-                svgHtml +=
-                    `<line
-                        x1="20"
-                        y1="0"
-                        x2="20"
-                        y2="22"
-                        stroke="${topSegColor}"
-                        stroke-width="2.5"
-                    />`;
-            }
-
-
-            if (
-                index <
-                kursPrzystanki.length - 1
-            ) {
-
-                svgHtml +=
-                    `<line
-                        x1="20"
-                        y1="22"
-                        x2="20"
-                        y2="44"
-                        stroke="${botSegColor}"
-                        stroke-width="2.5"
-                    />`;
-            }
-
-
-            /* =================================================
-               PIERWSZY I OSTATNI = KWADRAT
-               ŚRODKOWE = KÓŁKO
-               ================================================= */
-
-            if (
-                isFirst ||
-                isLast
-            ) {
-
-                if (el.nz) {
-
-                    svgHtml +=
-                        `<rect
-                            x="13.25"
-                            y="15.25"
-                            width="13.5"
-                            height="13.5"
-                            fill="#ffffff"
-                            stroke="${strokeColor}"
-                            stroke-width="2.5"
-                        />`;
-
-                } else {
-
-                    svgHtml +=
-                        `<rect
-                            x="12"
-                            y="14"
-                            width="16"
-                            height="16"
-                            fill="${fillColor}"
-                            stroke="none"
-                        />`;
-                }
+                svg.appendChild(
+                    rect
+                );
 
             } else {
 
-                if (el.nz) {
+                const circle =
+                    document.createElementNS(
+                        svgNS,
+                        "circle"
+                    );
 
-                    svgHtml +=
-                        `<circle
-                            cx="20"
-                            cy="22"
-                            r="6.75"
-                            fill="#ffffff"
-                            stroke="${strokeColor}"
-                            stroke-width="2.5"
-                        />`;
+                circle.setAttribute(
+                    "cx",
+                    "9"
+                );
 
-                } else {
+                circle.setAttribute(
+                    "cy",
+                    "9"
+                );
 
-                    svgHtml +=
-                        `<circle
-                            cx="20"
-                            cy="22"
-                            r="8"
-                            fill="${fillColor}"
-                            stroke="none"
-                        />`;
-                }
+                circle.setAttribute(
+                    "r",
+                    "5"
+                );
+
+                circle.setAttribute(
+                    "fill",
+                    "#e42313"
+                );
+
+                svg.appendChild(
+                    circle
+                );
             }
 
 
-            svgHtml +=
-                "</svg>";
+            ikona.appendChild(
+                svg
+            );
 
 
-            const textStyling =
-                isPast
-                    ? "color:#aaaaaa; font-weight:600;"
-                    : (
-                        isCurrent
-                            ? "color:#000000; font-weight:900; font-size:17px;"
-                            : "color:#000000; font-weight:600;"
-                    );
+            /* =============================================
+               NAZWA
+               ============================================= */
+
+            const nazwa =
+                document.createElement(
+                    "div"
+                );
+
+            nazwa.className =
+                "nazwa-przystanku";
+
+            nazwa.textContent =
+                p.nazwa ||
+                p.name ||
+                p.nazwaPrzystanku ||
+                "";
 
 
-            const timeStyling =
-                isPast
-                    ? "color:#aaaaaa; font-weight:600;"
-                    : (
-                        isCurrent
-                            ? "color:#000000; font-weight:900; font-size:17px;"
-                            : "color:#000000; font-weight:600;"
-                    );
+            /* =============================================
+               NUMER
+               ============================================= */
+
+            const numer =
+                document.createElement(
+                    "div"
+                );
+
+            numer.className =
+                "numer-przystanku";
+
+            numer.textContent =
+                p.nr ||
+                p.numer ||
+                p.number ||
+                "";
 
 
-            const nrStyling =
-                isPast
-                    ? "color:#cccccc;"
-                    : "color:#777777;";
+            /* =============================================
+               CZAS
+               ============================================= */
+
+            const czasDiv =
+                document.createElement(
+                    "div"
+                );
+
+            czasDiv.className =
+                "czas-przystanku";
+
+            czasDiv.textContent =
+                czas;
 
 
-            const relTimeStyling =
-                isPast
-                    ? "color:#cccccc;"
-                    : (
-                        isCurrent
-                            ? "color:#444444; font-weight:600;"
-                            : "color:#888888;"
-                    );
+            row.appendChild(
+                ikona
+            );
 
+            row.appendChild(
+                nazwa
+            );
 
-            wiersz.innerHTML =
-                `
-                <div
-                    class="kurs-czas-rel"
-                    style="${relTimeStyling}"
-                >
-                    ${diffText}
-                </div>
+            row.appendChild(
+                numer
+            );
 
-                <div
-                    class="node-wrapper"
-                    style="width:40px;"
-                >
-                    ${svgHtml}
-                </div>
+            row.appendChild(
+                czasDiv
+            );
 
-                <div
-                    class="kurs-nazwa-box"
-                    style="${textStyling}"
-                >
-                    ${el.nazwa}
-                </div>
-
-                <div
-                    class="kurs-nr"
-                    style="${nrStyling}"
-                >
-                    ${el.nr || ""}
-                </div>
-
-                <div
-                    class="kurs-czas-abs"
-                    style="${timeStyling}"
-                >
-                    ${el.czas}
-                </div>
-                `;
-
-
-            lista.appendChild(
-                wiersz
+            kontener.appendChild(
+                row
             );
         }
-    );
-
-
-    widok.appendChild(
-        lista
-    );
-
-
-    kontener.appendChild(
-        widok
     );
 }
 
@@ -5163,161 +3003,85 @@ function pokazCalyKurs(
    ========================================================= */
 
 function pokazBlad(
-    tytul,
-    opis
+    tekst
 ) {
 
-    document.getElementById(
-        "numerLinii"
-    ).textContent =
-        "Błąd";
-
-
-    document.getElementById(
-        "trasa"
-    ).textContent =
-        "";
-
-
-    document.getElementById(
-        "kierunki"
-    ).innerHTML =
-        "";
-
-
-    document.getElementById(
-        "typRozkładu"
-    ).style.display =
-        "none";
-
-
-    const wp =
+    const kontener =
         document.getElementById(
-            "warianty-pojemnik"
+            "przystanki"
         );
 
+    if (!kontener) {
+        return;
+    }
 
-    if (wp)
-        wp.style.display =
-            "none";
+    kontener.innerHTML = "";
 
+    const blad =
+        document.createElement(
+            "div"
+        );
 
-    document.getElementById(
-        "przystanki"
-    ).innerHTML =
-        '<div class="blad">' +
-            '<strong>' +
-                tytul +
-            '</strong>' +
-            opis +
-        '</div>';
+    blad.className =
+        "blad";
+
+    blad.textContent =
+        tekst;
+
+    kontener.appendChild(
+        blad
+    );
 }
 
 
 /* =========================================================
-   HISTORIA PRZEGLĄDARKI
+   POPSTATE
    ========================================================= */
 
 window.addEventListener(
     "popstate",
-    function() {
+    () => {
 
-        const url =
-            new URL(
-                window.location.href
+        const urlParams =
+            new URLSearchParams(
+                window.location.search
             );
 
-
-        const pParam =
-            url.searchParams.get(
-                "przystanek"
-            );
-
-
-        const kParam =
-            url.searchParams.get(
+        aktualnyKierunek =
+            urlParams.get(
                 "kierunek"
             );
 
-
-        if (
-            kParam !== null &&
-            !isNaN(
-                Number(kParam)
-            )
-        ) {
-
-            aktualnyKierunek =
-                Number(
-                    kParam
-                );
-        }
-
-
-        const rozklad =
-            znajdzRozklad();
-
-
-        if (
-            pParam &&
-            rozklad &&
-            rozklad.kierunki &&
-            rozklad.kierunki[
-                aktualnyKierunek
-            ]
-        ) {
-
-            const kierunek =
-                rozklad.kierunki[
-                    aktualnyKierunek
-                ];
-
-
-            const przystanki =
-                kierunek.przystanki ||
-                [];
-
-
-            const p =
-                znajdzPrzystanek(
-                    przystanki,
-                    pParam
-                );
-
-
-            if (p) {
-
-                const index =
-                    przystanki.indexOf(
-                        p
-                    );
-
-
-                ustawWybranyPrzystanek(
-                    p,
-                    index
-                );
-
-            } else {
-
-                ustawWybranyPrzystanek(
-                    null
-                );
-            }
-
-        } else {
-
-            ustawWybranyPrzystanek(
-                null
+        aktualnyWariant =
+            urlParams.get(
+                "wariant"
             );
-        }
+
+        aktualnyDzien =
+            urlParams.get(
+                "dzien"
+            );
+
+        generujKierunki();
+
+        generujWarianty();
+
+        pokazListePrzystankow(
+            rozkladDlaAktualnychUstawien()
+        );
+    }
+);
 
 
-        widokKursuAktywny =
-            false;
+/* =========================================================
+   URUCHOMIENIE
+   ========================================================= */
 
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
 
-        pokazRozklad();
+        pobierzDane();
     }
 );
 
