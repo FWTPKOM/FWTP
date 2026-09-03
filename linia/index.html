@@ -2886,826 +2886,1202 @@ function czyPrzystanekNaZadanie(
    LISTA PRZYSTANKÓW
    ========================================================= */
 
-function pokazListePrzystankow(rozklad) {
+function pokazListePrzystankow(
+    rozklad
+) {
 
-    const kontener = document.getElementById("listaPrzystankow");
+    const kontener =
+        document.getElementById(
+            "przystanki"
+        );
 
-    if (!kontener) {
-        return;
-    }
+    const kierunek =
+        rozklad.kierunki[
+            aktualnyKierunek
+        ];
 
-    kontener.innerHTML = "";
+    const przystanki =
+        kierunek.przystanki ||
+        [];
 
-    if (!rozklad || !rozklad.przystanki || !rozklad.przystanki.length) {
-        return;
-    }
 
-    const przystanki = rozklad.przystanki;
+    document.getElementById(
+        "typRozkładu"
+    ).style.display =
+        "none";
 
-    /* =========================================================
-       1. ZNAJDŹ KURS BAZOWY DLA WYBRANEGO WARIANTU
-       ========================================================= */
+    document.querySelector(
+        ".dni"
+    ).style.display =
+        "none";
 
-    const kursBazowy = znajdzKursBazowy(
-        rozklad,
-        aktualnyWariant
-    );
+    document.getElementById(
+        "kalendarz"
+    ).style.display =
+        "none";
 
-    if (!kursBazowy) {
+    kontener.innerHTML =
+        "";
 
-        przystanki.forEach((p) => {
 
-            const div = document.createElement("div");
-            div.className = "przystanek";
+    /* =====================================================
+       WARIANTY
+       ===================================================== */
 
-            const nazwa = document.createElement("div");
-            nazwa.className = "nazwa-przystanku";
-            nazwa.textContent =
-                p.nazwa ||
-                p.nazwaPrzystanku ||
+    const wp =
+        document.getElementById(
+            "warianty-pojemnik"
+        );
+
+    const wprz =
+        document.getElementById(
+            "warianty-przyciski"
+        );
+
+    let wariantyKierunku =
+        [];
+
+
+    if (
+        wp &&
+        wprz
+    ) {
+
+        wariantyKierunku =
+            zbierzWariantyDlaKierunku(
+                kierunek
+            );
+
+
+        if (
+            wariantyKierunku.length > 0
+        ) {
+
+            wp.style.display =
+                "flex";
+
+            wprz.innerHTML =
                 "";
-
-            div.appendChild(nazwa);
-
-            kontener.appendChild(div);
-        });
-
-        return;
-    }
-
-
-    /* =========================================================
-       2. CZASY WYBRANEGO KURSU
-       ========================================================= */
-
-    const czasyKursu = pobierzCzasyKursu(
-        kursBazowy,
-        przystanki
-    );
-
-
-    /* =========================================================
-       3. OKREŚLAMY, KTÓRE PRZYSTANKI SĄ OBSŁUGIWANE
-       ========================================================= */
-
-    const aktywne = przystanki.map((p, i) => {
-
-        const czas = czasyKursu
-            ? czasyKursu[i]
-            : null;
-
-        return (
-            czas !== null &&
-            czas !== undefined &&
-            czas !== "" &&
-            czas !== "-"
-        );
-    });
-
-
-    /* =========================================================
-       4. INDEKSY PIERWSZEGO I OSTATNIEGO OBSŁUGIWANEGO
-       ========================================================= */
-
-    let pierwszyAktywny = -1;
-    let ostatniAktywny = -1;
-
-    for (let i = 0; i < aktywne.length; i++) {
-
-        if (aktywne[i]) {
-
-            if (pierwszyAktywny === -1) {
-                pierwszyAktywny = i;
-            }
-
-            ostatniAktywny = i;
-        }
-    }
-
-
-    /* =========================================================
-       5. DLA KAŻDEGO PRZYSTANKU USTALAMY JEGO POŁOŻENIE
-       
-       RIGHT  = kurs obsługuje przystanek
-       LEFT   = kurs omija przystanek
-       ========================================================= */
-
-    const strony = [];
-
-    for (let i = 0; i < przystanki.length; i++) {
-
-        if (aktywne[i]) {
-            strony[i] = "RIGHT";
-        } else {
-            strony[i] = "LEFT";
-        }
-    }
-
-
-    /* =========================================================
-       6. NIEOBSŁUGIWANE PRZYSTANKI PRZED STARTEM KURSU
-          I ZA KOŃCEM KURSU NIE SĄ CZĘŚCIĄ OMIJANIA
-       ========================================================= */
-
-    for (let i = 0; i < pierwszyAktywny; i++) {
-        strony[i] = "NONE";
-    }
-
-    for (
-        let i = ostatniAktywny + 1;
-        i < przystanki.length;
-        i++
-    ) {
-        strony[i] = "NONE";
-    }
-
-
-    /* =========================================================
-       7. SZUKAMY BLOKÓW POMIJANYCH PRZYSTANKÓW
-       
-       Przykład:
-
-       A
-       B   ← LEFT
-       C   ← LEFT
-       D
-       
-       tutaj kurs:
-       
-       A ───╲
-             ╲
-       B     │
-       C     │
-             ╱
-       D ───╱
-       ========================================================= */
-
-    const pomijaneBloki = [];
-
-    let blokStart = -1;
-
-    for (let i = pierwszyAktywny; i <= ostatniAktywny; i++) {
-
-        if (!aktywne[i]) {
-
-            if (blokStart === -1) {
-                blokStart = i;
-            }
-
-        } else {
-
-            if (blokStart !== -1) {
-
-                pomijaneBloki.push({
-                    start: blokStart,
-                    koniec: i - 1,
-                    przed: blokStart - 1,
-                    po: i
-                });
-
-                blokStart = -1;
-            }
-        }
-    }
-
-
-    /* =========================================================
-       8. POMOCNICZE FUNKCJE SVG
-       ========================================================= */
-
-    const SVG_NS = "http://www.w3.org/2000/svg";
-
-    const SVG_W = 52;
-    const SVG_H = 44;
-
-    const CENTER_X = 26;
-
-    const LEFT_X = 8;
-    const RIGHT_X = 44;
-
-
-    function utworzSVG() {
-
-        const svg = document.createElementNS(
-            SVG_NS,
-            "svg"
-        );
-
-        svg.setAttribute(
-            "viewBox",
-            `0 0 ${SVG_W} ${SVG_H}`
-        );
-
-        svg.setAttribute(
-            "aria-hidden",
-            "true"
-        );
-
-        return svg;
-    }
-
-
-    function linia(
-        svg,
-        x1,
-        y1,
-        x2,
-        y2,
-        klasa = ""
-    ) {
-
-        const l = document.createElementNS(
-            SVG_NS,
-            "line"
-        );
-
-        l.setAttribute("x1", x1);
-        l.setAttribute("y1", y1);
-        l.setAttribute("x2", x2);
-        l.setAttribute("y2", y2);
-
-        l.setAttribute(
-            "stroke-linecap",
-            "round"
-        );
-
-        l.setAttribute(
-            "stroke-width",
-            "3"
-        );
-
-        if (klasa) {
-            l.classList.add(klasa);
-        }
-
-        svg.appendChild(l);
-
-        return l;
-    }
-
-
-    function kolo(
-        svg,
-        x,
-        y,
-        promien,
-        wypelnienie,
-        obrys
-    ) {
-
-        const c = document.createElementNS(
-            SVG_NS,
-            "circle"
-        );
-
-        c.setAttribute("cx", x);
-        c.setAttribute("cy", y);
-        c.setAttribute("r", promien);
-
-        c.setAttribute(
-            "fill",
-            wypelnienie
-        );
-
-        c.setAttribute(
-            "stroke",
-            obrys
-        );
-
-        c.setAttribute(
-            "stroke-width",
-            "2"
-        );
-
-        svg.appendChild(c);
-
-        return c;
-    }
-
-
-    function kwadrat(
-        svg,
-        x,
-        y,
-        wypelnienie,
-        obrys
-    ) {
-
-        const r = document.createElementNS(
-            SVG_NS,
-            "rect"
-        );
-
-        r.setAttribute(
-            "x",
-            x - 6
-        );
-
-        r.setAttribute(
-            "y",
-            y - 6
-        );
-
-        r.setAttribute(
-            "width",
-            "12"
-        );
-
-        r.setAttribute(
-            "height",
-            "12"
-        );
-
-        r.setAttribute(
-            "fill",
-            wypelnienie
-        );
-
-        r.setAttribute(
-            "stroke",
-            obrys
-        );
-
-        r.setAttribute(
-            "stroke-width",
-            "2"
-        );
-
-        svg.appendChild(r);
-
-        return r;
-    }
-
-
-    /* =========================================================
-       9. OKREŚLAMY, CZY PRZYSTANEK JEST POCZĄTKIEM/KOŃCEM
-       ========================================================= */
-
-    function czyPoczatekWariantu(i) {
-
-        return (
-            i === pierwszyAktywny
-        );
-    }
-
-
-    function czyKoniecWariantu(i) {
-
-        return (
-            i === ostatniAktywny
-        );
-    }
-
-
-    function czyPierwszyNaLiscie(i) {
-
-        return i === 0;
-    }
-
-
-    function czyOstatniNaLiscie(i) {
-
-        return i === przystanki.length - 1;
-    }
-
-
-    /* =========================================================
-       10. FUNKCJA USTALAJĄCA RODZAJ PRZEJŚCIA
-       
-       WTP:
-       
-       RIGHT → RIGHT = p0/p4
-       RIGHT → LEFT  = p5/p7
-       LEFT  → LEFT  = p4/p0
-       LEFT  → RIGHT = p1/p3
-       ========================================================= */
-
-    function typPrzejscia(
-        poprzedniaStrona,
-        aktualnaStrona
-    ) {
-
-        if (
-            poprzedniaStrona === "RIGHT" &&
-            aktualnaStrona === "RIGHT"
-        ) {
-            return "RIGHT_VERTICAL";
-        }
-
-        if (
-            poprzedniaStrona === "LEFT" &&
-            aktualnaStrona === "LEFT"
-        ) {
-            return "LEFT_VERTICAL";
-        }
-
-        if (
-            poprzedniaStrona === "RIGHT" &&
-            aktualnaStrona === "LEFT"
-        ) {
-            return "RIGHT_TO_LEFT";
-        }
-
-        if (
-            poprzedniaStrona === "LEFT" &&
-            aktualnaStrona === "RIGHT"
-        ) {
-            return "LEFT_TO_RIGHT";
-        }
-
-        return "NONE";
-    }
-
-
-    /* =========================================================
-       11. RYSUJEMY LISTĘ
-       ========================================================= */
-
-    for (let i = 0; i < przystanki.length; i++) {
-
-        const p = przystanki[i];
-
-        const aktywny = aktywne[i];
-
-        const poprzedniAktywny =
-            i > 0
-                ? aktywne[i - 1]
-                : false;
-
-        const nastepnyAktywny =
-            i < przystanki.length - 1
-                ? aktywne[i + 1]
-                : false;
-
-
-        const wiersz = document.createElement("div");
-
-        wiersz.className =
-            "wiersz-przystanku";
-
-
-        /* =====================================================
-           KONTENER SVG
-           ===================================================== */
-
-        const grafika =
-            document.createElement("div");
-
-        grafika.className =
-            "grafika-przystanku";
-
-        grafika.style.width = "52px";
-        grafika.style.height = "44px";
-        grafika.style.flex = "0 0 52px";
-
-
-        const svg = utworzSVG();
-
-
-        /* =====================================================
-           KOLOR
-           ===================================================== */
-
-        const czyNZ =
-            czyPrzystanekNaZadanie(p);
-
-
-        let kolor = "#e42313";
-
-        if (!aktywny) {
-            kolor = "#bdbdbd";
-        }
-
-
-        /* =====================================================
-           USTALAMY POŁOŻENIE WĘZŁA
-           ===================================================== */
-
-        let nodeX = CENTER_X;
-
-        if (aktywny) {
-            nodeX = RIGHT_X;
-        }
-
-
-        /*
-         * Pomijany przystanek pozostaje na osi nazw,
-         * natomiast linia kursu omija go z lewej.
-         */
-
-        if (!aktywny) {
-            nodeX = CENTER_X;
-        }
-
-
-        /* =====================================================
-           LINIA Z POPRZEDNIEGO PRZYSTANKU
-           ===================================================== */
-
-        if (i > 0) {
-
-            const poprzednia = strony[i - 1];
-            const aktualna = strony[i];
-
-            const przejscie =
-                typPrzejscia(
-                    poprzednia,
-                    aktualna
-                );
-
-
-            if (przejscie === "RIGHT_VERTICAL") {
-
-                linia(
-                    svg,
-                    RIGHT_X,
-                    0,
-                    RIGHT_X,
-                    22,
-                    "p0"
-                );
-
-            } else if (przejscie === "LEFT_VERTICAL") {
-
-                linia(
-                    svg,
-                    LEFT_X,
-                    0,
-                    LEFT_X,
-                    22,
-                    "p0"
-                );
-
-            } else if (
-                przejscie === "RIGHT_TO_LEFT"
-            ) {
-
-                linia(
-                    svg,
-                    RIGHT_X,
-                    0,
-                    LEFT_X,
-                    22,
-                    "p7"
-                );
-
-            } else if (
-                przejscie === "LEFT_TO_RIGHT"
-            ) {
-
-                linia(
-                    svg,
-                    LEFT_X,
-                    0,
-                    RIGHT_X,
-                    22,
-                    "p1"
-                );
-            }
-        }
-
-
-        /* =====================================================
-           LINIA DO NASTĘPNEGO PRZYSTANKU
-           ===================================================== */
-
-        if (i < przystanki.length - 1) {
-
-            const aktualna = strony[i];
-
-            const nastepna = strony[i + 1];
-
-            const przejscie =
-                typPrzejscia(
-                    aktualna,
-                    nastepna
-                );
 
 
             if (
-                przejscie === "RIGHT_VERTICAL"
+                aktualnyWariant === null ||
+                !wariantyKierunku.includes(
+                    aktualnyWariant
+                )
             ) {
 
-                linia(
-                    svg,
-                    RIGHT_X,
-                    22,
-                    RIGHT_X,
-                    44,
-                    "p4"
-                );
-
-            } else if (
-                przejscie === "LEFT_VERTICAL"
-            ) {
-
-                linia(
-                    svg,
-                    LEFT_X,
-                    22,
-                    LEFT_X,
-                    44,
-                    "p4"
-                );
-
-            } else if (
-                przejscie === "RIGHT_TO_LEFT"
-            ) {
-
-                linia(
-                    svg,
-                    RIGHT_X,
-                    22,
-                    LEFT_X,
-                    44,
-                    "p5"
-                );
-
-            } else if (
-                przejscie === "LEFT_TO_RIGHT"
-            ) {
-
-                linia(
-                    svg,
-                    LEFT_X,
-                    22,
-                    RIGHT_X,
-                    44,
-                    "p3"
-                );
+                aktualnyWariant =
+                    znajdzDomyslnyWariant(
+                        kierunek
+                    );
             }
-        }
 
 
-        /* =====================================================
-           WĘZEŁ PRZYSTANKU
-           ===================================================== */
+            wariantyKierunku.forEach(
+                w => {
 
-        const poczatek =
-            czyPierwszyNaLiscie(i) ||
-            czyPoczatekWariantu(i);
+                    if (w === "")
+                        return;
 
-        const koniec =
-            czyOstatniNaLiscie(i) ||
-            czyKoniecWariantu(i);
+                    const btn =
+                        document.createElement(
+                            "button"
+                        );
 
+                    btn.className =
+                        "wariant-btn" +
+                        (
+                            aktualnyWariant === w
+                                ? " aktywny"
+                                : ""
+                        );
 
-        if (czyNZ) {
+                    btn.textContent =
+                        w;
 
-            /*
-             * NŻ = pusty okrąg
-             */
+                    btn.onclick =
+                        () => {
 
-            kolo(
-                svg,
-                nodeX,
-                22,
-                6,
-                "#fff",
-                kolor
-            );
+                            aktualnyWariant =
+                                w;
 
-        } else if (poczatek || koniec) {
+                            pokazRozklad();
+                        };
 
-            /*
-             * WTP używa kwadratu na początku/końcu
-             */
-
-            kwadrat(
-                svg,
-                nodeX,
-                22,
-                kolor,
-                kolor
+                    wprz.appendChild(
+                        btn
+                    );
+                }
             );
 
         } else {
 
-            /*
-             * Zwykły przystanek
-             */
+            wp.style.display =
+                "none";
 
-            kolo(
-                svg,
-                nodeX,
-                22,
-                6,
-                kolor,
-                kolor
-            );
+            aktualnyWariant =
+                null;
         }
+    }
 
 
-        grafika.appendChild(svg);
+    if (
+        przystanki.length === 0
+    ) {
 
-        wiersz.appendChild(grafika);
+        kontener.innerHTML =
+            '<div class="brak-danych">' +
+            'Brak przystanków.' +
+            '</div>';
 
-
-        /* =====================================================
-           NAZWA PRZYSTANKU
-           ===================================================== */
-
-        const nazwa =
-            document.createElement("div");
-
-        nazwa.className =
-            "nazwa-przystanku";
-
-        nazwa.style.marginLeft = "2px";
-
-        nazwa.textContent =
-            p.nazwa ||
-            p.nazwaPrzystanku ||
-            p.nazwa_przystanku ||
-            "";
+        return;
+    }
 
 
-        /* =====================================================
-           KLIKNIĘCIE PRZYSTANKU
-           ===================================================== */
+    /* =====================================================
+       DOKŁADNY KURS BAZOWY
+       ===================================================== */
 
-        wiersz.style.cursor = "pointer";
-
-        wiersz.addEventListener(
-            "click",
-            function () {
-
-                ustawWybranyPrzystanek(
-                    p
-                );
-
-                pokazRozklad();
-            }
+    const kursBazowy =
+        znajdzKursBazowy(
+            kierunek,
+            aktualnyWariant
         );
 
 
-        wiersz.appendChild(nazwa);
+    const czasyKursu =
+        pobierzCzasyKursu(
+            kierunek,
+            kursBazowy
+        );
 
-        kontener.appendChild(wiersz);
+
+    const czasySumowane =
+        obliczSumowaneCzasy(
+            czasyKursu
+        );
 
 
-        /* =====================================================
-           DODATKOWY WIERSZ PRZERWY
-           
-           Gdy kurs:
-           
-           RIGHT
-             ↓
-           LEFT
-           LEFT
-             ↓
-           RIGHT
-           
-           robimy dodatkowy odstęp przy powrocie.
-           ===================================================== */
+    const selectedActive =
+        czasyKursu.map(
+            czas =>
+                czasNaMinuty(
+                    czas
+                ) !== null
+        );
 
-        if (
-            i < przystanki.length - 1 &&
-            strony[i] === "LEFT" &&
-            strony[i + 1] === "RIGHT"
+
+    /* =====================================================
+       PIERWSZY I OSTATNI AKTYWNY PRZYSTANEK
+       ===================================================== */
+
+    const N =
+        przystanki.length;
+
+
+    let firstActiveIndex =
+        -1;
+
+
+    let lastActiveIndex =
+        -1;
+
+
+    selectedActive.forEach(
+        (
+            active,
+            i
+        ) => {
+
+            if (!active)
+                return;
+
+            if (
+                firstActiveIndex === -1
+            ) {
+
+                firstActiveIndex =
+                    i;
+            }
+
+            lastActiveIndex =
+                i;
+        }
+    );
+
+
+    /*
+     * Awaryjnie szukamy początku i końca wariantu.
+     */
+
+    if (
+        firstActiveIndex === -1
+    ) {
+
+        przystanki.forEach(
+            (
+                p,
+                i
+            ) => {
+
+                const active =
+                    (
+                        p.kursy ||
+                        []
+                    ).some(
+                        k =>
+                            pobierzWariant(
+                                k
+                            ) ===
+                            aktualnyWariant
+                    );
+
+                if (
+                    active &&
+                    firstActiveIndex === -1
+                ) {
+
+                    firstActiveIndex =
+                        i;
+                }
+
+                if (active) {
+
+                    lastActiveIndex =
+                        i;
+                }
+            }
+        );
+    }
+
+
+    /* =====================================================
+       ŚCIEŻKI KURSÓW
+       ===================================================== */
+
+    let mainWariant =
+        wariantyKierunku.includes(
+            "A"
+        )
+            ? "A"
+            : wariantyKierunku[0];
+
+
+    let isOnMainAxis =
+        new Array(
+            N
+        ).fill(
+            false
+        );
+
+
+    przystanki.forEach(
+        (
+            p,
+            i
+        ) => {
+
+            isOnMainAxis[i] =
+                (
+                    p.kursy ||
+                    []
+                ).some(
+                    k =>
+                        pobierzWariant(
+                            k
+                        ) ===
+                        mainWariant
+                );
+        }
+    );
+
+
+    /* =====================================================
+       ŚCIEŻKI
+       ===================================================== */
+
+    const tripPaths =
+        {};
+
+
+    przystanki.forEach(
+        (
+            p,
+            i
+        ) => {
+
+            (
+                p.kursy ||
+                []
+            ).forEach(
+                k => {
+
+                    const numer =
+                        String(
+                            k.numer
+                        ).trim();
+
+                    if (!numer)
+                        return;
+
+                    const wariant =
+                        pobierzWariant(
+                            k
+                        );
+
+                    const klucz =
+                        numer +
+                        "||" +
+                        wariant;
+
+
+                    if (
+                        !tripPaths[
+                            klucz
+                        ]
+                    ) {
+
+                        tripPaths[
+                            klucz
+                        ] = [];
+                    }
+
+
+                    tripPaths[
+                        klucz
+                    ].push(
+                        {
+                            index:
+                                i,
+
+                            wariant:
+                                wariant
+                        }
+                    );
+                }
+            );
+        }
+    );
+
+
+    /* =====================================================
+       KRAWĘDZIE
+       ===================================================== */
+
+    const edgesMap =
+        {};
+
+
+    Object.values(
+        tripPaths
+    ).forEach(
+        path => {
+
+            path.sort(
+                (
+                    a,
+                    b
+                ) =>
+                    a.index -
+                    b.index
+            );
+
+
+            for (
+                let j = 0;
+                j <
+                path.length - 1;
+                j++
+            ) {
+
+                const u =
+                    path[j].index;
+
+                const v =
+                    path[j + 1].index;
+
+                const w =
+                    path[j].wariant;
+
+                const key =
+                    u +
+                    "," +
+                    v;
+
+
+                if (
+                    !edgesMap[key]
+                ) {
+
+                    edgesMap[key] =
+                        {
+                            u:
+                                u,
+
+                            v:
+                                v,
+
+                            warianty:
+                                new Set()
+                        };
+                }
+
+
+                edgesMap[key]
+                    .warianty
+                    .add(w);
+            }
+        }
+    );
+
+
+    const edges =
+        Object.values(
+            edgesMap
+        );
+
+
+    edges.forEach(
+        e => {
+
+            if (
+                isOnMainAxis[e.u] &&
+                isOnMainAxis[e.v]
+            ) {
+
+                if (
+                    e.v - e.u === 1
+                ) {
+
+                    e.track =
+                        0;
+
+                } else {
+
+                    let skipsMain =
+                        false;
+
+
+                    for (
+                        let k =
+                            e.u + 1;
+                        k < e.v;
+                        k++
+                    ) {
+
+                        if (
+                            isOnMainAxis[k]
+                        ) {
+
+                            skipsMain =
+                                true;
+
+                            break;
+                        }
+                    }
+
+
+                    e.track =
+                        skipsMain
+                            ? -1
+                            : 0;
+                }
+
+            } else {
+
+                e.track =
+                    1;
+            }
+        }
+    );
+
+
+    /* =====================================================
+       KRAWĘDZIE DOKŁADNEGO KURSU
+       ===================================================== */
+
+    const selectedEdgeKeys =
+        new Set();
+
+
+    if (
+        kursBazowy &&
+        Array.isArray(
+            kursBazowy.punkty
+        )
+    ) {
+
+        const punkty =
+            kursBazowy.punkty
+                .filter(
+                    pt =>
+                        czasNaMinuty(
+                            pt.czas
+                        ) !== null
+                )
+                .sort(
+                    (
+                        a,
+                        b
+                    ) =>
+                        a.index -
+                        b.index
+                );
+
+
+        for (
+            let j = 0;
+            j <
+            punkty.length - 1;
+            j++
         ) {
 
-            const przerwa =
-                document.createElement("div");
-
-            przerwa.className =
-                "przerwa-trasy";
-
-            przerwa.style.height =
-                "10px";
-
-            kontener.appendChild(
-                przerwa
+            selectedEdgeKeys.add(
+                punkty[j].index +
+                "," +
+                punkty[j + 1].index
             );
         }
     }
 
 
-    /* =========================================================
-       12. DOPASOWANIE ODSTĘPÓW
-       ========================================================= */
+    /* =====================================================
+       PARAMETRY SVG
+       ===================================================== */
 
-    kontener.style.position = "relative";
+    const ROW_HEIGHT =
+        44;
+
+    const TRACK_W =
+        22;
+
+    const SPINE_X =
+        44;
+
+    const LEFT_X =
+        SPINE_X -
+        TRACK_W;
+
+    const RIGHT_X =
+        SPINE_X +
+        TRACK_W;
+
+    const SVG_W =
+        RIGHT_X +
+        16;
 
 
-    /*
-     * Nazwy są bliżej grafiki WTP.
-     */
+    /* =====================================================
+       LISTA
+       ===================================================== */
 
-    const nazwy =
-        kontener.querySelectorAll(
-            ".nazwa-przystanku"
+    const lista =
+        document.createElement(
+            "div"
         );
 
-    nazwy.forEach(
-        function (el) {
+    lista.className =
+        "lista-przystankow";
 
-            el.style.marginLeft =
-                "2px";
 
-            el.style.paddingLeft =
-                "0";
+    przystanki.forEach(
+        (
+            p,
+            i
+        ) => {
+
+            const nodeActive =
+                selectedActive[i];
+
+
+            const beforeVariantStart =
+                firstActiveIndex !== -1 &&
+                i <
+                firstActiveIndex;
+
+
+            const inactiveForCourse =
+                !nodeActive;
+
+
+            const visualInactive =
+                beforeVariantStart ||
+                inactiveForCourse;
+
+
+            const btn =
+                document.createElement(
+                    "button"
+                );
+
+
+            btn.type =
+                "button";
+
+
+            btn.className =
+                "przystanek-btn" +
+                (
+                    visualInactive
+                        ? " inactive"
+                        : ""
+                );
+
+
+            /* =================================================
+               KSZTAŁT WĘZŁA
+               
+               KWADRATEM JEST:
+               
+               1. pierwszy przystanek całej trasy
+               2. ostatni przystanek całej trasy
+               3. początek wybranego wariantu
+               4. koniec wybranego wariantu
+               
+               Dzięki temu wariant może rozpocząć się
+               w środku trasy i właśnie tam pojawi się
+               KWADRAT.
+               
+               Tak samo, jeżeli wariant kończy się
+               przed końcem całej trasy — jego ostatni
+               przystanek będzie KWADRATEM.
+               ================================================= */
+
+            const isFirstStop =
+                i === 0;
+
+
+            const isLastStop =
+                i ===
+                przystanki.length - 1;
+
+
+            const isVariantStart =
+                firstActiveIndex !== -1 &&
+                i === firstActiveIndex;
+
+
+            const isVariantEnd =
+                lastActiveIndex !== -1 &&
+                i === lastActiveIndex;
+
+
+            const shouldBeSquare =
+                isFirstStop ||
+                isVariantStart ||
+                isVariantEnd ||
+                isLastStop;
+
+
+            const isNz =
+                czyPrzystanekNaZadanie(
+                    p
+                );
+
+
+            let inactiveLines =
+                "";
+
+            let activeLines =
+                "";
+
+
+            /* =================================================
+               RYSOWANIE LINII
+               ================================================= */
+
+            const drawLine =
+                (
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    isActive
+                ) => {
+
+                    const color =
+                        isActive
+                            ? "#000"
+                            : "#ccc";
+
+                    const w =
+                        isActive
+                            ? 2.5
+                            : 2;
+
+
+                    const str =
+                        `<line
+                            x1="${x1}"
+                            y1="${y1}"
+                            x2="${x2}"
+                            y2="${y2}"
+                            stroke="${color}"
+                            stroke-width="${w}"
+                            stroke-linecap="round"
+                        />`;
+
+
+                    if (
+                        isActive
+                    ) {
+
+                        activeLines +=
+                            str;
+
+                    } else {
+
+                        inactiveLines +=
+                            str;
+                    }
+                };
+
+
+            edges.forEach(
+                e => {
+
+                    const edgeKey =
+                        e.u +
+                        "," +
+                        e.v;
+
+
+                    const isEdgeActive =
+                        selectedEdgeKeys.has(
+                            edgeKey
+                        );
+
+
+                    if (
+                        e.track === 0
+                    ) {
+
+                        if (
+                            i === e.u
+                        ) {
+
+                            drawLine(
+                                SPINE_X,
+                                ROW_HEIGHT / 2,
+                                SPINE_X,
+                                ROW_HEIGHT,
+                                isEdgeActive
+                            );
+
+                        } else if (
+                            i > e.u &&
+                            i < e.v
+                        ) {
+
+                            drawLine(
+                                SPINE_X,
+                                0,
+                                SPINE_X,
+                                ROW_HEIGHT,
+                                isEdgeActive
+                            );
+
+                        } else if (
+                            i === e.v
+                        ) {
+
+                            drawLine(
+                                SPINE_X,
+                                0,
+                                SPINE_X,
+                                ROW_HEIGHT / 2,
+                                isEdgeActive
+                            );
+                        }
+
+
+                    } else if (
+                        e.track === 1
+                    ) {
+
+                        const startX =
+                            isOnMainAxis[e.u]
+                                ? SPINE_X
+                                : RIGHT_X;
+
+
+                        const endX =
+                            isOnMainAxis[e.v]
+                                ? SPINE_X
+                                : RIGHT_X;
+
+
+                        if (
+                            i === e.u
+                        ) {
+
+                            drawLine(
+                                startX,
+                                ROW_HEIGHT / 2,
+                                RIGHT_X,
+                                ROW_HEIGHT,
+                                isEdgeActive
+                            );
+
+                        } else if (
+                            i > e.u &&
+                            i < e.v
+                        ) {
+
+                            drawLine(
+                                RIGHT_X,
+                                0,
+                                RIGHT_X,
+                                ROW_HEIGHT,
+                                isEdgeActive
+                            );
+
+                        } else if (
+                            i === e.v
+                        ) {
+
+                            drawLine(
+                                RIGHT_X,
+                                0,
+                                endX,
+                                ROW_HEIGHT / 2,
+                                isEdgeActive
+                            );
+                        }
+
+
+                    } else if (
+                        e.track === -1
+                    ) {
+
+                        if (
+                            i === e.u
+                        ) {
+
+                            drawLine(
+                                SPINE_X,
+                                ROW_HEIGHT / 2,
+                                LEFT_X,
+                                ROW_HEIGHT,
+                                isEdgeActive
+                            );
+
+                        } else if (
+                            i > e.u &&
+                            i < e.v
+                        ) {
+
+                            drawLine(
+                                LEFT_X,
+                                0,
+                                LEFT_X,
+                                ROW_HEIGHT,
+                                isEdgeActive
+                            );
+
+                        } else if (
+                            i === e.v
+                        ) {
+
+                            drawLine(
+                                LEFT_X,
+                                0,
+                                SPINE_X,
+                                ROW_HEIGHT / 2,
+                                isEdgeActive
+                            );
+                        }
+                    }
+                }
+            );
+
+
+            /* =================================================
+               POZYCJA WĘZŁA
+               ================================================= */
+
+            const nodeX =
+                isOnMainAxis[i]
+                    ? SPINE_X
+                    : RIGHT_X;
+
+
+            /* =================================================
+               KOLOR WĘZŁA
+               ================================================= */
+
+            const isBlackStart =
+                isVariantStart;
+
+
+            const strokeColor =
+                !nodeActive
+                    ? "#ccc"
+                    : (
+                        isBlackStart
+                            ? "#000"
+                            : "#e42313"
+                    );
+
+
+            const fillColor =
+                !nodeActive
+                    ? "#ccc"
+                    : (
+                        isBlackStart
+                            ? "#000"
+                            : "#e42313"
+                    );
+
+
+            let nodeSvg =
+                "";
+
+
+            /* =================================================
+               RYSOWANIE WĘZŁA
+               
+               shouldBeSquare obejmuje:
+               - początek trasy
+               - koniec trasy
+               - początek wariantu
+               - koniec wariantu
+               ================================================= */
+
+            if (
+                shouldBeSquare
+            ) {
+
+                /* =============================================
+                   KWADRAT
+                   ============================================= */
+
+                if (isNz) {
+
+                    nodeSvg =
+                        `<rect
+                            x="${nodeX - 6.75}"
+                            y="15.25"
+                            width="13.5"
+                            height="13.5"
+                            fill="#ffffff"
+                            stroke="${strokeColor}"
+                            stroke-width="2.5"
+                        />`;
+
+                } else {
+
+                    nodeSvg =
+                        `<rect
+                            x="${nodeX - 8}"
+                            y="14"
+                            width="16"
+                            height="16"
+                            fill="${fillColor}"
+                            stroke="none"
+                        />`;
+                }
+
+
+            } else {
+
+                /* =============================================
+                   KOŁO
+                   ============================================= */
+
+                if (isNz) {
+
+                    nodeSvg =
+                        `<circle
+                            cx="${nodeX}"
+                            cy="22"
+                            r="6.75"
+                            fill="#ffffff"
+                            stroke="${strokeColor}"
+                            stroke-width="2.5"
+                        />`;
+
+                } else {
+
+                    nodeSvg =
+                        `<circle
+                            cx="${nodeX}"
+                            cy="22"
+                            r="8"
+                            fill="${fillColor}"
+                            stroke="none"
+                        />`;
+                }
+            }
+
+
+            /* =================================================
+               SVG
+               ================================================= */
+
+            const svgHtml =
+                `<svg
+                    width="${SVG_W}"
+                    height="${ROW_HEIGHT}"
+                    aria-hidden="true"
+                >
+                    ${inactiveLines}
+                    ${activeLines}
+                    ${nodeSvg}
+                </svg>`;
+
+
+            const nodeWrapper =
+                document.createElement(
+                    "div"
+                );
+
+            nodeWrapper.className =
+                "node-wrapper";
+
+            nodeWrapper.style.width =
+                SVG_W +
+                "px";
+
+            nodeWrapper.innerHTML =
+                svgHtml;
+
+
+            /* =================================================
+               CZAS PRZEJAZDU
+               ================================================= */
+
+            const czasKolumna =
+                document.createElement(
+                    "div"
+                );
+
+            czasKolumna.className =
+                "kolumna-czas-przejazdu";
+
+
+            if (
+                i ===
+                firstActiveIndex
+            ) {
+
+                czasKolumna.classList.add(
+                    "pierwszy"
+                );
+            }
+
+
+            const czasSumowany =
+                czasySumowane[i];
+
+
+            if (
+                czasSumowany !== null &&
+                czasSumowany !== undefined &&
+                nodeActive
+            ) {
+
+                czasKolumna.textContent =
+                    czasSumowany +
+                    " min";
+
+            } else {
+
+                czasKolumna.textContent =
+                    "";
+            }
+
+
+            /* =================================================
+               NAZWA PRZYSTANKU
+               ================================================= */
+
+            const nazwa =
+                document.createElement(
+                    "div"
+                );
+
+            nazwa.className =
+                "przystanek-nazwa";
+
+            nazwa.textContent =
+                p.nazwa ||
+                "Przystanek";
+
+
+            nazwa.style.cursor =
+                "pointer";
+
+
+            nazwa.addEventListener(
+                "click",
+                function(e) {
+
+                    e.stopPropagation();
+
+                    wybierzPrzystanek(
+                        p,
+                        i
+                    );
+                }
+            );
+
+
+            /* =================================================
+               NUMER PRZYSTANKU
+               ================================================= */
+
+            const nr =
+                document.createElement(
+                    "div"
+                );
+
+            nr.className =
+                "przystanek-nr";
+
+            nr.textContent =
+                p.nr || "";
+
+
+            /* =================================================
+               KOLEJNOŚĆ ELEMENTÓW
+               ================================================= */
+
+            btn.appendChild(
+                czasKolumna
+            );
+
+            btn.appendChild(
+                nodeWrapper
+            );
+
+            btn.appendChild(
+                nazwa
+            );
+
+            btn.appendChild(
+                nr
+            );
+
+
+            btn.onclick =
+                () =>
+                    wybierzPrzystanek(
+                        p,
+                        i
+                    );
+
+
+            lista.appendChild(
+                btn
+            );
         }
+    );
+
+
+    kontener.appendChild(
+        lista
     );
 }
 
