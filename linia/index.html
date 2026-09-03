@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 
 <html lang="pl">
@@ -102,7 +103,6 @@
 
     padding: 10px 10px 10px 15px;
 
-    /* BRAK ODSTĘPU DO LISTY PRZYSTANKÓW */
     margin-bottom: 0;
 
     box-sizing: border-box;
@@ -350,14 +350,21 @@
     gap: 0;
     background: white;
     padding: 15px 0;
+
+    /* PROSTE ROGI */
     border: 1px solid #ddd;
-    border-radius: 8px;
+    border-radius: 0;
 
     width: 80%;
     margin: 0 auto;
 
     box-sizing: border-box;
 }
+
+
+/* =========================================================
+   WIERSZ PRZYSTANKU
+   ========================================================= */
 
 .przystanek-btn {
     width: 100%;
@@ -381,6 +388,41 @@
 
 .przystanek-btn:hover .przystanek-nazwa {
     color: #d61c12;
+}
+
+
+/* =========================================================
+   KOLUMNA CZASU PRZEJAZDU
+   ========================================================= */
+
+.kolumna-czas-przejazdu {
+    width: 48px;
+    min-width: 48px;
+    max-width: 48px;
+
+    height: 44px;
+
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+
+    padding-right: 8px;
+
+    box-sizing: border-box;
+
+    font-family: "Barlow Semi Condensed", sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+
+    color: #777;
+
+    flex-shrink: 0;
+
+    white-space: nowrap;
+}
+
+.kolumna-czas-przejazdu.pierwszy {
+    color: #777;
 }
 
 
@@ -630,6 +672,14 @@
 
     .lista-przystankow {
         width: 80%;
+    }
+
+    .kolumna-czas-przejazdu {
+        width: 42px;
+        min-width: 42px;
+        max-width: 42px;
+        padding-right: 6px;
+        font-size: 12px;
     }
 }
 
@@ -1870,6 +1920,382 @@ function zbierzWariantyDlaKierunku(
 
 
 /* =========================================================
+   ZNAJDOWANIE KURSU Z GODZINY 11
+   ========================================================= */
+
+/*
+ * Szuka kursu, którego pierwszy dostępny czas na trasie
+ * znajduje się w godzinie 11:xx.
+ *
+ * Jeżeli wybrany jest wariant, najpierw szukany jest kurs
+ * tego wariantu.
+ */
+
+function znajdzKursZGodziny11(
+    kierunek,
+    wariant
+) {
+
+    const przystanki =
+        kierunek.przystanki ||
+        [];
+
+
+    const kandydaci =
+        [];
+
+
+    /*
+     * Najpierw przechodzimy po przystankach
+     * i zbieramy wszystkie numery kursów.
+     */
+
+    przystanki.forEach(
+        p => {
+
+            (
+                p.kursy ||
+                []
+            ).forEach(
+                k => {
+
+                    if (!k.numer)
+                        return;
+
+
+                    const czas =
+                        String(
+                            k.czas || ""
+                        ).trim();
+
+
+                    const dop =
+                        czas.match(
+                            /^(\d{1,2}):(\d{2})$/
+                        );
+
+
+                    if (!dop)
+                        return;
+
+
+                    const godzina =
+                        Number(
+                            dop[1]
+                        );
+
+
+                    if (
+                        godzina !== 11
+                    )
+                        return;
+
+
+                    const w =
+                        pobierzWariant(
+                            k
+                        );
+
+
+                    /*
+                     * Nie dodajemy tego samego kursu
+                     * drugi raz.
+                     */
+
+                    const istnieje =
+                        kandydaci.some(
+                            x =>
+                                String(
+                                    x.numer
+                                ) ===
+                                String(
+                                    k.numer
+                                )
+                        );
+
+
+                    if (!istnieje) {
+
+                        kandydaci.push(
+                            {
+                                numer:
+                                    k.numer,
+
+                                wariant:
+                                    w
+                            }
+                        );
+                    }
+                }
+            );
+        }
+    );
+
+
+    /*
+     * Najpierw kurs odpowiadający aktualnemu wariantowi.
+     */
+
+    if (wariant) {
+
+        const zgodny =
+            kandydaci.find(
+                k =>
+                    k.wariant ===
+                    wariant
+            );
+
+
+        if (zgodny)
+            return zgodny.numer;
+    }
+
+
+    /*
+     * Jeżeli nie znaleziono kursu danego wariantu,
+     * bierzemy pierwszy kurs z godziny 11.
+     */
+
+    if (
+        kandydaci.length > 0
+    ) {
+
+        return kandydaci[0].numer;
+    }
+
+
+    return null;
+}
+
+
+/* =========================================================
+   CZAS NA TRASIE Z KURSU 11:XX
+   ========================================================= */
+
+/*
+ * Zwraca czasy kursu 11:xx dla wszystkich przystanków.
+ *
+ * Kluczem jest indeks przystanku, dzięki czemu nie ma
+ * problemu z powtarzającymi się nazwami przystanków.
+ */
+
+function pobierzCzasyKursu11(
+    kierunek,
+    numerKursu
+) {
+
+    const czasy =
+        new Array(
+            (
+                kierunek.przystanki ||
+                []
+            ).length
+        ).fill(
+            null
+        );
+
+
+    if (!numerKursu)
+        return czasy;
+
+
+    (
+        kierunek.przystanki ||
+        []
+    ).forEach(
+        (
+            p,
+            index
+        ) => {
+
+            const k =
+                (
+                    p.kursy ||
+                    []
+                ).find(
+                    x =>
+                        String(
+                            x.numer
+                        ) ===
+                        String(
+                            numerKursu
+                        )
+                );
+
+
+            if (!k)
+                return;
+
+
+            const czas =
+                String(
+                    k.czas || ""
+                ).trim();
+
+
+            if (
+                /^\d{1,2}:\d{2}$/.test(
+                    czas
+                )
+            ) {
+
+                czasy[index] =
+                    czas;
+            }
+        }
+    );
+
+
+    return czasy;
+}
+
+
+/* =========================================================
+   KONWERSJA CZASU
+   ========================================================= */
+
+function czasNaMinuty(
+    czas
+) {
+
+    const dop =
+        String(
+            czas || ""
+        )
+            .trim()
+            .match(
+                /^(\d{1,2}):(\d{2})$/
+            );
+
+
+    if (!dop)
+        return null;
+
+
+    return (
+        Number(
+            dop[1]
+        ) * 60 +
+        Number(
+            dop[2]
+        )
+    );
+}
+
+
+/* =========================================================
+   CZASY SUMOWANE OD POCZĄTKU TRASY
+   ========================================================= */
+
+function obliczSumowaneCzasy(
+    czasy
+) {
+
+    const wynik =
+        new Array(
+            czasy.length
+        ).fill(
+            null
+        );
+
+
+    let pierwszyCzas =
+        null;
+
+
+    /*
+     * Znajdujemy pierwszy dostępny przystanek
+     * kursu 11:xx.
+     */
+
+    for (
+        let i = 0;
+        i < czasy.length;
+        i++
+    ) {
+
+        const minuty =
+            czasNaMinuty(
+                czasy[i]
+            );
+
+
+        if (
+            minuty !== null
+        ) {
+
+            pierwszyCzas =
+                minuty;
+
+            break;
+        }
+    }
+
+
+    if (
+        pierwszyCzas === null
+    )
+        return wynik;
+
+
+    /*
+     * Każdy czas pokazujemy jako różnicę
+     * względem początku kursu.
+     *
+     * Przykład:
+     *
+     * 11:00 -> 0
+     * 11:03 -> 3
+     * 11:05 -> 5
+     * 11:08 -> 8
+     */
+
+    for (
+        let i = 0;
+        i < czasy.length;
+        i++
+    ) {
+
+        const minuty =
+            czasNaMinuty(
+                czasy[i]
+            );
+
+
+        if (
+            minuty === null
+        )
+            continue;
+
+
+        let roznica =
+            minuty -
+            pierwszyCzas;
+
+
+        /*
+         * Obsługa przejścia przez północ.
+         */
+
+        if (
+            roznica < 0
+        ) {
+
+            roznica +=
+                24 * 60;
+        }
+
+
+        wynik[i] =
+            roznica;
+    }
+
+
+    return wynik;
+}
+
+
+/* =========================================================
    HISTORIA URL
    ========================================================= */
 
@@ -2162,6 +2588,7 @@ function pokazListePrzystankow(
     /*
      * NIE POKAZUJEMY "Wybierz przystanek"
      */
+
     document.getElementById(
         "typRozkładu"
     ).style.display =
@@ -2314,6 +2741,32 @@ function pokazListePrzystankow(
 
         return;
     }
+
+
+    /*
+     * =====================================================
+     * CZASY PRZEJAZDU Z KURSU GODZINY 11
+     * =====================================================
+     */
+
+    const kurs11 =
+        znajdzKursZGodziny11(
+            kierunek,
+            aktualnyWariant
+        );
+
+
+    const czasyKursu11 =
+        pobierzCzasyKursu11(
+            kierunek,
+            kurs11
+        );
+
+
+    const czasySumowane =
+        obliczSumowaneCzasy(
+            czasyKursu11
+        );
 
 
     const N =
@@ -2926,8 +3379,7 @@ function pokazListePrzystankow(
              * 16 x 16 px
              *
              * NŻ:
-             * zewnętrzny rozmiar również 16 x 16 px,
-             * ale środek pozostaje biały.
+             * zewnętrzny rozmiar również 16 x 16 px
              * =================================================
              */
 
@@ -3019,6 +3471,57 @@ function pokazListePrzystankow(
                 svgHtml;
 
 
+            /*
+             * =================================================
+             * KOLUMNA CZASU
+             * =================================================
+             *
+             * Pierwszy przystanek = 0 min.
+             *
+             * Kolejne przystanki =
+             * suma czasu od początku kursu 11:xx.
+             */
+
+            const czasKolumna =
+                document.createElement(
+                    "div"
+                );
+
+
+            czasKolumna.className =
+                "kolumna-czas-przejazdu";
+
+
+            if (
+                i === 0
+            ) {
+
+                czasKolumna.classList.add(
+                    "pierwszy"
+                );
+            }
+
+
+            const czasSumowany =
+                czasySumowane[i];
+
+
+            if (
+                czasSumowany !== null &&
+                czasSumowany !== undefined
+            ) {
+
+                czasKolumna.textContent =
+                    czasSumowany +
+                    " min";
+
+            } else {
+
+                czasKolumna.textContent =
+                    "";
+            }
+
+
             const nazwa =
                 document.createElement(
                     "div"
@@ -3046,6 +3549,17 @@ function pokazListePrzystankow(
 
             nr.textContent =
                 p.nr || "";
+
+
+            /*
+             * KOLEJNOŚĆ:
+             *
+             * CZAS -> OŚ -> NAZWA -> NR
+             */
+
+            btn.appendChild(
+                czasKolumna
+            );
 
 
             btn.appendChild(
@@ -3900,15 +4414,6 @@ function pokazCalyKurs(
             }
 
 
-            /*
-             * =================================================
-             * WĘZŁY W WIDOKU CAŁEGO KURSU
-             *
-             * ZWYKŁY = 16 x 16
-             * NŻ     = zewnętrznie również 16 x 16
-             * =================================================
-             */
-
             if (
                 index === 0 ||
                 index ===
@@ -4233,3 +4738,4 @@ window.addEventListener(
 
 </body>
 </html>
+
