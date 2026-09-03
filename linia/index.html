@@ -1124,7 +1124,7 @@ if ("scrollRestoration" in history) {
             Uwaga!
         </strong>
 
-        Ta linia ma różne warianty trasy..
+        Ta linia ma różne warianty trasy
 
     </div>
 
@@ -2203,24 +2203,86 @@ function pobierzWariant(k) {
         wariant || ""
     ).trim();
 }
+
+
 /* =========================================================
-   WARIANT DO WYŚWIETLENIA
-   A = TRASA PODSTAWOWA → NIE POKAZUJEMY
+   CZY WARIANT JEST TRASĄ PODSTAWOWĄ
    ========================================================= */
 
-function pobierzWariantDoWyswietlenia(k) {
+function czyWariantPodstawowy(
+    litera
+) {
 
-    const wariant =
-        pobierzWariant(k);
+    const szukanaLitera =
+        String(
+            litera || ""
+        ).trim();
 
-    /*
-     * Wariant A oznacza trasę podstawową.
-     * Jest potrzebny w logice programu,
-     * ale nie pokazujemy go użytkownikowi.
-     */
+    if (!szukanaLitera)
+        return false;
+
+    const rozklad =
+        znajdzRozklad();
 
     if (
-        wariant === "A"
+        rozklad &&
+        Array.isArray(
+            rozklad.warianty
+        )
+    ) {
+
+        const wariant =
+            rozklad.warianty.find(
+                w =>
+                    String(
+                        w.litera || ""
+                    ).trim() ===
+                    szukanaLitera
+            );
+
+        if (wariant) {
+
+            const opis =
+                normalizujTekst(
+                    wariant.opis
+                );
+
+            return (
+                opis ===
+                "trasa podstawowa"
+            );
+        }
+    }
+
+    /*
+     * Awaryjnie:
+     * jeżeli JSON nie posiada tabeli wariantów,
+     * A traktujemy jako trasę podstawową.
+     */
+
+    return (
+        szukanaLitera === "A"
+    );
+}
+
+
+/* =========================================================
+   WARIANT DO WYŚWIETLENIA
+   ========================================================= */
+
+function pobierzWariantDoWyswietlenia(
+    k
+) {
+
+    const wariant =
+        pobierzWariant(
+            k
+        );
+
+    if (
+        czyWariantPodstawowy(
+            wariant
+        )
     ) {
 
         return "";
@@ -2228,6 +2290,7 @@ function pobierzWariantDoWyswietlenia(k) {
 
     return wariant;
 }
+
 
 /* =========================================================
    WARIANTY
@@ -3110,50 +3173,53 @@ function pokazListePrzystankow(
             }
 
 
-           wariantyKierunku.forEach(
-    w => {
+            wariantyKierunku.forEach(
+                w => {
 
-        /*
-         * A = trasa podstawowa.
-         * Nie pokazujemy jej jako przycisku.
-         */
+                    /*
+                     * Wariant A = trasa podstawowa
+                     * NIE POKAZUJEMY GO JAKO PRZYCISKU.
+                     */
 
-        if (
-            w === "" ||
-            w === "A"
-        )
-            return;
+                    if (
+                        !w ||
+                        czyWariantPodstawowy(
+                            w
+                        )
+                    )
+                        return;
 
-        const btn =
-            document.createElement(
-                "button"
+
+                    const btn =
+                        document.createElement(
+                            "button"
+                        );
+
+                    btn.className =
+                        "wariant-btn" +
+                        (
+                            aktualnyWariant === w
+                                ? " aktywny"
+                                : ""
+                        );
+
+                    btn.textContent =
+                        w;
+
+                    btn.onclick =
+                        () => {
+
+                            aktualnyWariant =
+                                w;
+
+                            pokazRozklad();
+                        };
+
+                    wprz.appendChild(
+                        btn
+                    );
+                }
             );
-
-        btn.className =
-            "wariant-btn" +
-            (
-                aktualnyWariant === w
-                    ? " aktywny"
-                    : ""
-            );
-
-        btn.textContent =
-            w;
-
-        btn.onclick =
-            () => {
-
-                aktualnyWariant =
-                    w;
-
-                pokazRozklad();
-            };
-
-        wprz.appendChild(
-            btn
-        );
-    }
-);
 
         } else {
 
@@ -3250,10 +3316,6 @@ function pokazListePrzystankow(
         }
     );
 
-
-    /*
-     * Awaryjnie szukamy początku i końca wariantu.
-     */
 
     if (
         firstActiveIndex === -1
@@ -3669,25 +3731,6 @@ function pokazListePrzystankow(
                 );
 
 
-            /* =================================================
-               KSZTAŁT WĘZŁA
-               
-               KWADRATEM JEST:
-               
-               1. pierwszy przystanek całej trasy
-               2. ostatni przystanek całej trasy
-               3. początek wybranego wariantu
-               4. koniec wybranego wariantu
-               
-               Dzięki temu wariant może rozpocząć się
-               w środku trasy i właśnie tam pojawi się
-               KWADRAT.
-               
-               Tak samo, jeżeli wariant kończy się
-               przed końcem całej trasy — jego ostatni
-               przystanek będzie KWADRATEM.
-               ================================================= */
-
             const isFirstStop =
                 i === 0;
 
@@ -3979,23 +4022,9 @@ function pokazListePrzystankow(
                 "";
 
 
-            /* =================================================
-               RYSOWANIE WĘZŁA
-               
-               shouldBeSquare obejmuje:
-               - początek trasy
-               - koniec trasy
-               - początek wariantu
-               - koniec wariantu
-               ================================================= */
-
             if (
                 shouldBeSquare
             ) {
-
-                /* =============================================
-                   KWADRAT
-                   ============================================= */
 
                 if (isNz) {
 
@@ -4025,10 +4054,6 @@ function pokazListePrzystankow(
 
 
             } else {
-
-                /* =============================================
-                   KOŁO
-                   ============================================= */
 
                 if (isNz) {
 
@@ -4462,10 +4487,17 @@ function pokazRozkladWybranegoPrzystanku(
                     "kolumna-minuta";
 
 
+                /*
+                 * Używamy wersji DO WYŚWIETLENIA.
+                 *
+                 * A = trasa podstawowa → ""
+                 * B/C/D... → normalnie.
+                 */
+
                 const litera =
-    pobierzWariantDoWyswietlenia(
-        k
-    );
+                    pobierzWariantDoWyswietlenia(
+                        k
+                    );
 
 
                 kol.innerHTML =
@@ -4503,11 +4535,25 @@ function pokazRozkladWybranegoPrzystanku(
                         );
 
 
+                    /*
+                     * Do otwierania kursu przekazujemy
+                     * PRAWDZIWY wariant z JSON.
+                     *
+                     * Dzięki temu A nadal działa,
+                     * mimo że nie jest wyświetlane.
+                     */
+
+                    const rzeczywistyWariant =
+                        pobierzWariant(
+                            k
+                        );
+
+
                     kol.onclick =
                         () =>
                             pokazCalyKurs(
                                 k.numer,
-                                litera
+                                rzeczywistyWariant
                             );
                 }
 
@@ -4540,24 +4586,28 @@ function pokazRozkladWybranegoPrzystanku(
         przystanek.kursy.forEach(
             k => {
 
-               const w =
-    pobierzWariant(
-        k
-    );
+                const w =
+                    pobierzWariant(
+                        k
+                    );
 
-/*
- * Wariant A = trasa podstawowa.
- * Nie dodajemy go do legendy.
- */
+                /*
+                 * Nie dodajemy A = trasa podstawowa
+                 * do legendy.
+                 */
 
-if (
-    w &&
-    w !== "A"
-)
-    uzyteWarianty.set(
-        w,
-        ""
-    );
+                if (
+                    w &&
+                    !czyWariantPodstawowy(
+                        w
+                    )
+                ) {
+
+                    uzyteWarianty.set(
+                        w,
+                        ""
+                    );
+                }
             }
         );
     }
@@ -4595,7 +4645,18 @@ if (
                     );
 
 
-                if (w) {
+                /*
+                 * Dodatkowe zabezpieczenie:
+                 * nawet jeżeli A somehow trafi tutaj,
+                 * nie zostanie pokazane.
+                 */
+
+                if (
+                    w &&
+                    !czyWariantPodstawowy(
+                        litera
+                    )
+                ) {
 
                     legList +=
                         `<div class="legenda-element">
@@ -4921,6 +4982,24 @@ function pokazCalyKurs(
         "kurs-widok";
 
 
+    /*
+     * Wariant A = trasa podstawowa
+     * nie jest wyświetlany w nagłówku kursu.
+     */
+
+    const tekstWariantu =
+        czyWariantPodstawowy(
+            szukanyWariant
+        )
+            ? ""
+            : (
+                szukanyWariant
+                    ? " | Wariant " +
+                      szukanyWariant
+                    : ""
+            );
+
+
     widok.innerHTML =
         `<div class="kurs-naglowek">
 
@@ -4934,13 +5013,7 @@ function pokazCalyKurs(
 
                 Kurs ${nrKursu}
 
-               ${
-    szukanyWariant &&
-    szukanyWariant !== "A"
-        ? " | Wariant " +
-          szukanyWariant
-        : ""
-}
+                ${tekstWariantu}
 
                 |
                 Przebieg przez
@@ -5016,14 +5089,6 @@ function pokazCalyKurs(
                 index ===
                 kursPrzystanki.length - 1;
 
-
-            /*
-             * W widoku całego kursu pierwszy i ostatni
-             * przystanek przebiegu są kwadratami.
-             *
-             * Jest to niezależne od tego, gdzie ten kurs
-             * zaczyna/kończy się na pełnej trasie.
-             */
 
             const shouldBeSquare =
                 isFirst ||
@@ -5477,6 +5542,7 @@ window.addEventListener(
 );
 
 </script>
+
 
 </body>
 
