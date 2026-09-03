@@ -2216,7 +2216,9 @@ function czyWariantPodstawowy(
     const szukanaLitera =
         String(
             litera || ""
-        ).trim();
+        )
+        .trim()
+        .toUpperCase();
 
     if (!szukanaLitera)
         return false;
@@ -2233,19 +2235,43 @@ function czyWariantPodstawowy(
 
         const wariant =
             rozklad.warianty.find(
-                w =>
-                    String(
-                        w.litera || ""
-                    ).trim() ===
-                    szukanaLitera
+                w => {
+
+                    if (
+                        !w ||
+                        typeof w !== "object"
+                    )
+                        return false;
+
+                    const literaWariantu =
+                        String(
+                            w.litera ||
+                            w.nazwa ||
+                            w.symbol ||
+                            w.wariant ||
+                            w.oznaczenie ||
+                            ""
+                        )
+                        .trim()
+                        .toUpperCase();
+
+                    return (
+                        literaWariantu ===
+                        szukanaLitera
+                    );
+                }
             );
 
         if (wariant) {
 
             const opis =
                 normalizujTekst(
-                    wariant.opis
-                );
+                    wariant.opis ||
+                    wariant.tekst ||
+                    wariant.opisWariantu ||
+                    wariant.description ||
+                    ""
+                ).trim();
 
             return (
                 opis ===
@@ -2256,7 +2282,7 @@ function czyWariantPodstawowy(
 
     /*
      * Awaryjnie:
-     * jeżeli JSON nie posiada tabeli wariantów,
+     * jeżeli JSON nie posiada informacji o wariantach,
      * A traktujemy jako trasę podstawową.
      */
 
@@ -2331,14 +2357,32 @@ function zbierzWariantyDlaKierunku(
             (
                 a,
                 b
-            ) =>
-                a.localeCompare(
+            ) => {
+
+                /*
+                 * A zawsze pierwsze.
+                 */
+
+                if (
+                    a.toUpperCase() === "A" &&
+                    b.toUpperCase() !== "A"
+                )
+                    return -1;
+
+                if (
+                    a.toUpperCase() !== "A" &&
+                    b.toUpperCase() === "A"
+                )
+                    return 1;
+
+                return a.localeCompare(
                     b,
                     "pl",
                     {
                         numeric: true
                     }
-                )
+                );
+            }
         );
 }
 
@@ -2400,6 +2444,26 @@ function znajdzDomyslnyWariant(
     )
         return "";
 
+    /*
+     * Jeżeli istnieje A,
+     * domyślnie wybieramy A.
+     */
+
+    const wariantA =
+        lista.find(
+            x =>
+                String(
+                    x[0]
+                )
+                .trim()
+                .toUpperCase() ===
+                "A"
+        );
+
+    if (wariantA)
+        return wariantA[0];
+
+
     lista.sort(
         (
             a,
@@ -2455,10 +2519,10 @@ function czasNaMinuty(
         String(
             czas || ""
         )
-            .trim()
-            .match(
-                /^(\d{1,2}):(\d{2})$/
-            );
+        .trim()
+        .match(
+            /^(\d{1,2}):(\d{2})$/
+        );
 
     if (!dop)
         return null;
@@ -3029,8 +3093,8 @@ function czyPrzystanekNaZadanie(
         String(
             p.typ || ""
         )
-            .trim()
-            .toUpperCase();
+        .trim()
+        .toUpperCase();
 
     if (
         typ === "NŻ" ||
@@ -3159,6 +3223,11 @@ function pokazListePrzystankow(
                 "";
 
 
+            /*
+             * Jeżeli wariant nie jest już dostępny,
+             * wybieramy domyślnie A.
+             */
+
             if (
                 aktualnyWariant === null ||
                 !wariantyKierunku.includes(
@@ -3173,20 +3242,24 @@ function pokazListePrzystankow(
             }
 
 
+            /* =================================================
+               PRZYCISKI WARIANTÓW
+
+               A MA BYĆ WIDOCZNE!
+
+               A = trasa podstawowa
+               ale pokazujemy tylko literę A.
+
+               Nie pokazujemy:
+               "A - trasa podstawowa"
+
+               B/C/D itd. również tylko jako litery.
+               ================================================= */
+
             wariantyKierunku.forEach(
                 w => {
 
-                    /*
-                     * Wariant A = trasa podstawowa
-                     * NIE POKAZUJEMY GO JAKO PRZYCISKU.
-                     */
-
-                    if (
-                        !w ||
-                        czyWariantPodstawowy(
-                            w
-                        )
-                    )
+                    if (!w)
                         return;
 
 
@@ -3194,6 +3267,11 @@ function pokazListePrzystankow(
                         document.createElement(
                             "button"
                         );
+
+
+                    btn.type =
+                        "button";
+
 
                     btn.className =
                         "wariant-btn" +
@@ -3203,8 +3281,16 @@ function pokazListePrzystankow(
                                 : ""
                         );
 
+
                     btn.textContent =
                         w;
+
+
+                    btn.title =
+                        czyWariantPodstawowy(w)
+                            ? "Trasa podstawowa"
+                            : "Wariant " + w;
+
 
                     btn.onclick =
                         () => {
@@ -3214,6 +3300,7 @@ function pokazListePrzystankow(
 
                             pokazRozklad();
                         };
+
 
                     wprz.appendChild(
                         btn
@@ -4428,10 +4515,10 @@ function pokazRozkladWybranegoPrzystanku(
                     String(
                         k.czas || ""
                     )
-                        .trim()
-                        .match(
-                            /^(\d{1,2}):(\d{2})$/
-                        );
+                    .trim()
+                    .match(
+                        /^(\d{1,2}):(\d{2})$/
+                    );
 
 
                 if (!dop)
@@ -4487,12 +4574,22 @@ function pokazRozkladWybranegoPrzystanku(
                     "kolumna-minuta";
 
 
-                /*
-                 * Używamy wersji DO WYŚWIETLENIA.
-                 *
-                 * A = trasa podstawowa → ""
-                 * B/C/D... → normalnie.
-                 */
+                /* =================================================
+                   PRAWDZIWY WARIANT
+                   ================================================= */
+
+                const rzeczywistyWariant =
+                    pobierzWariant(
+                        k
+                    );
+
+
+                /* =================================================
+                   WARIANT DO WYŚWIETLENIA
+
+                   A = ""
+                   B/C/D = litera
+                   ================================================= */
 
                 const litera =
                     pobierzWariantDoWyswietlenia(
@@ -4536,18 +4633,18 @@ function pokazRozkladWybranegoPrzystanku(
 
 
                     /*
-                     * Do otwierania kursu przekazujemy
-                     * PRAWDZIWY wariant z JSON.
+                     * UWAGA:
+                     * tutaj przekazujemy PRAWDZIWY wariant.
                      *
-                     * Dzięki temu A nadal działa,
-                     * mimo że nie jest wyświetlane.
+                     * Dzięki temu:
+                     *
+                     * A -> otwiera A
+                     * B -> otwiera B
+                     * C -> otwiera C
+                     *
+                     * nawet jeśli A nie jest wyświetlane
+                     * obok minuty.
                      */
-
-                    const rzeczywistyWariant =
-                        pobierzWariant(
-                            k
-                        );
-
 
                     kol.onclick =
                         () =>
@@ -4591,9 +4688,11 @@ function pokazRozkladWybranegoPrzystanku(
                         k
                     );
 
+
                 /*
-                 * Nie dodajemy A = trasa podstawowa
-                 * do legendy.
+                 * A = trasa podstawowa
+                 *
+                 * NIE pokazujemy A w legendzie.
                  */
 
                 if (
@@ -4639,17 +4738,30 @@ function pokazRozkladWybranegoPrzystanku(
 
                 const w =
                     rozklad.warianty.find(
-                        x =>
-                            x.litera ===
-                            litera
+                        x => {
+
+                            const literaW =
+                                String(
+                                    x.litera ||
+                                    x.nazwa ||
+                                    x.symbol ||
+                                    x.wariant ||
+                                    ""
+                                )
+                                .trim()
+                                .toUpperCase();
+
+                            return (
+                                literaW ===
+                                String(
+                                    litera
+                                )
+                                .trim()
+                                .toUpperCase()
+                            );
+                        }
                     );
 
-
-                /*
-                 * Dodatkowe zabezpieczenie:
-                 * nawet jeżeli A somehow trafi tutaj,
-                 * nie zostanie pokazane.
-                 */
 
                 if (
                     w &&
@@ -4670,7 +4782,7 @@ function pokazRozkladWybranegoPrzystanku(
                             </span>
 
                             <span class="legenda-opis">
-                                ${w.opis}
+                                ${w.opis || ""}
                             </span>
 
                         </div>`;
@@ -4982,10 +5094,15 @@ function pokazCalyKurs(
         "kurs-widok";
 
 
-    /*
-     * Wariant A = trasa podstawowa
-     * nie jest wyświetlany w nagłówku kursu.
-     */
+    /* =====================================================
+       WARIANT KURSU
+
+       A = trasa podstawowa
+       -> nic nie pokazujemy
+
+       B/C/D...
+       -> pokazujemy
+       ===================================================== */
 
     const tekstWariantu =
         czyWariantPodstawowy(
@@ -5220,7 +5337,7 @@ function pokazCalyKurs(
 
 
             /* =================================================
-               KSZTAŁT WĘZŁA W WIDOKU KURSU
+               KSZTAŁT WĘZŁA
                ================================================= */
 
             if (
