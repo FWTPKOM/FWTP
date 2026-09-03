@@ -1107,21 +1107,14 @@ if ("scrollRestoration" in history) {
    ========================================================= */
 
 let daneLinii = null;
-
 let numerLinii = null;
-
 let aktualnyKierunek = 0;
-
 let aktualnyWariant = null;
-
 let aktualnyDzien = "dzisiaj";
-
 let wybranaData = new Date();
 
 let wybranyPrzystanek = null;
-
 let wybranyPrzystanekIndex = null;
-
 let wybranyPrzystanekId = null;
 
 let widokKursuAktywny = false;
@@ -1162,9 +1155,7 @@ if (!numerLinii) {
    USUWANIE POLA GODZINY
    ========================================================= */
 
-function usunPoleGodziny(
-    tekst
-) {
+function usunPoleGodziny(tekst) {
 
     const pozycja =
         tekst.search(
@@ -1184,11 +1175,8 @@ function usunPoleGodziny(
         return tekst;
 
     let poziom = 0;
-
     let wStringu = false;
-
     let ucieczka = false;
-
     let koniecTablicy = -1;
 
     for (
@@ -1203,7 +1191,6 @@ function usunPoleGodziny(
         if (ucieczka) {
 
             ucieczka = false;
-
             continue;
         }
 
@@ -1213,7 +1200,6 @@ function usunPoleGodziny(
         ) {
 
             ucieczka = true;
-
             continue;
         }
 
@@ -1354,7 +1340,7 @@ async function pobierzDane() {
 
 
 /* =========================================================
-   ZAPIS DOKŁADNEGO PRZYSTANKU
+   ZAPIS PRZYSTANKU
    ========================================================= */
 
 function ustawWybranyPrzystanek(
@@ -1365,9 +1351,7 @@ function ustawWybranyPrzystanek(
     if (!p) {
 
         wybranyPrzystanek = null;
-
         wybranyPrzystanekIndex = null;
-
         wybranyPrzystanekId = null;
 
         return;
@@ -1696,9 +1680,7 @@ function uruchomStrone() {
    TYP DNIA
    ========================================================= */
 
-function okreslTypDnia(
-    data
-) {
+function okreslTypDnia(data) {
 
     const d =
         data.getDay();
@@ -1717,9 +1699,7 @@ function okreslTypDnia(
    NORMALIZACJA
    ========================================================= */
 
-function normalizujTekst(
-    tekst
-) {
+function normalizujTekst(tekst) {
 
     return String(
         tekst || ""
@@ -2082,9 +2062,7 @@ function formatujDateInput(
    WARIANT
    ========================================================= */
 
-function pobierzWariant(
-    k
-) {
+function pobierzWariant(k) {
 
     if (
         !k ||
@@ -2114,6 +2092,10 @@ function pobierzWariant(
     ).trim();
 }
 
+
+/* =========================================================
+   WARIANTY
+   ========================================================= */
 
 function zbierzWariantyDlaKierunku(
     kierunek
@@ -2146,7 +2128,127 @@ function zbierzWariantyDlaKierunku(
 
     return Array
         .from(set)
-        .sort();
+        .sort(
+            (
+                a,
+                b
+            ) =>
+                a.localeCompare(
+                    b,
+                    "pl",
+                    {
+                        numeric: true
+                    }
+                )
+        );
+}
+
+
+/* =========================================================
+   DOMYŚLNY WARIANT
+   ========================================================= */
+
+/*
+ * Nie wybieramy już automatycznie A.
+ *
+ * Wybierany jest wariant,
+ * którego pierwszy faktycznie obsługiwany
+ * przystanek znajduje się najwyżej na trasie.
+ */
+
+function znajdzDomyslnyWariant(
+    kierunek
+) {
+
+    const wariantStarty =
+        new Map();
+
+    (
+        kierunek.przystanki ||
+        []
+    ).forEach(
+        (
+            przystanek,
+            index
+        ) => {
+
+            (
+                przystanek.kursy ||
+                []
+            ).forEach(
+                kurs => {
+
+                    const wariant =
+                        pobierzWariant(
+                            kurs
+                        );
+
+                    if (
+                        !wariantStarty.has(
+                            wariant
+                        )
+                    ) {
+
+                        wariantStarty.set(
+                            wariant,
+                            index
+                        );
+                    }
+                }
+            );
+        }
+    );
+
+    const lista =
+        Array.from(
+            wariantStarty.entries()
+        );
+
+    if (
+        lista.length === 0
+    )
+        return "";
+
+    lista.sort(
+        (
+            a,
+            b
+        ) => {
+
+            if (
+                a[1] !==
+                b[1]
+            ) {
+
+                return (
+                    a[1] -
+                    b[1]
+                );
+            }
+
+            if (
+                a[0] === "" &&
+                b[0] !== ""
+            )
+                return -1;
+
+            if (
+                a[0] !== "" &&
+                b[0] === ""
+            )
+                return 1;
+
+            return a[0].localeCompare(
+                b[0],
+                "pl",
+                {
+                    numeric: true
+                }
+            );
+        }
+    );
+
+    return lista[0][0];
 }
 
 
@@ -2201,42 +2303,6 @@ function czasNaMinuty(
    ZNAJDOWANIE PIERWSZEGO KURSU
    ========================================================= */
 
-/*
- * WAŻNE:
- *
- * Nie ma już tutaj żadnego szukania godziny 11:00.
- *
- * Dla każdego:
- *
- *     NUMER KURSU + WARIANT
- *
- * zbieramy wszystkie przystanki.
- *
- * Następnie spośród kursów danego wariantu
- * wybieramy PIERWSZY KURS CHRONOLOGICZNIE.
- *
- * Przykład:
- *
- * 05:20 A
- * 06:10 A
- * 07:00 A
- *
- * zostanie wybrany:
- *
- * 05:20 A
- *
- * Dla wariantu B:
- *
- * 06:30 B
- * 08:00 B
- *
- * zostanie wybrany:
- *
- * 06:30 B
- *
- * Nigdy nie mieszamy A z B.
- */
-
 function znajdzKursBazowy(
     kierunek,
     wariant
@@ -2249,10 +2315,6 @@ function znajdzKursBazowy(
     const mapaKursow =
         new Map();
 
-
-    /* -----------------------------------------------------
-       ZBIERANIE KURSÓW
-       ----------------------------------------------------- */
 
     przystanki.forEach(
         (
@@ -2287,15 +2349,10 @@ function znajdzKursBazowy(
                             k
                         );
 
-                    /*
-                     * NUMER + WARIANT
-                     */
-
                     const klucz =
                         numer +
                         "||" +
                         kursWariant;
-
 
                     if (
                         !mapaKursow.has(
@@ -2317,7 +2374,6 @@ function znajdzKursBazowy(
                             }
                         );
                     }
-
 
                     mapaKursow
                         .get(klucz)
@@ -2343,10 +2399,6 @@ function znajdzKursBazowy(
         );
 
 
-    /* -----------------------------------------------------
-       USTALENIE STARTU KAŻDEGO KURSU
-       ----------------------------------------------------- */
-
     wszystkieKursy.forEach(
         kurs => {
 
@@ -2359,7 +2411,6 @@ function znajdzKursBazowy(
                     b.index
             );
 
-
             const pierwszy =
                 kurs.punkty.find(
                     punkt =>
@@ -2368,12 +2419,10 @@ function znajdzKursBazowy(
                         ) !== null
                 );
 
-
             kurs.startIndex =
                 pierwszy
                     ? pierwszy.index
                     : 999999;
-
 
             kurs.startMinuty =
                 pierwszy
@@ -2385,17 +2434,13 @@ function znajdzKursBazowy(
     );
 
 
-    /* -----------------------------------------------------
-       TYLKO AKTUALNY WARIANT
-       ----------------------------------------------------- */
-
     const szukanyWariant =
         String(
             wariant || ""
         ).trim();
 
 
-    let kandydaci =
+    const kandydaci =
         wszystkieKursy.filter(
             kurs =>
                 kurs.wariant ===
@@ -2410,10 +2455,6 @@ function znajdzKursBazowy(
         return null;
     }
 
-
-    /* -----------------------------------------------------
-       PIERWSZY KURS CHRONOLOGICZNIE
-       ----------------------------------------------------- */
 
     kandydaci.sort(
         (
@@ -2431,14 +2472,12 @@ function znajdzKursBazowy(
                     ? 999999
                     : b.startMinuty;
 
-
             if (
                 aa !== bb
             ) {
 
                 return aa - bb;
             }
-
 
             return (
                 a.startIndex -
@@ -2456,7 +2495,7 @@ function znajdzKursBazowy(
 
 
 /* =========================================================
-   POBIERANIE CZASÓW KONKRETNEGO KURSU
+   POBIERANIE CZASÓW DOKŁADNEGO KURSU
    ========================================================= */
 
 function pobierzCzasyKursu(
@@ -2475,70 +2514,44 @@ function pobierzCzasyKursu(
             null
         );
 
-
     if (!kurs)
         return czasy;
 
 
-    const numerKursu =
-        String(
-            kurs.numer
-        ).trim();
+    /*
+     * Korzystamy z dokładnie tego kursu,
+     * który został wybrany w znajdzKursBazowy().
+     *
+     * Nie szukamy później przypadkowego kursu
+     * o podobnym numerze.
+     */
 
+    (
+        kurs.punkty ||
+        []
+    ).forEach(
+        punkt => {
 
-    const wariantKursu =
-        String(
-            kurs.wariant ||
-            ""
-        ).trim();
-
-
-    przystanki.forEach(
-        (
-            p,
-            index
-        ) => {
-
-            const znaleziony =
-                (
-                    p.kursy ||
-                    []
-                ).find(
-                    k => {
-
-                        const numer =
-                            String(
-                                k.numer
-                            ).trim();
-
-
-                        const wariant =
-                            pobierzWariant(
-                                k
-                            );
-
-
-                        return (
-                            numer ===
-                            numerKursu
-                            &&
-                            wariant ===
-                            wariantKursu
-                        );
-                    }
+            const index =
+                Number(
+                    punkt.index
                 );
 
+            if (
+                !Number.isInteger(
+                    index
+                ) ||
+                index < 0 ||
+                index >= przystanki.length
+            ) {
 
-            if (!znaleziony)
                 return;
-
+            }
 
             const czas =
                 String(
-                    znaleziony.czas ||
-                    ""
+                    punkt.czas || ""
                 ).trim();
-
 
             if (
                 czasNaMinuty(
@@ -2551,7 +2564,6 @@ function pobierzCzasyKursu(
             }
         }
     );
-
 
     return czasy;
 }
@@ -2572,15 +2584,8 @@ function obliczSumowaneCzasy(
             null
         );
 
-
     let pierwszyCzas =
         null;
-
-
-    /*
-     * Pierwszy faktycznie obsługiwany przystanek
-     * danego kursu = 0 min.
-     */
 
     for (
         let i = 0;
@@ -2592,7 +2597,6 @@ function obliczSumowaneCzasy(
             czasNaMinuty(
                 czasy[i]
             );
-
 
         if (
             minuty !== null
@@ -2605,14 +2609,12 @@ function obliczSumowaneCzasy(
         }
     }
 
-
     if (
         pierwszyCzas === null
     ) {
 
         return wynik;
     }
-
 
     for (
         let i = 0;
@@ -2625,23 +2627,14 @@ function obliczSumowaneCzasy(
                 czasy[i]
             );
 
-
         if (
             minuty === null
-        ) {
-
+        )
             continue;
-        }
-
 
         let roznica =
             minuty -
             pierwszyCzas;
-
-
-        /*
-         * Przejście przez północ.
-         */
 
         if (
             roznica < 0
@@ -2651,11 +2644,9 @@ function obliczSumowaneCzasy(
                 24 * 60;
         }
 
-
         wynik[i] =
             roznica;
     }
-
 
     return wynik;
 }
@@ -2674,18 +2665,15 @@ function aktualizujHistorieURL(
             window.location.href
         );
 
-
     url.searchParams.set(
         "linia",
         numerLinii
     );
 
-
     url.searchParams.set(
         "kierunek",
         aktualnyKierunek
     );
-
 
     if (przystanekId) {
 
@@ -2700,7 +2688,6 @@ function aktualizujHistorieURL(
             "przystanek"
         );
     }
-
 
     window.history.pushState(
         {
@@ -2725,22 +2712,18 @@ function pokazRozklad() {
     if (!daneLinii)
         return;
 
-
     const rozklad =
         znajdzRozklad();
-
 
     const kontener =
         document.getElementById(
             "przystanki"
         );
 
-
     const typ =
         document.getElementById(
             "typRozkładu"
         );
-
 
     const wp =
         document.getElementById(
@@ -2757,17 +2740,14 @@ function pokazRozklad() {
         typ.textContent =
             "Brak rozkładu";
 
-
         kontener.innerHTML =
             '<div class="brak-danych">' +
             'Brak danych rozkładu.' +
             '</div>';
 
-
         if (wp)
             wp.style.display =
                 "none";
-
 
         return;
     }
@@ -2780,7 +2760,6 @@ function pokazRozklad() {
 
         aktualnyKierunek =
             0;
-
 
         ustawWybranyPrzystanek(
             null
@@ -2807,7 +2786,6 @@ function pokazRozklad() {
                 aktualnyKierunek
             ];
 
-
         if (
             kierunek &&
             Array.isArray(
@@ -2819,7 +2797,6 @@ function pokazRozklad() {
                 Number(
                     wybranyPrzystanekIndex
                 );
-
 
             if (
                 Number.isInteger(idx) &&
@@ -2833,17 +2810,14 @@ function pokazRozklad() {
                         idx
                     ];
 
-
                 pokazRozkladWybranegoPrzystanku(
                     rozklad,
                     wybranyPrzystanek
                 );
 
-
                 return;
             }
         }
-
 
         ustawWybranyPrzystanek(
             null
@@ -2868,14 +2842,12 @@ function czyPrzystanekNaZadanie(
     if (!p)
         return false;
 
-
     const typ =
         String(
             p.typ || ""
         )
             .trim()
             .toUpperCase();
-
 
     if (
         typ === "NŻ" ||
@@ -2884,7 +2856,6 @@ function czyPrzystanekNaZadanie(
 
         return true;
     }
-
 
     if (
         p.naZadanie === true ||
@@ -2897,7 +2868,6 @@ function czyPrzystanekNaZadanie(
         return true;
     }
 
-
     if (
         p.nz === true ||
         String(
@@ -2909,7 +2879,6 @@ function czyPrzystanekNaZadanie(
         return true;
     }
 
-
     if (
         typeof p.nazwa ===
         "string" &&
@@ -2920,7 +2889,6 @@ function czyPrzystanekNaZadanie(
 
         return true;
     }
-
 
     return false;
 }
@@ -2939,12 +2907,10 @@ function pokazListePrzystankow(
             "przystanki"
         );
 
-
     const kierunek =
         rozklad.kierunki[
             aktualnyKierunek
         ];
-
 
     const przystanki =
         kierunek.przystanki ||
@@ -2956,34 +2922,33 @@ function pokazListePrzystankow(
     ).style.display =
         "none";
 
-
     document.querySelector(
         ".dni"
     ).style.display =
         "none";
-
 
     document.getElementById(
         "kalendarz"
     ).style.display =
         "none";
 
-
     kontener.innerHTML =
         "";
 
+
+    /* =====================================================
+       WARIANTY
+       ===================================================== */
 
     const wp =
         document.getElementById(
             "warianty-pojemnik"
         );
 
-
     const wprz =
         document.getElementById(
             "warianty-przyciski"
         );
-
 
     let wariantyKierunku =
         [];
@@ -3007,7 +2972,6 @@ function pokazListePrzystankow(
             wp.style.display =
                 "flex";
 
-
             wprz.innerHTML =
                 "";
 
@@ -3019,20 +2983,10 @@ function pokazListePrzystankow(
                 )
             ) {
 
-                if (
-                    wariantyKierunku.includes(
-                        "A"
-                    )
-                ) {
-
-                    aktualnyWariant =
-                        "A";
-
-                } else {
-
-                    aktualnyWariant =
-                        wariantyKierunku[0];
-                }
+                aktualnyWariant =
+                    znajdzDomyslnyWariant(
+                        kierunek
+                    );
             }
 
 
@@ -3042,12 +2996,10 @@ function pokazListePrzystankow(
                     if (w === "")
                         return;
 
-
                     const btn =
                         document.createElement(
                             "button"
                         );
-
 
                     btn.className =
                         "wariant-btn" +
@@ -3057,10 +3009,8 @@ function pokazListePrzystankow(
                                 : ""
                         );
 
-
                     btn.textContent =
                         w;
-
 
                     btn.onclick =
                         () => {
@@ -3068,10 +3018,8 @@ function pokazListePrzystankow(
                             aktualnyWariant =
                                 w;
 
-
                             pokazRozklad();
                         };
-
 
                     wprz.appendChild(
                         btn
@@ -3083,7 +3031,6 @@ function pokazListePrzystankow(
 
             wp.style.display =
                 "none";
-
 
             aktualnyWariant =
                 null;
@@ -3100,13 +3047,12 @@ function pokazListePrzystankow(
             'Brak przystanków.' +
             '</div>';
 
-
         return;
     }
 
 
     /* =====================================================
-       CZAS PRZEJAZDU
+       DOKŁADNY KURS BAZOWY
        ===================================================== */
 
     const kursBazowy =
@@ -3129,13 +3075,124 @@ function pokazListePrzystankow(
         );
 
 
+    /*
+     * selectedActive oznacza:
+     *
+     * "ten konkretny przystanek znajduje się
+     * w dokładnie wybranym kursie wariantu".
+     *
+     * Dzięki temu nie mieszamy różnych kursów
+     * ani różnych wariantów.
+     */
+
+    const selectedActive =
+        czasyKursu.map(
+            czas =>
+                czasNaMinuty(
+                    czas
+                ) !== null
+        );
+
+
     /* =====================================================
-       OŚ TRASY
+       PIERWSZY I OSTATNI AKTYWNY PRZYSTANEK
        ===================================================== */
 
     const N =
         przystanki.length;
 
+
+    let firstActiveIndex =
+        -1;
+
+
+    let lastActiveIndex =
+        -1;
+
+
+    selectedActive.forEach(
+        (
+            active,
+            i
+        ) => {
+
+            if (!active)
+                return;
+
+            if (
+                firstActiveIndex === -1
+            ) {
+
+                firstActiveIndex =
+                    i;
+            }
+
+            lastActiveIndex =
+                i;
+        }
+    );
+
+
+    /*
+     * Awaryjnie, jeżeli z jakiegoś powodu
+     * nie udało się znaleźć dokładnego kursu,
+     * szukamy pierwszego przystanku wariantu.
+     */
+
+    if (
+        firstActiveIndex === -1
+    ) {
+
+        przystanki.forEach(
+            (
+                p,
+                i
+            ) => {
+
+                const active =
+                    (
+                        p.kursy ||
+                        []
+                    ).some(
+                        k =>
+                            pobierzWariant(
+                                k
+                            ) ===
+                            aktualnyWariant
+                    );
+
+                if (
+                    active &&
+                    firstActiveIndex === -1
+                ) {
+
+                    firstActiveIndex =
+                        i;
+                }
+
+                if (active) {
+
+                    lastActiveIndex =
+                        i;
+                }
+            }
+        );
+    }
+
+
+    /* =====================================================
+       OŚ GŁÓWNA
+       ===================================================== */
+
+    /*
+     * Zachowujemy istniejącą logikę osi:
+     * wariant A jest podstawą geometrii,
+     * jeżeli istnieje.
+     *
+     * Sam kolor i aktywność przystanków
+     * pochodzi natomiast z dokładnego kursu
+     * aktualnie wybranego wariantu.
+     */
 
     let mainWariant =
         wariantyKierunku.includes(
@@ -3199,12 +3256,13 @@ function pokazListePrzystankow(
                             k.numer
                         ).trim();
 
+                    if (!numer)
+                        return;
 
                     const wariant =
                         pobierzWariant(
                             k
                         );
-
 
                     const klucz =
                         numer +
@@ -3241,6 +3299,10 @@ function pokazListePrzystankow(
     );
 
 
+    /* =====================================================
+       KRAWĘDZIE
+       ===================================================== */
+
     const edgesMap =
         {};
 
@@ -3270,14 +3332,11 @@ function pokazListePrzystankow(
                 const u =
                     path[j].index;
 
-
                 const v =
                     path[j + 1].index;
 
-
                 const w =
                     path[j].wariant;
-
 
                 const key =
                     u +
@@ -3303,15 +3362,9 @@ function pokazListePrzystankow(
                 }
 
 
-                if (
-                    w !== undefined &&
-                    w !== null
-                ) {
-
-                    edgesMap[key]
-                        .warianty
-                        .add(w);
-                }
+                edgesMap[key]
+                    .warianty
+                    .add(w);
             }
         }
     );
@@ -3363,18 +3416,10 @@ function pokazListePrzystankow(
                     }
 
 
-                    if (
+                    e.track =
                         skipsMain
-                    ) {
-
-                        e.track =
-                            -1;
-
-                    } else {
-
-                        e.track =
-                            0;
-                    }
+                            ? -1
+                            : 0;
                 }
 
             } else {
@@ -3386,83 +3431,101 @@ function pokazListePrzystankow(
     );
 
 
+    /*
+     * Krawędzie należące do dokładnie wybranego
+     * kursu bazowego.
+     *
+     * To jest kluczowa zmiana:
+     *
+     * wcześniejsze:
+     *
+     *     e.warianty.has(aktualnyWariant)
+     *
+     * mogło podświetlać inne kursy tego wariantu.
+     *
+     * Teraz podświetlamy tylko krawędzie
+     * dokładnego kursu bazowego.
+     */
+
+    const selectedEdgeKeys =
+        new Set();
+
+
+    if (
+        kursBazowy &&
+        Array.isArray(
+            kursBazowy.punkty
+        )
+    ) {
+
+        const punkty =
+            kursBazowy.punkty
+                .filter(
+                    pt =>
+                        czasNaMinuty(
+                            pt.czas
+                        ) !== null
+                )
+                .sort(
+                    (
+                        a,
+                        b
+                    ) =>
+                        a.index -
+                        b.index
+                );
+
+
+        for (
+            let j = 0;
+            j <
+            punkty.length - 1;
+            j++
+        ) {
+
+            selectedEdgeKeys.add(
+                punkty[j].index +
+                "," +
+                punkty[j + 1].index
+            );
+        }
+    }
+
+
+    /* =====================================================
+       PARAMETRY SVG
+       ===================================================== */
+
     const ROW_HEIGHT =
         44;
-
 
     const TRACK_W =
         22;
 
-
     const SPINE_X =
         44;
-
 
     const LEFT_X =
         SPINE_X -
         TRACK_W;
 
-
     const RIGHT_X =
         SPINE_X +
         TRACK_W;
-
 
     const SVG_W =
         RIGHT_X +
         16;
 
 
-    let firstActiveIndex =
-        -1;
-
-
-    let lastActiveIndex =
-        -1;
-
-
-    przystanki.forEach(
-        (
-            p,
-            i
-        ) => {
-
-            const active =
-                (
-                    p.kursy ||
-                    []
-                ).some(
-                    k =>
-                        pobierzWariant(
-                            k
-                        ) ===
-                        aktualnyWariant
-                );
-
-
-            if (active) {
-
-                if (
-                    firstActiveIndex === -1
-                ) {
-
-                    firstActiveIndex =
-                        i;
-                }
-
-
-                lastActiveIndex =
-                    i;
-            }
-        }
-    );
-
+    /* =====================================================
+       LISTA
+       ===================================================== */
 
     const lista =
         document.createElement(
             "div"
         );
-
 
     lista.className =
         "lista-przystankow";
@@ -3474,17 +3537,43 @@ function pokazListePrzystankow(
             i
         ) => {
 
+            /*
+             * DOKŁADNA AKTYWNOŚĆ
+             */
+
             const nodeActive =
-                (
-                    p.kursy ||
-                    []
-                ).some(
-                    k =>
-                        pobierzWariant(
-                            k
-                        ) ===
-                        aktualnyWariant
-                );
+                selectedActive[i];
+
+
+            /*
+             * Przystanek przed początkiem
+             * aktualnego wariantu.
+             */
+
+            const beforeVariantStart =
+                firstActiveIndex !== -1 &&
+                i <
+                firstActiveIndex;
+
+
+            /*
+             * Przystanek aktywny,
+             * ale pominięty przez konkretny kurs.
+             */
+
+            const inactiveForCourse =
+                !nodeActive;
+
+
+            /*
+             * Wszystkie przystanki,
+             * które nie należą do wybranego kursu,
+             * są szare.
+             */
+
+            const visualInactive =
+                beforeVariantStart ||
+                inactiveForCourse;
 
 
             const btn =
@@ -3500,20 +3589,15 @@ function pokazListePrzystankow(
             btn.className =
                 "przystanek-btn" +
                 (
-                    nodeActive
-                        ? ""
-                        : " inactive"
+                    visualInactive
+                        ? " inactive"
+                        : ""
                 );
 
 
             const isFirstActive =
                 i ===
                 firstActiveIndex;
-
-
-            const isLastActive =
-                i ===
-                lastActiveIndex;
 
 
             const isNz =
@@ -3525,10 +3609,13 @@ function pokazListePrzystankow(
             let inactiveLines =
                 "";
 
-
             let activeLines =
                 "";
 
+
+            /* =================================================
+               RYSOWANIE LINII
+               ================================================= */
 
             const drawLine =
                 (
@@ -3543,7 +3630,6 @@ function pokazListePrzystankow(
                         isActive
                             ? "#000"
                             : "#ccc";
-
 
                     const w =
                         isActive
@@ -3565,22 +3651,36 @@ function pokazListePrzystankow(
 
                     if (
                         isActive
-                    )
+                    ) {
+
                         activeLines +=
                             str;
 
-                    else
+                    } else {
+
                         inactiveLines +=
                             str;
+                    }
                 };
 
 
             edges.forEach(
                 e => {
 
+                    /*
+                     * Tylko dokładny kurs bazowy
+                     * może być czarny.
+                     */
+
+                    const edgeKey =
+                        e.u +
+                        "," +
+                        e.v;
+
+
                     const isEdgeActive =
-                        e.warianty.has(
-                            aktualnyWariant
+                        selectedEdgeKeys.has(
+                            edgeKey
                         );
 
 
@@ -3625,6 +3725,7 @@ function pokazListePrzystankow(
                                 isEdgeActive
                             );
                         }
+
 
                     } else if (
                         e.track === 1
@@ -3680,6 +3781,7 @@ function pokazListePrzystankow(
                             );
                         }
 
+
                     } else if (
                         e.track === -1
                     ) {
@@ -3726,11 +3828,28 @@ function pokazListePrzystankow(
             );
 
 
+            /* =================================================
+               POZYCJA WĘZŁA
+               ================================================= */
+
             const nodeX =
                 isOnMainAxis[i]
                     ? SPINE_X
                     : RIGHT_X;
 
+
+            /*
+             * KOLOR WĘZŁA
+             *
+             * Pierwszy aktywny:
+             *     czarny
+             *
+             * Pozostałe aktywne:
+             *     czerwone
+             *
+             * Nieaktywne:
+             *     szare
+             */
 
             const strokeColor =
                 nodeActive
@@ -3756,10 +3875,19 @@ function pokazListePrzystankow(
                 "";
 
 
+            /* =================================================
+               PIERWSZY PRZYSTANEK = KWADRAT
+               POZOSTAŁE = KÓŁKO
+               ================================================= */
+
             if (
-                isFirstActive ||
-                isLastActive
+                isFirstActive
             ) {
+
+                /*
+                 * PIERWSZY PRZYSTANEK:
+                 * zawsze kwadrat
+                 */
 
                 if (isNz) {
 
@@ -3787,7 +3915,13 @@ function pokazListePrzystankow(
                         />`;
                 }
 
+
             } else {
+
+                /*
+                 * KAŻDY NASTĘPNY PRZYSTANEK:
+                 * kółko
+                 */
 
                 if (isNz) {
 
@@ -3815,10 +3949,15 @@ function pokazListePrzystankow(
             }
 
 
+            /* =================================================
+               SVG
+               ================================================= */
+
             const svgHtml =
                 `<svg
                     width="${SVG_W}"
                     height="${ROW_HEIGHT}"
+                    aria-hidden="true"
                 >
                     ${inactiveLines}
                     ${activeLines}
@@ -3831,14 +3970,12 @@ function pokazListePrzystankow(
                     "div"
                 );
 
-
             nodeWrapper.className =
                 "node-wrapper";
 
-
             nodeWrapper.style.width =
-                SVG_W + "px";
-
+                SVG_W +
+                "px";
 
             nodeWrapper.innerHTML =
                 svgHtml;
@@ -3852,7 +3989,6 @@ function pokazListePrzystankow(
                 document.createElement(
                     "div"
                 );
-
 
             czasKolumna.className =
                 "kolumna-czas-przejazdu";
@@ -3875,7 +4011,8 @@ function pokazListePrzystankow(
 
             if (
                 czasSumowany !== null &&
-                czasSumowany !== undefined
+                czasSumowany !== undefined &&
+                nodeActive
             ) {
 
                 czasKolumna.textContent =
@@ -3898,14 +4035,40 @@ function pokazListePrzystankow(
                     "div"
                 );
 
-
             nazwa.className =
                 "przystanek-nazwa";
-
 
             nazwa.textContent =
                 p.nazwa ||
                 "Przystanek";
+
+
+            /*
+             * WAŻNE:
+             *
+             * Nazwa ma osobny klik.
+             *
+             * Nie tworzymy tutaj drugiego buttona,
+             * ponieważ nazwa znajduje się wewnątrz
+             * głównego buttona.
+             */
+
+            nazwa.style.cursor =
+                "pointer";
+
+
+            nazwa.addEventListener(
+                "click",
+                function(e) {
+
+                    e.stopPropagation();
+
+                    wybierzPrzystanek(
+                        p,
+                        i
+                    );
+                }
+            );
 
 
             /* =================================================
@@ -3917,43 +4080,37 @@ function pokazListePrzystankow(
                     "div"
                 );
 
-
             nr.className =
                 "przystanek-nr";
-
 
             nr.textContent =
                 p.nr || "";
 
 
-            /*
-             * KOLEJNOŚĆ:
-             *
-             * 1. CZAS
-             * 2. OŚ
-             * 3. NAZWA
-             * 4. NR
-             */
+            /* =================================================
+               KOLEJNOŚĆ ELEMENTÓW
+               ================================================= */
 
             btn.appendChild(
                 czasKolumna
             );
 
-
             btn.appendChild(
                 nodeWrapper
             );
-
 
             btn.appendChild(
                 nazwa
             );
 
-
             btn.appendChild(
                 nr
             );
 
+
+            /*
+             * Nadal można kliknąć cały wiersz.
+             */
 
             btn.onclick =
                 () =>
@@ -3990,15 +4147,12 @@ function wybierzPrzystanek(
         index
     );
 
-
     widokKursuAktywny =
         false;
-
 
     aktualizujHistorieURL(
         "idx:" + index
     );
-
 
     pokazRozklad();
 
@@ -4011,7 +4165,6 @@ function wybierzPrzystanek(
                 0
             );
 
-
             requestAnimationFrame(
                 () => {
 
@@ -4019,10 +4172,8 @@ function wybierzPrzystanek(
                         0,
                         0
                     );
-
                 }
             );
-
         }
     );
 }
@@ -4148,7 +4299,6 @@ function pokazRozkladWybranegoPrzystanku(
         let aktGodz =
             null;
 
-
         let wiersz =
             null;
 
@@ -4174,7 +4324,6 @@ function pokazRozkladWybranegoPrzystanku(
                     Number(
                         dop[1]
                     );
-
 
                 const m =
                     dop[2];
@@ -4283,6 +4432,10 @@ function pokazRozkladWybranegoPrzystanku(
     );
 
 
+    /* =====================================================
+       LEGENDA WARIANTÓW
+       ===================================================== */
+
     const uzyteWarianty =
         new Map();
 
@@ -4298,7 +4451,6 @@ function pokazRozkladWybranegoPrzystanku(
                     pobierzWariant(
                         k
                     );
-
 
                 if (w)
                     uzyteWarianty.set(
@@ -4319,7 +4471,6 @@ function pokazRozkladWybranegoPrzystanku(
             document.createElement(
                 "div"
             );
-
 
         leg.className =
             "legenda-wariantow";
@@ -4397,13 +4548,13 @@ function pokazRozkladWybranegoPrzystanku(
                         behavior: "auto"
                     });
 
-                    document.documentElement.scrollTop = 0;
+                    document.documentElement.scrollTop =
+                        0;
 
-                    document.body.scrollTop = 0;
-
+                    document.body.scrollTop =
+                        0;
                 }
             );
-
         }
     );
 }
@@ -4498,6 +4649,11 @@ function pokazCalyKurs(
                         }
 
 
+                        /*
+                         * Wariant jest częścią
+                         * identyfikatora kursu.
+                         */
+
                         if (
                             wariantKursu !== null &&
                             wariant !==
@@ -4584,6 +4740,10 @@ function pokazCalyKurs(
     kontener.innerHTML =
         "";
 
+
+    /* =====================================================
+       AKTUALNY PRZYSTANEK
+       ===================================================== */
 
     let stopIndex =
         -1;
@@ -4712,7 +4872,6 @@ function pokazCalyKurs(
                 czasNaMinuty(
                     cz
                 );
-
 
             return minuty === null
                 ? 0
@@ -4876,10 +5035,15 @@ function pokazCalyKurs(
             }
 
 
+            /*
+             * W widoku całego kursu:
+             *
+             * pierwszy = kwadrat
+             * reszta = kółka
+             */
+
             if (
-                index === 0 ||
-                index ===
-                kursPrzystanki.length - 1
+                index === 0
             ) {
 
                 if (el.nz) {
@@ -5197,6 +5361,7 @@ window.addEventListener(
 );
 
 </script>
+
 
 </body>
 
