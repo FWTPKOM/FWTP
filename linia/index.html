@@ -3342,151 +3342,8 @@ function pokazListePrzystankow(
         );
 
 
-    /* =====================================================
-       KRAWĘDZIE DOKŁADNEGO KURSU
-       
-       WAŻNE:
-       Tworzymy je PRZED ustaleniem toru.
-       
-       Dzięki temu konkretny wybrany kurs może powiedzieć:
-       
-       A -> B
-          normalnie = prawa strona
-       
-       A -> D
-          pominięte B i C = lewa strona
-       
-       Nie zmieniamy tutaj żadnej innej logiki.
-       ===================================================== */
-
-    const selectedEdgeKeys =
-        new Set();
-
-
-    if (
-        kursBazowy &&
-        Array.isArray(
-            kursBazowy.punkty
-        )
-    ) {
-
-        const punkty =
-            kursBazowy.punkty
-                .filter(
-                    pt =>
-                        czasNaMinuty(
-                            pt.czas
-                        ) !== null
-                )
-                .sort(
-                    (
-                        a,
-                        b
-                    ) =>
-                        a.index -
-                        b.index
-                );
-
-
-        for (
-            let j = 0;
-            j <
-            punkty.length - 1;
-            j++
-        ) {
-
-            const u =
-                Number(
-                    punkty[j].index
-                );
-
-            const v =
-                Number(
-                    punkty[j + 1].index
-                );
-
-            if (
-                Number.isInteger(u) &&
-                Number.isInteger(v) &&
-                v > u
-            ) {
-
-                selectedEdgeKeys.add(
-                    u +
-                    "," +
-                    v
-                );
-            }
-        }
-    }
-
-
-    /* =====================================================
-       USTALENIE TORU
-       
-       DOMYŚLNA LOGIKA POZOSTAJE TAKA JAK WCZEŚNIEJ.
-       
-       JEDYNA DODANA REGUŁA:
-       
-       jeżeli krawędź należy do dokładnego wybranego kursu
-       i przeskakuje przystanki, to idzie LEWĄ STRONĄ.
-       ===================================================== */
-
     edges.forEach(
         e => {
-
-            const edgeKey =
-                e.u +
-                "," +
-                e.v;
-
-
-            const isSelectedEdge =
-                selectedEdgeKeys.has(
-                    edgeKey
-                );
-
-
-            /*
-             * WYBRANY KURS:
-             *
-             * Kolejny przystanek:
-             * prawa strona.
-             *
-             * Pominięcie jednego lub większej liczby
-             * przystanków:
-             * lewa strona.
-             */
-
-            if (
-                isSelectedEdge
-            ) {
-
-                if (
-                    e.v ===
-                    e.u + 1
-                ) {
-
-                    e.track =
-                        1;
-
-                } else if (
-                    e.v >
-                    e.u + 1
-                ) {
-
-                    e.track =
-                        -1;
-                }
-
-                return;
-            }
-
-
-            /*
-             * RESZTA TRASY:
-             * pozostawiamy dotychczasową logikę.
-             */
 
             if (
                 isOnMainAxis[e.u] &&
@@ -3541,12 +3398,56 @@ function pokazListePrzystankow(
 
 
     /* =====================================================
+       KRAWĘDZIE DOKŁADNEGO KURSU
+       ===================================================== */
+
+    const selectedEdgeKeys =
+        new Set();
+
+
+    if (
+        kursBazowy &&
+        Array.isArray(
+            kursBazowy.punkty
+        )
+    ) {
+
+        const punkty =
+            kursBazowy.punkty
+                .filter(
+                    pt =>
+                        czasNaMinuty(
+                            pt.czas
+                        ) !== null
+                )
+                .sort(
+                    (
+                        a,
+                        b
+                    ) =>
+                        a.index -
+                        b.index
+                );
+
+
+        for (
+            let j = 0;
+            j <
+            punkty.length - 1;
+            j++
+        ) {
+
+            selectedEdgeKeys.add(
+                punkty[j].index +
+                "," +
+                punkty[j + 1].index
+            );
+        }
+    }
+
+
+    /* =====================================================
        PARAMETRY SVG
-       
-       SPINE_X = stała pozycja wszystkich przystanków.
-       
-       Odchylenie 22 px w poziomie przy odchyleniu
-       22 px w pionie daje dokładnie 45°.
        ===================================================== */
 
     const ROW_HEIGHT =
@@ -3630,6 +3531,21 @@ function pokazListePrzystankow(
 
             /* =================================================
                KSZTAŁT WĘZŁA
+               
+               KWADRATEM JEST:
+               
+               1. pierwszy przystanek całej trasy
+               2. ostatni przystanek całej trasy
+               3. początek wybranego wariantu
+               4. koniec wybranego wariantu
+               
+               Dzięki temu wariant może rozpocząć się
+               w środku trasy i właśnie tam pojawi się
+               KWADRAT.
+               
+               Tak samo, jeżeli wariant kończy się
+               przed końcem całej trasy — jego ostatni
+               przystanek będzie KWADRATEM.
                ================================================= */
 
             const isFirstStop =
@@ -3673,17 +3589,6 @@ function pokazListePrzystankow(
 
             /* =================================================
                RYSOWANIE LINII
-               
-               Wszystkie przystanki są w jednym miejscu:
-               
-                         ●
-               
-               a linia może wychodzić:
-               
-                      ╱     ╲
-                     /       \
-               
-               Zmienia się wyłącznie przebieg linii.
                ================================================= */
 
             const drawLine =
@@ -3748,10 +3653,6 @@ function pokazListePrzystankow(
                         );
 
 
-                    /* =========================================
-                       TOR ŚRODKOWY
-                       ========================================= */
-
                     if (
                         e.track === 0
                     ) {
@@ -3795,30 +3696,28 @@ function pokazListePrzystankow(
                         }
 
 
-                    /* =========================================
-                       TOR PRAWY
-                       
-                       Przystanek pozostaje na SPINE_X.
-                       
-                       Linia:
-                       
-                       środek -> prawa strona
-                       
-                       lub:
-                       
-                       prawa strona -> środek
-                       ========================================= */
-
                     } else if (
                         e.track === 1
                     ) {
+
+                        const startX =
+                            isOnMainAxis[e.u]
+                                ? SPINE_X
+                                : RIGHT_X;
+
+
+                        const endX =
+                            isOnMainAxis[e.v]
+                                ? SPINE_X
+                                : RIGHT_X;
+
 
                         if (
                             i === e.u
                         ) {
 
                             drawLine(
-                                SPINE_X,
+                                startX,
                                 ROW_HEIGHT / 2,
                                 RIGHT_X,
                                 ROW_HEIGHT,
@@ -3845,33 +3744,12 @@ function pokazListePrzystankow(
                             drawLine(
                                 RIGHT_X,
                                 0,
-                                SPINE_X,
+                                endX,
                                 ROW_HEIGHT / 2,
                                 isEdgeActive
                             );
                         }
 
-
-                    /* =========================================
-                       TOR LEWY
-                       
-                       TO JEST POPRAWKA DLA KURSU:
-                       
-                       A -> pominięty -> pominięty -> D
-                       
-                       Linia:
-                       
-                       A
-                        ╲
-                         ╲
-                          |
-                          |
-                         ╱
-                        ╱
-                       D
-                       
-                       Przystanki cały czas są na SPINE_X.
-                       ========================================= */
 
                     } else if (
                         e.track === -1
@@ -3881,15 +3759,6 @@ function pokazListePrzystankow(
                             i === e.u
                         ) {
 
-                            /*
-                             * ŚRODEK -> LEWO
-                             *
-                             * dx = 22
-                             * dy = 22
-                             *
-                             * = dokładnie 45°
-                             */
-
                             drawLine(
                                 SPINE_X,
                                 ROW_HEIGHT / 2,
@@ -3903,10 +3772,6 @@ function pokazListePrzystankow(
                             i < e.v
                         ) {
 
-                            /*
-                             * Lewy pionowy odcinek
-                             */
-
                             drawLine(
                                 LEFT_X,
                                 0,
@@ -3918,15 +3783,6 @@ function pokazListePrzystankow(
                         } else if (
                             i === e.v
                         ) {
-
-                            /*
-                             * LEWO -> ŚRODEK
-                             *
-                             * dx = 22
-                             * dy = 22
-                             *
-                             * = dokładnie 45°
-                             */
 
                             drawLine(
                                 LEFT_X,
@@ -3943,17 +3799,12 @@ function pokazListePrzystankow(
 
             /* =================================================
                POZYCJA WĘZŁA
-               
-               WAŻNA ZMIANA:
-               
-               KAŻDY przystanek ma dokładnie tę samą
-               pozycję niezależnie od wariantu.
-               
-               Wariant zmienia tylko linię.
                ================================================= */
 
             const nodeX =
-                SPINE_X;
+                isOnMainAxis[i]
+                    ? SPINE_X
+                    : RIGHT_X;
 
 
             /* =================================================
@@ -3990,11 +3841,21 @@ function pokazListePrzystankow(
 
             /* =================================================
                RYSOWANIE WĘZŁA
+               
+               shouldBeSquare obejmuje:
+               - początek trasy
+               - koniec trasy
+               - początek wariantu
+               - koniec wariantu
                ================================================= */
 
             if (
                 shouldBeSquare
             ) {
+
+                /* =============================================
+                   KWADRAT
+                   ============================================= */
 
                 if (isNz) {
 
@@ -4024,6 +3885,10 @@ function pokazListePrzystankow(
 
 
             } else {
+
+                /* =============================================
+                   KOŁO
+                   ============================================= */
 
                 if (isNz) {
 
@@ -5003,6 +4868,14 @@ function pokazCalyKurs(
                 kursPrzystanki.length - 1;
 
 
+            /*
+             * W widoku całego kursu pierwszy i ostatni
+             * przystanek przebiegu są kwadratami.
+             *
+             * Jest to niezależne od tego, gdzie ten kurs
+             * zaczyna/kończy się na pełnej trasie.
+             */
+
             const shouldBeSquare =
                 isFirst ||
                 isLast;
@@ -5455,8 +5328,6 @@ window.addEventListener(
 );
 
 </script>
-
-
 
 </body>
 
