@@ -1016,7 +1016,7 @@ if ("scrollRestoration" in history) {
             Uwaga!
         </strong>
 
-        Ta linia ma różne warianty trasy..
+        Ta linia ma różne warianty trasy
 
     </div>
 
@@ -2398,6 +2398,12 @@ function znajdzKursBazowy(
     wszystkieKursy.forEach(
         kurs => {
 
+            /*
+             * Tutaj pozostawiamy kolejność indeksów,
+             * ponieważ obecny JSON opisuje przebieg
+             * przez globalne indeksy przystanków.
+             */
+
             kurs.punkty.sort(
                 (
                     a,
@@ -3063,6 +3069,13 @@ function pokazListePrzystankow(
         );
 
 
+    /*
+     * TRUE = wybrany kurs faktycznie obsługuje
+     * dany przystanek.
+     *
+     * FALSE = kurs go pomija.
+     */
+
     const selectedActive =
         czasyKursu.map(
             czas =>
@@ -3157,7 +3170,7 @@ function pokazListePrzystankow(
 
 
     /* =====================================================
-       ŚCIEŻKI KURSÓW
+       GŁÓWNA OŚ TRASY
        ===================================================== */
 
     let mainWariant =
@@ -3198,7 +3211,7 @@ function pokazListePrzystankow(
 
 
     /* =====================================================
-       ŚCIEŻKI
+       WSZYSTKIE ŚCIEŻKI KURSÓW
        ===================================================== */
 
     const tripPaths =
@@ -3216,6 +3229,12 @@ function pokazListePrzystankow(
                 []
             ).forEach(
                 k => {
+
+                    if (
+                        k.numer === undefined ||
+                        k.numer === null
+                    )
+                        return;
 
                     const numer =
                         String(
@@ -3248,17 +3267,32 @@ function pokazListePrzystankow(
                     }
 
 
-                    tripPaths[
-                        klucz
-                    ].push(
-                        {
-                            index:
-                                i,
+                    /*
+                     * Nie dodajemy tego samego
+                     * indeksu drugi raz do jednej ścieżki.
+                     */
 
-                            wariant:
-                                wariant
-                        }
-                    );
+                    if (
+                        !tripPaths[
+                            klucz
+                        ].some(
+                            x =>
+                                x.index === i
+                        )
+                    ) {
+
+                        tripPaths[
+                            klucz
+                        ].push(
+                            {
+                                index:
+                                    i,
+
+                                wariant:
+                                    wariant
+                            }
+                        );
+                    }
                 }
             );
         }
@@ -3266,7 +3300,7 @@ function pokazListePrzystankow(
 
 
     /* =====================================================
-       KRAWĘDZIE
+       KRAWĘDZIE WSZYSTKICH KURSÓW
        ===================================================== */
 
     const edgesMap =
@@ -3277,6 +3311,11 @@ function pokazListePrzystankow(
         tripPaths
     ).forEach(
         path => {
+
+            /*
+             * Globalna kolejność przystanków
+             * pozostaje kolejnością trasy.
+             */
 
             path.sort(
                 (
@@ -3300,6 +3339,11 @@ function pokazListePrzystankow(
 
                 const v =
                     path[j + 1].index;
+
+                if (
+                    u === v
+                )
+                    continue;
 
                 const w =
                     path[j].wariant;
@@ -3342,8 +3386,156 @@ function pokazListePrzystankow(
         );
 
 
+    /* =====================================================
+       KRAWĘDZIE WYBRANEGO KURSU
+       
+       NAJWAŻNIEJSZA LOGIKA WARIANTÓW
+       ===================================================== */
+
+    const selectedEdgeKeys =
+        new Set();
+
+
+    if (
+        kursBazowy &&
+        Array.isArray(
+            kursBazowy.punkty
+        )
+    ) {
+
+        const punkty =
+            kursBazowy.punkty
+                .filter(
+                    pt =>
+                        czasNaMinuty(
+                            pt.czas
+                        ) !== null &&
+                        Number.isInteger(
+                            Number(
+                                pt.index
+                            )
+                        )
+                )
+                .sort(
+                    (
+                        a,
+                        b
+                    ) =>
+                        Number(a.index) -
+                        Number(b.index)
+                );
+
+
+        /*
+         * Każde dwa kolejne obsługiwane przystanki
+         * tworzą krawędź wybranego kursu.
+         */
+
+        for (
+            let j = 0;
+            j <
+            punkty.length - 1;
+            j++
+        ) {
+
+            const u =
+                Number(
+                    punkty[j].index
+                );
+
+            const v =
+                Number(
+                    punkty[j + 1].index
+                );
+
+            if (
+                u === v
+            )
+                continue;
+
+            selectedEdgeKeys.add(
+                u +
+                "," +
+                v
+            );
+        }
+    }
+
+
+    /* =====================================================
+       OKREŚLANIE TORU KAŻDEJ KRAWĘDZI
+       ===================================================== */
+
     edges.forEach(
         e => {
+
+            const edgeKey =
+                e.u +
+                "," +
+                e.v;
+
+
+            const isSelectedEdge =
+                selectedEdgeKeys.has(
+                    edgeKey
+                );
+
+
+            /*
+             * =================================================
+             * WYBRANY KURS
+             * =================================================
+             *
+             * Jeżeli wybrany kurs przeskakuje nad przystankiem,
+             * np.
+             *
+             * 10 -> 11 -> 12 -> 13
+             *
+             * ale kurs ma:
+             *
+             * 10 -> 13
+             *
+             * to otrzymujemy:
+             *
+             *        10
+             *         \
+             *          \
+             *          11
+             *          |
+             *          12
+             *          /
+             *         /
+             *        13
+             *
+             * czyli jeden ciągły bypass po LEWEJ.
+             */
+
+            if (
+                isSelectedEdge
+            ) {
+
+                if (
+                    e.v > e.u + 1
+                ) {
+
+                    e.track =
+                        -1;
+
+                } else {
+
+                    e.track =
+                        1;
+                }
+
+                return;
+            }
+
+
+            /*
+             * =================================================
+             * POZOSTAŁE KURSY
+             * =================================================
+             */
 
             if (
                 isOnMainAxis[e.u] &&
@@ -3395,55 +3587,6 @@ function pokazListePrzystankow(
             }
         }
     );
-
-
-    /* =====================================================
-       KRAWĘDZIE DOKŁADNEGO KURSU
-       ===================================================== */
-
-    const selectedEdgeKeys =
-        new Set();
-
-
-    if (
-        kursBazowy &&
-        Array.isArray(
-            kursBazowy.punkty
-        )
-    ) {
-
-        const punkty =
-            kursBazowy.punkty
-                .filter(
-                    pt =>
-                        czasNaMinuty(
-                            pt.czas
-                        ) !== null
-                )
-                .sort(
-                    (
-                        a,
-                        b
-                    ) =>
-                        a.index -
-                        b.index
-                );
-
-
-        for (
-            let j = 0;
-            j <
-            punkty.length - 1;
-            j++
-        ) {
-
-            selectedEdgeKeys.add(
-                punkty[j].index +
-                "," +
-                punkty[j + 1].index
-            );
-        }
-    }
 
 
     /* =====================================================
@@ -3531,21 +3674,6 @@ function pokazListePrzystankow(
 
             /* =================================================
                KSZTAŁT WĘZŁA
-               
-               KWADRATEM JEST:
-               
-               1. pierwszy przystanek całej trasy
-               2. ostatni przystanek całej trasy
-               3. początek wybranego wariantu
-               4. koniec wybranego wariantu
-               
-               Dzięki temu wariant może rozpocząć się
-               w środku trasy i właśnie tam pojawi się
-               KWADRAT.
-               
-               Tak samo, jeżeli wariant kończy się
-               przed końcem całej trasy — jego ostatni
-               przystanek będzie KWADRATEM.
                ================================================= */
 
             const isFirstStop =
@@ -3653,6 +3781,10 @@ function pokazListePrzystankow(
                         );
 
 
+                    /* =========================================
+                       GŁÓWNA OŚ
+                       ========================================= */
+
                     if (
                         e.track === 0
                     ) {
@@ -3696,101 +3828,271 @@ function pokazListePrzystankow(
                         }
 
 
+                    /*
+                     * =========================================
+                     * PRAWA STRONA
+                     *
+                     * Używana dla normalnego przejazdu
+                     * wybranego kursu.
+                     * =========================================
+                     */
+
                     } else if (
                         e.track === 1
                     ) {
 
-                        const startX =
-                            isOnMainAxis[e.u]
-                                ? SPINE_X
-                                : RIGHT_X;
-
-
-                        const endX =
-                            isOnMainAxis[e.v]
-                                ? SPINE_X
-                                : RIGHT_X;
+                        const isSelected =
+                            isEdgeActive;
 
 
                         if (
-                            i === e.u
+                            isSelected
                         ) {
 
-                            drawLine(
-                                startX,
-                                ROW_HEIGHT / 2,
-                                RIGHT_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
+                            /*
+                             * Wybrany kurs:
+                             *
+                             * obsługiwany -> obsługiwany
+                             *
+                             * pionowa linia po prawej.
+                             */
 
-                        } else if (
-                            i > e.u &&
-                            i < e.v
-                        ) {
+                            if (
+                                i === e.u
+                            ) {
 
-                            drawLine(
-                                RIGHT_X,
-                                0,
-                                RIGHT_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
+                                drawLine(
+                                    RIGHT_X,
+                                    ROW_HEIGHT / 2,
+                                    RIGHT_X,
+                                    ROW_HEIGHT,
+                                    true
+                                );
 
-                        } else if (
-                            i === e.v
-                        ) {
+                            } else if (
+                                i > e.u &&
+                                i < e.v
+                            ) {
 
-                            drawLine(
-                                RIGHT_X,
-                                0,
-                                endX,
-                                ROW_HEIGHT / 2,
-                                isEdgeActive
-                            );
+                                drawLine(
+                                    RIGHT_X,
+                                    0,
+                                    RIGHT_X,
+                                    ROW_HEIGHT,
+                                    true
+                                );
+
+                            } else if (
+                                i === e.v
+                            ) {
+
+                                drawLine(
+                                    RIGHT_X,
+                                    0,
+                                    RIGHT_X,
+                                    ROW_HEIGHT / 2,
+                                    true
+                                );
+                            }
+
+                        } else {
+
+                            /*
+                             * Zwykła nieaktywna ścieżka.
+                             */
+
+                            const startX =
+                                isOnMainAxis[e.u]
+                                    ? SPINE_X
+                                    : RIGHT_X;
+
+
+                            const endX =
+                                isOnMainAxis[e.v]
+                                    ? SPINE_X
+                                    : RIGHT_X;
+
+
+                            if (
+                                i === e.u
+                            ) {
+
+                                drawLine(
+                                    startX,
+                                    ROW_HEIGHT / 2,
+                                    RIGHT_X,
+                                    ROW_HEIGHT,
+                                    false
+                                );
+
+                            } else if (
+                                i > e.u &&
+                                i < e.v
+                            ) {
+
+                                drawLine(
+                                    RIGHT_X,
+                                    0,
+                                    RIGHT_X,
+                                    ROW_HEIGHT,
+                                    false
+                                );
+
+                            } else if (
+                                i === e.v
+                            ) {
+
+                                drawLine(
+                                    RIGHT_X,
+                                    0,
+                                    endX,
+                                    ROW_HEIGHT / 2,
+                                    false
+                                );
+                            }
                         }
 
+
+                    /*
+                     * =========================================
+                     * LEWA STRONA
+                     *
+                     * NAJWAŻNIEJSZY FRAGMENT.
+                     *
+                     * Dla:
+                     *
+                     * obsługiwany
+                     *      |
+                     *      \
+                     *       \
+                     *       pominięty
+                     *       |
+                     *       pominięty
+                     *       /
+                     *      /
+                     *     /
+                     * obsługiwany
+                     *
+                     * mamy jeden ciągły tor.
+                     * =========================================
+                     */
 
                     } else if (
                         e.track === -1
                     ) {
 
                         if (
-                            i === e.u
+                            isEdgeActive
                         ) {
 
-                            drawLine(
-                                SPINE_X,
-                                ROW_HEIGHT / 2,
-                                LEFT_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
+                            /*
+                             * WEJŚCIE:
+                             *
+                             * prawa strona
+                             *       \
+                             *        \
+                             *         lewa strona
+                             */
 
-                        } else if (
-                            i > e.u &&
-                            i < e.v
-                        ) {
+                            if (
+                                i === e.u
+                            ) {
 
-                            drawLine(
-                                LEFT_X,
-                                0,
-                                LEFT_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
+                                drawLine(
+                                    RIGHT_X,
+                                    ROW_HEIGHT / 2,
+                                    LEFT_X,
+                                    ROW_HEIGHT,
+                                    true
+                                );
 
-                        } else if (
-                            i === e.v
-                        ) {
 
-                            drawLine(
-                                LEFT_X,
-                                0,
-                                SPINE_X,
-                                ROW_HEIGHT / 2,
-                                isEdgeActive
-                            );
+                            /*
+                             * ŚRODEK BYPASSU:
+                             *
+                             * pionowa linia po lewej
+                             */
+
+                            } else if (
+                                i > e.u &&
+                                i < e.v
+                            ) {
+
+                                drawLine(
+                                    LEFT_X,
+                                    0,
+                                    LEFT_X,
+                                    ROW_HEIGHT,
+                                    true
+                                );
+
+
+                            /*
+                             * WYJŚCIE:
+                             *
+                             * lewa strona
+                             *       /
+                             *      /
+                             *     /
+                             * prawa strona
+                             */
+
+                            } else if (
+                                i === e.v
+                            ) {
+
+                                drawLine(
+                                    LEFT_X,
+                                    0,
+                                    RIGHT_X,
+                                    ROW_HEIGHT / 2,
+                                    true
+                                );
+                            }
+
+                        } else {
+
+                            /*
+                             * Nieaktywna odnoga wariantu.
+                             */
+
+                            if (
+                                i === e.u
+                            ) {
+
+                                drawLine(
+                                    SPINE_X,
+                                    ROW_HEIGHT / 2,
+                                    LEFT_X,
+                                    ROW_HEIGHT,
+                                    false
+                                );
+
+                            } else if (
+                                i > e.u &&
+                                i < e.v
+                            ) {
+
+                                drawLine(
+                                    LEFT_X,
+                                    0,
+                                    LEFT_X,
+                                    ROW_HEIGHT,
+                                    false
+                                );
+
+                            } else if (
+                                i === e.v
+                            ) {
+
+                                drawLine(
+                                    LEFT_X,
+                                    0,
+                                    SPINE_X,
+                                    ROW_HEIGHT / 2,
+                                    false
+                                );
+                            }
                         }
                     }
                 }
@@ -3799,12 +4101,29 @@ function pokazListePrzystankow(
 
             /* =================================================
                POZYCJA WĘZŁA
+               =================================================
+               
+               OBSŁUGIWANY PRZYSTANEK:
+               prawa strona.
+               
+               POMINIĘTY:
+               główna oś.
+               
+               Dzięki temu aktywny kurs jest wizualnie
+               oddzielony od pomijanych przystanków.
                ================================================= */
 
-            const nodeX =
-                isOnMainAxis[i]
-                    ? SPINE_X
-                    : RIGHT_X;
+            let nodeX =
+                SPINE_X;
+
+
+            if (
+                nodeActive
+            ) {
+
+                nodeX =
+                    RIGHT_X;
+            }
 
 
             /* =================================================
@@ -3841,21 +4160,11 @@ function pokazListePrzystankow(
 
             /* =================================================
                RYSOWANIE WĘZŁA
-               
-               shouldBeSquare obejmuje:
-               - początek trasy
-               - koniec trasy
-               - początek wariantu
-               - koniec wariantu
                ================================================= */
 
             if (
                 shouldBeSquare
             ) {
-
-                /* =============================================
-                   KWADRAT
-                   ============================================= */
 
                 if (isNz) {
 
@@ -3885,10 +4194,6 @@ function pokazListePrzystankow(
 
 
             } else {
-
-                /* =============================================
-                   KOŁO
-                   ============================================= */
 
                 if (isNz) {
 
@@ -3925,6 +4230,7 @@ function pokazListePrzystankow(
                     width="${SVG_W}"
                     height="${ROW_HEIGHT}"
                     aria-hidden="true"
+                    style="display:block; overflow:visible;"
                 >
                     ${inactiveLines}
                     ${activeLines}
@@ -4867,14 +5173,6 @@ function pokazCalyKurs(
                 index ===
                 kursPrzystanki.length - 1;
 
-
-            /*
-             * W widoku całego kursu pierwszy i ostatni
-             * przystanek przebiegu są kwadratami.
-             *
-             * Jest to niezależne od tego, gdzie ten kurs
-             * zaczyna/kończy się na pełnej trasie.
-             */
 
             const shouldBeSquare =
                 isFirst ||
