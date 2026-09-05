@@ -5344,6 +5344,24 @@ przystanki.forEach(
                         return;
 
 
+                    /*
+                     * Do ścieżki konkretnego kursu dodajemy
+                     * tylko przystanki, na których kurs ma
+                     * rzeczywisty czas.
+                     *
+                     * Dzięki temu kurs pomijający kilka
+                     * przystanków tworzy jedną długą krawędź
+                     * i może zostać narysowany z LEWEJ strony.
+                     */
+                    if (
+                        czasNaMinuty(
+                            k.czas
+                        ) === null
+                    ) {
+                        return;
+                    }
+
+
                     const wariant =
                         pobierzWariant(
                             k
@@ -5468,51 +5486,66 @@ przystanki.forEach(
     edges.forEach(
         e => {
 
+            /*
+             * Najpierw sprawdzamy, czy dana krawędź
+             * POMIJA przystanki należące do trasy głównej.
+             *
+             * Taki przebieg zawsze rysujemy po LEWEJ stronie,
+             * nawet gdy jego koniec jest przystankiem
+             * wariantowym po prawej stronie.
+             *
+             * Przykład 126:
+             * Marywilska-Las -> PKP Żerań
+             * z pominięciem przystanków po drodze.
+             */
+            let skipsMain =
+                false;
+
+
+            for (
+                let k =
+                    e.u + 1;
+                k < e.v;
+                k++
+            ) {
+
+                if (
+                    isOnMainAxis[k]
+                ) {
+
+                    skipsMain =
+                        true;
+
+                    break;
+                }
+            }
+
+
             if (
+                skipsMain
+            ) {
+
+                e.track =
+                    -1;
+
+            } else if (
                 isOnMainAxis[e.u] &&
                 isOnMainAxis[e.v]
             ) {
 
-                if (
-                    e.v - e.u === 1
-                ) {
-
-                    e.track =
-                        0;
-
-                } else {
-
-                    let skipsMain =
-                        false;
-
-
-                    for (
-                        let k =
-                            e.u + 1;
-                        k < e.v;
-                        k++
-                    ) {
-
-                        if (
-                            isOnMainAxis[k]
-                        ) {
-
-                            skipsMain =
-                                true;
-
-                            break;
-                        }
-                    }
-
-
-                    e.track =
-                        skipsMain
-                            ? -1
-                            : 0;
-                }
+                /*
+                 * Zwykły odcinek trasy podstawowej.
+                 */
+                e.track =
+                    0;
 
             } else {
 
+                /*
+                 * Wariant prowadzący PRZEZ dodatkowy
+                 * przystanek / dodatkowe przystanki
+                 * rysujemy po PRAWEJ stronie.
+                 */
                 e.track =
                     1;
             }
@@ -5774,6 +5807,16 @@ przystanki.forEach(
                 "";
 
 
+            /*
+             * Linie przecinające główną oś.
+             * Są rysowane na samym końcu, z białym
+             * podkładem, aby przy przecięciu powstała
+             * mała przerwa w pionowej linii głównej.
+             */
+            let overlayLines =
+                "";
+
+
             const drawLine =
                 (
                     x1,
@@ -5819,6 +5862,55 @@ przystanki.forEach(
                         inactiveLines +=
                             str;
                     }
+                };
+
+
+            const drawCrossingLine =
+                (
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    isActive
+                ) => {
+
+                    const color =
+                        isActive
+                            ? "#000"
+                            : "#ccc";
+
+
+                    const w =
+                        isActive
+                            ? 2.5
+                            : 2;
+
+
+                    /*
+                     * Biały podkład maskuje fragment
+                     * czarnej osi pod ukośną linią.
+                     * Dzięki temu połączenie ma czytelny
+                     * kąt, jak na schemacie WTP.
+                     */
+                    overlayLines +=
+                        `<line
+                            x1="${x1}"
+                            y1="${y1}"
+                            x2="${x2}"
+                            y2="${y2}"
+                            stroke="#ffffff"
+                            stroke-width="${w + 4}"
+                            stroke-linecap="round"
+                        />` +
+                        `<line
+                            x1="${x1}"
+                            y1="${y1}"
+                            x2="${x2}"
+                            y2="${y2}"
+                            stroke="${color}"
+                            stroke-width="${w}"
+                            stroke-linecap="round"
+                        />`;
                 };
 
 
@@ -5939,17 +6031,50 @@ przystanki.forEach(
                         e.track === -1
                     ) {
 
+                        const startX =
+                            isOnMainAxis[e.u]
+                                ? SPINE_X
+                                : RIGHT_X;
+
+
+                        const endX =
+                            isOnMainAxis[e.v]
+                                ? SPINE_X
+                                : RIGHT_X;
+
+
                         if (
                             i === e.u
                         ) {
 
-                            drawLine(
-                                SPINE_X,
-                                ROW_HEIGHT / 2,
-                                LEFT_X,
-                                ROW_HEIGHT,
-                                isEdgeActive
-                            );
+                            /*
+                             * Jeżeli początek znajduje się
+                             * po prawej stronie, ukośna linia
+                             * przecina oś główną.
+                             */
+                            if (
+                                startX ===
+                                RIGHT_X
+                            ) {
+
+                                drawCrossingLine(
+                                    startX,
+                                    ROW_HEIGHT / 2,
+                                    LEFT_X,
+                                    ROW_HEIGHT,
+                                    isEdgeActive
+                                );
+
+                            } else {
+
+                                drawLine(
+                                    startX,
+                                    ROW_HEIGHT / 2,
+                                    LEFT_X,
+                                    ROW_HEIGHT,
+                                    isEdgeActive
+                                );
+                            }
 
                         } else if (
                             i > e.u &&
@@ -5968,13 +6093,38 @@ przystanki.forEach(
                             i === e.v
                         ) {
 
-                            drawLine(
-                                LEFT_X,
-                                0,
-                                SPINE_X,
-                                ROW_HEIGHT / 2,
-                                isEdgeActive
-                            );
+                            /*
+                             * Gdy wariant pomijający kończy się
+                             * na przystanku wariantowym po prawej,
+                             * prowadzimy linię ukośnie z lewej
+                             * bezpośrednio do tego węzła.
+                             *
+                             * Biały podkład robi małą przerwę
+                             * na osi głównej w miejscu przecięcia.
+                             */
+                            if (
+                                endX ===
+                                RIGHT_X
+                            ) {
+
+                                drawCrossingLine(
+                                    LEFT_X,
+                                    0,
+                                    endX,
+                                    ROW_HEIGHT / 2,
+                                    isEdgeActive
+                                );
+
+                            } else {
+
+                                drawLine(
+                                    LEFT_X,
+                                    0,
+                                    endX,
+                                    ROW_HEIGHT / 2,
+                                    isEdgeActive
+                                );
+                            }
                         }
                     }
                 }
@@ -6082,6 +6232,7 @@ przystanki.forEach(
                 >
                     ${inactiveLines}
                     ${activeLines}
+                    ${overlayLines}
                     ${nodeSvg}
                 </svg>`;
 
