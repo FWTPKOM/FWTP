@@ -2847,16 +2847,12 @@ function znajdzRozklad() {
 
 
                 /*
-                 * LICZYMY UNIKALNE KURSY,
-                 * a nie wystąpienia kursów na przystankach.
-                 *
-                 * Ten sam kurs pojawia się przy wielu przystankach,
-                 * dlatego zwykłe sumowanie kursy.length zawyżałoby
-                 * wynik dla dłuższej trasy.
+                 * LICZYMY WSZYSTKIE KURSY,
+                 * a nie liczbę przystanków.
                  */
 
-                const unikalneKursy =
-                    new Set();
+                let liczbaKursow =
+                    0;
 
 
                 kierunek.przystanki.forEach(
@@ -2869,86 +2865,16 @@ function znajdzRozklad() {
                             );
 
 
-                        kursy.forEach(
-                            kurs => {
+                        /*
+                         * Każdy kurs znaleziony
+                         * przy przystanku zwiększa
+                         * licznik o 1.
+                         */
 
-                                if (!kurs)
-                                    return;
-
-
-                                const numer =
-                                    String(
-                                        kurs.numer !== undefined &&
-                                        kurs.numer !== null
-                                            ? kurs.numer
-                                            : ""
-                                    ).trim();
-
-
-                                const wariant =
-                                    pobierzWariant(
-                                        kurs
-                                    );
-
-
-                                /*
-                                 * Numer kursu jest głównym identyfikatorem.
-                                 * Wariant dokładamy do klucza, żeby ten sam
-                                 * numer w dwóch przebiegach nie został scalony.
-                                 */
-
-                                if (numer) {
-
-                                    unikalneKursy.add(
-                                        numer +
-                                        "||" +
-                                        wariant
-                                    );
-
-                                } else {
-
-                                    /*
-                                     * Awaryjnie dla kursu bez numeru.
-                                     */
-
-                                    const czas =
-                                        String(
-                                            kurs.czas ||
-                                            ""
-                                        ).trim();
-
-
-                                    const brygada =
-                                        String(
-                                            kurs.brygada ||
-                                            ""
-                                        ).trim();
-
-
-                                    if (
-                                        czas ||
-                                        brygada ||
-                                        wariant
-                                    ) {
-
-                                        unikalneKursy.add(
-                                            "BRAK_NUMERU||" +
-                                            czas +
-                                            "||" +
-                                            brygada +
-                                            "||" +
-                                            wariant
-                                        );
-                                    }
-                                }
-                            }
-                        );
+                        liczbaKursow +=
+                            kursy.length;
                     }
                 );
-
-
-                const liczbaKursow =
-                    unikalneKursy.size;
 
 
                 /*
@@ -5257,12 +5183,14 @@ function pokazListePrzystankow(
      * OŚ GŁÓWNA
      * -----------------------------------------------------
      *
-     * Główną osią jest wariant, który ma NAJWIĘCEJ
-     * UNIKALNYCH KURSÓW dla aktualnie wybranej daty.
+     * Główną osią jest wariant, który ma najwięcej
+     * UNIKALNYCH kursów dla aktualnie wybranej daty.
      *
-     * Nie zakładamy już, że wariant A jest główny.
-     * Jeżeli dwa warianty mają tyle samo kursów,
-     * pierwszeństwo ma A, a następnie niższa litera.
+     * Ten sam kurs występuje przy wielu przystankach,
+     * dlatego liczymy go tylko raz po numerze kursu.
+     *
+     * Przy remisie pierwszeństwo ma wariant A,
+     * a następnie niższa litera.
      */
 
     const liczbaKursowWariantu =
@@ -5272,7 +5200,7 @@ function pokazListePrzystankow(
     warianty.forEach(
         wariant => {
 
-            const unikalne =
+            const unikalneKursy =
                 new Set();
 
 
@@ -5286,9 +5214,7 @@ function pokazListePrzystankow(
                         kurs => {
 
                             if (
-                                pobierzWariant(
-                                    kurs
-                                ) !== wariant
+                                pobierzWariant(kurs) !== wariant
                             ) {
                                 return;
                             }
@@ -5305,42 +5231,9 @@ function pokazListePrzystankow(
 
                             if (numer) {
 
-                                unikalne.add(
-                                    numer +
-                                    "||" +
-                                    wariant
+                                unikalneKursy.add(
+                                    numer
                                 );
-
-                            } else {
-
-                                const czas =
-                                    String(
-                                        kurs.czas ||
-                                        ""
-                                    ).trim();
-
-
-                                const brygada =
-                                    String(
-                                        kurs.brygada ||
-                                        ""
-                                    ).trim();
-
-
-                                if (
-                                    czas ||
-                                    brygada
-                                ) {
-
-                                    unikalne.add(
-                                        "BRAK_NUMERU||" +
-                                        czas +
-                                        "||" +
-                                        brygada +
-                                        "||" +
-                                        wariant
-                                    );
-                                }
                             }
                         }
                     );
@@ -5350,76 +5243,67 @@ function pokazListePrzystankow(
 
             liczbaKursowWariantu.set(
                 wariant,
-                unikalne.size
+                unikalneKursy.size
             );
         }
     );
 
 
-    const wariantyWedlugLiczbyKursow =
-        Array.from(
-            warianty
-        ).sort(
-            (
-                a,
-                b
-            ) => {
-
-                const liczbaA =
-                    liczbaKursowWariantu.get(
-                        a
-                    ) || 0;
+    let mainWariant =
+        null;
 
 
-                const liczbaB =
-                    liczbaKursowWariantu.get(
-                        b
-                    ) || 0;
+    if (
+        warianty.length > 0
+    ) {
+
+        const uporzadkowaneWarianty =
+            warianty.slice().sort(
+                (a, b) => {
+
+                    const liczbaA =
+                        liczbaKursowWariantu.get(a) || 0;
+
+                    const liczbaB =
+                        liczbaKursowWariantu.get(b) || 0;
 
 
-                if (
-                    liczbaA !==
-                    liczbaB
-                ) {
+                    if (
+                        liczbaA !== liczbaB
+                    ) {
 
-                    return (
-                        liczbaB -
-                        liczbaA
+                        return liczbaB - liczbaA;
+                    }
+
+
+                    if (
+                        a === "A" &&
+                        b !== "A"
+                    ) {
+                        return -1;
+                    }
+
+
+                    if (
+                        b === "A" &&
+                        a !== "A"
+                    ) {
+                        return 1;
+                    }
+
+
+                    return String(a).localeCompare(
+                        String(b),
+                        "pl",
+                        { numeric: true }
                     );
                 }
+            );
 
 
-                if (
-                    a === "A" &&
-                    b !== "A"
-                ) {
-                    return -1;
-                }
-
-
-                if (
-                    b === "A" &&
-                    a !== "A"
-                ) {
-                    return 1;
-                }
-
-
-                return a.localeCompare(
-                    b,
-                    "pl",
-                    {
-                        numeric: true
-                    }
-                );
-            }
-        );
-
-
-    let mainWariant =
-        wariantyWedlugLiczbyKursow.length > 0
-            ? wariantyWedlugLiczbyKursow[0]
-            : null;
+        mainWariant =
+            uporzadkowaneWarianty[0] || null;
+    }
 
 
     if (
