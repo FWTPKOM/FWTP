@@ -2119,75 +2119,44 @@ function czyKursPasujeDoDaty(
     kurs,
     data
 ) {
-
     if (!kurs)
         return false;
 
-
-    /*
-     * Brak uwag = stary JSON.
-     * Zachowujemy kompatybilność.
-     */
+    let uwagi =
+        kurs.uwagi;
 
     if (
-        kurs.uwagi === undefined ||
-        kurs.uwagi === null
+        uwagi === undefined ||
+        uwagi === null
     ) {
-
-        return true;
+        return false;
     }
 
-
-    const uwagi =
+    uwagi =
         String(
-            kurs.uwagi
+            uwagi
         )
             .trim()
             .toUpperCase();
 
-
-    /*
-     * Puste uwagi = kurs zawsze dostępny.
-     */
-
     if (!uwagi)
-        return true;
-
-
-    /*
-     * Zabezpieczenie przed nieprawidłową datą.
-     */
-
-    if (
-        !(data instanceof Date) ||
-        isNaN(
-            data.getTime()
-        )
-    ) {
-
         return false;
-    }
-
 
     const dzien =
         data.getDay();
-
 
     const swieto =
         czySwieto(
             data
         );
 
-
     /* =====================================================
-       D
-       Poniedziałek-piątek, ale NIE święto
+       D — PONIEDZIAŁEK–PIĄTEK OPRÓCZ ŚWIĄT
        ===================================================== */
 
     if (
         uwagi === "D"
     ) {
-
         return (
             dzien >= 1 &&
             dzien <= 5 &&
@@ -2195,16 +2164,13 @@ function czyKursPasujeDoDaty(
         );
     }
 
-
     /* =====================================================
-       C
-       Sobota + niedziela + każde święto
+       C — SOBOTA + NIEDZIELA + ŚWIĘTA
        ===================================================== */
 
     if (
         uwagi === "C"
     ) {
-
         return (
             dzien === 6 ||
             dzien === 0 ||
@@ -2212,55 +2178,33 @@ function czyKursPasujeDoDaty(
         );
     }
 
-
     /* =====================================================
-       6
-       TYLKO zwykła sobota
-
-       Jeżeli sobota jest świętem:
-       6 NIE działa.
+       6 — TYLKO ZWYKŁA SOBOTA
        ===================================================== */
 
     if (
         uwagi === "6"
     ) {
-
         return (
             dzien === 6 &&
             !swieto
         );
     }
 
-
     /* =====================================================
-       7
-       Niedziela + każde święto
-
-       Dlatego:
-       niedziela zwykła       -> TAK
-       niedziela święto       -> TAK
-       sobota zwykła          -> NIE
-       sobota będąca świętem  -> TAK
-       dzień roboczy święto   -> TAK
+       7 — NIEDZIELA + ŚWIĘTA
        ===================================================== */
 
     if (
         uwagi === "7"
     ) {
-
         return (
             dzien === 0 ||
             swieto
         );
     }
 
-
-    /*
-     * Nieznane oznaczenie.
-     * Nie ukrywamy kursu.
-     */
-
-    return true;
+    return false;
 }
 /* =========================================================
    OKREŚLENIE SYMBOLU ROZKŁADU
@@ -2416,98 +2360,425 @@ function przygotujKierunekDlaDaty(
    ZNAJDŹ ROZKŁAD
    ========================================================= */
 
+/* =========================================================
+   ZNAJDŹ ROZKŁAD
+   NIE KORZYSTAMY Z NAZWY ROZKŁADU
+   KURSY SĄ FILTROWANE WYŁĄCZNIE PO "UWAGI"
+   ========================================================= */
+
 function znajdzRozklad() {
-
-    const rozklady =
-        daneLinii.rozkłady ||
-        [];
-
     if (
-        rozklady.length === 0
-    )
+        !daneLinii ||
+        !Array.isArray(
+            daneLinii.rozkłady
+        ) ||
+        daneLinii.rozkłady.length === 0
+    ) {
         return null;
+    }
 
-    const typ =
-        okreslTypDnia(
-            wybranaData
+    /*
+       Zamiast wybierać jeden rozkład na podstawie:
+       "OD PONIEDZIAŁKU DO PIĄTKU OPRÓCZ ŚWIĄT"
+       "SOBOTY"
+       "NIEDZIELE I ŚWIĘTA"
+
+       łączymy wszystkie rozkłady.
+
+       O tym, który kurs ma jeździć,
+       decyduje wyłącznie:
+           D
+           C
+           6
+           7
+       zapisane w kurs.uwagi.
+    */
+
+    const pierwszyRozklad =
+        daneLinii.rozkłady[0];
+
+    const wynik =
+        {
+            nazwa:
+                "Rozkład jazdy",
+            kierunki:
+                []
+        };
+
+    /*
+       Ustalamy liczbę kierunków.
+    */
+
+    let liczbaKierunkow =
+        0;
+
+    daneLinii.rozkłady.forEach(
+        rozklad => {
+            if (
+                Array.isArray(
+                    rozklad.kierunki
+                )
+            ) {
+                liczbaKierunkow =
+                    Math.max(
+                        liczbaKierunkow,
+                        rozklad.kierunki.length
+                    );
+            }
+        }
+    );
+
+    /*
+       Dla każdego kierunku pobieramy przystanki
+       z pierwszego dostępnego rozkładu.
+
+       Następnie łączymy kursy ze wszystkich rozkładów.
+    */
+
+    for (
+        let kierunekIndex = 0;
+        kierunekIndex < liczbaKierunkow;
+        kierunekIndex++
+    ) {
+        let bazaKierunku =
+            null;
+
+        /*
+           Najpierw znajdujemy strukturę przystanków.
+        */
+
+        for (
+            const rozklad
+            of daneLinii.rozkłady
+        ) {
+            if (
+                !Array.isArray(
+                    rozklad.kierunki
+                )
+            ) {
+                continue;
+            }
+
+            const kierunek =
+                rozklad.kierunki[
+                    kierunekIndex
+                ];
+
+            if (
+                kierunek &&
+                Array.isArray(
+                    kierunek.przystanki
+                )
+            ) {
+                bazaKierunku =
+                    kierunek;
+
+                break;
+            }
+        }
+
+        if (!bazaKierunku) {
+            continue;
+        }
+
+        const nowyKierunek =
+            Object.assign(
+                {},
+                bazaKierunku
+            );
+
+        nowyKierunek.przystanki =
+            (
+                bazaKierunku.przystanki ||
+                []
+            ).map(
+                (
+                    bazaPrzystanku,
+                    przystanekIndex
+                ) => {
+
+                    const nowyPrzystanek =
+                        Object.assign(
+                            {},
+                            bazaPrzystanku
+                        );
+
+                    /*
+                       Zbieramy kursy tego samego
+                       przystanku ze WSZYSTKICH rozkładów.
+                    */
+
+                    const wszystkieKursy =
+                        [];
+
+                    daneLinii.rozkłady.forEach(
+                        rozklad => {
+
+                            if (
+                                !Array.isArray(
+                                    rozklad.kierunki
+                                )
+                            ) {
+                                return;
+                            }
+
+                            const kierunek =
+                                rozklad.kierunki[
+                                    kierunekIndex
+                                ];
+
+                            if (
+                                !kierunek ||
+                                !Array.isArray(
+                                    kierunek.przystanki
+                                )
+                            ) {
+                                return;
+                            }
+
+                            const przystanek =
+                                kierunek.przystanki[
+                                    przystanekIndex
+                                ];
+
+                            if (
+                                !przystanek ||
+                                !Array.isArray(
+                                    przystanek.kursy
+                                )
+                            ) {
+                                return;
+                            }
+
+                            przystanek.kursy.forEach(
+                                kurs => {
+
+                                    if (!kurs) {
+                                        return;
+                                    }
+
+                                    /*
+                                       Dodajemy kurs tylko wtedy,
+                                       gdy ma poprawne "uwagi".
+                                    */
+
+                                    const uwagi =
+                                        String(
+                                            kurs.uwagi ||
+                                            ""
+                                        )
+                                            .trim()
+                                            .toUpperCase();
+
+                                    if (
+                                        uwagi === "D" ||
+                                        uwagi === "C" ||
+                                        uwagi === "6" ||
+                                        uwagi === "7"
+                                    ) {
+                                        wszystkieKursy.push(
+                                            kurs
+                                        );
+                                    }
+                                }
+                            );
+                        }
+                    );
+
+                    /*
+                       Usuwamy ewentualne duplikaty.
+
+                       Klucz:
+                       numer + czas + uwagi
+                    */
+
+                    const mapaKursow =
+                        new Map();
+
+                    wszystkieKursy.forEach(
+                        kurs => {
+
+                            const numer =
+                                String(
+                                    kurs.numer ||
+                                    ""
+                                ).trim();
+
+                            const czas =
+                                String(
+                                    kurs.czas ||
+                                    ""
+                                ).trim();
+
+                            const uwagi =
+                                String(
+                                    kurs.uwagi ||
+                                    ""
+                                )
+                                    .trim()
+                                    .toUpperCase();
+
+                            const klucz =
+                                numer +
+                                "||" +
+                                czas +
+                                "||" +
+                                uwagi;
+
+                            if (
+                                !mapaKursow.has(
+                                    klucz
+                                )
+                            ) {
+                                mapaKursow.set(
+                                    klucz,
+                                    Object.assign(
+                                        {},
+                                        kurs,
+                                        {
+                                            uwagi:
+                                                uwagi
+                                        }
+                                    )
+                                );
+                            }
+                        }
+                    );
+
+                    nowyPrzystanek.kursy =
+                        Array.from(
+                            mapaKursow.values()
+                        );
+
+                    /*
+                       "godziny" również budujemy od nowa,
+                       żeby nie zostały stare dane tylko
+                       z jednego rozkładu.
+                    */
+
+                    const mapaGodzin =
+                        new Map();
+
+                    nowyPrzystanek.kursy.forEach(
+                        kurs => {
+
+                            const czas =
+                                String(
+                                    kurs.czas ||
+                                    ""
+                                ).trim();
+
+                            const dop =
+                                czas.match(
+                                    /^(\d{1,2}):(\d{2})$/
+                                );
+
+                            if (!dop) {
+                                return;
+                            }
+
+                            const godzina =
+                                dop[1].padStart(
+                                    2,
+                                    "0"
+                                );
+
+                            const minuta =
+                                dop[2];
+
+                            if (
+                                !mapaGodzin.has(
+                                    godzina
+                                )
+                            ) {
+                                mapaGodzin.set(
+                                    godzina,
+                                    []
+                                );
+                            }
+
+                            mapaGodzin
+                                .get(
+                                    godzina
+                                )
+                                .push(
+                                    {
+                                        minuta:
+                                            minuta,
+                                        brygada:
+                                            kurs.brygada ||
+                                            "",
+                                        uwagi:
+                                            kurs.uwagi ||
+                                            ""
+                                    }
+                                );
+                        }
+                    );
+
+                    nowyPrzystanek.godziny =
+                        Array.from(
+                            mapaGodzin.entries()
+                        )
+                            .sort(
+                                (
+                                    a,
+                                    b
+                                ) =>
+                                    Number(a[0]) -
+                                    Number(b[0])
+                            )
+                            .map(
+                                (
+                                    [
+                                        godzina,
+                                        minuty
+                                    ]
+                                ) => {
+
+                                    minuty.sort(
+                                        (
+                                            a,
+                                            b
+                                        ) =>
+                                            Number(
+                                                a.minuta
+                                            ) -
+                                            Number(
+                                                b.minuta
+                                            )
+                                    );
+
+                                    return {
+                                        godzina:
+                                            godzina,
+                                        minuty:
+                                            minuty
+                                    };
+                                }
+                            );
+
+                    return nowyPrzystanek;
+                }
+            );
+
+        wynik.kierunki.push(
+            nowyKierunek
         );
-
-    if (
-        typ === "sobota"
-    ) {
-
-        for (
-            const r of rozklady
-        ) {
-
-            if (
-                normalizujTekst(
-                    r.nazwa
-                ).includes(
-                    "sobot"
-                )
-            ) {
-
-                return r;
-            }
-        }
     }
 
-    if (
-        typ === "niedziela"
-    ) {
-
-        for (
-            const r of rozklady
-        ) {
-
-            const n =
-                normalizujTekst(
-                    r.nazwa
-                );
-
-            if (
-                n.includes(
-                    "niedziel"
-                ) ||
-                n.includes(
-                    "swiat"
-                )
-            ) {
-
-                return r;
-            }
-        }
-    }
+    /*
+       Jeżeli nic nie udało się zbudować,
+       zwracamy null.
+    */
 
     if (
-        typ === "roboczy"
+        wynik.kierunki.length === 0
     ) {
-
-        for (
-            const r of rozklady
-        ) {
-
-            const n =
-                normalizujTekst(
-                    r.nazwa
-                );
-
-            if (
-                n.includes(
-                    "piatk"
-                ) ||
-                n.includes(
-                    "poniedzial"
-                )
-            ) {
-
-                return r;
-            }
-        }
+        return null;
     }
 
-    return rozklady[0];
+    return wynik;
 }
 
 
