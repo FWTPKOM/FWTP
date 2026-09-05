@@ -5554,6 +5554,24 @@ przystanki.forEach(
 
 
     /* =====================================================
+       KOŃCE LEWEGO WARIANTU POMIJAJĄCEGO
+       ===================================================== */
+
+    const leftSkipVariantEndIndexes =
+        new Set(
+            edges
+                .filter(
+                    e =>
+                        e.track === -1 &&
+                        !isOnMainAxis[e.v]
+                )
+                .map(
+                    e => e.v
+                )
+        );
+
+
+    /* =====================================================
        KRAWĘDZIE DOKŁADNEGO KURSU
        ===================================================== */
 
@@ -5722,6 +5740,28 @@ przystanki.forEach(
                 selectedActive[i];
 
 
+            /*
+             * Końcowy przystanek wariantu prowadzonego po lewej
+             * przesuwamy niżej. Wiersz ma wtedy 66 px, a środek
+             * znacznika leży na y = 44 px. Dzięki temu ostatnia
+             * przekątna LEFT_X -> RIGHT_X ma 44 x 44 px = 45°.
+             */
+            const isLowerLeftSkipEnd =
+                leftSkipVariantEndIndexes.has(i);
+
+
+            const rowHeight =
+                isLowerLeftSkipEnd
+                    ? ROW_HEIGHT + ROW_HEIGHT / 2
+                    : ROW_HEIGHT;
+
+
+            const nodeY =
+                isLowerLeftSkipEnd
+                    ? ROW_HEIGHT
+                    : ROW_HEIGHT / 2;
+
+
             const beforeVariantStart =
                 firstActiveIndex !== -1 &&
                 i <
@@ -5754,6 +5794,12 @@ przystanki.forEach(
                         ? " inactive"
                         : ""
                 );
+
+
+            if (isLowerLeftSkipEnd) {
+                btn.style.height =
+                    rowHeight + "px";
+            }
 
 
             const isFirstStop =
@@ -5808,10 +5854,7 @@ przystanki.forEach(
 
 
             /*
-             * Linie przecinające główną oś.
-             * Są rysowane na samym końcu, z białym
-             * podkładem, aby przy przecięciu powstała
-             * mała przerwa w pionowej linii głównej.
+             * Linie rysujemy bez białego podkładu przy przecięciu.
              */
             let overlayLines =
                 "";
@@ -5850,137 +5893,67 @@ przystanki.forEach(
                         />`;
 
 
-                    if (
-                        isActive
-                    ) {
-
-                        activeLines +=
-                            str;
-
+                    if (isActive) {
+                        activeLines += str;
                     } else {
-
-                        inactiveLines +=
-                            str;
+                        inactiveLines += str;
                     }
                 };
 
 
             const drawCrossingLine =
-                (
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    isActive
-                ) => {
-
-                    const color =
+                (x1, y1, x2, y2, isActive) => {
+                    drawLine(
+                        x1,
+                        y1,
+                        x2,
+                        y2,
                         isActive
-                            ? "#000"
-                            : "#ccc";
-
-
-                    const w =
-                        isActive
-                            ? 2.5
-                            : 2;
-
-
-                    /*
-                     * Biały podkład maskuje fragment
-                     * czarnej osi pod ukośną linią.
-                     * Dzięki temu połączenie ma czytelny
-                     * kąt, jak na schemacie WTP.
-                     */
-                    overlayLines +=
-                        `<line
-                            x1="${x1}"
-                            y1="${y1}"
-                            x2="${x2}"
-                            y2="${y2}"
-                            stroke="#ffffff"
-                            stroke-width="${w + 4}"
-                            stroke-linecap="round"
-                        />` +
-                        `<line
-                            x1="${x1}"
-                            y1="${y1}"
-                            x2="${x2}"
-                            y2="${y2}"
-                            stroke="${color}"
-                            stroke-width="${w}"
-                            stroke-linecap="round"
-                        />`;
+                    );
                 };
-
 
             edges.forEach(
                 e => {
 
                     const edgeKey =
-                        e.u +
-                        "," +
-                        e.v;
+                        e.u + "," + e.v;
 
 
                     const isEdgeActive =
-                        selectedEdgeKeys.has(
-                            edgeKey
-                        );
+                        selectedEdgeKeys.has(edgeKey);
 
 
-                    if (
-                        e.track === 0
-                    ) {
+                    if (e.track === 0) {
 
-                        if (
-                            i === e.u
-                        ) {
-
+                        if (i === e.u) {
                             drawLine(
-                                SPINE_X,
-                                ROW_HEIGHT / 2,
-                                SPINE_X,
-                                ROW_HEIGHT,
+                                SPINE_X, nodeY,
+                                SPINE_X, rowHeight,
                                 isEdgeActive
                             );
 
-                        } else if (
-                            i > e.u &&
-                            i < e.v
-                        ) {
-
+                        } else if (i > e.u && i < e.v) {
                             drawLine(
-                                SPINE_X,
-                                0,
-                                SPINE_X,
-                                ROW_HEIGHT,
+                                SPINE_X, 0,
+                                SPINE_X, rowHeight,
                                 isEdgeActive
                             );
 
-                        } else if (
-                            i === e.v
-                        ) {
-
+                        } else if (i === e.v) {
                             drawLine(
-                                SPINE_X,
-                                0,
-                                SPINE_X,
-                                ROW_HEIGHT / 2,
+                                SPINE_X, 0,
+                                SPINE_X, nodeY,
                                 isEdgeActive
                             );
                         }
 
 
-                    } else if (
-                        e.track === 1
-                    ) {
+                    } else if (e.track === 1) {
 
                         const startX =
                             isOnMainAxis[e.u]
                                 ? SPINE_X
                                 : RIGHT_X;
-
 
                         const endX =
                             isOnMainAxis[e.v]
@@ -5988,54 +5961,35 @@ przystanki.forEach(
                                 : RIGHT_X;
 
 
-                        if (
-                            i === e.u
-                        ) {
-
+                        if (i === e.u) {
                             drawLine(
-                                startX,
-                                ROW_HEIGHT / 2,
-                                RIGHT_X,
-                                ROW_HEIGHT,
+                                startX, nodeY,
+                                RIGHT_X, rowHeight,
                                 isEdgeActive
                             );
 
-                        } else if (
-                            i > e.u &&
-                            i < e.v
-                        ) {
-
+                        } else if (i > e.u && i < e.v) {
                             drawLine(
-                                RIGHT_X,
-                                0,
-                                RIGHT_X,
-                                ROW_HEIGHT,
+                                RIGHT_X, 0,
+                                RIGHT_X, rowHeight,
                                 isEdgeActive
                             );
 
-                        } else if (
-                            i === e.v
-                        ) {
-
+                        } else if (i === e.v) {
                             drawLine(
-                                RIGHT_X,
-                                0,
-                                endX,
-                                ROW_HEIGHT / 2,
+                                RIGHT_X, 0,
+                                endX, nodeY,
                                 isEdgeActive
                             );
                         }
 
 
-                    } else if (
-                        e.track === -1
-                    ) {
+                    } else if (e.track === -1) {
 
                         const startX =
                             isOnMainAxis[e.u]
                                 ? SPINE_X
                                 : RIGHT_X;
-
 
                         const endX =
                             isOnMainAxis[e.v]
@@ -6044,162 +5998,53 @@ przystanki.forEach(
 
 
                         /*
-                         * Wariant pomijający przystanki prowadzimy
-                         * po LEWEJ stronie osi głównej.
-                         *
-                         * Dla połączenia z przystankiem po prawej
-                         * wykorzystujemy wysokość CAŁEGO jednego
-                         * wiersza. LEFT_X -> RIGHT_X to 44 px,
-                         * a ROW_HEIGHT też ma 44 px, więc odcinek
-                         * ma dokładnie 45 stopni.
+                         * Wariant pomijający przystanki:
+                         * pion po lewej jest rysowany od granicy
+                         * do granicy wiersza, dlatego odcinki łączą się.
                          */
+                        if (i === e.u) {
 
-                        if (
-                            i === e.u
-                        ) {
-
-                            if (
-                                startX ===
-                                RIGHT_X
-                            ) {
-
-                                /*
-                                 * Prawa strona -> lewa strona:
-                                 * 44 px w bok i 44 px w dół.
-                                 * Odcinek kończy się na środku
-                                 * następnego wiersza.
-                                 */
+                            if (startX === RIGHT_X) {
                                 drawCrossingLine(
-                                    startX,
-                                    ROW_HEIGHT / 2,
-                                    LEFT_X,
-                                    ROW_HEIGHT +
-                                        ROW_HEIGHT / 2,
+                                    startX, nodeY,
+                                    LEFT_X, rowHeight + ROW_HEIGHT / 2,
                                     isEdgeActive
                                 );
-
                             } else {
-
-                                /*
-                                 * Oś główna -> lewa strona:
-                                 * 22 px w bok i 22 px w dół,
-                                 * czyli również dokładnie 45°.
-                                 */
                                 drawLine(
-                                    startX,
-                                    ROW_HEIGHT / 2,
-                                    LEFT_X,
-                                    ROW_HEIGHT,
+                                    startX, nodeY,
+                                    LEFT_X, rowHeight,
                                     isEdgeActive
                                 );
                             }
                         }
 
 
-                        if (
-                            i > e.u &&
-                            i < e.v
-                        ) {
-
-                            let yStart =
-                                0;
-
-                            let yEnd =
-                                ROW_HEIGHT;
-
-
-                            /*
-                             * Jeżeli ukośny odcinek przyszedł
-                             * z prawej strony z poprzedniego wiersza,
-                             * pionową linię zaczynamy dopiero od
-                             * środka tego wiersza. Dzięki temu oba
-                             * odcinki łączą się dokładnie w jednym
-                             * punkcie i nie powstaje wystający fragment.
-                             */
-                            if (
-                                startX === RIGHT_X &&
-                                i === e.u + 1
-                            ) {
-
-                                yStart =
-                                    ROW_HEIGHT / 2;
-                            }
-
-
-                            /*
-                             * Jeżeli na następnym przystanku
-                             * wracamy z lewej strony do przystanku
-                             * po PRAWEJ stronie, kończymy pionową
-                             * linię już na środku poprzedniego wiersza.
-                             * Od tego miejsca zacznie się 45-stopniowa
-                             * przekątna długości jednego wiersza.
-                             */
-                            if (
-                                endX === RIGHT_X &&
-                                i === e.v - 1
-                            ) {
-
-                                yEnd =
-                                    ROW_HEIGHT / 2;
-                            }
-
-
-                            if (
-                                yEnd > yStart
-                            ) {
-
-                                drawLine(
-                                    LEFT_X,
-                                    yStart,
-                                    LEFT_X,
-                                    yEnd,
-                                    isEdgeActive
-                                );
-                            }
+                        if (i > e.u && i < e.v) {
+                            drawLine(
+                                LEFT_X, 0,
+                                LEFT_X, rowHeight,
+                                isEdgeActive
+                            );
                         }
 
 
-                        if (
-                            i === e.v
-                        ) {
+                        if (i === e.v) {
 
-                            if (
-                                endX ===
-                                RIGHT_X
-                            ) {
-
+                            if (endX === RIGHT_X) {
                                 /*
-                                 * LEWA -> PRAWA przez wysokość
-                                 * dokładnie jednego przystanku:
-                                 *
-                                 * 44 px w bok
-                                 * 44 px w dół
-                                 * = kąt 45°.
-                                 *
-                                 * Początek ma y = -22, czyli znajduje
-                                 * się na środku poprzedniego wiersza.
-                                 * Koniec trafia dokładnie w środek
-                                 * bieżącego przystanku.
+                                 * Specjalny obniżony koniec:
+                                 * 44 px w prawo i 44 px w dół.
                                  */
                                 drawCrossingLine(
-                                    LEFT_X,
-                                    -ROW_HEIGHT / 2,
-                                    endX,
-                                    ROW_HEIGHT / 2,
+                                    LEFT_X, 0,
+                                    endX, nodeY,
                                     isEdgeActive
                                 );
-
                             } else {
-
-                                /*
-                                 * LEWA -> OŚ GŁÓWNA:
-                                 * 22 px w bok i 22 px w dół = 45°.
-                                 */
                                 drawLine(
-                                    LEFT_X,
-                                    0,
-                                    endX,
-                                    ROW_HEIGHT / 2,
+                                    LEFT_X, 0,
+                                    endX, nodeY,
                                     isEdgeActive
                                 );
                             }
@@ -6207,7 +6052,6 @@ przystanki.forEach(
                     }
                 }
             );
-
 
             const nodeX =
                 isOnMainAxis[i]
@@ -6252,7 +6096,7 @@ przystanki.forEach(
                     nodeSvg =
                         `<rect
                             x="${nodeX - 6.75}"
-                            y="15.25"
+                            y="${nodeY - 6.75}"
                             width="13.5"
                             height="13.5"
                             fill="#ffffff"
@@ -6265,7 +6109,7 @@ przystanki.forEach(
                     nodeSvg =
                         `<rect
                             x="${nodeX - 8}"
-                            y="14"
+                            y="${nodeY - 8}"
                             width="16"
                             height="16"
                             fill="${fillColor}"
@@ -6281,7 +6125,7 @@ przystanki.forEach(
                     nodeSvg =
                         `<circle
                             cx="${nodeX}"
-                            cy="22"
+                            cy="${nodeY}"
                             r="6.75"
                             fill="#ffffff"
                             stroke="${strokeColor}"
@@ -6293,7 +6137,7 @@ przystanki.forEach(
                     nodeSvg =
                         `<circle
                             cx="${nodeX}"
-                            cy="22"
+                            cy="${nodeY}"
                             r="8"
                             fill="${fillColor}"
                             stroke="none"
@@ -6305,7 +6149,7 @@ przystanki.forEach(
             const svgHtml =
                 `<svg
                     width="${SVG_W}"
-                    height="${ROW_HEIGHT}"
+                    height="${rowHeight}"
                     aria-hidden="true"
                 >
                     ${inactiveLines}
@@ -6341,6 +6185,11 @@ przystanki.forEach(
                 "px";
 
 
+            nodeWrapper.style.height =
+                rowHeight +
+                "px";
+
+
             nodeWrapper.innerHTML =
                 svgHtml;
 
@@ -6353,6 +6202,12 @@ przystanki.forEach(
 
             czasKolumna.className =
                 "kolumna-czas-przejazdu";
+
+
+            if (isLowerLeftSkipEnd) {
+                czasKolumna.style.transform =
+                    "translateY(11px)";
+            }
 
 
             if (
@@ -6395,6 +6250,12 @@ przystanki.forEach(
 
             nazwa.className =
                 "przystanek-nazwa";
+
+
+            if (isLowerLeftSkipEnd) {
+                nazwa.style.transform =
+                    "translateY(11px)";
+            }
 
 
             nazwa.textContent =
