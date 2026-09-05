@@ -2206,15 +2206,11 @@ function czyKursPasujeDoDaty(
 
     return false;
 }
-/* =========================================================
-   OKREŚLENIE SYMBOLU ROZKŁADU
-   =========================================================
+<script>
 
-   D = poniedziałek-piątek, bez święta
-   C = sobota + niedziela + święto
-   6 = zwykła sobota
-   7 = niedziela + święto
-   */
+/* =========================================================
+   SYMBOL ROZKŁADU DLA DATY
+   ========================================================= */
 
 function okreslSymbolRozkladu(
     data
@@ -2277,6 +2273,8 @@ function okreslSymbolRozkladu(
 
     return "D";
 }
+
+
 /* =========================================================
    FILTROWANIE KURSÓW DLA DATY
    ========================================================= */
@@ -2358,15 +2356,24 @@ function przygotujKierunekDlaDaty(
 
 /* =========================================================
    ZNAJDŹ ROZKŁAD
-   ========================================================= */
+   =========================================================
 
-/* =========================================================
-   ZNAJDŹ ROZKŁAD
-   NIE KORZYSTAMY Z NAZWY ROZKŁADU
-   KURSY SĄ FILTROWANE WYŁĄCZNIE PO "UWAGI"
+   NIE KORZYSTAMY Z NAZWY ROZKŁADU.
+
+   KURSY SĄ ŁĄCZONE ZE WSZYSTKICH ROZKŁADÓW.
+
+   O TYM, KIEDY KURS JEDZIE, DECYDUJE:
+       D
+       C
+       6
+       7
+
+   Dodatkowo zbieramy opisy wariantów ze wszystkich
+   rozkładów, aby legenda działała również po scaleniu.
    ========================================================= */
 
 function znajdzRozklad() {
+
     if (
         !daneLinii ||
         !Array.isArray(
@@ -2374,176 +2381,197 @@ function znajdzRozklad() {
         ) ||
         daneLinii.rozkłady.length === 0
     ) {
+
         return null;
     }
 
-    /*
-       Zamiast wybierać jeden rozkład na podstawie:
-       "OD PONIEDZIAŁKU DO PIĄTKU OPRÓCZ ŚWIĄT"
-       "SOBOTY"
-       "NIEDZIELE I ŚWIĘTA"
 
-       łączymy wszystkie rozkłady.
+    const wynik = {
 
-       O tym, który kurs ma jeździć,
-       decyduje wyłącznie:
-           D
-           C
-           6
-           7
-       zapisane w kurs.uwagi.
-    */
+        nazwa:
+            "Rozkład jazdy",
 
-    const pierwszyRozklad =
-        daneLinii.rozkłady[0];
+        kierunki:
+            [],
 
-const wynik = {
-    nazwa: "Rozkład jazdy",
-    kierunki: [],
-    warianty: []
-};
+        warianty:
+            []
+    };
 
-/* =====================================================
-   ZBIERANIE OPISÓW WARIANTÓW
-   =====================================================
 
-   Warianty mogą znajdować się w każdym rozkładzie.
-   Łączymy je w jedną listę i usuwamy duplikaty.
+    /* =====================================================
+       ZBIERANIE OPISÓW WARIANTÓW
+       =====================================================
 
-   A może być zapisane jako:
-       ""
-       "A"
+       Warianty mogą znajdować się w każdym rozkładzie.
 
-   dlatego traktujemy je jako ten sam wariant.
-   ===================================================== */
+       Łączymy je w jedną listę i usuwamy duplikaty.
 
-const mapaWariantow =
-    new Map();
+       A może być zapisane jako:
+           ""
+           "A"
 
-daneLinii.rozkłady.forEach(
-    rozklad => {
+       dlatego traktujemy je jako ten sam wariant.
+       ===================================================== */
 
-        if (
-            !Array.isArray(
-                rozklad.warianty
-            )
-        ) {
-            return;
-        }
+    const mapaWariantow =
+        new Map();
 
-        rozklad.warianty.forEach(
-            wariant => {
 
-                if (!wariant)
-                    return;
+    daneLinii.rozkłady.forEach(
+        rozklad => {
 
-                const litera =
-                    String(
-                        wariant.litera !== undefined &&
-                        wariant.litera !== null
-                            ? wariant.litera
-                            : ""
-                    )
-                        .trim()
-                        .toUpperCase();
+            if (
+                !Array.isArray(
+                    rozklad.warianty
+                )
+            ) {
 
-                const klucz =
-                    litera === "A"
-                        ? ""
-                        : litera;
-
-                /*
-                 * Pierwszy znaleziony opis
-                 * danego wariantu zachowujemy.
-                 */
-                if (
-                    !mapaWariantow.has(
-                        klucz
-                    )
-                ) {
-
-                    mapaWariantow.set(
-                        klucz,
-                        Object.assign(
-                            {},
-                            wariant,
-                            {
-                                litera:
-                                    klucz
-                            }
-                        )
-                    );
-                }
+                return;
             }
-        );
-    }
-);
 
-/*
- * Zamieniamy Map na tablicę.
- */
-wynik.warianty =
-    Array.from(
-        mapaWariantow.values()
+
+            rozklad.warianty.forEach(
+                wariant => {
+
+                    if (!wariant)
+                        return;
+
+
+                    const litera =
+                        String(
+                            wariant.litera !== undefined &&
+                            wariant.litera !== null
+                                ? wariant.litera
+                                : ""
+                        )
+                            .trim()
+                            .toUpperCase();
+
+
+                    /*
+                     * A oraz pusty wariant oznaczają
+                     * wariant podstawowy.
+                     */
+
+                    const klucz =
+                        litera === "A"
+                            ? ""
+                            : litera;
+
+
+                    /*
+                     * Zachowujemy pierwszy znaleziony
+                     * opis danego wariantu.
+                     */
+
+                    if (
+                        !mapaWariantow.has(
+                            klucz
+                        )
+                    ) {
+
+                        mapaWariantow.set(
+                            klucz,
+                            Object.assign(
+                                {},
+                                wariant,
+                                {
+                                    litera:
+                                        klucz
+                                }
+                            )
+                        );
+                    }
+                }
+            );
+        }
     );
 
-/*
- * Sortowanie:
- * A jako pierwsze,
- * potem B, C, D...
- */
-wynik.warianty.sort(
-    (
-        a,
-        b
-    ) => {
-
-        const aa =
-            String(
-                a.litera || ""
-            );
-
-        const bb =
-            String(
-                b.litera || ""
-            );
-
-        if (
-            aa === "" &&
-            bb !== ""
-        )
-            return -1;
-
-        if (
-            aa !== "" &&
-            bb === ""
-        )
-            return 1;
-
-        return aa.localeCompare(
-            bb,
-            "pl",
-            {
-                numeric: true
-            }
-        );
-    }
-);
 
     /*
-       Ustalamy liczbę kierunków.
-    */
+     * Zamieniamy Map na tablicę.
+     */
+
+    wynik.warianty =
+        Array.from(
+            mapaWariantow.values()
+        );
+
+
+    /*
+     * Sortowanie:
+     *
+     * A jako pierwsze,
+     * potem B, C, D...
+     *
+     * Wewnętrznie A = "".
+     */
+
+    wynik.warianty.sort(
+        (
+            a,
+            b
+        ) => {
+
+            const aa =
+                String(
+                    a.litera || ""
+                );
+
+
+            const bb =
+                String(
+                    b.litera || ""
+                );
+
+
+            if (
+                aa === "" &&
+                bb !== ""
+            ) {
+
+                return -1;
+            }
+
+
+            if (
+                aa !== "" &&
+                bb === ""
+            ) {
+
+                return 1;
+            }
+
+
+            return aa.localeCompare(
+                bb,
+                "pl",
+                {
+                    numeric: true
+                }
+            );
+        }
+    );
+
+
+    /* =====================================================
+       USTALENIE LICZBY KIERUNKÓW
+       ===================================================== */
 
     let liczbaKierunkow =
         0;
 
+
     daneLinii.rozkłady.forEach(
         rozklad => {
+
             if (
                 Array.isArray(
                     rozklad.kierunki
                 )
             ) {
+
                 liczbaKierunkow =
                     Math.max(
                         liczbaKierunkow,
@@ -2553,41 +2581,46 @@ wynik.warianty.sort(
         }
     );
 
-    /*
-       Dla każdego kierunku pobieramy przystanki
-       z pierwszego dostępnego rozkładu.
 
-       Następnie łączymy kursy ze wszystkich rozkładów.
-    */
+    /* =====================================================
+       SCALANIE KIERUNKÓW
+       ===================================================== */
 
     for (
         let kierunekIndex = 0;
         kierunekIndex < liczbaKierunkow;
         kierunekIndex++
     ) {
+
         let bazaKierunku =
             null;
 
+
         /*
-           Najpierw znajdujemy strukturę przystanków.
-        */
+         * Znajdujemy strukturę przystanków
+         * z pierwszego dostępnego rozkładu.
+         */
 
         for (
             const rozklad
             of daneLinii.rozkłady
         ) {
+
             if (
                 !Array.isArray(
                     rozklad.kierunki
                 )
             ) {
+
                 continue;
             }
+
 
             const kierunek =
                 rozklad.kierunki[
                     kierunekIndex
                 ];
+
 
             if (
                 kierunek &&
@@ -2595,6 +2628,7 @@ wynik.warianty.sort(
                     kierunek.przystanki
                 )
             ) {
+
                 bazaKierunku =
                     kierunek;
 
@@ -2602,15 +2636,22 @@ wynik.warianty.sort(
             }
         }
 
+
         if (!bazaKierunku) {
             continue;
         }
+
 
         const nowyKierunek =
             Object.assign(
                 {},
                 bazaKierunku
             );
+
+
+        /* =================================================
+           SCALANIE PRZYSTANKÓW
+           ================================================= */
 
         nowyKierunek.przystanki =
             (
@@ -2628,13 +2669,15 @@ wynik.warianty.sort(
                             bazaPrzystanku
                         );
 
+
                     /*
-                       Zbieramy kursy tego samego
-                       przystanku ze WSZYSTKICH rozkładów.
-                    */
+                     * Wszystkie kursy tego samego
+                     * przystanku ze wszystkich rozkładów.
+                     */
 
                     const wszystkieKursy =
                         [];
+
 
                     daneLinii.rozkłady.forEach(
                         rozklad => {
@@ -2644,13 +2687,16 @@ wynik.warianty.sort(
                                     rozklad.kierunki
                                 )
                             ) {
+
                                 return;
                             }
+
 
                             const kierunek =
                                 rozklad.kierunki[
                                     kierunekIndex
                                 ];
+
 
                             if (
                                 !kierunek ||
@@ -2658,13 +2704,16 @@ wynik.warianty.sort(
                                     kierunek.przystanki
                                 )
                             ) {
+
                                 return;
                             }
+
 
                             const przystanek =
                                 kierunek.przystanki[
                                     przystanekIndex
                                 ];
+
 
                             if (
                                 !przystanek ||
@@ -2672,8 +2721,10 @@ wynik.warianty.sort(
                                     przystanek.kursy
                                 )
                             ) {
+
                                 return;
                             }
+
 
                             przystanek.kursy.forEach(
                                 kurs => {
@@ -2682,10 +2733,6 @@ wynik.warianty.sort(
                                         return;
                                     }
 
-                                    /*
-                                       Dodajemy kurs tylko wtedy,
-                                       gdy ma poprawne "uwagi".
-                                    */
 
                                     const uwagi =
                                         String(
@@ -2695,12 +2742,23 @@ wynik.warianty.sort(
                                             .trim()
                                             .toUpperCase();
 
+
+                                    /*
+                                     * Akceptujemy tylko:
+                                     *
+                                     * D = poniedziałek-piątek
+                                     * C = sobota/niedziela/święta
+                                     * 6 = zwykła sobota
+                                     * 7 = niedziela/święto
+                                     */
+
                                     if (
                                         uwagi === "D" ||
                                         uwagi === "C" ||
                                         uwagi === "6" ||
                                         uwagi === "7"
                                     ) {
+
                                         wszystkieKursy.push(
                                             kurs
                                         );
@@ -2710,15 +2768,14 @@ wynik.warianty.sort(
                         }
                     );
 
-                    /*
-                       Usuwamy ewentualne duplikaty.
 
-                       Klucz:
-                       numer + czas + uwagi
-                    */
+                    /* =====================================
+                       USUWANIE DUPLIKATÓW
+                       ===================================== */
 
                     const mapaKursow =
                         new Map();
+
 
                     wszystkieKursy.forEach(
                         kurs => {
@@ -2727,13 +2784,17 @@ wynik.warianty.sort(
                                 String(
                                     kurs.numer ||
                                     ""
-                                ).trim();
+                                )
+                                    .trim();
+
 
                             const czas =
                                 String(
                                     kurs.czas ||
                                     ""
-                                ).trim();
+                                )
+                                    .trim();
+
 
                             const uwagi =
                                 String(
@@ -2743,6 +2804,7 @@ wynik.warianty.sort(
                                     .trim()
                                     .toUpperCase();
 
+
                             const klucz =
                                 numer +
                                 "||" +
@@ -2750,11 +2812,13 @@ wynik.warianty.sort(
                                 "||" +
                                 uwagi;
 
+
                             if (
                                 !mapaKursow.has(
                                     klucz
                                 )
                             ) {
+
                                 mapaKursow.set(
                                     klucz,
                                     Object.assign(
@@ -2770,19 +2834,20 @@ wynik.warianty.sort(
                         }
                     );
 
+
                     nowyPrzystanek.kursy =
                         Array.from(
                             mapaKursow.values()
                         );
 
-                    /*
-                       "godziny" również budujemy od nowa,
-                       żeby nie zostały stare dane tylko
-                       z jednego rozkładu.
-                    */
+
+                    /* =====================================
+                       BUDOWANIE GODZIN
+                       ===================================== */
 
                     const mapaGodzin =
                         new Map();
+
 
                     nowyPrzystanek.kursy.forEach(
                         kurs => {
@@ -2791,16 +2856,20 @@ wynik.warianty.sort(
                                 String(
                                     kurs.czas ||
                                     ""
-                                ).trim();
+                                )
+                                    .trim();
+
 
                             const dop =
                                 czas.match(
                                     /^(\d{1,2}):(\d{2})$/
                                 );
 
+
                             if (!dop) {
                                 return;
                             }
+
 
                             const godzina =
                                 dop[1].padStart(
@@ -2808,19 +2877,23 @@ wynik.warianty.sort(
                                     "0"
                                 );
 
+
                             const minuta =
                                 dop[2];
+
 
                             if (
                                 !mapaGodzin.has(
                                     godzina
                                 )
                             ) {
+
                                 mapaGodzin.set(
                                     godzina,
                                     []
                                 );
                             }
+
 
                             mapaGodzin
                                 .get(
@@ -2830,9 +2903,11 @@ wynik.warianty.sort(
                                     {
                                         minuta:
                                             minuta,
+
                                         brygada:
                                             kurs.brygada ||
                                             "",
+
                                         uwagi:
                                             kurs.uwagi ||
                                             ""
@@ -2840,6 +2915,7 @@ wynik.warianty.sort(
                                 );
                         }
                     );
+
 
                     nowyPrzystanek.godziny =
                         Array.from(
@@ -2850,8 +2926,12 @@ wynik.warianty.sort(
                                     a,
                                     b
                                 ) =>
-                                    Number(a[0]) -
-                                    Number(b[0])
+                                    Number(
+                                        a[0]
+                                    ) -
+                                    Number(
+                                        b[0]
+                                    )
                             )
                             .map(
                                 (
@@ -2874,34 +2954,41 @@ wynik.warianty.sort(
                                             )
                                     );
 
+
                                     return {
+
                                         godzina:
                                             godzina,
+
                                         minuty:
                                             minuty
                                     };
                                 }
                             );
 
+
                     return nowyPrzystanek;
                 }
             );
+
 
         wynik.kierunki.push(
             nowyKierunek
         );
     }
 
-    /*
-       Jeżeli nic nie udało się zbudować,
-       zwracamy null.
-    */
+
+    /* =====================================================
+       BRAK KIERUNKÓW
+       ===================================================== */
 
     if (
         wynik.kierunki.length === 0
     ) {
+
         return null;
     }
+
 
     return wynik;
 }
@@ -2918,19 +3005,25 @@ function generujKierunki() {
             "kierunki"
         );
 
+
     kontener.innerHTML =
         "";
 
+
     const rozklad =
         znajdzRozklad();
+
 
     if (
         !rozklad ||
         !Array.isArray(
             rozklad.kierunki
         )
-    )
+    ) {
+
         return;
+    }
+
 
     rozklad.kierunki.forEach(
         (
@@ -2943,6 +3036,7 @@ function generujKierunki() {
                     "button"
                 );
 
+
             btn.className =
                 "kierunek-btn" +
                 (
@@ -2952,9 +3046,11 @@ function generujKierunki() {
                         : ""
                 );
 
+
             const p =
                 kierunek.przystanki ||
                 [];
+
 
             btn.textContent =
                 p.length > 0
@@ -2969,28 +3065,35 @@ function generujKierunki() {
                         index + 1
                     );
 
+
             btn.onclick =
                 () => {
 
                     aktualnyKierunek =
                         index;
 
+
                     aktualnyWariant =
                         null;
+
 
                     ustawWybranyPrzystanek(
                         null
                     );
 
+
                     widokKursuAktywny =
                         false;
+
 
                     aktualizujHistorieURL(
                         null
                     );
 
+
                     pokazRozklad();
                 };
+
 
             kontener.appendChild(
                 btn
@@ -3011,6 +3114,7 @@ function wybierzDzien(
     aktualnyDzien =
         dzien;
 
+
     document
         .querySelectorAll(
             ".dzien-btn"
@@ -3021,6 +3125,7 @@ function wybierzDzien(
                     "aktywny"
                 )
         );
+
 
     document.getElementById(
         "kalendarz"
@@ -3039,6 +3144,7 @@ function wybierzDzien(
             "aktywny"
         );
 
+
         wybranaData =
             new Date();
     }
@@ -3055,8 +3161,10 @@ function wybierzDzien(
             "aktywny"
         );
 
+
         wybranaData =
             new Date();
+
 
         wybranaData.setDate(
             wybranaData.getDate() + 1
@@ -3075,10 +3183,12 @@ function wybierzDzien(
             "aktywny"
         );
 
+
         document.getElementById(
             "kalendarz"
         ).style.display =
             "block";
+
 
         document.getElementById(
             "wybranaData"
@@ -3113,10 +3223,12 @@ document
             if (!this.value)
                 return;
 
+
             const czesci =
                 this.value.split(
                     "-"
                 );
+
 
             wybranaData =
                 new Date(
@@ -3152,6 +3264,7 @@ document
                 document.getElementById(
                     "kalendarzBtn"
                 );
+
 
             if (kalendarzBtn) {
 
@@ -3191,7 +3304,7 @@ function formatujDateInput(
 
 
 /* =========================================================
-   WARIANT
+   WARIANT — NORMALIZACJA
    ========================================================= */
 
 function pobierzWariant(k) {
@@ -3204,33 +3317,55 @@ function pobierzWariant(k) {
         return "";
     }
 
+
     const wariant =
         k.wariant;
 
-    let wynik = "";
+
+    let wynik =
+        "";
+
 
     if (
         wariant &&
         typeof wariant === "object"
     ) {
 
-        wynik = String(
-            wariant.litera ||
-            wariant.nazwa ||
-            ""
-        ).trim();
+        wynik =
+            String(
+                wariant.litera ||
+                wariant.nazwa ||
+                ""
+            )
+                .trim();
 
     } else {
 
-        wynik = String(
-            wariant ||
-            ""
-        ).trim();
+        wynik =
+            String(
+                wariant ||
+                ""
+            )
+                .trim();
     }
 
 
-    if (wynik === "A")
+    wynik =
+        wynik.toUpperCase();
+
+
+    /*
+     * Wariant A jest wewnętrznie przechowywany
+     * jako pusty wariant.
+     */
+
+    if (
+        wynik === "A"
+    ) {
+
         return "";
+    }
+
 
     return wynik;
 }
@@ -3264,6 +3399,7 @@ function zbierzWariantyDlaKierunku(
                             k
                         );
 
+
                     if (
                         w !== undefined &&
                         w !== null
@@ -3292,11 +3428,13 @@ function zbierzWariantyDlaKierunku(
                 )
                     return -1;
 
+
                 if (
                     a !== "" &&
                     b === ""
                 )
                     return 1;
+
 
                 return a.localeCompare(
                     b,
@@ -3341,6 +3479,7 @@ function znajdzDomyslnyWariant(
                         pobierzWariant(
                             kurs
                         );
+
 
                     if (
                         !wariantStarty.has(
@@ -3388,17 +3527,20 @@ function znajdzDomyslnyWariant(
                 );
             }
 
+
             if (
                 a[0] === "" &&
                 b[0] !== ""
             )
                 return -1;
 
+
             if (
                 a[0] !== "" &&
                 b[0] === ""
             )
                 return 1;
+
 
             return a[0].localeCompare(
                 b[0],
@@ -3431,6 +3573,7 @@ function czasNaMinuty(
             .match(
                 /^(\d{1,2}):(\d{2})$/
             );
+
 
     if (!dop)
         return null;
@@ -3536,6 +3679,7 @@ function znajdzKursBazowy(
                         mapaKursow.set(
                             klucz,
                             {
+
                                 numer:
                                     k.numer,
 
@@ -3554,6 +3698,7 @@ function znajdzKursBazowy(
                         .punkty
                         .push(
                             {
+
                                 index:
                                     index,
 
@@ -3883,11 +4028,13 @@ function aktualizujHistorieURL(
 
     window.history.pushState(
         {
+
             przystanek:
                 przystanekId,
 
             kierunek:
                 aktualnyKierunek
+
         },
         "",
         url.toString()
@@ -4126,12 +4273,8 @@ function pokazListePrzystankow(
 
 
     /*
-     * WAŻNE:
-     *
-     * Tutaj tworzony jest kierunek tylko
-     * z kursami pasującymi do wybranej daty.
-     *
-     * Lista przystanków pozostaje taka sama.
+     * Kierunek dla wybranej daty.
+     * Lista przystanków pozostaje pełna.
      */
 
     const kierunekDlaDaty =
@@ -4318,6 +4461,7 @@ function pokazListePrzystankow(
                             aktualnyWariant =
                                 w;
 
+
                             pokazRozklad();
                         };
 
@@ -4480,17 +4624,19 @@ function pokazListePrzystankow(
        ===================================================== */
 
     let mainWariant =
-        wariantyKierunku.includes(
-            "A"
-        )
-            ? "A"
-            : wariantyKierunku[0];
+        wariantyKierunku[0] || "";
 
+
+    /*
+     * Jeżeli są 4 lub więcej wariantów,
+     * wariant A jest główną osią.
+     *
+     * Wewnętrznie A = "".
+     */
 
     if (
         wariantyKierunku.length >= 4 &&
-        wariantyKierunku.includes("") &&
-        !wariantyKierunku.includes("A")
+        wariantyKierunku.includes("")
     ) {
 
         mainWariant =
@@ -4585,6 +4731,7 @@ function pokazListePrzystankow(
                         klucz
                     ].push(
                         {
+
                             index:
                                 i,
 
@@ -4652,6 +4799,7 @@ function pokazListePrzystankow(
 
                     edgesMap[key] =
                         {
+
                             u:
                                 u,
 
@@ -5479,11 +5627,9 @@ function pokazRozkladWybranegoPrzystanku(
         "";
 
 
-    /*
-     * =====================================================
-     * FILTROWANIE KURSÓW DLA WYBRANEJ DATY
-     * =====================================================
-     */
+    /* =====================================================
+       FILTROWANIE KURSÓW DLA WYBRANEJ DATY
+       ===================================================== */
 
     const przystanekDlaDaty =
         Object.assign(
@@ -5568,11 +5714,9 @@ function pokazRozkladWybranegoPrzystanku(
             null;
 
 
-        /*
-         * =====================================================
-         * LICZBA WARIANTÓW NA KIERUNKU
-         * =====================================================
-         */
+        /* =================================================
+           LICZBA WARIANTÓW NA KIERUNKU
+           ================================================= */
 
         const kierunek =
             rozklad.kierunki[
@@ -5672,6 +5816,12 @@ function pokazRozkladWybranegoPrzystanku(
                     );
 
 
+                /*
+                 * A jest pokazywane przy minucie
+                 * tylko wtedy, gdy są co najmniej
+                 * 4 rzeczywiste warianty.
+                 */
+
                 const literaDoPokazania =
                     litera === ""
                         ? (
@@ -5751,116 +5901,162 @@ function pokazRozkladWybranegoPrzystanku(
        LEGENDA WARIANTÓW
        ===================================================== */
 
-  const uzyteWarianty =
-    new Map();
+    const uzyteWarianty =
+        new Map();
 
-const wariantyLegendyKierunku =
-    rozklad.kierunki[
-        aktualnyKierunek
-    ]
-        ? zbierzWariantyDlaKierunku(
-            przygotujKierunekDlaDaty(
-                rozklad.kierunki[
-                    aktualnyKierunek
-                ],
-                wybranaData
+
+    const wariantyLegendyKierunku =
+        rozklad.kierunki[
+            aktualnyKierunek
+        ]
+            ? zbierzWariantyDlaKierunku(
+                przygotujKierunekDlaDaty(
+                    rozklad.kierunki[
+                        aktualnyKierunek
+                    ],
+                    wybranaData
+                )
             )
-        )
-        : [];
+            : [];
 
-const pokazALegendy =
-    wariantyLegendyKierunku.length >= 4;
 
-if (
-    przystanekDlaDaty.kursy
-) {
-    przystanekDlaDaty.kursy.forEach(
-        k => {
-            const w =
-                pobierzWariant(
-                    k
-                );
+    /*
+     * A pojawia się w legendzie tylko wtedy,
+     * gdy mamy 4 lub więcej wariantów.
+     */
 
-            if (w === "") {
-                if (pokazALegendy) {
+    const pokazALegendy =
+        wariantyLegendyKierunku.length >= 4;
+
+
+    if (
+        przystanekDlaDaty.kursy
+    ) {
+
+        przystanekDlaDaty.kursy.forEach(
+            k => {
+
+                const w =
+                    pobierzWariant(
+                        k
+                    );
+
+
+                if (w === "") {
+
+                    if (
+                        pokazALegendy
+                    ) {
+
+                        uzyteWarianty.set(
+                            "",
+                            ""
+                        );
+                    }
+
+                } else if (w) {
+
                     uzyteWarianty.set(
-                        "",
+                        w,
                         ""
                     );
                 }
-            } else if (w) {
-                uzyteWarianty.set(
-                    w,
-                    ""
-                );
             }
-        }
-    );
-}
+        );
+    }
 
-if (
-    uzyteWarianty.size > 0 &&
-    rozklad.warianty
-) {
-    const leg =
-        document.createElement(
-            "div"
+
+    /*
+     * Budowanie legendy.
+     *
+     * Opis jest pobierany z:
+     *
+     * rozklad.warianty
+     *
+     * które zostało wcześniej połączone
+     * ze wszystkich rozkładów w znajdzRozklad().
+     */
+
+    if (
+        uzyteWarianty.size > 0 &&
+        Array.isArray(
+            rozklad.warianty
+        )
+    ) {
+
+        const leg =
+            document.createElement(
+                "div"
+            );
+
+
+        leg.className =
+            "legenda-wariantow";
+
+
+        let legList =
+            '<div class="legenda-lista">';
+
+
+        uzyteWarianty.forEach(
+            (
+                _,
+                litera
+            ) => {
+
+                const w =
+                    rozklad.warianty.find(
+                        x =>
+                            litera === ""
+                                ? (
+                                    x.litera === "" ||
+                                    x.litera === "A"
+                                )
+                                : x.litera === litera
+                    );
+
+
+                const literaLegendy =
+                    litera === ""
+                        ? "A"
+                        : litera;
+
+
+                if (w) {
+
+                    legList +=
+                        `<div class="legenda-element">
+
+                            <span class="legenda-litera">
+                                ${literaLegendy}
+                            </span>
+
+                            <span class="legenda-separator">
+                                -
+                            </span>
+
+                            <span class="legenda-opis">
+                                ${w.opis || ""}
+                            </span>
+
+                        </div>`;
+                }
+            }
         );
 
-    leg.className =
-        "legenda-wariantow";
 
-    let legList =
-        '<div class="legenda-lista">';
+        legList +=
+            "</div>";
 
-    uzyteWarianty.forEach(
-        (
-            _,
-            litera
-        ) => {
-            const w =
-                rozklad.warianty.find(
-                    x =>
-                        litera === ""
-                            ? (
-                                x.litera === "" ||
-                                x.litera === "A"
-                            )
-                            : x.litera === litera
-                );
 
-            const literaLegendy =
-                litera === ""
-                    ? "A"
-                    : litera;
+        leg.innerHTML =
+            legList;
 
-            if (w) {
-                legList +=
-                    `<div class="legenda-element">
-                        <span class="legenda-litera">
-                            ${literaLegendy}
-                        </span>
-                        <span class="legenda-separator">
-                            -
-                        </span>
-                        <span class="legenda-opis">
-                            ${w.opis}
-                        </span>
-                    </div>`;
-            }
-        }
-    );
 
-    legList +=
-        "</div>";
-
-    leg.innerHTML =
-        legList;
-
-    blok.appendChild(
-        leg
-    );
-}
+        blok.appendChild(
+            leg
+        );
+    }
 
 
     kontener.appendChild(
@@ -6005,6 +6201,7 @@ function pokazCalyKurs(
 
                 kursPrzystanki.push(
                     {
+
                         nazwa:
                             p.nazwa,
 
