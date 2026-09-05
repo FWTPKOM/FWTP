@@ -1124,7 +1124,7 @@ if ("scrollRestoration" in history) {
             Uwaga!
         </strong>
 
-        Ta linia ma różne warianty trasy..
+        Ta linia ma różne warianty trasy.
 
     </div>
 
@@ -5112,6 +5112,78 @@ if (
 
 
     /* =====================================================
+       ŚCIEŻKI KURSÓW
+       ===================================================== */
+
+   /* =====================================================
+   WARIANT BAZOWY / OŚ GŁÓWNA
+   ===================================================== */
+
+/*
+ * Wariant A jest zawsze wariantem podstawowym.
+ *
+ * Jeżeli istnieje A:
+ *     A -> środek
+ *
+ * Pozostałe warianty, np. B:
+ *     B -> odgałęzienie
+ *
+ * Nie wybieramy wariantu na podstawie kolejności
+ * przystanków ani liczby kursów.
+ */
+
+let mainWariant = "A";
+
+if (
+    !wariantyKierunku.includes("A")
+) {
+    mainWariant =
+        wariantyKierunku[0] ||
+        "";
+}
+
+
+/*
+ * Oś główna jest określana na podstawie
+ * rzeczywistego występowania wariantu A
+ * na danym przystanku.
+ *
+ * Dzięki temu:
+ *
+ * Ursynów PŁD. -> A = środek
+ * Ursynów PŁD. -> B = prawa strona
+ */
+
+let isOnMainAxis =
+    new Array(N).fill(false);
+
+
+przystanki.forEach(
+    (
+        p,
+        i
+    ) => {
+
+        const kursy =
+            p.kursy ||
+            [];
+
+
+        const maWariantBazowy =
+            kursy.some(
+                k =>
+                    pobierzWariant(k) ===
+                    mainWariant
+            );
+
+
+        isOnMainAxis[i] =
+            maWariantBazowy;
+    }
+);
+
+
+    /* =====================================================
        ŚCIEŻKI
        ===================================================== */
 
@@ -5180,125 +5252,6 @@ if (
             );
         }
     );
-
-
-/*
- * Wariant A jest zawsze wariantem podstawowym.
- *
- * Jeżeli istnieje A:
- *     A -> środek
- *
- * Pozostałe warianty, np. B:
- *     B -> odgałęzienie
- *
- * Nie wybieramy wariantu na podstawie kolejności
- * przystanków ani liczby kursów.
- */
-
-/* =====================================================
-   WARIANT BAZOWY / OŚ GŁÓWNA
-   ===================================================== */
-
-/*
- * Wariant A jest zawsze podstawą trasy.
- *
- * Bardzo ważne:
- * nie określamy osi tylko na podstawie tego,
- * czy przystanek ma kurs A.
- *
- * Oś budujemy z rzeczywistych ŚCIEŻEK kursów A.
- *
- * Dzięki temu cały przebieg A pozostaje na środku,
- * również wtedy, gdy w danym miejscu występuje
- * odgałęzienie wariantu B.
- */
-
-let mainWariant = "A";
-
-
-if (
-    !wariantyKierunku.includes("A")
-) {
-
-    mainWariant =
-        wariantyKierunku[0] ||
-        "";
-}
-
-
-/*
- * Tablica określająca, które przystanki należą
- * do głównej osi.
- */
-
-let isOnMainAxis =
-    new Array(
-        N
-    ).fill(
-        false
-    );
-
-
-/*
- * Najpierw szukamy wszystkich przebiegów A.
- *
- * Jeden numer kursu może tworzyć pełną ścieżkę:
- *
- * A:
- * 1 -> 2 -> 3 -> 4 -> 5 -> 6
- *
- * Wszystkie te przystanki muszą być na środku.
- */
-
-Object.values(
-    tripPaths
-).forEach(
-    path => {
-
-        if (
-            !Array.isArray(path) ||
-            path.length === 0
-        ) {
-            return;
-        }
-
-
-        /*
-         * Jeżeli ścieżka należy do wariantu A,
-         * wszystkie jej przystanki są osią główną.
-         */
-
-        if (
-            path[0].wariant !==
-            mainWariant
-        ) {
-
-            return;
-        }
-
-
-        path.forEach(
-            punkt => {
-
-                const index =
-                    Number(
-                        punkt.index
-                    );
-
-
-                if (
-                    Number.isInteger(index) &&
-                    index >= 0 &&
-                    index < N
-                ) {
-
-                    isOnMainAxis[index] =
-                        true;
-                }
-            }
-        );
-    }
-);
 
 
     /* =====================================================
@@ -5583,84 +5536,21 @@ Object.values(
                 przystanki.length - 1;
 
 
-          const isVariantStart =
-    firstActiveIndex !== -1 &&
-    i === firstActiveIndex;
+            const isVariantStart =
+                firstActiveIndex !== -1 &&
+                i === firstActiveIndex;
 
 
-const isVariantEnd =
-    lastActiveIndex !== -1 &&
-    i === lastActiveIndex;
+            const isVariantEnd =
+                lastActiveIndex !== -1 &&
+                i === lastActiveIndex;
 
 
-/* =====================================================
-   PUNKT ROZDZIELENIA WARIANTÓW
-   ===================================================== */
-
-/*
- * Przystanek jest punktem wariantowym, jeżeli
- * występuje na nim jednocześnie wariant A oraz
- * przynajmniej jeden inny wariant.
- *
- * Dla linii 192:
- *
- * Ursynów PŁD. 06
- *
- * ma A oraz B, dlatego musi być KWADRATEM.
- */
-
-const wariantyNaPrzystanku =
-    new Set(
-        (
-            p.kursy ||
-            []
-        )
-            .map(
-                k =>
-                    pobierzWariant(k)
-            )
-            .filter(
-                Boolean
-            )
-    );
-
-
-const maA =
-    wariantyNaPrzystanku.has(
-        "A"
-    );
-
-
-const maInnyWariant =
-    Array.from(
-        wariantyNaPrzystanku
-    ).some(
-        w =>
-            w !== "A"
-    );
-
-
-const isVariantSplit =
-    maA &&
-    maInnyWariant;
-
-
-/*
- * Kwadrat:
- *
- * - pierwszy przystanek całej trasy
- * - początek wariantu
- * - koniec wariantu
- * - ostatni przystanek
- * - punkt rozdzielenia A/B
- */
-
-const shouldBeSquare =
-    isFirstStop ||
-    isVariantStart ||
-    isVariantEnd ||
-    isLastStop ||
-    isVariantSplit;
+            const shouldBeSquare =
+                isFirstStop ||
+                isVariantStart ||
+                isVariantEnd ||
+                isLastStop;
 
 
             const isNz =
