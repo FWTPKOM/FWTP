@@ -1124,7 +1124,7 @@ if ("scrollRestoration" in history) {
             Uwaga!
         </strong>
 
-        Ta linia ma różne warianty trasy
+        Ta linia ma różne warianty trasy..
 
     </div>
 
@@ -2187,27 +2187,37 @@ function pobierzWariant(k) {
     const wariant =
         k.wariant;
 
+    let wynik = "";
+
     if (
         wariant &&
         typeof wariant === "object"
     ) {
 
-        return String(
+        wynik = String(
             wariant.litera ||
             wariant.nazwa ||
             ""
         ).trim();
+
+    } else {
+
+        wynik = String(
+            wariant ||
+            ""
+        ).trim();
     }
 
-    return String(
-        wariant || ""
-    ).trim();
+    /*
+     * Wariant A może być zapisany jako "A" albo jako "".
+     * W aplikacji oba zapisy mają jedną wartość kanoniczną: "".
+     */
+    if (wynik === "A")
+        return "";
+
+    return wynik;
 }
 
-
-/* =========================================================
-   WARIANTY
-   ========================================================= */
 
 /* =========================================================
    WARIANTY
@@ -2217,6 +2227,10 @@ function zbierzWariantyDlaKierunku(
     kierunek
 ) {
 
+    /*
+     * Pusty wariant "" oraz jawne "A" oznaczają ten sam
+     * wariant bazowy A. Funkcja zwraca warianty LOGICZNE.
+     */
     const set =
         new Set();
 
@@ -2236,13 +2250,9 @@ function zbierzWariantyDlaKierunku(
                             k
                         );
 
-                    /*
-                     * Pusty wariant "" również
-                     * jest rzeczywistym wariantem.
-                     *
-                     * Traktujemy go jako A.
-                     */
-                    set.add(w);
+                    if (w !== undefined && w !== null) {
+                        set.add(w);
+                    }
                 }
             )
     );
@@ -2255,20 +2265,11 @@ function zbierzWariantyDlaKierunku(
                 b
             ) => {
 
-                /*
-                 * Pusty wariant = A,
-                 * dlatego zawsze pierwszy.
-                 */
-                if (
-                    a === "" &&
-                    b !== ""
-                )
+                /* A zawsze pierwsze. */
+                if (a === "" && b !== "")
                     return -1;
 
-                if (
-                    a !== "" &&
-                    b === ""
-                )
+                if (a !== "" && b === "")
                     return 1;
 
                 return a.localeCompare(
@@ -2281,6 +2282,7 @@ function zbierzWariantyDlaKierunku(
             }
         );
 }
+
 
 /* =========================================================
    DOMYŚLNY WARIANT
@@ -3149,8 +3151,9 @@ function pokazListePrzystankow(
             );
 
 
+        /* Jeden wariant bazowy A nie pokazuje panelu wariantów. */
         if (
-            wariantyKierunku.length > 0
+            wariantyKierunku.length > 1
         ) {
 
             wp.style.display =
@@ -3180,62 +3183,77 @@ function pokazListePrzystankow(
              * pokazujemy go jako A.
              */
 
-           const pokazA =
-    wariantyKierunku.length >= 4 &&
-    wariantyKierunku.includes("");
+            const pokazA =
+                wariantyKierunku.length >= 4 &&
+                wariantyKierunku.includes(
+                    ""
+                );
 
-wariantyKierunku.forEach(
-    w => {
 
-        /*
-         * Pusty wariant normalnie pomijamy.
-         * Przy 4+ wariantach pokazujemy go jako A.
-         */
-        if (
-            w === "" &&
-            !pokazA
-        ) {
-            return;
-        }
+            wariantyKierunku.forEach(
+                w => {
 
-        const btn =
-            document.createElement(
-                "button"
+                    /*
+                     * Pusty wariant normalnie pomijamy.
+                     * Przy 4+ wariantach pokazujemy go jako A.
+                     */
+
+                    if (
+                        w === "" &&
+                        !pokazA
+                    ) {
+
+                        return;
+                    }
+
+
+                    const btn =
+                        document.createElement(
+                            "button"
+                        );
+
+
+                    btn.className =
+                        "wariant-btn" +
+                        (
+                            aktualnyWariant === w
+                                ? " aktywny"
+                                : ""
+                        );
+
+
+                    btn.textContent =
+                        (
+                            w === "" &&
+                            pokazA
+                        )
+                            ? "A"
+                            : w;
+
+
+                    btn.onclick =
+                        () => {
+
+                            /*
+                             * A jest tylko nazwą
+                             * wyświetlaną.
+                             *
+                             * W danych nadal pozostaje
+                             * pusty wariant "".
+                             */
+
+                            aktualnyWariant =
+                                w;
+
+                            pokazRozklad();
+                        };
+
+
+                    wprz.appendChild(
+                        btn
+                    );
+                }
             );
-
-        btn.className =
-            "wariant-btn" +
-            (
-                aktualnyWariant === w
-                    ? " aktywny"
-                    : ""
-            );
-
-        btn.textContent =
-            (
-                w === "" &&
-                pokazA
-            )
-                ? "A"
-                : w;
-
-        btn.onclick =
-            () => {
-
-                aktualnyWariant =
-                    w;
-
-                widokKursuAktywny =
-                    false;
-
-                pokazRozklad();
-            };
-
-        wprz.appendChild(
-            btn
-        );
-    }
-);
 
         } else {
 
@@ -4567,56 +4585,22 @@ function pokazRozkladWybranegoPrzystanku(
                  * =================================================
                  */
 
-                const litera =
-    pobierzWariant(
-        k
-    );
-
-/*
- * Pusty wariant "" traktujemy jako A
- * tylko wtedy, gdy mamy 4 lub więcej
- * wariantów.
- */
-const literaDoPokazania =
-    (
-        litera === "" &&
-        jestCzteryLubWiecejWariantow
-    )
-        ? "A"
-        : litera;
+                const literaDoPokazania =
+                    litera === ""
+                        ? (
+                            jestCzteryLubWiecejWariantow
+                                ? "A"
+                                : ""
+                        )
+                        : litera;
 
 
-/*
- * A:
- * - przy mniej niż 4 wariantach NIE pokazujemy
- * - przy 4+ wariantach pokazujemy
- *
- * B, C, D itd. zawsze pokazujemy.
- */
-const pokazWariant =
-    literaDoPokazania &&
-    (
-        literaDoPokazania !== "A" ||
-        jestCzteryLubWiecejWariantow
-    );
-
-
-kol.innerHTML =
-    `<span class="minuta-z-wariantem">
-
-        <span class="minuta">
-            ${m}
-        </span>
-
-        ${
-            pokazWariant
-                ? `<span class="wariant-minuty">
-                    ${literaDoPokazania}
-                  </span>`
-                : ""
-        }
-
-    </span>`;
+                const pokazWariant =
+                    literaDoPokazania &&
+                    (
+                        literaDoPokazania !== "A" ||
+                        jestCzteryLubWiecejWariantow
+                    );
 
 
                 kol.innerHTML =
@@ -4629,7 +4613,7 @@ kol.innerHTML =
                         ${
                             pokazWariant
                                 ? `<span class="wariant-minuty">
-                                    ${litera}
+                                    ${literaDoPokazania}
                                   </span>`
                                 : ""
                         }
@@ -4646,9 +4630,9 @@ kol.innerHTML =
                         "Zobacz przebieg kursu " +
                         k.numer +
                         (
-                            litera
+                            literaDoPokazania
                                 ? " (" +
-                                  litera +
+                                  literaDoPokazania +
                                   ")"
                                 : ""
                         );
@@ -4676,163 +4660,168 @@ kol.innerHTML =
     );
 
 
-  /* =====================================================
-   LEGENDA WARIANTÓW
-   ===================================================== */
+    /* =====================================================
+       LEGENDA WARIANTÓW
+       ===================================================== */
 
-const kierunek =
-    rozklad.kierunki[
-        aktualnyKierunek
-    ];
-
-const wszystkieWarianty =
-    kierunek
-        ? zbierzWariantyDlaKierunku(
-            kierunek
-        )
-        : [];
-
-const jestCzteryLubWiecejWariantow =
-    wszystkieWarianty.length >= 4;
-
-const uzyteWarianty =
-    new Map();
-
-if (
-    przystanek.kursy
-) {
-    przystanek.kursy.forEach(
-        k => {
-
-            const w =
-                pobierzWariant(
-                    k
-                );
-
-            /*
-             * A może być zapisane w JSON
-             * jako pusty wariant "".
-             */
-            uzyteWarianty.set(
-                w,
-                ""
-            );
-        }
-    );
-}
+    const uzyteWarianty =
+        new Map();
 
 
-/*
- * Jeżeli mamy mniej niż 4 warianty,
- * A nie pokazujemy w opisie.
- */
-if (
-    !jestCzteryLubWiecejWariantow
-) {
-    uzyteWarianty.delete("");
-}
+    const wariantyLegendyKierunku =
+        rozklad.kierunki[
+            aktualnyKierunek
+        ]
+            ? zbierzWariantyDlaKierunku(
+                rozklad.kierunki[
+                    aktualnyKierunek
+                ]
+            )
+            : [];
 
 
-if (
-    uzyteWarianty.size > 0 &&
-    rozklad.warianty
-) {
+    const pokazALegendy =
+        wariantyLegendyKierunku.length >= 4;
 
-    const leg =
-        document.createElement(
-            "div"
+
+    if (
+        przystanek.kursy
+    ) {
+
+        przystanek.kursy.forEach(
+            k => {
+
+                const w =
+                    pobierzWariant(
+                        k
+                    );
+
+                /* A w legendzie dopiero przy 4+ wariantach. */
+                if (w === "") {
+
+                    if (pokazALegendy) {
+                        uzyteWarianty.set(
+                            "",
+                            ""
+                        );
+                    }
+
+                } else if (w) {
+
+                    uzyteWarianty.set(
+                        w,
+                        ""
+                    );
+                }
+            }
         );
-
-    leg.className =
-        "legenda-wariantow";
-
-    let legList =
-        '<div class="legenda-lista">';
-
-    uzyteWarianty.forEach(
-        (
-            _,
-            litera
-        ) => {
-
-            /*
-             * Jeżeli pusty wariant jest
-             * pokazywany przy 4+ wariantach,
-             * traktujemy go jako A.
-             */
-            const literaDoPokazania =
-                (
-                    litera === "" &&
-                    jestCzteryLubWiecejWariantow
-                )
-                    ? "A"
-                    : litera;
+    }
 
 
-            /*
-             * Szukamy opisu wariantu.
-             *
-             * Najpierw próbujemy znaleźć
-             * normalną literę.
-             */
-            let w =
-                rozklad.warianty.find(
-                    x =>
-                        x.litera ===
-                        literaDoPokazania
-                );
+    if (
+        uzyteWarianty.size > 0 &&
+        rozklad.warianty
+    ) {
+
+        const leg =
+            document.createElement(
+                "div"
+            );
+
+        leg.className =
+            "legenda-wariantow";
 
 
-            /*
-             * Jeżeli A w JSON jest zapisane
-             * jako pusty wariant, obsłuż również
-             * taki zapis.
-             */
-            if (
-                !w &&
-                litera === "" &&
-                jestCzteryLubWiecejWariantow
-            ) {
+        let legList =
+            '<div class="legenda-lista">';
 
-                w =
+
+        uzyteWarianty.forEach(
+            (
+                _,
+                litera
+            ) => {
+
+                const w =
                     rozklad.warianty.find(
                         x =>
-                            x.litera === ""
+                            litera === ""
+                                ? (
+                                    x.litera === "" ||
+                                    x.litera === "A"
+                                )
+                                : x.litera === litera
                     );
+
+
+                const literaLegendy =
+                    litera === ""
+                        ? "A"
+                        : litera;
+
+
+                if (w) {
+
+                    legList +=
+                        `<div class="legenda-element">
+
+                            <span class="legenda-litera">
+                                ${literaLegendy}
+                            </span>
+
+                            <span class="legenda-separator">
+                                -
+                            </span>
+
+                            <span class="legenda-opis">
+                                ${w.opis}
+                            </span>
+
+                        </div>`;
+                }
             }
+        );
 
 
-            if (w) {
+        legList +=
+            "</div>";
 
-                legList +=
-                    `<div class="legenda-element">
 
-                        <span class="legenda-litera">
-                            ${literaDoPokazania}
-                        </span>
+        leg.innerHTML =
+            legList;
 
-                        <span class="legenda-separator">
-                            -
-                        </span>
 
-                        <span class="legenda-opis">
-                            ${w.opis}
-                        </span>
+        blok.appendChild(
+            leg
+        );
+    }
 
-                    </div>`;
-            }
-        }
+
+    kontener.appendChild(
+        blok
     );
 
 
-    legList +=
-        "</div>";
+    requestAnimationFrame(
+        () => {
 
-    leg.innerHTML =
-        legList;
+            requestAnimationFrame(
+                () => {
 
-    blok.appendChild(
-        leg
+                    window.scrollTo({
+                        top: 0,
+                        left: 0,
+                        behavior: "auto"
+                    });
+
+                    document.documentElement.scrollTop =
+                        0;
+
+                    document.body.scrollTop =
+                        0;
+                }
+            );
+        }
     );
 }
 
