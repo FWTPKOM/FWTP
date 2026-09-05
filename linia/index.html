@@ -2388,6 +2388,23 @@ function zbudujMapeWariantowDlaRozkladu(
     }
 
 
+    /*
+     * WAŻNE:
+     *
+     * Zachowujemy dokładnie lokalne litery wariantów
+     * zapisane w danym rozkładzie JSON.
+     *
+     * Nie wolno scalać wariantów tylko dlatego,
+     * że mają taki sam opis.
+     *
+     * Przykład linia 126 / rozkład C:
+     *     A, B, C, D
+     *
+     * Warianty B i C mogą mieć identyczny opis,
+     * ale są osobnymi rzeczywistymi przebiegami
+     * i muszą pozostać osobnymi wariantami.
+     */
+
     rozklad.warianty.forEach(
         wariant => {
 
@@ -2406,45 +2423,14 @@ function zbudujMapeWariantowDlaRozkladu(
                     .toUpperCase();
 
 
-            const opis =
-                String(
-                    wariant.opis ||
-                    ""
-                ).trim();
-
-
             if (!lokalnaLitera)
                 return;
 
 
-            const klucz =
-                normalizujOpisWariantu(
-                    opis
-                );
-
-
-            if (
-                klucz &&
-                mapaGlobalna &&
-                mapaGlobalna.has(
-                    klucz
-                )
-            ) {
-
-                mapa.set(
-                    lokalnaLitera,
-                    mapaGlobalna.get(
-                        klucz
-                    ).litera
-                );
-
-            } else {
-
-                mapa.set(
-                    lokalnaLitera,
-                    lokalnaLitera
-                );
-            }
+            mapa.set(
+                lokalnaLitera,
+                lokalnaLitera
+            );
         }
     );
 
@@ -2642,32 +2628,16 @@ function znajdzRozklad() {
        WARIANTY WYNIKOWE
        ===================================================== */
 
+    /*
+     * Budujemy legendę wariantów wyłącznie z rozkładów,
+     * które faktycznie mają kursy dla aktualnie wybranej daty.
+     *
+     * Dzięki temu zachowujemy litery z JSON-a dla D/C/6/7
+     * i nie mieszamy opisów wariantów z innych rozkładów.
+     */
+
     const wynikoweWarianty =
         new Map();
-
-
-    mapaGlobalna.forEach(
-        wariant => {
-
-            if (
-                !wynikoweWarianty.has(
-                    wariant.litera
-                )
-            ) {
-
-                wynikoweWarianty.set(
-                    wariant.litera,
-                    {
-                        litera:
-                            wariant.litera,
-
-                        opis:
-                            wariant.opis
-                    }
-                );
-            }
-        }
-    );
 
 
     daneLinii.rozkłady.forEach(
@@ -2675,14 +2645,77 @@ function znajdzRozklad() {
 
             if (
                 !Array.isArray(
-                    rozklad.warianty
+                    rozklad.kierunki
                 )
             ) {
                 return;
             }
 
 
-            rozklad.warianty.forEach(
+            const uzyteLitery =
+                new Set();
+
+
+            rozklad.kierunki.forEach(
+                kierunek => {
+
+                    if (
+                        !kierunek ||
+                        !Array.isArray(
+                            kierunek.przystanki
+                        )
+                    ) {
+                        return;
+                    }
+
+
+                    kierunek.przystanki.forEach(
+                        p => {
+
+                            const kursy =
+                                filtrujKursyDlaDaty(
+                                    p.kursy || [],
+                                    wybranaData
+                                );
+
+
+                            kursy.forEach(
+                                kurs => {
+
+                                    const litera =
+                                        pobierzWariant(
+                                            kurs
+                                        );
+
+
+                                    if (litera) {
+
+                                        uzyteLitery.add(
+                                            litera
+                                        );
+                                    }
+                                }
+                            );
+                        }
+                    );
+                }
+            );
+
+
+            if (
+                uzyteLitery.size === 0
+            ) {
+                return;
+            }
+
+
+            (
+                Array.isArray(
+                    rozklad.warianty
+                )
+                    ? rozklad.warianty
+                    : []
+            ).forEach(
                 wariant => {
 
                     if (!wariant)
@@ -2697,43 +2730,30 @@ function znajdzRozklad() {
                             .toUpperCase();
 
 
-                    const opis =
-                        String(
-                            wariant.opis || ""
-                        ).trim();
-
-
                     if (
-                        !litera
-                    )
-                        return;
-
-
-                    const klucz =
-                        normalizujOpisWariantu(
-                            opis
-                        );
-
-
-                    if (
-                        !klucz &&
-                        !wynikoweWarianty.has(
+                        !litera ||
+                        !uzyteLitery.has(
+                            litera
+                        ) ||
+                        wynikoweWarianty.has(
                             litera
                         )
                     ) {
-
-                        wynikoweWarianty.set(
-                            litera,
-                            Object.assign(
-                                {},
-                                wariant,
-                                {
-                                    litera:
-                                        litera
-                                }
-                            )
-                        );
+                        return;
                     }
+
+
+                    wynikoweWarianty.set(
+                        litera,
+                        Object.assign(
+                            {},
+                            wariant,
+                            {
+                                litera:
+                                    litera
+                            }
+                        )
+                    );
                 }
             );
         }
