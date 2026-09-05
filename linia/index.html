@@ -917,6 +917,14 @@
     align-items: center;
 
     height: 44px;
+
+    cursor: pointer;
+
+    transition: background-color 0.15s;
+}
+
+.kurs-przystanek:hover {
+    background: #f8fbff;
 }
 
 .kurs-przystanek.aktywny {
@@ -7430,6 +7438,14 @@ function pokazCalyKurs(
                                 k
                             ),
 
+                        aktywny:
+                            czasNaMinuty(
+                                k.czas
+                            ) !== null,
+
+                        przystanek:
+                            p,
+
                         originalIndex:
                             originalIndex
                     }
@@ -7634,6 +7650,33 @@ function pokazCalyKurs(
             : 0;
 
 
+    const aktywneIndeksy =
+        kursPrzystanki
+            .map(
+                (el, index) =>
+                    el.aktywny
+                        ? index
+                        : -1
+            )
+            .filter(
+                index => index !== -1
+            );
+
+
+    const pierwszyAktywnyIndex =
+        aktywneIndeksy.length
+            ? aktywneIndeksy[0]
+            : -1;
+
+
+    const ostatniAktywnyIndex =
+        aktywneIndeksy.length
+            ? aktywneIndeksy[
+                aktywneIndeksy.length - 1
+            ]
+            : -1;
+
+
     kursPrzystanki.forEach(
         (
             el,
@@ -7650,13 +7693,18 @@ function pokazCalyKurs(
                 index === stopIndex;
 
 
+            const nodeActive =
+                el.aktywny === true;
+
+
             const isFirst =
-                index === 0;
+                index ===
+                pierwszyAktywnyIndex;
 
 
             const isLast =
                 index ===
-                kursPrzystanki.length - 1;
+                ostatniAktywnyIndex;
 
 
             const shouldBeSquare =
@@ -7683,7 +7731,10 @@ function pokazCalyKurs(
                 "";
 
 
-            if (!isPast) {
+            if (
+                !isPast &&
+                nodeActive
+            ) {
 
                 let diff =
                     czasWMinutach(
@@ -7706,45 +7757,68 @@ function pokazCalyKurs(
             }
 
 
+            /*
+             * Kolor w przebiegu kursu zależy od tego,
+             * czy TEN KONKRETNY KURS rzeczywiście obsługuje
+             * dany przystanek, a nie od tego, czy przystanek
+             * jest już za nami.
+             *
+             * Dzięki temu przejechane przystanki pozostają
+             * czerwone/czarne tak jak na liście przystanków.
+             * Szary jest wyłącznie przystanek pomijany przez
+             * wybrany wariant kursu.
+             */
             const strokeColor =
-                isPast
+                !nodeActive
                     ? "#cccccc"
                     : (
-                        isCurrent
+                        isCurrent ||
+                        isFirst
                             ? "#000000"
-                            : (
-                                isFirst
-                                    ? "#000000"
-                                    : "#e42313"
-                            )
+                            : "#e42313"
                     );
 
 
             const fillColor =
-                isPast
+                !nodeActive
                     ? "#cccccc"
                     : (
-                        isCurrent
+                        isCurrent ||
+                        isFirst
                             ? "#000000"
-                            : (
-                                isFirst
-                                    ? "#000000"
-                                    : "#e42313"
-                            )
+                            : "#e42313"
                     );
 
 
+            const poprzedniAktywny =
+                index > 0
+                    ? kursPrzystanki[
+                        index - 1
+                    ].aktywny === true
+                    : false;
+
+
+            const nastepnyAktywny =
+                index <
+                kursPrzystanki.length - 1
+                    ? kursPrzystanki[
+                        index + 1
+                    ].aktywny === true
+                    : false;
+
+
             const topSegColor =
-                isPast ||
-                isCurrent
-                    ? "#cccccc"
-                    : "#000000";
+                nodeActive &&
+                poprzedniAktywny
+                    ? "#000000"
+                    : "#cccccc";
 
 
             const botSegColor =
-                isPast
-                    ? "#cccccc"
-                    : "#000000";
+                nodeActive &&
+                nastepnyAktywny
+                    ? "#000000"
+                    : "#cccccc";
 
 
             let svgHtml =
@@ -7896,6 +7970,13 @@ function pokazCalyKurs(
                 </div>
 
                 <div
+                    class="kurs-czas-abs"
+                    style="${timeStyling}"
+                >
+                    ${nodeActive ? el.czas : ""}
+                </div>
+
+                <div
                     class="node-wrapper"
                     style="width:40px;"
                 >
@@ -7915,14 +7996,20 @@ function pokazCalyKurs(
                 >
                     ${el.nr || ""}
                 </div>
-
-                <div
-                    class="kurs-czas-abs"
-                    style="${timeStyling}"
-                >
-                    ${el.czas}
-                </div>
                 `;
+
+
+            wiersz.onclick =
+                () => {
+
+                    if (!el.przystanek)
+                        return;
+
+                    wybierzPrzystanek(
+                        el.przystanek,
+                        el.originalIndex
+                    );
+                };
 
 
             lista.appendChild(
