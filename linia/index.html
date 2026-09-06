@@ -20,7 +20,7 @@
     rel="stylesheet"
 >
 
-<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=TONtzcc-eZNOaxy4peKFfq_V9DxAZeQuN3vBf3jWkn8jpE_jZp9TM_aQbojIbR_UjPViLBI_hfoSygDGIKSv5qJ0lBXM1l4MMB_i2ZDtPArOu_1eYutoUdYm0K0QFYe4iE9LHFw3Kvs0ScgSxf75BAJ1rlwmfp_R2A_znM9p0x7N6YrQhepQv0efxxkNVLx4WO4zmBneMD16Ka-YUKGImhl3UCX_SW8YLf_uBIFmtFMkLsqAimYpNRmIYpiTDpFDpzOqGsFu_g-_d2JGWU8Ckt83sopOdhAcYJcLVxdruRCkFvck78-nkDbO7WyODqNz_RRu_aGcnF9UFuCXZoK7jtEnicIn9YAeGoTO4EBthpc" charset="UTF-8"></script><style>
+<style>
 
 /* =========================================================
    GŁÓWNY KONTENER I NAGŁÓWKI
@@ -1396,6 +1396,88 @@ numerLinii =
     parametry.get("linia");
 
 
+/* =========================================================
+   DATA Z URL
+   ========================================================= */
+
+function dataZParametruURL(
+    wartosc
+) {
+
+    const dopasowanie =
+        String(
+            wartosc || ""
+        ).match(
+            /^(\d{4})-(\d{2})-(\d{2})$/
+        );
+
+
+    if (!dopasowanie) {
+        return null;
+    }
+
+
+    const rok =
+        Number(
+            dopasowanie[1]
+        );
+
+
+    const miesiac =
+        Number(
+            dopasowanie[2]
+        );
+
+
+    const dzien =
+        Number(
+            dopasowanie[3]
+        );
+
+
+    const wynik =
+        new Date(
+            rok,
+            miesiac - 1,
+            dzien
+        );
+
+
+    if (
+        wynik.getFullYear() !== rok ||
+        wynik.getMonth() !== miesiac - 1 ||
+        wynik.getDate() !== dzien
+    ) {
+
+        return null;
+    }
+
+
+    wynik.setHours(
+        0,
+        0,
+        0,
+        0
+    );
+
+
+    return wynik;
+}
+
+
+const dataStartowaZURL =
+    dataZParametruURL(
+        parametry.get("data")
+    );
+
+
+if (dataStartowaZURL) {
+
+    wybranaData =
+        dataStartowaZURL;
+}
+
+
 if (!numerLinii) {
 
     pokazBlad(
@@ -1540,43 +1622,214 @@ function usunPoleGodziny(tekst) {
 
 
 /* =========================================================
-   POBIERANIE JSON
+   POBIERANIE JSON / PACZEK
    ========================================================= */
 
-async function pobierzManifestPaczek() {
+/*
+ * WAŻNE:
+ *
+ * Strona obsługuje teraz kilka wariantów zapisu pola "folder"
+ * w paczki.json. Zalecany zapis to:
+ *
+ *     "folder": "paczki/2026-09-12-specjalny"
+ *
+ * ale kod poradzi sobie również z:
+ *
+ *     "folder": "dane/paczki/2026-09-12-specjalny"
+ *     "folder": "/dane/paczki/2026-09-12-specjalny/"
+ *     "folder": "paczki\\2026-09-12-specjalny"
+ *
+ * Nie trzeba dopisywać nazwy pliku linii do manifestu.
+ */
 
-    if (manifestPaczek) {
+
+function normalizujFolderPaczki(
+    folder
+) {
+
+    let wynik =
+        String(
+            folder || ""
+        )
+            .trim()
+            .replace(
+                /\\/g,
+                "/"
+            );
+
+
+    wynik =
+        wynik.replace(
+            /^https?:\/\/[^/]+\/+/i,
+            ""
+        );
+
+
+    wynik =
+        wynik.replace(
+            /^\.\/+/,
+            ""
+        );
+
+
+    wynik =
+        wynik.replace(
+            /^\/+/,
+            ""
+        );
+
+
+    /*
+     * Jeżeli ktoś przez pomyłkę wpisał ścieżkę
+     * od katalogu repozytorium, usuwamy początek.
+     */
+    wynik =
+        wynik.replace(
+            /^FWTP_JSON\//i,
+            ""
+        );
+
+
+    wynik =
+        wynik.replace(
+            /^FWTP\//i,
+            ""
+        );
+
+
+    wynik =
+        wynik.replace(
+            /^dane\//i,
+            ""
+        );
+
+
+    wynik =
+        wynik.replace(
+            /\/+$/,
+            ""
+        );
+
+
+    wynik =
+        wynik.replace(
+            /\/{2,}/g,
+            "/"
+        );
+
+
+    return wynik;
+}
+
+
+function zakodujSciezke(
+    sciezka
+) {
+
+    return String(
+        sciezka || ""
+    )
+        .split("/")
+        .filter(
+            czesc =>
+                czesc !== ""
+        )
+        .map(
+            czesc =>
+                encodeURIComponent(
+                    czesc
+                )
+        )
+        .join("/");
+}
+
+
+function adresManifestuPaczek() {
+
+    const adres =
+        new URL(
+            "../dane/paczki.json",
+            window.location.href
+        );
+
+
+    /*
+     * GitHub Pages i przeglądarka potrafią trzymać
+     * stary paczki.json w cache. Parametr _fwpt wymusza
+     * świeże pobranie po odświeżeniu / zmianie dnia.
+     */
+    adres.searchParams.set(
+        "_fwpt",
+        String(
+            Date.now()
+        )
+    );
+
+
+    return adres.toString();
+}
+
+
+async function pobierzManifestPaczek(
+    wymusOdswiezenie = false
+) {
+
+    if (
+        manifestPaczek &&
+        !wymusOdswiezenie
+    ) {
+
         return manifestPaczek;
     }
 
+
     try {
+
+        const adres =
+            adresManifestuPaczek();
+
 
         const odpowiedz =
             await fetch(
-                "../dane/paczki.json",
+                adres,
                 {
-                    cache: "no-cache"
+                    cache: "no-store"
                 }
             );
 
+
         if (!odpowiedz.ok) {
+
+            console.warn(
+                "FWTP: brak dane/paczki.json, HTTP",
+                odpowiedz.status
+            );
+
 
             manifestPaczek = {
                 wersja: 1,
                 paczki: []
             };
 
+
             return manifestPaczek;
         }
+
 
         const dane =
             await odpowiedz.json();
 
+
         manifestPaczek = {
+
             wersja:
-                dane.wersja || 1,
+                dane &&
+                dane.wersja
+                    ? dane.wersja
+                    : 1,
 
             paczki:
+                dane &&
                 Array.isArray(
                     dane.paczki
                 )
@@ -1584,19 +1837,28 @@ async function pobierzManifestPaczek() {
                     : []
         };
 
+
+        console.info(
+            "FWTP: pobrano manifest paczek",
+            manifestPaczek
+        );
+
+
         return manifestPaczek;
 
     } catch (blad) {
 
         console.warn(
-            "Nie udało się pobrać dane/paczki.json. Używam starego układu dane/NUMER.json.",
+            "FWTP: nie udało się pobrać dane/paczki.json. Używam starego układu dane/NUMER.json.",
             blad
         );
+
 
         manifestPaczek = {
             wersja: 1,
             paczki: []
         };
+
 
         return manifestPaczek;
     }
@@ -1614,14 +1876,52 @@ function dataTekstDoLiczby(
             /^(\d{4})-(\d{2})-(\d{2})$/
         );
 
+
     if (!dopasowanie) {
         return null;
     }
 
+
+    const rok =
+        Number(
+            dopasowanie[1]
+        );
+
+
+    const miesiac =
+        Number(
+            dopasowanie[2]
+        );
+
+
+    const dzien =
+        Number(
+            dopasowanie[3]
+        );
+
+
+    const sprawdzenie =
+        new Date(
+            rok,
+            miesiac - 1,
+            dzien
+        );
+
+
+    if (
+        sprawdzenie.getFullYear() !== rok ||
+        sprawdzenie.getMonth() !== miesiac - 1 ||
+        sprawdzenie.getDate() !== dzien
+    ) {
+
+        return null;
+    }
+
+
     return (
-        Number(dopasowanie[1]) * 10000 +
-        Number(dopasowanie[2]) * 100 +
-        Number(dopasowanie[3])
+        rok * 10000 +
+        miesiac * 100 +
+        dzien
     );
 }
 
@@ -1636,110 +1936,176 @@ function paczkiDlaDaty(
             manifestPaczek.paczki
         )
     ) {
+
         return [];
     }
+
 
     const dataTekst =
         formatujDateInput(
             data
         );
 
+
     const dataLiczba =
         dataTekstDoLiczby(
             dataTekst
         );
 
+
     if (dataLiczba === null) {
         return [];
     }
 
-    return manifestPaczek.paczki
-        .filter(
-            paczka => {
 
-                if (!paczka) {
-                    return false;
-                }
+    const wynik =
+        manifestPaczek.paczki
+            .filter(
+                paczka => {
 
-                const od =
-                    dataTekstDoLiczby(
-                        paczka.od
-                    );
+                    if (!paczka) {
+                        return false;
+                    }
 
-                const doDaty =
-                    dataTekstDoLiczby(
-                        paczka.do ||
-                        paczka.od
-                    );
 
-                if (
-                    od === null ||
-                    doDaty === null
-                ) {
-                    return false;
-                }
+                    /*
+                     * Jeżeli manifest posiada pole aktywna,
+                     * respektujemy wartość NIE/FALSE/0.
+                     * Jeżeli pola nie ma, paczka jest aktywna.
+                     */
+                    const aktywna =
+                        paczka.aktywna;
 
-                return (
-                    dataLiczba >= od &&
-                    dataLiczba <= doDaty
-                );
-            }
-        )
-        .sort(
-            (a, b) => {
 
-                const priorytetA =
-                    Number(
-                        a.priorytet || 0
-                    );
+                    if (
+                        aktywna !== undefined &&
+                        aktywna !== null
+                    ) {
 
-                const priorytetB =
-                    Number(
-                        b.priorytet || 0
-                    );
+                        const tekstAktywna =
+                            String(
+                                aktywna
+                            )
+                                .trim()
+                                .toUpperCase();
 
-                if (
-                    priorytetA !==
-                    priorytetB
-                ) {
+
+                        if (
+                            tekstAktywna === "NIE" ||
+                            tekstAktywna === "FALSE" ||
+                            tekstAktywna === "0"
+                        ) {
+
+                            return false;
+                        }
+                    }
+
+
+                    const od =
+                        dataTekstDoLiczby(
+                            paczka.od
+                        );
+
+
+                    const doDaty =
+                        dataTekstDoLiczby(
+                            paczka.do ||
+                            paczka.od
+                        );
+
+
+                    if (
+                        od === null ||
+                        doDaty === null
+                    ) {
+
+                        return false;
+                    }
+
+
+                    if (
+                        dataLiczba < od ||
+                        dataLiczba > doDaty
+                    ) {
+
+                        return false;
+                    }
+
+
                     return (
-                        priorytetB -
-                        priorytetA
+                        normalizujFolderPaczki(
+                            paczka.folder
+                        ) !== ""
                     );
                 }
+            );
 
-                const odA =
-                    dataTekstDoLiczby(
-                        a.od
-                    );
 
-                const doA =
-                    dataTekstDoLiczby(
-                        a.do || a.od
-                    );
+    wynik.sort(
+        (
+            a,
+            b
+        ) => {
 
-                const odB =
-                    dataTekstDoLiczby(
-                        b.od
-                    );
+            const priorytetA =
+                Number(
+                    a.priorytet || 0
+                );
 
-                const doB =
-                    dataTekstDoLiczby(
-                        b.do || b.od
-                    );
 
-                const zakresA =
-                    doA - odA;
+            const priorytetB =
+                Number(
+                    b.priorytet || 0
+                );
 
-                const zakresB =
-                    doB - odB;
+
+            if (
+                priorytetA !==
+                priorytetB
+            ) {
 
                 return (
-                    zakresA -
-                    zakresB
+                    priorytetB -
+                    priorytetA
                 );
             }
-        );
+
+
+            const odA =
+                dataTekstDoLiczby(
+                    a.od
+                );
+
+
+            const doA =
+                dataTekstDoLiczby(
+                    a.do ||
+                    a.od
+                );
+
+
+            const odB =
+                dataTekstDoLiczby(
+                    b.od
+                );
+
+
+            const doB =
+                dataTekstDoLiczby(
+                    b.do ||
+                    b.od
+                );
+
+
+            return (
+                (doA - odA) -
+                (doB - odB)
+            );
+        }
+    );
+
+
+    return wynik;
 }
 
 
@@ -1747,29 +2113,55 @@ function adresPlikuLiniiWPaczce(
     paczka
 ) {
 
+    if (!paczka) {
+        return null;
+    }
+
+
     const folder =
-        String(
-            paczka.folder || ""
-        )
-            .trim()
-            .replace(
-                /^\/+|\/+$/g,
-                ""
-            );
+        normalizujFolderPaczki(
+            paczka.folder
+        );
+
 
     if (!folder) {
         return null;
     }
 
-    return (
+
+    const sciezka =
         "../dane/" +
-        folder +
+        zakodujSciezke(
+            folder
+        ) +
         "/" +
         encodeURIComponent(
-            numerLinii
+            String(
+                numerLinii || ""
+            ).trim()
         ) +
-        ".json"
-    );
+        ".json";
+
+
+    return new URL(
+        sciezka,
+        window.location.href
+    ).toString();
+}
+
+
+function adresStaregoPlikuLinii() {
+
+    return new URL(
+        "../dane/" +
+        encodeURIComponent(
+            String(
+                numerLinii || ""
+            ).trim()
+        ) +
+        ".json",
+        window.location.href
+    ).toString();
 }
 
 
@@ -1777,19 +2169,58 @@ async function pobierzTekstJSON(
     adres
 ) {
 
-    const odpowiedz =
-        await fetch(
-            adres,
-            {
-                cache: "no-cache"
-            }
+    try {
+
+        const url =
+            new URL(
+                adres,
+                window.location.href
+            );
+
+
+        url.searchParams.set(
+            "_fwpt",
+            String(
+                Date.now()
+            )
         );
 
-    if (!odpowiedz.ok) {
+
+        const odpowiedz =
+            await fetch(
+                url.toString(),
+                {
+                    cache: "no-store"
+                }
+            );
+
+
+        if (!odpowiedz.ok) {
+
+            console.info(
+                "FWTP: brak pliku",
+                odpowiedz.status,
+                adres
+            );
+
+
+            return null;
+        }
+
+
+        return await odpowiedz.text();
+
+    } catch (blad) {
+
+        console.warn(
+            "FWTP: błąd pobierania",
+            adres,
+            blad
+        );
+
+
         return null;
     }
-
-    return await odpowiedz.text();
 }
 
 
@@ -1814,29 +2245,112 @@ function parsujDaneLinii(
 }
 
 
+function czyPoprawnyPlikLinii(
+    tekst
+) {
+
+    if (
+        tekst === null ||
+        tekst === undefined
+    ) {
+
+        return false;
+    }
+
+
+    try {
+
+        const dane =
+            parsujDaneLinii(
+                tekst
+            );
+
+
+        return (
+            dane &&
+            typeof dane === "object"
+        );
+
+    } catch (blad) {
+
+        return false;
+    }
+}
+
+
 async function pobierzDane(
     uruchomPoPobraniu = true
 ) {
 
     try {
 
-        await pobierzManifestPaczek();
+        /*
+         * Przy każdym pobraniu rozkładu odświeżamy manifest.
+         * Dzięki temu po wrzuceniu nowej paczki na GitHub
+         * nie trzeba czekać na stary cache przeglądarki.
+         */
+        await pobierzManifestPaczek(
+            true
+        );
+
+
+        const dataTekst =
+            formatujDateInput(
+                wybranaData
+            );
+
 
         const pasujacePaczki =
             paczkiDlaDaty(
                 wybranaData
             );
 
-        let tekst = null;
-        let uzytaPaczka = null;
-        let uzytyAdres = null;
+
+        let tekst =
+            null;
+
+
+        let uzytaPaczka =
+            null;
+
+
+        let uzytyAdres =
+            null;
+
+
+        console.info(
+            "FWTP: szukam linii",
+            numerLinii,
+            "dla daty",
+            dataTekst
+        );
+
+
+        console.info(
+            "FWTP: pasujące paczki",
+            pasujacePaczki.map(
+                paczka => ({
+                    id:
+                        paczka.id || "",
+
+                    od:
+                        paczka.od || "",
+
+                    do:
+                        paczka.do || "",
+
+                    folder:
+                        paczka.folder || "",
+
+                    priorytet:
+                        paczka.priorytet || 0
+                })
+            )
+        );
 
 
         /* =================================================
-           1. Najpierw paczki pasujące do wybranej daty.
-              Najwyższy priorytet jest sprawdzany pierwszy.
-              Jeżeli w paczce nie ma tej linii, przechodzimy
-              automatycznie do następnej paczki.
+           1. PACZKI
            ================================================= */
 
         for (
@@ -1849,65 +2363,125 @@ async function pobierzDane(
                     paczka
                 );
 
+
             if (!adres) {
                 continue;
             }
 
-            tekst =
+
+            console.info(
+                "FWTP: sprawdzam paczkę:",
+                paczka.id || "(bez id)",
+                adres
+            );
+
+
+            const pobranyTekst =
                 await pobierzTekstJSON(
                     adres
                 );
 
-            if (tekst !== null) {
 
-                uzytaPaczka =
-                    paczka;
+            if (
+                pobranyTekst === null
+            ) {
 
-                uzytyAdres =
-                    adres;
-
-                break;
+                continue;
             }
+
+
+            /*
+             * Nie kończymy szukania na uszkodzonym JSON-ie.
+             * Jeżeli plik z paczki istnieje, ale ma błąd,
+             * próbujemy kolejnej pasującej paczki.
+             */
+            if (
+                !czyPoprawnyPlikLinii(
+                    pobranyTekst
+                )
+            ) {
+
+                console.warn(
+                    "FWTP: plik istnieje, ale JSON jest niepoprawny:",
+                    adres
+                );
+
+
+                continue;
+            }
+
+
+            tekst =
+                pobranyTekst;
+
+
+            uzytaPaczka =
+                paczka;
+
+
+            uzytyAdres =
+                adres;
+
+
+            break;
         }
 
 
         /* =================================================
-           2. Zgodność wsteczna.
-              Jeśli żadna paczka nie zawiera linii,
-              próbujemy starego pliku dane/NUMER.json.
+           2. STARY PLIK dane/NUMER.json
            ================================================= */
 
-        if (tekst === null) {
+        if (
+            tekst === null
+        ) {
 
             const adresStary =
-                "../dane/" +
-                encodeURIComponent(
-                    numerLinii
-                ) +
-                ".json";
+                adresStaregoPlikuLinii();
 
-            tekst =
+
+            console.info(
+                "FWTP: nie znaleziono linii w paczkach. Sprawdzam plik główny:",
+                adresStary
+            );
+
+
+            const pobranyTekst =
                 await pobierzTekstJSON(
                     adresStary
                 );
 
-            if (tekst !== null) {
 
-                uzytaPaczka = null;
-                uzytyAdres = adresStary;
+            if (
+                pobranyTekst !== null &&
+                czyPoprawnyPlikLinii(
+                    pobranyTekst
+                )
+            ) {
+
+                tekst =
+                    pobranyTekst;
+
+
+                uzytaPaczka =
+                    null;
+
+
+                uzytyAdres =
+                    adresStary;
             }
         }
 
 
-        if (tekst === null) {
+        if (
+            tekst === null
+        ) {
 
             throw new Error(
                 "Brak rozkładu linii " +
                 numerLinii +
                 " dla dnia " +
-                formatujDateInput(
-                    wybranaData
-                )
+                dataTekst +
+                ". Sprawdź dane/paczki.json oraz folder paczki."
             );
         }
 
@@ -1917,28 +2491,36 @@ async function pobierzDane(
                 tekst
             );
 
+
         aktualnaPaczkaDanych =
             uzytaPaczka;
+
 
         aktualnyAdresDanych =
             uzytyAdres;
 
 
         console.info(
-            "FWTP: wczytano rozkład",
+            "FWTP: WCZYTANO ROZKŁAD",
             {
                 linia:
                     numerLinii,
 
                 data:
-                    formatujDateInput(
-                        wybranaData
-                    ),
+                    dataTekst,
 
                 paczka:
                     uzytaPaczka
-                        ? uzytaPaczka.id
-                        : "stary plik główny",
+                        ? (
+                            uzytaPaczka.id ||
+                            "(bez id)"
+                        )
+                        : "plik główny",
+
+                folder:
+                    uzytaPaczka
+                        ? uzytaPaczka.folder
+                        : "",
 
                 adres:
                     uzytyAdres
@@ -1946,17 +2528,23 @@ async function pobierzDane(
         );
 
 
-        if (uruchomPoPobraniu) {
+        if (
+            uruchomPoPobraniu
+        ) {
+
             uruchomStrone();
         }
+
 
         return true;
 
     } catch (blad) {
 
         console.error(
+            "FWTP: nie udało się wczytać rozkładu",
             blad
         );
+
 
         pokazBlad(
             "Nie udało się wczytać rozkładu.",
@@ -1964,10 +2552,10 @@ async function pobierzDane(
             "Brak danych dla wybranej daty."
         );
 
+
         return false;
     }
 }
-
 
 
 
@@ -4450,6 +5038,52 @@ async function wybierzDateZKalendarza(
 
 
     ustawWidocznoscWyboruInnegoDnia();
+
+
+    /* =====================================================
+       ZAPIS DATY W URL
+       ===================================================== */
+
+    const urlDaty =
+        new URL(
+            window.location.href
+        );
+
+
+    urlDaty.searchParams.set(
+        "linia",
+        numerLinii
+    );
+
+
+    urlDaty.searchParams.set(
+        "data",
+        formatujDateInput(
+            wybranaData
+        )
+    );
+
+
+    urlDaty.searchParams.delete(
+        "przystanek"
+    );
+
+
+    urlDaty.searchParams.delete(
+        "kurs"
+    );
+
+
+    urlDaty.searchParams.delete(
+        "wariantKursu"
+    );
+
+
+    window.history.replaceState(
+        null,
+        "",
+        urlDaty.toString()
+    );
 
 
     const wczytano =
