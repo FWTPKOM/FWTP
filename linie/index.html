@@ -753,9 +753,90 @@
 ></script>
 
 
-<script
-    src="../js/script.js"
-></script>
+<script>
+
+/* =========================================================
+   LINIE DYNAMICZNE - BAZA + AKTYWNE PACZKI
+   ========================================================= */
+
+const bazoweLinieFWTP =
+    Array.isArray(linie)
+        ? linie.map(x => ({...x}))
+        : [];
+
+let linieDlaWybranejDatyFWTP =
+    bazoweLinieFWTP.map(x => ({...x}));
+
+function rozpoznajTypLiniiFWTP(numer) {
+    const n = String(numer || "").trim().toUpperCase();
+
+    if (n.startsWith("M")) return "metro";
+    if (n.startsWith("N") || n.startsWith("L") || n.startsWith("Z")) {
+        return "autobus";
+    }
+
+    const znana = bazoweLinieFWTP.find(
+        x => String(x.numer).toUpperCase() === n
+    );
+
+    return znana?.typ || "autobus";
+}
+
+function nazwaLiniiFWTP(numer, typ) {
+    if (typ === "tramwaj") return "Linia tramwajowa " + numer;
+    if (typ === "metro") return "Linia metra " + numer;
+    return "Linia autobusowa " + numer;
+}
+
+function generujLinie(lista) {
+    const autobusy = document.getElementById("autobusy");
+    const tramwaje = document.getElementById("tramwaje");
+    const metro = document.getElementById("metro");
+    const sekcjaTramwaje = document.getElementById("sekcja-tramwaje");
+
+    autobusy.innerHTML = "";
+    tramwaje.innerHTML = "";
+    metro.innerHTML = "";
+
+    lista.forEach(linia => {
+        const link = document.createElement("a");
+        link.className = "linia";
+        link.textContent = linia.numer;
+        link.title = linia.nazwa || "";
+        link.href = "../linia/?linia=" + encodeURIComponent(linia.numer);
+
+        if (linia.typ === "tramwaj") tramwaje.appendChild(link);
+        else if (linia.typ === "metro") metro.appendChild(link);
+        else autobusy.appendChild(link);
+    });
+
+    if (sekcjaTramwaje) {
+        sekcjaTramwaje.style.display =
+            tramwaje.children.length > 0 ? "block" : "none";
+    }
+
+    if (typeof aktualizujLinkiLinii === "function") {
+        aktualizujLinkiLinii();
+    }
+}
+
+function filtrujLinieFWTP() {
+    const search = document.getElementById("search");
+    const tekst = search ? search.value.toLowerCase().trim() : "";
+
+    const wynik = linieDlaWybranejDatyFWTP.filter(linia =>
+        String(linia.numer).toLowerCase().includes(tekst)
+    );
+
+    generujLinie(wynik);
+}
+
+const searchFWTP = document.getElementById("search");
+if (searchFWTP) {
+    searchFWTP.addEventListener("input", filtrujLinieFWTP);
+}
+
+</script>
 
 
 <script>
@@ -1239,7 +1320,7 @@ function wybierzDateLinii(
     generujKalendarz7Dni();
 
 
-    aktualizujLinkiLinii();
+    wczytajLinieDlaDaty();
 }
 
 
@@ -1466,12 +1547,95 @@ const obserwatorLinii =
 
 
 /* =========================================================
+   LINIE Z AKTYWNYCH PACZEK
+   ========================================================= */
+
+function dataTekstDoLiczbyFWTP(tekst) {
+    const m = String(tekst || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]);
+}
+
+async function wczytajLinieDlaDaty() {
+    const dataISO = formatujDateInput(wybranaDataLinii);
+    const dataLiczba = dataTekstDoLiczbyFWTP(dataISO);
+
+    const mapa = new Map();
+
+    bazoweLinieFWTP.forEach(l => {
+        mapa.set(String(l.numer).toUpperCase(), {...l});
+    });
+
+    try {
+        const adres = new URL("../dane/paczki.json", window.location.href);
+        adres.searchParams.set("_fwtp", String(Date.now()));
+
+        const odpowiedz = await fetch(adres.toString(), {cache: "no-store"});
+        if (!odpowiedz.ok) throw new Error("HTTP " + odpowiedz.status);
+
+        const manifest = await odpowiedz.json();
+        const paczki = Array.isArray(manifest?.paczki) ? manifest.paczki : [];
+
+        const aktywne = paczki
+            .filter(p => {
+                const od = dataTekstDoLiczbyFWTP(p.od);
+                const doDaty = dataTekstDoLiczbyFWTP(p.do);
+                return od !== null && doDaty !== null &&
+                    dataLiczba >= od && dataLiczba <= doDaty;
+            })
+            .sort((a, b) => Number(a.priorytet || 0) - Number(b.priorytet || 0));
+
+        aktywne.forEach(paczka => {
+            if (!Array.isArray(paczka.linie)) return;
+
+            paczka.linie.forEach(element => {
+                const numer = typeof element === "string"
+                    ? element
+                    : element?.numer;
+
+                if (!numer) return;
+
+                const klucz = String(numer).trim().toUpperCase();
+                const poprzednia = mapa.get(klucz);
+                const typ =
+                    (typeof element === "object" && element?.typ) ||
+                    poprzednia?.typ ||
+                    rozpoznajTypLiniiFWTP(numer);
+
+                mapa.set(klucz, {
+                    numer: String(numer).trim(),
+                    typ: typ,
+                    nazwa:
+                        (typeof element === "object" && element?.nazwa) ||
+                        poprzednia?.nazwa ||
+                        nazwaLiniiFWTP(String(numer).trim(), typ)
+                });
+            });
+        });
+
+    } catch (blad) {
+        console.warn("FWTP: nie udało się pobrać listy linii z paczki.", blad);
+    }
+
+    linieDlaWybranejDatyFWTP = Array.from(mapa.values());
+
+    linieDlaWybranejDatyFWTP.sort((a, b) =>
+        String(a.numer).localeCompare(String(b.numer), "pl", {
+            numeric: true,
+            sensitivity: "base"
+        })
+    );
+
+    filtrujLinieFWTP();
+}
+
+/* =========================================================
    START
    ========================================================= */
 
 generujKalendarz7Dni();
 
-aktualizujLinkiLinii();
+wczytajLinieDlaDaty();
 
 </script>
 
