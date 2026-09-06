@@ -3463,6 +3463,98 @@ function filtrujKursyDlaDaty(
    UTWORZENIE ROZKŁADU DLA DATY
    ========================================================= */
 
+function pobierzTypPrzystankuFWTP(
+    przystanek
+) {
+
+    return String(
+        przystanek?.typ ||
+        przystanek?.rodzaj ||
+        przystanek?.status ||
+        ""
+    )
+        .trim()
+        .toUpperCase();
+}
+
+
+function filtrujPrzystankiSpecjalneFWTP(
+    przystanki
+) {
+
+    const lista =
+        Array.isArray(przystanki)
+            ? przystanki
+            : [];
+
+
+    return lista.filter(
+        (
+            przystanek,
+            index
+        ) => {
+
+            const typ =
+                pobierzTypPrzystankuFWTP(
+                    przystanek
+                );
+
+
+            /*
+             * TECH jest przystankiem technicznym.
+             * Nie pokazujemy go ani na trasie,
+             * ani w rozkładzie, ani w widoku kursu.
+             */
+            if (typ === "TECH") {
+
+                return false;
+            }
+
+
+            /*
+             * Jeśli po WYS występuje WS, ukrywamy WS.
+             * Przy sprawdzaniu pomijamy ewentualne TECH
+             * znajdujące się pomiędzy nimi.
+             */
+            if (typ === "WS") {
+
+                let poprzedni =
+                    index - 1;
+
+
+                while (
+                    poprzedni >= 0 &&
+                    pobierzTypPrzystankuFWTP(
+                        lista[
+                            poprzedni
+                        ]
+                    ) === "TECH"
+                ) {
+
+                    poprzedni--;
+                }
+
+
+                if (
+                    poprzedni >= 0 &&
+                    pobierzTypPrzystankuFWTP(
+                        lista[
+                            poprzedni
+                        ]
+                    ) === "WYS"
+                ) {
+
+                    return false;
+                }
+            }
+
+
+            return true;
+        }
+    );
+}
+
+
 function przygotujKierunekDlaDaty(
     kierunek,
     data
@@ -3480,37 +3572,39 @@ function przygotujKierunekDlaDaty(
 
 
     nowyKierunek.przystanki =
-        (
-            kierunek.przystanki ||
-            []
-        )
-            .map(
-                p => {
-
-                    const nowyPrzystanek =
-                        Object.assign(
-                            {},
-                            p
-                        );
-
-
-                    nowyPrzystanek.kursy =
-                        filtrujKursyDlaDaty(
-                            p.kursy || [],
-                            data
-                        );
-
-
-                    return nowyPrzystanek;
-                }
+        filtrujPrzystankiSpecjalneFWTP(
+            (
+                kierunek.przystanki ||
+                []
             )
-            .filter(
-                p =>
-                    Array.isArray(
-                        p.kursy
-                    ) &&
-                    p.kursy.length > 0
-            );
+                .map(
+                    p => {
+
+                        const nowyPrzystanek =
+                            Object.assign(
+                                {},
+                                p
+                            );
+
+
+                        nowyPrzystanek.kursy =
+                            filtrujKursyDlaDaty(
+                                p.kursy || [],
+                                data
+                            );
+
+
+                        return nowyPrzystanek;
+                    }
+                )
+                .filter(
+                    p =>
+                        Array.isArray(
+                            p.kursy
+                        ) &&
+                        p.kursy.length > 0
+                )
+        );
 
 
     return nowyKierunek;
@@ -8824,8 +8918,12 @@ function pokazCalyKurs(
 
 
     const przystankiK =
-        kierunek.przystanki ||
-        [];
+        kierunekDlaDaty
+            ? (
+                kierunekDlaDaty.przystanki ||
+                []
+            )
+            : [];
 
 
     const kursPrzystanki =
