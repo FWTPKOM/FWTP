@@ -1374,6 +1374,14 @@ let wybranyPrzystanekId = null;
 
 let widokKursuAktywny = false;
 
+/* =========================================================
+   PACZKI ROZKŁADÓW
+   ========================================================= */
+
+let manifestPaczek = null;
+let aktualnaPaczkaDanych = null;
+let aktualnyAdresDanych = null;
+
 
 /* =========================================================
    PARAMETRY URL
@@ -1535,20 +1543,17 @@ function usunPoleGodziny(tekst) {
    POBIERANIE JSON
    ========================================================= */
 
-async function pobierzDane() {
+async function pobierzManifestPaczek() {
 
-    const adres =
-        "../dane/" +
-        encodeURIComponent(
-            numerLinii
-        ) +
-        ".json";
+    if (manifestPaczek) {
+        return manifestPaczek;
+    }
 
     try {
 
         const odpowiedz =
             await fetch(
-                adres,
+                "../dane/paczki.json",
                 {
                     cache: "no-cache"
                 }
@@ -1556,284 +1561,413 @@ async function pobierzDane() {
 
         if (!odpowiedz.ok) {
 
-            throw new Error(
-                "Nie znaleziono pliku JSON dla linii " +
-                numerLinii
-            );
+            manifestPaczek = {
+                wersja: 1,
+                paczki: []
+            };
+
+            return manifestPaczek;
         }
 
-        let tekst =
-            await odpowiedz.text();
+        const dane =
+            await odpowiedz.json();
 
-        try {
+        manifestPaczek = {
+            wersja:
+                dane.wersja || 1,
 
-            daneLinii =
-                JSON.parse(
-                    tekst
-                );
+            paczki:
+                Array.isArray(
+                    dane.paczki
+                )
+                    ? dane.paczki
+                    : []
+        };
 
-        } catch (e1) {
-
-            daneLinii =
-                JSON.parse(
-                    usunPoleGodziny(
-                        tekst
-                    )
-                );
-        }
-
-        uruchomStrone();
+        return manifestPaczek;
 
     } catch (blad) {
 
-        pokazBlad(
-            "Błąd ładowania.",
-            blad.message
+        console.warn(
+            "Nie udało się pobrać dane/paczki.json. Używam starego układu dane/NUMER.json.",
+            blad
         );
+
+        manifestPaczek = {
+            wersja: 1,
+            paczki: []
+        };
+
+        return manifestPaczek;
     }
 }
 
 
-/* =========================================================
-   ZAPIS PRZYSTANKU
-   ========================================================= */
-
-function ustawWybranyPrzystanek(
-    p,
-    index
+function dataTekstDoLiczby(
+    dataTekst
 ) {
 
-    if (!p) {
+    const dopasowanie =
+        String(
+            dataTekst || ""
+        ).match(
+            /^(\d{4})-(\d{2})-(\d{2})$/
+        );
 
-        wybranyPrzystanek = null;
-        wybranyPrzystanekIndex = null;
-        wybranyPrzystanekId = null;
-
-        return;
+    if (!dopasowanie) {
+        return null;
     }
 
-    wybranyPrzystanek = p;
+    return (
+        Number(dopasowanie[1]) * 10000 +
+        Number(dopasowanie[2]) * 100 +
+        Number(dopasowanie[3])
+    );
+}
+
+
+function paczkiDlaDaty(
+    data
+) {
 
     if (
-        index !== undefined &&
-        index !== null &&
-        Number.isInteger(
-            Number(index)
+        !manifestPaczek ||
+        !Array.isArray(
+            manifestPaczek.paczki
         )
     ) {
-
-        wybranyPrzystanekIndex =
-            Number(index);
-
-    } else {
-
-        wybranyPrzystanekIndex =
-            null;
+        return [];
     }
 
-    wybranyPrzystanekId = {
+    const dataTekst =
+        formatujDateInput(
+            data
+        );
 
-        kierunek:
-            Number(
-                aktualnyKierunek
-            ),
+    const dataLiczba =
+        dataTekstDoLiczby(
+            dataTekst
+        );
 
-        index:
-            wybranyPrzystanekIndex,
+    if (dataLiczba === null) {
+        return [];
+    }
 
-        lp:
-            p.lp !== undefined &&
-            p.lp !== null
-                ? String(
-                    p.lp
-                ).trim()
-                : "",
+    return manifestPaczek.paczki
+        .filter(
+            paczka => {
 
-        nr:
-            p.nr !== undefined &&
-            p.nr !== null
-                ? String(
-                    p.nr
-                ).trim()
-                : "",
+                if (!paczka) {
+                    return false;
+                }
 
-        nazwa:
-            String(
-                p.nazwa || ""
-            ).trim()
-    };
+                const od =
+                    dataTekstDoLiczby(
+                        paczka.od
+                    );
+
+                const doDaty =
+                    dataTekstDoLiczby(
+                        paczka.do ||
+                        paczka.od
+                    );
+
+                if (
+                    od === null ||
+                    doDaty === null
+                ) {
+                    return false;
+                }
+
+                return (
+                    dataLiczba >= od &&
+                    dataLiczba <= doDaty
+                );
+            }
+        )
+        .sort(
+            (a, b) => {
+
+                const priorytetA =
+                    Number(
+                        a.priorytet || 0
+                    );
+
+                const priorytetB =
+                    Number(
+                        b.priorytet || 0
+                    );
+
+                if (
+                    priorytetA !==
+                    priorytetB
+                ) {
+                    return (
+                        priorytetB -
+                        priorytetA
+                    );
+                }
+
+                const odA =
+                    dataTekstDoLiczby(
+                        a.od
+                    );
+
+                const doA =
+                    dataTekstDoLiczby(
+                        a.do || a.od
+                    );
+
+                const odB =
+                    dataTekstDoLiczby(
+                        b.od
+                    );
+
+                const doB =
+                    dataTekstDoLiczby(
+                        b.do || b.od
+                    );
+
+                const zakresA =
+                    doA - odA;
+
+                const zakresB =
+                    doB - odB;
+
+                return (
+                    zakresA -
+                    zakresB
+                );
+            }
+        );
 }
 
 
-/* =========================================================
-   ZNAJDOWANIE PRZYSTANKU
-   ========================================================= */
-
-function znajdzPrzystanek(
-    przystanki,
-    identyfikator
+function adresPlikuLiniiWPaczce(
+    paczka
 ) {
 
-    if (
-        !Array.isArray(
-            przystanki
-        ) ||
-        przystanki.length === 0 ||
-        identyfikator === null ||
-        identyfikator === undefined
-    ) {
-
-        return null;
-    }
-
-    const szukany =
+    const folder =
         String(
-            identyfikator
-        ).trim();
-
-    if (
-        szukany
-            .toLowerCase()
-            .startsWith("idx:")
-    ) {
-
-        const idx =
-            Number(
-                szukany
-                    .substring(4)
-                    .trim()
+            paczka.folder || ""
+        )
+            .trim()
+            .replace(
+                /^\/+|\/+$/g,
+                ""
             );
 
-        if (
-            Number.isInteger(idx) &&
-            idx >= 0 &&
-            idx < przystanki.length
-        ) {
-
-            return przystanki[idx];
-        }
-
+    if (!folder) {
         return null;
     }
 
-    if (
-        wybranyPrzystanekId &&
-        Number(
-            wybranyPrzystanekId.kierunek
-        ) ===
-        Number(
-            aktualnyKierunek
-        ) &&
-        wybranyPrzystanekIndex !== null
-    ) {
+    return (
+        "../dane/" +
+        folder +
+        "/" +
+        encodeURIComponent(
+            numerLinii
+        ) +
+        ".json"
+    );
+}
 
-        const idx =
-            Number(
-                wybranyPrzystanekIndex
+
+async function pobierzTekstJSON(
+    adres
+) {
+
+    const odpowiedz =
+        await fetch(
+            adres,
+            {
+                cache: "no-cache"
+            }
+        );
+
+    if (!odpowiedz.ok) {
+        return null;
+    }
+
+    return await odpowiedz.text();
+}
+
+
+function parsujDaneLinii(
+    tekst
+) {
+
+    try {
+
+        return JSON.parse(
+            tekst
+        );
+
+    } catch (e1) {
+
+        return JSON.parse(
+            usunPoleGodziny(
+                tekst
+            )
+        );
+    }
+}
+
+
+async function pobierzDane(
+    uruchomPoPobraniu = true
+) {
+
+    try {
+
+        await pobierzManifestPaczek();
+
+        const pasujacePaczki =
+            paczkiDlaDaty(
+                wybranaData
             );
 
-        if (
-            Number.isInteger(idx) &&
-            idx >= 0 &&
-            idx < przystanki.length
+        let tekst = null;
+        let uzytaPaczka = null;
+        let uzytyAdres = null;
+
+
+        /* =================================================
+           1. Najpierw paczki pasujące do wybranej daty.
+              Najwyższy priorytet jest sprawdzany pierwszy.
+              Jeżeli w paczce nie ma tej linii, przechodzimy
+              automatycznie do następnej paczki.
+           ================================================= */
+
+        for (
+            const paczka
+            of pasujacePaczki
         ) {
 
-            return przystanki[idx];
+            const adres =
+                adresPlikuLiniiWPaczce(
+                    paczka
+                );
+
+            if (!adres) {
+                continue;
+            }
+
+            tekst =
+                await pobierzTekstJSON(
+                    adres
+                );
+
+            if (tekst !== null) {
+
+                uzytaPaczka =
+                    paczka;
+
+                uzytyAdres =
+                    adres;
+
+                break;
+            }
         }
-    }
 
-    if (
-        szukany
-            .toLowerCase()
-            .startsWith("lp:")
-    ) {
 
-        const lp =
-            szukany
-                .substring(3)
-                .trim();
+        /* =================================================
+           2. Zgodność wsteczna.
+              Jeśli żadna paczka nie zawiera linii,
+              próbujemy starego pliku dane/NUMER.json.
+           ================================================= */
 
-        const znaleziony =
-            przystanki.find(
-                p =>
-                    String(
-                        p.lp !== undefined &&
-                        p.lp !== null
-                            ? p.lp
-                            : ""
-                    ).trim() === lp
+        if (tekst === null) {
+
+            const adresStary =
+                "../dane/" +
+                encodeURIComponent(
+                    numerLinii
+                ) +
+                ".json";
+
+            tekst =
+                await pobierzTekstJSON(
+                    adresStary
+                );
+
+            if (tekst !== null) {
+
+                uzytaPaczka = null;
+                uzytyAdres = adresStary;
+            }
+        }
+
+
+        if (tekst === null) {
+
+            throw new Error(
+                "Brak rozkładu linii " +
+                numerLinii +
+                " dla dnia " +
+                formatujDateInput(
+                    wybranaData
+                )
+            );
+        }
+
+
+        daneLinii =
+            parsujDaneLinii(
+                tekst
             );
 
-        if (znaleziony)
-            return znaleziony;
+        aktualnaPaczkaDanych =
+            uzytaPaczka;
+
+        aktualnyAdresDanych =
+            uzytyAdres;
+
+
+        console.info(
+            "FWTP: wczytano rozkład",
+            {
+                linia:
+                    numerLinii,
+
+                data:
+                    formatujDateInput(
+                        wybranaData
+                    ),
+
+                paczka:
+                    uzytaPaczka
+                        ? uzytaPaczka.id
+                        : "stary plik główny",
+
+                adres:
+                    uzytyAdres
+            }
+        );
+
+
+        if (uruchomPoPobraniu) {
+            uruchomStrone();
+        }
+
+        return true;
+
+    } catch (blad) {
+
+        console.error(
+            blad
+        );
+
+        pokazBlad(
+            "Nie udało się wczytać rozkładu.",
+            blad.message ||
+            "Brak danych dla wybranej daty."
+        );
+
+        return false;
     }
-
-    if (
-        wybranyPrzystanekId &&
-        wybranyPrzystanekId.nr &&
-        wybranyPrzystanekId.nazwa
-    ) {
-
-        const nr =
-            wybranyPrzystanekId.nr;
-
-        const nazwa =
-            wybranyPrzystanekId.nazwa;
-
-        const znaleziony =
-            przystanki.find(
-                p =>
-                    String(
-                        p.nr || ""
-                    ).trim() === nr &&
-                    normalizujTekst(
-                        p.nazwa
-                    ) ===
-                    normalizujTekst(
-                        nazwa
-                    )
-            );
-
-        if (znaleziony)
-            return znaleziony;
-    }
-
-    const poNr =
-        przystanki.find(
-            p =>
-                String(
-                    p.nr || ""
-                ).trim() ===
-                szukany
-        );
-
-    if (poNr)
-        return poNr;
-
-    const poNazwie =
-        przystanki.find(
-            p =>
-                String(
-                    p.nazwa || ""
-                ).trim() ===
-                szukany
-        );
-
-    if (poNazwie)
-        return poNazwie;
-
-    const normalny =
-        normalizujTekst(
-            szukany
-        );
-
-    return przystanki.find(
-        p =>
-            normalizujTekst(
-                p.nazwa
-            ) === normalny
-    ) || null;
 }
+
 
 
 /* =========================================================
@@ -3979,7 +4113,7 @@ function generujKalendarz7Dni() {
 }
 
 
-function wybierzDateZKalendarza(
+async function wybierzDateZKalendarza(
     data
 ) {
 
@@ -4075,7 +4209,15 @@ function wybierzDateZKalendarza(
     ustawWidocznoscWyboruInnegoDnia();
 
 
-    pokazRozklad();
+    const wczytano =
+        await pobierzDane(
+            false
+        );
+
+
+    if (wczytano) {
+        pokazRozklad();
+    }
 }
 
 
