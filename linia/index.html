@@ -2900,6 +2900,32 @@ function uruchomStrone() {
         }
     }
 
+    /*
+     * Przywrócenie wybranego wariantu trasy z URL.
+     * Dzięki temu Wstecz/Dalej prawidłowo przełącza np. B -> A.
+     */
+    const paramWariantTrasy =
+        parametry.get(
+            "wariant"
+        );
+
+
+    if (
+        paramWariantTrasy !== null &&
+        String(
+            paramWariantTrasy
+        ).trim() !== ""
+    ) {
+
+        aktualnyWariant =
+            String(
+                paramWariantTrasy
+            )
+                .trim()
+                .toUpperCase();
+    }
+
+
     generujKalendarz7Dni();
 
     pokazRozklad();
@@ -6079,6 +6105,28 @@ function aktualizujHistorieURL(
 
 
     /*
+     * Zapisujemy również wybrany wariant trasy.
+     * Jest to potrzebne, aby przycisk Wstecz/Dalej
+     * naprawdę przełączał np. B -> A, a nie tylko URL.
+     */
+    if (
+        aktualnyWariant
+    ) {
+
+        url.searchParams.set(
+            "wariant",
+            aktualnyWariant
+        );
+
+    } else {
+
+        url.searchParams.delete(
+            "wariant"
+        );
+    }
+
+
+    /*
      * Jeżeli wracamy do listy przystanków lub rozkładu
      * przystanku, usuwamy zapis konkretnego kursu z URL.
      */
@@ -6098,6 +6146,82 @@ function aktualizujHistorieURL(
 
             kierunek:
                 aktualnyKierunek
+        },
+        "",
+        url.toString()
+    );
+}
+
+
+/* =========================================================
+   HISTORIA URL - WYBÓR WARIANTU TRASY
+   ========================================================= */
+
+function aktualizujHistorieWariantuURL(
+    wariant
+) {
+
+    const url =
+        new URL(
+            window.location.href
+        );
+
+
+    url.searchParams.set(
+        "linia",
+        numerLinii
+    );
+
+
+    url.searchParams.set(
+        "kierunek",
+        aktualnyKierunek
+    );
+
+
+    const litera =
+        String(
+            wariant || ""
+        )
+            .trim()
+            .toUpperCase();
+
+
+    if (litera) {
+
+        url.searchParams.set(
+            "wariant",
+            litera
+        );
+
+    } else {
+
+        url.searchParams.delete(
+            "wariant"
+        );
+    }
+
+
+    /*
+     * Zmiana wariantu oznacza powrót do zwykłego widoku,
+     * więc nie zostawiamy parametrów konkretnego kursu.
+     */
+    url.searchParams.delete(
+        "kurs"
+    );
+
+    url.searchParams.delete(
+        "wariantKursu"
+    );
+
+
+    window.history.pushState(
+        {
+            kierunek:
+                aktualnyKierunek,
+
+            wariant:
+                litera || null
         },
         "",
         url.toString()
@@ -6634,8 +6758,23 @@ function pokazListePrzystankow(
                     btn.onclick =
                         () => {
 
+                            if (
+                                aktualnyWariant ===
+                                w
+                            ) {
+
+                                return;
+                            }
+
+
                             aktualnyWariant =
                                 w;
+
+
+                            aktualizujHistorieWariantuURL(
+                                w
+                            );
+
 
                             pokazRozklad();
                         };
@@ -8958,13 +9097,15 @@ function pokazCalyKurs(
             .toUpperCase();
 
 
-    przystankiK.forEach(
-        (
-            p,
-            originalIndex
-        ) => {
-
-            const k =
+    /*
+     * Najpierw odnajdujemy ten konkretny kurs na pełnej osi trasy.
+     * Potem pokazujemy trasę od pierwszego przystanku tego kursu
+     * aż do końca osi. Przystanki, których skrócony kurs już
+     * nie obsługuje, zostają w widoku jako szare.
+     */
+    const dopasowaniaKursu =
+        przystankiK.map(
+            p =>
                 (
                     p.kursy ||
                     []
@@ -9004,47 +9145,80 @@ function pokazCalyKurs(
 
                         return true;
                     }
-                );
+                ) || null
+        );
 
 
-            if (k) {
+    const pierwszyIndexKursu =
+        dopasowaniaKursu.findIndex(
+            k => k !== null
+        );
 
-                kursPrzystanki.push(
-                    {
-                        nazwa:
-                            p.nazwa,
 
-                        nr:
-                            p.nr,
+    if (
+        pierwszyIndexKursu !== -1
+    ) {
 
-                        nz:
-                            czyPrzystanekNaZadanie(
-                                p
-                            ),
+        for (
+            let originalIndex =
+                pierwszyIndexKursu;
+            originalIndex <
+                przystankiK.length;
+            originalIndex++
+        ) {
 
-                        czas:
-                            k.czas,
+            const p =
+                przystankiK[
+                    originalIndex
+                ];
 
-                        wariant:
-                            pobierzWariant(
+
+            const k =
+                dopasowaniaKursu[
+                    originalIndex
+                ];
+
+
+            kursPrzystanki.push(
+                {
+                    nazwa:
+                        p.nazwa,
+
+                    nr:
+                        p.nr,
+
+                    nz:
+                        czyPrzystanekNaZadanie(
+                            p
+                        ),
+
+                    czas:
+                        k
+                            ? k.czas
+                            : "",
+
+                    wariant:
+                        k
+                            ? pobierzWariant(
                                 k
-                            ),
+                              )
+                            : szukanyWariant,
 
-                        aktywny:
-                            czasNaMinuty(
-                                k.czas
-                            ) !== null,
+                    aktywny:
+                        !!k &&
+                        czasNaMinuty(
+                            k.czas
+                        ) !== null,
 
-                        przystanek:
-                            p,
+                    przystanek:
+                        p,
 
-                        originalIndex:
-                            originalIndex
-                    }
-                );
-            }
+                    originalIndex:
+                        originalIndex
+                }
+            );
         }
-    );
+    }
 
 
     const kontener =
@@ -9153,11 +9327,20 @@ function pokazCalyKurs(
             );
 
 
+    const ostatniObslugiwanyPrzystanek =
+        [
+            ...kursPrzystanki
+        ]
+            .reverse()
+            .find(
+                p =>
+                    p.aktywny === true
+            );
+
+
     const lastStopName =
-        kursPrzystanki.length
-            ? kursPrzystanki[
-                kursPrzystanki.length - 1
-            ].nazwa
+        ostatniObslugiwanyPrzystanek
+            ? ostatniObslugiwanyPrzystanek.nazwa
             : "";
 
 
@@ -9795,6 +9978,38 @@ window.addEventListener(
             url.searchParams.get(
                 "wariantKursu"
             );
+
+
+        const wariantParam =
+            url.searchParams.get(
+                "wariant"
+            );
+
+
+        if (
+            wariantParam !== null &&
+            String(
+                wariantParam
+            ).trim() !== ""
+        ) {
+
+            aktualnyWariant =
+                String(
+                    wariantParam
+                )
+                    .trim()
+                    .toUpperCase();
+
+        } else {
+
+            /*
+             * Brak parametru oznacza widok domyślny.
+             * pokazRozklad() ustawi wtedy wariant bazowy,
+             * najczęściej A.
+             */
+            aktualnyWariant =
+                null;
+        }
 
 
         if (
