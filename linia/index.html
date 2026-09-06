@@ -5499,7 +5499,7 @@ function czasNaMinuty(
 
     if (
         godzina < 0 ||
-        godzina > 23 ||
+        godzina > 24 ||
         minuta < 0 ||
         minuta > 59
     ) {
@@ -5508,6 +5508,12 @@ function czasNaMinuty(
     }
 
 
+    /*
+     * 24:xx traktujemy jako czas po północy tego samego kursu.
+     * W danych może zostać 24:05, 24:30 itd., dzięki czemu
+     * zachowujemy prawidłową kolejność kursu przez północ.
+     * Na ekranie godzina 24 będzie pokazywana jako 00.
+     */
     return (
         godzina * 60 +
         minuta
@@ -6772,6 +6778,45 @@ if (
  * - zmienia się wyłącznie wariant rysowany jako główna oś.
  */
 
+const wariantySkrocone =
+    new Set(
+        (
+            Array.isArray(
+                rozklad.warianty
+            )
+                ? rozklad.warianty
+                : []
+        )
+            .filter(
+                wariant => {
+
+                    const opis =
+                        String(
+                            wariant?.opis ||
+                            ""
+                        )
+                            .trim()
+                            .toLowerCase();
+
+
+                    return opis.startsWith(
+                        "kurs skrócony"
+                    );
+                }
+            )
+            .map(
+                wariant =>
+                    String(
+                        wariant?.litera ||
+                        ""
+                    )
+                        .trim()
+                        .toUpperCase()
+            )
+            .filter(Boolean)
+    );
+
+
 const liczbaKursowWariantu =
     new Map();
 
@@ -6865,12 +6910,32 @@ wariantyKierunku.forEach(
 );
 
 
+/*
+ * Wariant skrócony nie może zostać osią główną tylko dlatego,
+ * że ma więcej kursów. Najpierw wybieramy spośród wariantów
+ * nieskróconych. Jeżeli nie ma żadnego, używamy starej logiki.
+ */
+const kandydaciGlownejOsi =
+    wariantyKierunku.filter(
+        wariant =>
+            !wariantySkrocone.has(
+                wariant
+            )
+    );
+
+
+const wariantyDoWyboruGlownejOsi =
+    kandydaciGlownejOsi.length > 0
+        ? kandydaciGlownejOsi
+        : wariantyKierunku;
+
+
 let mainWariant =
-    wariantyKierunku[0] ||
+    wariantyDoWyboruGlownejOsi[0] ||
     "";
 
 
-wariantyKierunku.forEach(
+wariantyDoWyboruGlownejOsi.forEach(
     wariant => {
 
         const liczbaAktualnego =
@@ -8381,9 +8446,15 @@ function pokazRozkladWybranegoPrzystanku(
                         "wiersz-godziny";
 
 
+                    const godzinaDoPokazania =
+                        g === 24
+                            ? "00"
+                            : String(g).padStart(2, "0");
+
+
                     wiersz.innerHTML =
                         `<div class="kolumna-godzina">
-                            ${String(g).padStart(2, "0")}
+                            ${godzinaDoPokazania}
                         </div>`;
 
 
@@ -9080,6 +9151,45 @@ function pokazCalyKurs(
                 aktywneIndeksy.length - 1
             ]
             : -1;
+
+
+    const czasDoPokazania =
+        czas => {
+
+            const tekst =
+                String(
+                    czas || ""
+                ).trim();
+
+
+            const m =
+                tekst.match(
+                    /^(\d{1,2}):(\d{2})$/
+                );
+
+
+            if (!m) {
+
+                return tekst;
+            }
+
+
+            const godzina =
+                Number(
+                    m[1]
+                );
+
+
+            return (
+                (
+                    godzina === 24
+                        ? "00"
+                        : String(godzina).padStart(2, "0")
+                ) +
+                ":" +
+                m[2]
+            );
+        };
 
 
     kursPrzystanki.forEach(
