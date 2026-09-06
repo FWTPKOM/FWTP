@@ -5694,6 +5694,64 @@ function znajdzKursBazowy(
             b
         ) => {
 
+            /*
+             * Kurs reprezentatywny dla czasu przejazdu wybieramy
+             * przede wszystkim po DŁUGOŚCI PRZEBIEGU, a nie po
+             * najwcześniejszej godzinie odjazdu.
+             *
+             * Dzięki temu pojedynczy kurs np. 04:36 zaczynający
+             * się w środku trasy nie stanie się bazą do liczenia
+             * minut przejazdu całej linii.
+             */
+
+            const liczbaPunktowA =
+                (
+                    a.punkty ||
+                    []
+                ).filter(
+                    punkt =>
+                        czasNaMinuty(
+                            punkt.czas
+                        ) !== null
+                ).length;
+
+
+            const liczbaPunktowB =
+                (
+                    b.punkty ||
+                    []
+                ).filter(
+                    punkt =>
+                        czasNaMinuty(
+                            punkt.czas
+                        ) !== null
+                ).length;
+
+
+            if (
+                liczbaPunktowA !==
+                liczbaPunktowB
+            ) {
+
+                return (
+                    liczbaPunktowB -
+                    liczbaPunktowA
+                );
+            }
+
+
+            if (
+                a.startIndex !==
+                b.startIndex
+            ) {
+
+                return (
+                    a.startIndex -
+                    b.startIndex
+                );
+            }
+
+
             const aa =
                 a.startMinuty === null
                     ? 999999
@@ -5706,18 +5764,7 @@ function znajdzKursBazowy(
                     : b.startMinuty;
 
 
-            if (
-                aa !== bb
-            ) {
-
-                return aa - bb;
-            }
-
-
-            return (
-                a.startIndex -
-                b.startIndex
-            );
+            return aa - bb;
         }
     );
 
@@ -8249,6 +8296,46 @@ function pokazRozkladWybranegoPrzystanku(
             wszystkieWarianty.length >= 4;
 
 
+        /*
+         * Literę przy minucie pokazujemy tylko wtedy, gdy ten wariant
+         * ma normalny wpis w legendzie rozkładu.
+         *
+         * Techniczne warianty startowe (np. kurs zaczynający od
+         * Ursynów Płd. 06) mogą pozostać w danych kursu po to,
+         * żeby strona znała jego przebieg, ale nie powinny mieć
+         * literki przy minucie ani własnej legendy.
+         */
+        const wariantyWidoczneWLegendzie =
+            new Set(
+                (
+                    Array.isArray(
+                        rozklad.warianty
+                    )
+                        ? rozklad.warianty
+                        : []
+                )
+                    .map(
+                        wariant =>
+                            String(
+                                wariant &&
+                                typeof wariant === "object"
+                                    ? (
+                                        wariant.litera ||
+                                        wariant.nazwa ||
+                                        ""
+                                    )
+                                    : (
+                                        wariant ||
+                                        ""
+                                    )
+                            )
+                                .trim()
+                                .toUpperCase()
+                    )
+                    .filter(Boolean)
+            );
+
+
         przystanekDlaDaty.kursy.forEach(
             k => {
 
@@ -8344,11 +8431,38 @@ function pokazRozkladWybranegoPrzystanku(
                  * gdy wariantów jest mniej niż 4.
                  */
 
-                const literaDoPokazania =
-                    litera === "A" &&
+                let literaDoPokazania =
+                    litera;
+
+
+                /*
+                 * Wariant techniczny bez opisu/legendy:
+                 * nie pokazujemy litery przy minucie.
+                 */
+                if (
+                    literaDoPokazania &&
+                    !wariantyWidoczneWLegendzie.has(
+                        literaDoPokazania
+                    )
+                ) {
+
+                    literaDoPokazania =
+                        "";
+                }
+
+
+                /*
+                 * A jest ukrywane wizualnie przy mniej niż
+                 * czterech normalnych wariantach.
+                 */
+                if (
+                    literaDoPokazania === "A" &&
                     !jestCzteryLubWiecejWariantow
-                        ? ""
-                        : litera;
+                ) {
+
+                    literaDoPokazania =
+                        "";
+                }
 
 
                 const pokazWariant =
