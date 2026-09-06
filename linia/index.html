@@ -8524,6 +8524,141 @@ function pokazRozkladWybranegoPrzystanku(
         );
 
 
+    /*
+     * Jeżeli dany kurs KOŃCZY się na wybranym przystanku,
+     * nie pokazujemy go już jako odjazdu z tego przystanku.
+     *
+     * Kurs zostaje w rozkładzie tylko wtedy, gdy ten sam
+     * numer kursu i wariant występują jeszcze na którymś
+     * następnym przystanku w tym kierunku.
+     */
+    const kierunekDoSprawdzeniaKoncow =
+        rozklad.kierunki[
+            aktualnyKierunek
+        ];
+
+
+    if (
+        kierunekDoSprawdzeniaKoncow &&
+        Array.isArray(
+            kierunekDoSprawdzeniaKoncow.przystanki
+        )
+    ) {
+
+        let indeksBiezacegoPrzystanku =
+            Number(
+                wybranyPrzystanekIndex
+            );
+
+
+        if (
+            !Number.isInteger(
+                indeksBiezacegoPrzystanku
+            ) ||
+            indeksBiezacegoPrzystanku < 0 ||
+            indeksBiezacegoPrzystanku >=
+                kierunekDoSprawdzeniaKoncow.przystanki.length
+        ) {
+
+            indeksBiezacegoPrzystanku =
+                kierunekDoSprawdzeniaKoncow.przystanki.findIndex(
+                    p =>
+                        kluczPrzystanku(
+                            p
+                        ) ===
+                        kluczPrzystanku(
+                            przystanek
+                        )
+                );
+        }
+
+
+        if (
+            indeksBiezacegoPrzystanku !== -1
+        ) {
+
+            przystanekDlaDaty.kursy =
+                przystanekDlaDaty.kursy.filter(
+                    kurs => {
+
+                        const numerKursu =
+                            String(
+                                kurs.numer ?? ""
+                            ).trim();
+
+
+                        const wariantKursu =
+                            pobierzWariant(
+                                kurs
+                            );
+
+
+                        /*
+                         * Bez numeru kursu nie da się pewnie ustalić,
+                         * czy to jest jego przystanek końcowy,
+                         * dlatego taki wpis pozostawiamy.
+                         */
+                        if (!numerKursu) {
+                            return true;
+                        }
+
+
+                        for (
+                            let i =
+                                indeksBiezacegoPrzystanku + 1;
+                            i <
+                                kierunekDoSprawdzeniaKoncow.przystanki.length;
+                            i++
+                        ) {
+
+                            const nastepnyPrzystanek =
+                                kierunekDoSprawdzeniaKoncow.przystanki[
+                                    i
+                                ];
+
+
+                            const kursDalej =
+                                filtrujKursyDlaDaty(
+                                    nastepnyPrzystanek.kursy || [],
+                                    wybranaData
+                                ).some(
+                                    k =>
+                                        String(
+                                            k.numer ?? ""
+                                        ).trim() ===
+                                        numerKursu
+                                        &&
+                                        pobierzWariant(
+                                            k
+                                        ) ===
+                                        wariantKursu
+                                        &&
+                                        czasNaMinuty(
+                                            k.czas
+                                        ) !== null
+                                );
+
+
+                            if (
+                                kursDalej
+                            ) {
+                                return true;
+                            }
+                        }
+
+
+                        /*
+                         * Nie ma już następnego przystanku tego kursu:
+                         * wybrany przystanek jest jego końcem,
+                         * więc nie pokazujemy tej godziny jako odjazdu.
+                         */
+                        return false;
+                    }
+                );
+        }
+    }
+
+
     const naglowek =
         document.createElement(
             "div"
