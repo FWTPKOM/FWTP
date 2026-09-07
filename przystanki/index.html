@@ -283,36 +283,245 @@ function pokazListe() {
     }).join("");
 }
 
+function dataISO(data) {
+    return (
+        data.getFullYear() + "-" +
+        String(data.getMonth() + 1).padStart(2, "0") + "-" +
+        String(data.getDate()).padStart(2, "0")
+    );
+}
+
+async function pobierzJSON(adres) {
+    try {
+        const odpowiedz = await fetch(
+            adres + (adres.includes("?") ? "&" : "?") + "v=" + Date.now(),
+            { cache: "no-store" }
+        );
+
+        if (!odpowiedz.ok) return null;
+
+        return await odpowiedz.json();
+
+    } catch (blad) {
+        console.warn("Nie udało się pobrać:", adres, blad);
+        return null;
+    }
+}
+
+function listaPrzystankow(dane) {
+    if (Array.isArray(dane)) return dane;
+
+    if (dane && Array.isArray(dane.przystanki)) {
+        return dane.przystanki;
+    }
+
+    return [];
+}
+
+function kluczPrzystanku(p) {
+    return (
+        normalizuj(p?.nazwa || "") +
+        "|" +
+        String(p?.nr || "").trim().toLowerCase()
+    );
+}
+
+function paczkaPasujeDoDaty(paczka, data) {
+    const dzien = dataISO(data);
+    const od = String(paczka?.od || "").trim();
+    const doDaty = String(paczka?.do || "").trim();
+
+    if (od && dzien < od) return false;
+    if (doDaty && dzien > doDaty) return false;
+
+    return true;
+}
+
+function adresIndeksuPaczki(paczka) {
+    const folder = String(paczka?.folder || "")
+        .trim()
+        .replace(/^\/+/, "")
+        .replace(/\/+$/, "");
+
+    if (!folder) return "";
+
+    return `/FWTP/dane/${folder}/przystanki.json`;
+}
+
+function scalIndeksyPrzystankow(
+    baza,
+    paczkiZDanymi
+) {
+    /*
+     * mapaLinii przechowuje dla każdej linii jej aktualne
+     * przystanki. Najpierw wczytujemy stan podstawowy.
+     */
+    const mapaLinii = new Map();
+
+    baza.forEach(p => {
+        (p.linie || []).forEach(linia => {
+            const nrLinii = String(linia).trim();
+
+            if (!mapaLinii.has(nrLinii)) {
+                mapaLinii.set(nrLinii, new Map());
+            }
+
+            mapaLinii
+                .get(nrLinii)
+                .set(kluczPrzystanku(p), {
+                    nazwa: p.nazwa || "",
+                    nr: p.nr || ""
+                });
+        });
+    });
+
+    /*
+     * Paczki są przekazane od najniższego do najwyższego
+     * priorytetu. Każda paczka całkowicie zastępuje stan
+     * TYLKO tych linii, które ma wpisane w "linie".
+     */
+    paczkiZDanymi.forEach(({ paczka, przystanki }) => {
+        const liniePaczki = Array.isArray(paczka.linie)
+            ? paczka.linie.map(x => String(x).trim()).filter(Boolean)
+            : [];
+
+        liniePaczki.forEach(linia => {
+            mapaLinii.set(linia, new Map());
+        });
+
+        przystanki.forEach(p => {
+            (p.linie || []).forEach(linia => {
+                const nrLinii = String(linia).trim();
+
+                if (!liniePaczki.includes(nrLinii)) {
+                    return;
+                }
+
+                if (!mapaLinii.has(nrLinii)) {
+                    mapaLinii.set(nrLinii, new Map());
+                }
+
+                mapaLinii
+                    .get(nrLinii)
+                    .set(kluczPrzystanku(p), {
+                        nazwa: p.nazwa || "",
+                        nr: p.nr || ""
+                    });
+            });
+        });
+    });
+
+    /*
+     * Ponownie składamy dane "przystanek -> wszystkie linie".
+     */
+    const wynik = new Map();
+
+    for (const [linia, przystankiLinii] of mapaLinii) {
+        for (const [klucz, p] of przystankiLinii) {
+            if (!wynik.has(klucz)) {
+                wynik.set(klucz, {
+                    nazwa: p.nazwa,
+                    nr: p.nr,
+                    linie: []
+                });
+            }
+
+            const rekord = wynik.get(klucz);
+
+            if (!rekord.linie.includes(linia)) {
+                rekord.linie.push(linia);
+            }
+        }
+    }
+
+    return [...wynik.values()];
+}
+
+async function wczytajPrzystankiDlaDaty(data) {
+    const bazaDane =
+        await pobierzJSON("/FWTP/dane/przystanki.json");
+
+    const baza =
+        listaPrzystankow(bazaDane);
+
+    const manifest =
+        await pobierzJSON("/FWTP/dane/paczki.json");
+
+    const paczki =
+        manifest && Array.isArray(manifest.paczki)
+            ? manifest.paczki
+            : (Array.isArray(manifest) ? manifest : []);
+
+    /*
+     * Rosnąco: paczka o większym priorytecie zostanie
+     * zastosowana później i zastąpi wcześniejszą.
+     */
+    const pasujace =
+        paczki
+            .filter(p => paczkaPasujeDoDaty(p, data))
+            .sort(
+                (a, b) =>
+                    Number(a.priorytet || 0) -
+                    Number(b.priorytet || 0)
+            );
+
+    const paczkiZDanymi = [];
+
+    for (const paczka of pasujace) {
+        const adres =
+            adresIndeksuPaczki(paczka);
+
+        if (!adres) continue;
+
+        const dane =
+            await pobierzJSON(adres);
+
+        if (!dane) {
+            /*
+             * Stara paczka może nie mieć jeszcze przystanki.json.
+             * Wtedy jej nie używamy do indeksu przystanków.
+             */
+            continue;
+        }
+
+        paczkiZDanymi.push({
+            paczka,
+            przystanki:
+                listaPrzystankow(dane)
+        });
+    }
+
+    return scalIndeksyPrzystankow(
+        baza,
+        paczkiZDanymi
+    );
+}
+
 async function start() {
     const lista = document.getElementById("lista");
     const licznik = document.getElementById("licznik");
 
     try {
-        const odpowiedz = await fetch(
-            "/FWTP/dane/przystanki.json?v=" + Date.now(),
-            { cache: "no-store" }
-        );
+        const dzisiaj = new Date();
+        dzisiaj.setHours(0, 0, 0, 0);
 
-        if (!odpowiedz.ok) {
-            throw new Error(`HTTP ${odpowiedz.status}`);
-        }
-
-        const dane = await odpowiedz.json();
-
-        wszystkiePrzystanki = sortujPrzystanki(
-            Array.isArray(dane)
-                ? dane
-                : (Array.isArray(dane.przystanki) ? dane.przystanki : [])
-        );
+        wszystkiePrzystanki =
+            sortujPrzystanki(
+                await wczytajPrzystankiDlaDaty(
+                    dzisiaj
+                )
+            );
 
         pokazListe();
 
     } catch (blad) {
         console.error(blad);
+
         licznik.textContent = "Błąd";
+
         lista.innerHTML =
             `<div class="komunikat">
-                Nie udało się wczytać pliku <b>przystanki.json</b>.
+                Nie udało się wczytać indeksu przystanków.
             </div>`;
     }
 }
