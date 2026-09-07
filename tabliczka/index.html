@@ -162,6 +162,8 @@
 
         .panel-prawy {
             min-width: 0;
+            height: 100%;
+            overflow: hidden;
         }
 
 
@@ -339,8 +341,8 @@ font-size: 14px;
         .minuty-cell {
             display: flex;
             align-items: center;
-            flex-wrap: wrap;
-            gap: 0 5px;
+            flex-wrap: nowrap;
+            gap: 0 7px;
 
             min-width: 0;
 
@@ -348,16 +350,27 @@ font-size: 14px;
 
             font-size: 13px;
             line-height: 17px;
+            white-space: nowrap;
         }
 
         .minuta {
-            display: inline-flex;
-            align-items: baseline;
+            position: relative;
+
+            display: inline-block;
+            flex: 0 0 auto;
 
             white-space: nowrap;
         }
 
+        /*
+           Litera wariantu jest pozycjonowana niezależnie,
+           więc nie zmienia odstępów pomiędzy minutami.
+        */
         .symbol {
+            position: absolute;
+            left: 100%;
+            top: 1px;
+
             margin-left: 1px;
 
             font-size: 8px;
@@ -442,7 +455,9 @@ font-size: 14px;
         .trasa-columns {
             display: grid;
 
-            min-height: calc(160mm - 25px);
+            height: calc(100% - 24px);
+            min-height: 0;
+            overflow: hidden;
         }
 
         .trasa-columns.cols-1 {
@@ -474,7 +489,7 @@ font-size: 14px;
 
         .trasa-stop {
             display: grid;
-            grid-template-columns: 26px 12px minmax(0, 1fr) 12px;
+            grid-template-columns: 26px 12px 10px minmax(0, 1fr);
             align-items: center;
 
             min-height: 17px;
@@ -520,11 +535,11 @@ font-size: 14px;
 
             position: absolute;
 
-            left: 2px;
+            left: 1px;
             top: 50%;
 
-            width: 7px;
-            height: 7px;
+            width: 9px;
+            height: 9px;
 
             transform: translateY(-50%);
 
@@ -570,10 +585,17 @@ font-size: 14px;
             color: #111;
         }
 
+        .trasa-stop.nz .trasa-os::after {
+            background: #fff;
+            border: 2px solid currentColor;
+            box-sizing: border-box;
+        }
+
         .trasa-nz {
-            text-align: center;
+            text-align: left;
 
             font-size: 10px;
+            line-height: 1;
         }
 
 
@@ -2243,16 +2265,21 @@ function czyNZ(p){
 
 function podzielTrase(lista){
 
-    if(
-        lista.length<=28
-    ){
-        return[
-            {
-                start:0,
-                lista
-            }
-        ];
-    }
+    /*
+       Najpierw ZAWSZE próbujemy zmieścić całą trasę
+       w jednej kolumnie. Dopiero po wyrenderowaniu
+       sprawdzamy rzeczywistą wysokość.
+    */
+    return[
+        {
+            start:0,
+            lista
+        }
+    ];
+}
+
+
+function podzielTraseNaDwie(lista){
 
     const polowa=
         Math.ceil(
@@ -2318,6 +2345,11 @@ function renderTrasaKolumna(
                                 ? ' wybrany'
                                 : ''
                         )+
+                        (
+                            czyNZ(p)
+                                ? ' nz'
+                                : ''
+                        )+
                         '">'+
                         '<span class="trasa-czas">'+
                         (
@@ -2329,18 +2361,18 @@ function renderTrasaKolumna(
                         )+
                         '</span>'+
                         '<span class="trasa-os"></span>'+
-                        '<span class="trasa-nazwa">'+
-                        escapeHtml(
-                            String(
-                                p.nazwa||""
-                            ).toUpperCase()
-                        )+
-                        '</span>'+
                         '<span class="trasa-nz">'+
                         (
                             czyNZ(p)
                                 ? 'ż'
                                 : ''
+                        )+
+                        '</span>'+
+                        '<span class="trasa-nazwa">'+
+                        escapeHtml(
+                            String(
+                                p.nazwa||""
+                            ).toUpperCase()
                         )+
                         '</span>'+
                         '</li>'
@@ -2638,6 +2670,14 @@ function renderuj(){
         .getElementById("wynik")
         .innerHTML=
             html;
+
+    requestAnimationFrame(() => {
+        wyrownajSzerokoscWeekendow();
+
+        requestAnimationFrame(() => {
+            dopasujKolumnyTrasy();
+        });
+    });
 }
 
 
@@ -2701,39 +2741,99 @@ function pokazBlad(tekst){
 
 
 function wyrownajSzerokoscWeekendow() {
-    const dni = Array.from(document.querySelectorAll(".rozklady-grid .dzien"));
-    if (dni.length < 2) return;
+    const dni = Array.from(
+        document.querySelectorAll(".rozklady-grid .dzien")
+    );
 
-    const weekendowe = dni.filter(d => {
+    const sobota = dni.find(d => {
         const t = (d.querySelector(".dzien-tytul")?.textContent || "")
             .trim()
             .toUpperCase();
-        return t === "SOBOTA" || t.includes("NIEDZIELA");
+        return t === "SOBOTA";
     });
 
-    if (weekendowe.length >= 2) {
-        weekendowe.forEach(d => d.style.width = "");
-        const szer = Math.max(...weekendowe.map(d => Math.ceil(d.getBoundingClientRect().width)));
-        weekendowe.forEach(d => {
-            d.style.width = szer + "px";
-            d.style.minWidth = szer + "px";
-        });
-    }
+    const niedziela = dni.find(d => {
+        const t = (d.querySelector(".dzien-tytul")?.textContent || "")
+            .trim()
+            .toUpperCase();
+        return t.includes("NIEDZIELA");
+    });
+
+    if (!sobota || !niedziela) return;
+
+    sobota.style.width = "";
+    sobota.style.minWidth = "";
+    niedziela.style.width = "";
+    niedziela.style.minWidth = "";
+
+    const szerokosc = Math.max(
+        Math.ceil(sobota.getBoundingClientRect().width),
+        Math.ceil(niedziela.getBoundingClientRect().width)
+    );
+
+    [sobota, niedziela].forEach(d => {
+        d.style.width = szerokosc + "px";
+        d.style.minWidth = szerokosc + "px";
+    });
 }
+function dopasujKolumnyTrasy() {
 
+    const tabliczka = document.querySelector(".tabliczka");
+    const columns = document.querySelector(".trasa-columns");
 
+    if (!tabliczka || !columns) return;
 
-document.addEventListener("DOMContentLoaded", () => {
-    const grid = document.querySelector(".rozklady-grid");
-    if (!grid) return;
+    const lista = kierunekBazowy()?.przystanki || [];
+    if (!lista.length) return;
 
-    const observer = new MutationObserver(() => {
-        requestAnimationFrame(wyrownajSzerokoscWeekendow);
-    });
+    /*
+       Najpierw wymuszamy jedną kolumnę i wąski wariant prawego panelu.
+    */
+    tabliczka.classList.remove("trasa-2-kol");
+    columns.className = "trasa-columns cols-1";
+    columns.innerHTML = renderTrasaKolumna(
+        { start: 0, lista: lista },
+        czasyTrasy()
+    );
 
-    observer.observe(grid, { childList: true, subtree: true, characterData: true });
-    requestAnimationFrame(wyrownajSzerokoscWeekendow);
-});
+    /*
+       Sprawdzamy faktyczną wysokość listy.
+       Jeśli wszystkie przystanki mieszczą się w dostępnej wysokości,
+       pozostaje jedna kolumna.
+    */
+    const kolumna = columns.querySelector(".trasa-kol");
+    const listaEl = columns.querySelector(".trasa-lista");
+
+    if (!kolumna || !listaEl) return;
+
+    const style = getComputedStyle(kolumna);
+    const paddingY =
+        parseFloat(style.paddingTop || 0) +
+        parseFloat(style.paddingBottom || 0);
+
+    const potrzebnaWysokosc =
+        Math.ceil(listaEl.getBoundingClientRect().height + paddingY);
+
+    const dostepnaWysokosc =
+        Math.floor(columns.clientHeight);
+
+    if (potrzebnaWysokosc <= dostepnaWysokosc) {
+        return;
+    }
+
+    /*
+       Dopiero gdy jedna kolumna się nie mieści,
+       przechodzimy na dwie kolumny i szerszy prawy panel.
+    */
+    const fragmenty = podzielTraseNaDwie(lista);
+    const czasy = czasyTrasy();
+
+    tabliczka.classList.add("trasa-2-kol");
+    columns.className = "trasa-columns cols-2";
+    columns.innerHTML = fragmenty
+        .map(f => renderTrasaKolumna(f, czasy))
+        .join("");
+}
 
 </script>
 
