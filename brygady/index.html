@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brygady linii - FWTP</title>
+<link rel="stylesheet" href="../css/style.css">
+
+<style>
+.brygady-page{max-width:1400px;margin:30px auto;padding:0 15px}
+.brygady-panel{background:#fff;border:1px solid #ddd;border-radius:8px;padding:22px;margin-bottom:20px}
+.brygady-panel h1{margin:0 0 18px;font-size:30px}
+.wybor-grid{display:grid;grid-template-columns:180px auto;gap:12px;align-items:end}
+.pole{display:flex;flex-direction:column;gap:5px}
+.pole label{font-size:14px;font-weight:700}
+.pole input{width:100%;min-height:44px;padding:9px 11px;border:1px solid #ccc;border-radius:6px;background:#fff;color:#222;font:inherit;font-size:16px}
+.przycisk-laduj{min-height:44px;padding:10px 18px;border:0;border-radius:6px;background:#d61c12;color:#fff;font:inherit;font-weight:700;cursor:pointer}
+.przycisk-laduj:hover{background:#b8170f}
+.dni{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-top:18px}
+.dzien-btn{padding:10px 4px;background:#fff;border:1px solid #ccc;border-radius:6px;font:inherit;font-size:15px;font-weight:700;cursor:pointer}
+.dzien-btn.aktywny{background:#d61c12;color:#fff;border-color:#d61c12}
+.brygady-info{margin-top:14px;color:#666;font-size:14px}
+.brygada{margin-bottom:36px}
+.brygada-scroll{overflow-x:auto;width:100%;-webkit-overflow-scrolling:touch}
+.tabela-brygady{border-collapse:collapse;width:max-content;min-width:100%;background:#fff;table-layout:fixed;border:3px solid #111}
+.tabela-brygady th,.tabela-brygady td{height:28px;padding:3px 5px;border:1px solid #ccc;color:#111;font-size:13px;line-height:1.05;text-align:center;vertical-align:middle;white-space:nowrap}
+.naglowek-brygady{background:#ccc!important;font-size:16px!important;font-weight:800!important;border-bottom:2px solid #111!important}
+.naglowek-kursu{min-width:56px;width:56px;background:#eee;font-size:10px!important;font-weight:700}
+.kurs-meta{display:block;margin-top:2px;color:#777;font-size:9px;font-weight:500}
+.postoj-label,.postoj-dol-label{text-align:right!important;font-size:11px!important;font-weight:500!important}
+.postoj-label,.postoj-gora{border-bottom:3px solid #111!important}
+.postoj-dol-label,.postoj-dol{border-top:3px solid #111!important}
+.postoj-gora,.postoj-dol{font-weight:700}
+.nr-lewy{min-width:50px;width:50px;text-align:left!important;border-right:2px solid #111!important}
+.nazwa-przystanku{min-width:240px;width:240px;text-align:center!important;font-weight:500}
+.nr-prawy{min-width:50px;width:50px;text-align:right!important;border-right:3px solid #111!important}
+.wiersz-przystanku td{border-top:1px dotted #666;border-bottom:1px dotted #666}
+.wiersz-przystanku .czas-kursu{border-top:1px solid #ccc;border-bottom:1px solid #ccc}
+.koniec-kursu,.przystanek-koniec{font-weight:800!important}
+.nz{font-size:10px;font-weight:700}
+.podsumowanie{display:grid;grid-template-columns:160px 110px;width:270px;margin-top:12px;background:#fff;border:2px solid #111}
+.podsumowanie>div{min-height:31px;padding:6px 8px;border-bottom:1px solid #111;display:flex;align-items:center}
+.podsumowanie>div:nth-child(odd){justify-content:flex-end;border-right:1px solid #111}
+.podsumowanie>div:nth-last-child(-n+2){border-bottom:0;background:#ccc;font-weight:800}
+.brak{padding:24px;background:#fff;border:1px solid #ddd;border-radius:8px;color:#666}
+@media(max-width:700px){
+ .brygady-page{margin:15px auto;padding:0 8px}
+ .brygady-panel{padding:15px}
+ .wybor-grid{grid-template-columns:1fr}
+ .dni{display:flex;overflow-x:auto;gap:5px;padding-bottom:5px;scrollbar-width:none}
+ .dni::-webkit-scrollbar{display:none}
+ .dni .dzien-btn{flex:0 0 112px;min-width:112px}
+ .tabela-brygady th,.tabela-brygady td{font-size:12px}
+ .nazwa-przystanku{min-width:190px;width:190px}
+}
+</style>
+</head>
+
+<body>
+<header class="topbar">
+    <div class="logo">FWTP</div>
+    <nav class="menu" id="menu"></nav>
+</header>
+
+<main class="brygady-page">
+
+<section class="brygady-panel">
+    <h1>Brygady linii</h1>
+
+    <div class="wybor-grid">
+        <div class="pole">
+            <label for="liniaInput">Numer linii</label>
+            <input type="text" id="liniaInput" placeholder="np. 126" autocomplete="off">
+        </div>
+
+        <button type="button" id="ladujBtn" class="przycisk-laduj">
+            Pokaż brygady
+        </button>
+    </div>
+
+    <div id="dni" class="dni"></div>
+    <div id="brygadyInfo" class="brygady-info">Wpisz numer linii.</div>
+</section>
+
+<div id="wynik"></div>
+
+</main>
+
+<script src="/FWTP/js/menu.js"></script>
+
+<script>
+const BASE_DANE="/FWTP/dane/";
+
+let manifestPaczek=null;
+
+let wybranaData=dataZURL()||new Date();
+
+let aktualnaLinia=String(
+    new URLSearchParams(window.location.search).get("linia")||""
+).trim();
+
+
+document.addEventListener("DOMContentLoaded",()=>{
+
+    const input=document.getElementById("liniaInput");
+    input.value=aktualnaLinia;
+
+    document.getElementById("ladujBtn").addEventListener("click",()=>{
+        aktualnaLinia=String(input.value||"").trim();
+
+        if(!aktualnaLinia){
+            pokazBlad("Podaj numer linii.");
+            return;
+        }
+
+        ustawURL();
+        wczytajIBuduj();
+    });
+
+    input.addEventListener("keydown",event=>{
+        if(event.key==="Enter"){
+            document.getElementById("ladujBtn").click();
+        }
+    });
+
+    generujKalendarz7Dni();
+
+    if(aktualnaLinia){
+        wczytajIBuduj();
+    }
+});
+
+
+function dataZURL(){
+
+    const tekst=new URLSearchParams(window.location.search).get("data");
+
+    if(!tekst)return null;
+
+    const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(tekst);
+
+    if(!m)return null;
+
+    const d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
+
+    return Number.isNaN(d.getTime())?null:d;
+}
+
+
+function dataISO(d){
+    return [
+        d.getFullYear(),
+        String(d.getMonth()+1).padStart(2,"0"),
+        String(d.getDate()).padStart(2,"0")
+    ].join("-");
+}
+
+
+function dodajDni(d,ile){
+    const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+    x.setDate(x.getDate()+ile);
+    return x;
+}
+
+
+function tenSamDzien(a,b){
+    return a.getFullYear()===b.getFullYear() &&
+           a.getMonth()===b.getMonth() &&
+           a.getDate()===b.getDate();
+}
+
+
+function generujKalendarz7Dni(){
+
+    const kontener=document.getElementById("dni");
+    kontener.innerHTML="";
+
+    const dzisiaj=new Date();
+    dzisiaj.setHours(0,0,0,0);
+
+    const dni=["nd","pon","wt","śr","czw","pt","sob"];
+
+    for(let i=0;i<7;i++){
+
+        const d=dodajDni(dzisiaj,i);
+        const btn=document.createElement("button");
+
+        btn.type="button";
+        btn.className="dzien-btn"+(tenSamDzien(d,wybranaData)?" aktywny":"");
+
+        const dopisek=i===0?"dzisiaj":i===1?"jutro":dni[d.getDay()];
+
+        btn.textContent=`${d.getDate()}.${d.getMonth()+1} (${dopisek})`;
+
+        btn.addEventListener("click",()=>{
+            wybranaData=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+            ustawURL();
+            generujKalendarz7Dni();
+
+            if(aktualnaLinia){
+                wczytajIBuduj();
+            }
+        });
+
+        kontener.appendChild(btn);
+    }
+}
+
+
+function ustawURL(){
+
+    const url=new URL(window.location.href);
+
+    if(aktualnaLinia){
+        url.searchParams.set("linia",aktualnaLinia);
+    }else{
+        url.searchParams.delete("linia");
+    }
+
+    url.searchParams.set("data",dataISO(wybranaData));
+
+    history.replaceState({},"",url);
+}
+
+
+async function pobierzManifestPaczek(){
+
+    if(manifestPaczek!==null)return manifestPaczek;
+
+    try{
+        const r=await fetch(
+            BASE_DANE+"paczki.json?ts="+Date.now(),
+            {cache:"no-store"}
+        );
+
+        if(!r.ok){
+            manifestPaczek=[];
+            return manifestPaczek;
+        }
+
+        const d=await r.json();
+
+        manifestPaczek=
+            Array.isArray(d)
+                ? d
+                : Array.isArray(d.paczki)
+                    ? d.paczki
+                    : [];
+
+    }catch(e){
+        manifestPaczek=[];
+    }
+
+    return manifestPaczek;
+}
+
+
+function paczkaObowiazuje(paczka,linia,data){
+
+    if(!paczka)return false;
+
+    const linie=Array.isArray(paczka.linie)
+        ? paczka.linie.map(String)
+        : [];
+
+    if(!linie.includes(String(linia)))return false;
+
+    const iso=dataISO(data);
+    const od=String(paczka.od||"");
+    const doDaty=String(paczka.do||"");
+
+    if(od && iso<od)return false;
+    if(doDaty && iso>doDaty)return false;
+
+    return true;
+}
+
+
+async function pobierzLinie(linia,data){
+
+    const paczki=await pobierzManifestPaczek();
+
+    const pasujace=paczki
+        .filter(p=>paczkaObowiazuje(p,linia,data))
+        .sort((a,b)=>Number(b.priorytet||0)-Number(a.priorytet||0));
+
+    const urls=[];
+
+    pasujace.forEach(p=>{
+        const folder=String(p.folder||"")
+            .replace(/^\/+/,"")
+            .replace(/\/+$/,"");
+
+        if(folder){
+            urls.push(
+                BASE_DANE+folder+"/"+encodeURIComponent(linia)+".json"
+            );
+        }
+    });
+
+    urls.push(BASE_DANE+encodeURIComponent(linia)+".json");
+
+    for(const url of urls){
+
+        try{
+            const r=await fetch(url+"?ts="+Date.now(),{cache:"no-store"});
+
+            if(!r.ok)continue;
+
+            return await r.json();
+        }catch(e){}
+    }
+
+    throw new Error("Nie znaleziono pliku JSON linii "+linia+".");
+}
+
+
+function wielkanoc(rok){
+
+    const a=rok%19;
+    const b=Math.floor(rok/100);
+    const c=rok%100;
+    const d=Math.floor(b/4);
+    const e=b%4;
+    const f=Math.floor((b+8)/25);
+    const g=Math.floor((b-f+1)/3);
+    const h=(19*a+b-d-g+15)%30;
+    const i=Math.floor(c/4);
+    const k=c%4;
+    const l=(32+2*e+2*i-h-k)%7;
+    const m=Math.floor((a+11*h+22*l)/451);
+    const miesiac=Math.floor((h+l-7*m+114)/31);
+    const dzien=((h+l-7*m+114)%31)+1;
+
+    return new Date(rok,miesiac-1,dzien);
+}
+
+
+function polskieSwieta(rok){
+
+    const s=new Set([
+        `${rok}-01-01`,
+        `${rok}-01-06`,
+        `${rok}-05-01`,
+        `${rok}-05-03`,
+        `${rok}-08-15`,
+        `${rok}-11-01`,
+        `${rok}-11-11`,
+        `${rok}-12-25`,
+        `${rok}-12-26`
+    ]);
+
+    const w=wielkanoc(rok);
+
+    s.add(dataISO(w));
+    s.add(dataISO(dodajDni(w,1)));
+    s.add(dataISO(dodajDni(w,49)));
+    s.add(dataISO(dodajDni(w,60)));
+
+    return s;
+}
+
+
+function czySwieto(data){
+    return polskieSwieta(data.getFullYear()).has(dataISO(data));
+}
+
+
+function czyKursPasujeDoDaty(kurs,data){
+
+    if(!kurs)return false;
+
+    const uwagi=String(kurs.uwagi||"").trim().toUpperCase();
+
+    if(!uwagi)return false;
+
+    const dzien=data.getDay();
+    const swieto=czySwieto(data);
+
+    if(uwagi==="D"){
+        return dzien>=1 && dzien<=5 && !swieto;
+    }
+
+    if(uwagi==="C"){
+        return dzien===6 || dzien===0 || swieto;
+    }
+
+    if(uwagi==="6"){
+        return dzien===6 && !swieto;
+    }
+
+    if(uwagi==="7"){
+        return dzien===0 || swieto;
+    }
+
+    return false;
+}
+
+
+function czasNaMinuty(czas){
+
+    const m=/^(\d{1,2}):(\d{2})$/.exec(String(czas||"").trim());
+
+    if(!m)return null;
+
+    const h=Number(m[1]);
+    const min=Number(m[2]);
+
+    if(h<0 || h>47 || min<0 || min>59)return null;
+
+    return h*60+min;
+}
+
+
+function roznicaMinut(pozniej,wczesniej){
+
+    if(pozniej===null || wczesniej===null)return null;
+
+    let r=pozniej-wczesniej;
+
+    while(r<0)r+=1440;
+
+    return r;
+}
+
+
+function formatCzasTrwania(minuty){
+
+    const v=Math.max(0,Number(minuty||0));
+    return Math.floor(v/60)+":"+String(v%60).padStart(2,"0");
+}
+
+
+function normalizuj(tekst){
+    return String(tekst||"")
+        .trim()
+        .toLocaleLowerCase("pl-PL")
+        .replace(/\s+/g," ");
+}
+
+
+function czyNZ(p){
+
+    if(!p)return false;
+
+    const typ=String(p.typ||"").trim().toUpperCase();
+
+    return typ==="NŻ" ||
+           typ==="NZ" ||
+           p.naZadanie===true ||
+           p.nz===true;
+}
+
+
+function zbierzKursy(dane,data){
+
+    const mapa=new Map();
+
+    const rozklady=Array.isArray(dane.rozkłady)?dane.rozkłady:[];
+
+    rozklady.forEach(rozklad=>{
+
+        const kierunki=Array.isArray(rozklad.kierunki)?rozklad.kierunki:[];
+
+        kierunki.forEach((kierunek,indeksKierunku)=>{
+
+            const przystanki=Array.isArray(kierunek.przystanki)
+                ? kierunek.przystanki
+                : [];
+
+            przystanki.forEach((przystanek,indeksPrzystanku)=>{
+
+                const kursy=Array.isArray(przystanek.kursy)
+                    ? przystanek.kursy
+                    : [];
+
+                kursy.forEach(kurs=>{
+
+                    if(!czyKursPasujeDoDaty(kurs,data))return;
+
+                    const brygada=String(kurs.brygada||"").trim();
+                    const numer=String(kurs.numer||"").trim();
+                    const czas=String(kurs.czas||"").trim();
+
+                    if(!brygada || !numer || czasNaMinuty(czas)===null)return;
+
+                    const wariant=String(kurs.wariant||"").trim();
+
+                    const key=[
+                        indeksKierunku,
+                        numer,
+                        wariant,
+                        brygada
+                    ].join("|");
+
+                    if(!mapa.has(key)){
+                        mapa.set(key,{
+                            key,
+                            linia:String(dane.linia||""),
+                            brygada,
+                            numer,
+                            wariant,
+                            kierunek:indeksKierunku,
+                            czasy:new Map(),
+                            przystanki,
+                            start:null,
+                            koniec:null,
+                            startIndex:null,
+                            koniecIndex:null
+                        });
+                    }
+
+                    mapa.get(key).czasy.set(indeksPrzystanku,czas);
+                });
+            });
+        });
+    });
+
+    const wynik=Array.from(mapa.values());
+
+    wynik.forEach(rekord=>{
+
+        const indeksy=Array.from(rekord.czasy.keys()).sort((a,b)=>a-b);
+
+        if(!indeksy.length)return;
+
+        rekord.startIndex=indeksy[0];
+        rekord.koniecIndex=indeksy[indeksy.length-1];
+
+        rekord.start=czasNaMinuty(rekord.czasy.get(rekord.startIndex));
+        rekord.koniec=czasNaMinuty(rekord.czasy.get(rekord.koniecIndex));
+
+        if(rekord.koniec!==null && rekord.start!==null && rekord.koniec<rekord.start){
+            rekord.koniec+=1440;
+        }
+    });
+
+    return wynik.filter(r=>r.start!==null && r.koniec!==null);
+}
+
+
+function wartoscNumeruKursu(numer){
+
+    const tekst=String(numer||"");
+    const fragment=tekst.includes(".")?tekst.split(".").pop():tekst;
+    const liczba=Number(fragment.replace(/[^\d.-]/g,""));
+
+    return Number.isFinite(liczba)?liczba:Number.MAX_SAFE_INTEGER;
+}
+
+
+function porownajKursyPoNumerze(a,b){
+
+    const aa=wartoscNumeruKursu(a.numer);
+    const bb=wartoscNumeruKursu(b.numer);
+
+    if(aa!==bb)return aa-bb;
+
+    return String(a.numer).localeCompare(
+        String(b.numer),
+        "pl",
+        {numeric:true}
+    );
+}
+
+
+function czyBrygadaZmianowa(brygada){
+
+    const tekst=String(brygada||"").trim();
+
+    if(tekst.startsWith("0"))return true;
+
+    const liczba=Number(tekst);
+
+    return Number.isFinite(liczba) && liczba>=700 && liczba<=799;
+}
+
+
+function ulozKursyBrygady(kursy){
+
+    if(!kursy.length)return [];
+
+    if(czyBrygadaZmianowa(kursy[0].brygada)){
+        return [...kursy].sort(
+            (a,b)=>a.start-b.start || porownajKursyPoNumerze(a,b)
+        );
+    }
+
+    const grupy=new Map();
+
+    kursy.forEach(k=>{
+        if(!grupy.has(k.kierunek))grupy.set(k.kierunek,[]);
+        grupy.get(k.kierunek).push(k);
+    });
+
+    grupy.forEach(lista=>lista.sort(porownajKursyPoNumerze));
+
+    const dirs=Array.from(grupy.keys()).sort((a,b)=>a-b);
+
+    if(dirs.length<=1){
+        return [...kursy].sort(porownajKursyPoNumerze);
+    }
+
+    const a=grupy.get(dirs[0])||[];
+    const b=grupy.get(dirs[1])||[];
+
+    const startA=a[0]?.start??Number.MAX_SAFE_INTEGER;
+    const startB=b[0]?.start??Number.MAX_SAFE_INTEGER;
+
+    const pierwszy=startB<startA?b:a;
+    const drugi=pierwszy===a?b:a;
+
+    const wynik=[];
+    const ile=Math.max(pierwszy.length,drugi.length);
+
+    for(let i=0;i<ile;i++){
+        if(pierwszy[i])wynik.push(pierwszy[i]);
+        if(drugi[i])wynik.push(drugi[i]);
+    }
+
+    return wynik;
+}
+
+
+function lcsMerge(a,b){
+
+    const n=a.length;
+    const m=b.length;
+
+    const dp=Array.from({length:n+1},()=>Array(m+1).fill(0));
+
+    for(let i=n-1;i>=0;i--){
+        for(let j=m-1;j>=0;j--){
+            if(a[i].klucz===b[j].klucz){
+                dp[i][j]=1+dp[i+1][j+1];
+            }else{
+                dp[i][j]=Math.max(dp[i+1][j],dp[i][j+1]);
+            }
+        }
+    }
+
+    const wynik=[];
+    let i=0;
+    let j=0;
+
+    while(i<n || j<m){
+
+        if(i<n && j<m && a[i].klucz===b[j].klucz){
+
+            wynik.push({
+                nazwa:a[i].nazwa,
+                dir0:a[i].dir0,
+                dir1:b[j].dir1
+            });
+
+            i++;
+            j++;
+
+        }else if(
+            j>=m ||
+            (i<n && dp[i+1][j]>=dp[i][j+1])
+        ){
+
+            wynik.push({
+                nazwa:a[i].nazwa,
+                dir0:a[i].dir0,
+                dir1:null
+            });
+
+            i++;
+
+        }else{
+
+            wynik.push({
+                nazwa:b[j].nazwa,
+                dir0:null,
+                dir1:b[j].dir1
+            });
+
+            j++;
+        }
+    }
+
+    return wynik;
+}
+
+
+function zbudujOsPrzystankow(kursy,startDirection){
+
+    const p0=kursy.find(k=>k.kierunek===0);
+    const p1=kursy.find(k=>k.kierunek===1);
+
+    const lista0=(p0?.przystanki||[]).map((p,index)=>({
+        klucz:normalizuj(p.nazwa),
+        nazwa:String(p.nazwa||""),
+        dir0:{
+            index,
+            nr:String(p.nr||""),
+            nz:czyNZ(p)
+        }
+    }));
+
+    const lista1=(p1?.przystanki||[]).map((p,index)=>({
+        klucz:normalizuj(p.nazwa),
+        nazwa:String(p.nazwa||""),
+        dir1:{
+            index,
+            nr:String(p.nr||""),
+            nz:czyNZ(p)
+        }
+    })).reverse();
+
+    let os;
+
+    if(lista0.length && lista1.length){
+        os=lcsMerge(lista0,lista1);
+    }else if(lista0.length){
+        os=lista0.map(x=>({
+            nazwa:x.nazwa,
+            dir0:x.dir0,
+            dir1:null
+        }));
+    }else{
+        os=lista1.map(x=>({
+            nazwa:x.nazwa,
+            dir0:null,
+            dir1:x.dir1
+        }));
+    }
+
+    if(startDirection===1){
+        os.reverse();
+    }
+
+    return os;
+}
+
+
+function escapeHtml(tekst){
+    return String(tekst??"")
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;");
+}
+
+
+function pokazNumerPrzystanku(dane,lewy){
+
+    if(!dane)return "";
+
+    const nr=escapeHtml(dane.nr);
+
+    if(!dane.nz)return nr;
+
+    return lewy
+        ? `${nr} <span class="nz">ż</span>`
+        : `<span class="nz">ż</span> ${nr}`;
+}
+
+
+function czasKursuNaOsi(kurs,element){
+
+    const dane=kurs.kierunek===0?element.dir0:element.dir1;
+
+    if(!dane)return "";
+
+    return String(kurs.czasy.get(dane.index)||"");
+}
+
+
+function czyEndpointNaOsi(kurs,element){
+
+    const dane=kurs.kierunek===0?element.dir0:element.dir1;
+
+    if(!dane)return false;
+
+    return dane.index===kurs.startIndex || dane.index===kurs.koniecIndex;
+}
+
+
+function zbudujPostoje(kursy){
+
+    const wynik=[];
+
+    for(let i=0;i<kursy.length-1;i++){
+        wynik.push(
+            roznicaMinut(kursy[i+1].start,kursy[i].koniec)
+        );
+    }
+
+    return wynik;
+}
+
+
+function renderPostojGora(kursy,postoje){
+
+    let html='<tr><td class="postoj-label" colspan="3">Postoje na krańcu [min]</td>';
+
+    let i=0;
+
+    while(i<kursy.length){
+
+        if(i===0){
+            html+='<td class="postoj-gora"></td>';
+            i++;
+            continue;
+        }
+
+        if(i<kursy.length-1){
+
+            const wartosc=postoje[i];
+
+            html+=
+                `<td class="postoj-gora" colspan="2">`+
+                `${wartosc===null||wartosc===undefined?"":escapeHtml(wartosc)}`+
+                `</td>`;
+
+            i+=2;
+
+        }else{
+            html+='<td class="postoj-gora"></td>';
+            i++;
+        }
+    }
+
+    return html+"</tr>";
+}
+
+
+function renderPostojDol(kursy,postoje){
+
+    let html='<tr><td class="postoj-dol-label" colspan="3">Postoje na krańcu [min]</td>';
+
+    let i=0;
+
+    while(i<kursy.length){
+
+        if(i<kursy.length-1){
+
+            const wartosc=postoje[i];
+
+            html+=
+                `<td class="postoj-dol" colspan="2">`+
+                `${wartosc===null||wartosc===undefined?"":escapeHtml(wartosc)}`+
+                `</td>`;
+
+            i+=2;
+
+        }else{
+            html+='<td class="postoj-dol"></td>';
+            i++;
+        }
+    }
+
+    return html+"</tr>";
+}
+
+
+function policzPodsumowanie(kursy,postoje){
+
+    let jazda=0;
+
+    kursy.forEach(k=>{
+        const r=roznicaMinut(k.koniec,k.start);
+        if(r!==null && r>=0)jazda+=r;
+    });
+
+    let przerwy=0;
+
+    postoje.forEach(p=>{
+        if(p!==null && p>=0)przerwy+=p;
+    });
+
+    return{
+        jazda,
+        przerwy,
+        razem:jazda+przerwy
+    };
+}
+
+
+function renderBrygada(linia,brygada,kursy){
+
+    const uporzadkowane=ulozKursyBrygady(kursy);
+
+    if(!uporzadkowane.length)return "";
+
+    const startDirection=uporzadkowane[0].kierunek;
+
+    const os=zbudujOsPrzystankow(uporzadkowane,startDirection);
+    const postoje=zbudujPostoje(uporzadkowane);
+    const podsumowanie=policzPodsumowanie(uporzadkowane,postoje);
+
+    let html=
+        '<section class="brygada">'+
+        '<div class="brygada-scroll">'+
+        '<table class="tabela-brygady">'+
+        '<thead>'+
+        '<tr>'+
+        `<th class="naglowek-brygady" colspan="3">`+
+        `${escapeHtml(linia)} / ${escapeHtml(brygada)}`+
+        `</th>`;
+
+    uporzadkowane.forEach(k=>{
+        html+=
+            '<th class="naglowek-kursu">'+
+            escapeHtml(k.numer)+
+            (k.wariant
+                ? `<span class="kurs-meta">wariant ${escapeHtml(k.wariant)}</span>`
+                : "")+
+            '</th>';
+    });
+
+    html+=
+        '</tr>'+
+        renderPostojGora(uporzadkowane,postoje)+
+        '</thead><tbody>';
+
+    os.forEach(element=>{
+
+        let rowEndpoint=false;
+
+        const komorki=uporzadkowane.map(k=>{
+
+            const czas=czasKursuNaOsi(k,element);
+            const endpoint=Boolean(czas)&&czyEndpointNaOsi(k,element);
+
+            if(endpoint)rowEndpoint=true;
+
+            return(
+                `<td class="czas-kursu${endpoint?" koniec-kursu":""}">`+
+                `${escapeHtml(czas)}`+
+                `</td>`
+            );
+        }).join("");
+
+        const lewy=startDirection===1?element.dir1:element.dir0;
+        const prawy=startDirection===1?element.dir0:element.dir1;
+
+        html+=
+            '<tr class="wiersz-przystanku">'+
+            `<td class="nr-lewy${rowEndpoint?" przystanek-koniec":""}">`+
+            pokazNumerPrzystanku(lewy,true)+
+            '</td>'+
+            `<td class="nazwa-przystanku${rowEndpoint?" przystanek-koniec":""}">`+
+            escapeHtml(String(element.nazwa||"").toUpperCase())+
+            '</td>'+
+            `<td class="nr-prawy${rowEndpoint?" przystanek-koniec":""}">`+
+            pokazNumerPrzystanku(prawy,false)+
+            '</td>'+
+            komorki+
+            '</tr>';
+    });
+
+    html+=
+        renderPostojDol(uporzadkowane,postoje)+
+        '</tbody></table></div>'+
+        '<div class="podsumowanie">'+
+        '<div>Czas jazdy:</div>'+
+        `<div>${escapeHtml(formatCzasTrwania(podsumowanie.jazda))}</div>`+
+        '<div>Czas przerw:</div>'+
+        `<div>${escapeHtml(formatCzasTrwania(podsumowanie.przerwy))}</div>`+
+        '<div>Łączny czas:</div>'+
+        `<div>${escapeHtml(formatCzasTrwania(podsumowanie.razem))}</div>`+
+        '</div>'+
+        '</section>';
+
+    return html;
+}
+
+
+function porownajBrygady(a,b){
+
+    const na=Number(a);
+    const nb=Number(b);
+
+    const aa=Number.isFinite(na);
+    const bb=Number.isFinite(nb);
+
+    if(aa && bb)return na-nb;
+    if(aa)return -1;
+    if(bb)return 1;
+
+    return String(a).localeCompare(String(b),"pl",{numeric:true});
+}
+
+
+function pokazBrygady(dane,data){
+
+    const wynik=document.getElementById("wynik");
+    const info=document.getElementById("brygadyInfo");
+
+    const kursy=zbierzKursy(dane,data);
+
+    const grupy=new Map();
+
+    kursy.forEach(k=>{
+        if(!grupy.has(k.brygada))grupy.set(k.brygada,[]);
+        grupy.get(k.brygada).push(k);
+    });
+
+    const brygady=Array.from(grupy.keys()).sort(porownajBrygady);
+
+    if(!brygady.length){
+
+        info.textContent=`Linia ${dane.linia||aktualnaLinia} • ${dataISO(data)}`;
+
+        wynik.innerHTML=
+            '<div class="brak">Brak brygad dla wybranego dnia.</div>';
+
+        return;
+    }
+
+    info.textContent=
+        `Linia ${dane.linia||aktualnaLinia} • ${dataISO(data)} • `+
+        `${brygady.length} ${brygady.length===1?"brygada":"brygad"}`;
+
+    wynik.innerHTML=brygady.map(b=>
+        renderBrygada(
+            String(dane.linia||aktualnaLinia),
+            b,
+            grupy.get(b)
+        )
+    ).join("");
+}
+
+
+async function wczytajIBuduj(){
+
+    const wynik=document.getElementById("wynik");
+    const info=document.getElementById("brygadyInfo");
+
+    wynik.innerHTML='<div class="brak">Ładowanie brygad...</div>';
+    info.textContent=`Ładowanie linii ${aktualnaLinia}...`;
+
+    try{
+
+        const dane=await pobierzLinie(aktualnaLinia,wybranaData);
+
+        pokazBrygady(dane,wybranaData);
+
+    }catch(error){
+
+        console.error(error);
+
+        pokazBlad(
+            error.message||"Nie udało się wczytać brygad."
+        );
+    }
+}
+
+
+function pokazBlad(tekst){
+
+    document.getElementById("brygadyInfo").textContent=tekst;
+
+    document.getElementById("wynik").innerHTML=
+        '<div class="brak">'+escapeHtml(tekst)+'</div>';
+}
+</script>
+</body>
+</html>
