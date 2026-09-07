@@ -708,60 +708,482 @@ function pokazOdjazdy(lista, data) {
     }).join("");
 }
 
-async function wczytajIndeksPrzystankow() {
-    const dane = await pobierzJSON("/FWTP/dane/przystanki.json");
+function listaPrzystankow(dane) {
+    if (Array.isArray(dane)) {
+        return dane;
+    }
 
-    if (!dane) return null;
+    if (
+        dane &&
+        Array.isArray(
+            dane.przystanki
+        )
+    ) {
+        return dane.przystanki;
+    }
 
-    const lista = Array.isArray(dane)
-        ? dane
-        : (Array.isArray(dane.przystanki) ? dane.przystanki : []);
-
-    return lista.find(p =>
-        normalizuj(p.nazwa) === normalizuj(szukanaNazwa) &&
-        String(p.nr || "").trim() === szukanyNr
-    ) || null;
+    return [];
 }
 
-async function wczytajManifest() {
-    const dane = await pobierzJSON("/FWTP/dane/paczki.json");
 
-    manifestPaczek =
-        dane && Array.isArray(dane.paczki)
-            ? dane.paczki
-            : (Array.isArray(dane) ? dane : []);
+function kluczPrzystankuIndeks(p) {
+    return (
+        normalizuj(
+            p?.nazwa || ""
+        ) +
+        "|" +
+        String(
+            p?.nr || ""
+        )
+            .trim()
+            .toLowerCase()
+    );
 }
 
-async function wczytajOdjazdy() {
-    const data = dataZInput(
-        document.getElementById("data").value
+
+function adresIndeksuPaczki(paczka) {
+    const folder =
+        String(
+            paczka?.folder || ""
+        )
+            .trim()
+            .replace(
+                /^\/+/,
+                ""
+            )
+            .replace(
+                /\/+$/,
+                ""
+            );
+
+    if (!folder) {
+        return "";
+    }
+
+    return (
+        "/FWTP/dane/" +
+        folder +
+        "/przystanki.json"
+    );
+}
+
+
+function scalIndeksyPrzystankow(
+    baza,
+    paczkiZDanymi
+) {
+    const mapaLinii =
+        new Map();
+
+
+    baza.forEach(
+        p => {
+            (
+                p.linie || []
+            ).forEach(
+                linia => {
+                    const nrLinii =
+                        String(
+                            linia
+                        ).trim();
+
+                    if (
+                        !mapaLinii.has(
+                            nrLinii
+                        )
+                    ) {
+                        mapaLinii.set(
+                            nrLinii,
+                            new Map()
+                        );
+                    }
+
+                    mapaLinii
+                        .get(
+                            nrLinii
+                        )
+                        .set(
+                            kluczPrzystankuIndeks(
+                                p
+                            ),
+                            {
+                                nazwa:
+                                    p.nazwa || "",
+                                nr:
+                                    p.nr || ""
+                            }
+                        );
+                }
+            );
+        }
     );
 
-    if (!data || !danePrzystanku) return;
 
-    document.getElementById("info").textContent =
-        "Wczytywanie odjazdów...";
+    paczkiZDanymi.forEach(
+        ({
+            paczka,
+            przystanki
+        }) => {
 
-    document.getElementById("odjazdy").innerHTML = "";
+            const liniePaczki =
+                Array.isArray(
+                    paczka.linie
+                )
+                    ? paczka.linie
+                        .map(
+                            x =>
+                                String(
+                                    x
+                                ).trim()
+                        )
+                        .filter(
+                            Boolean
+                        )
+                    : [];
 
-    let linie = Array.isArray(danePrzystanku.linie)
-        ? danePrzystanku.linie
-        : [];
 
-    if (wybranaLinia) {
-        linie = linie.filter(
-            linia =>
-                String(linia).trim() ===
-                wybranaLinia
+            /*
+             * Paczka zastępuje stan tylko linii,
+             * które są w niej wymienione.
+             */
+            liniePaczki.forEach(
+                linia => {
+                    mapaLinii.set(
+                        linia,
+                        new Map()
+                    );
+                }
+            );
+
+
+            przystanki.forEach(
+                p => {
+                    (
+                        p.linie || []
+                    ).forEach(
+                        linia => {
+                            const nrLinii =
+                                String(
+                                    linia
+                                ).trim();
+
+                            if (
+                                !liniePaczki.includes(
+                                    nrLinii
+                                )
+                            ) {
+                                return;
+                            }
+
+                            if (
+                                !mapaLinii.has(
+                                    nrLinii
+                                )
+                            ) {
+                                mapaLinii.set(
+                                    nrLinii,
+                                    new Map()
+                                );
+                            }
+
+                            mapaLinii
+                                .get(
+                                    nrLinii
+                                )
+                                .set(
+                                    kluczPrzystankuIndeks(
+                                        p
+                                    ),
+                                    {
+                                        nazwa:
+                                            p.nazwa || "",
+                                        nr:
+                                            p.nr || ""
+                                    }
+                                );
+                        }
+                    );
+                }
+            );
+        }
+    );
+
+
+    const wynik =
+        new Map();
+
+
+    for (
+        const [
+            linia,
+            przystankiLinii
+        ] of mapaLinii
+    ) {
+        for (
+            const [
+                klucz,
+                p
+            ] of przystankiLinii
+        ) {
+
+            if (
+                !wynik.has(
+                    klucz
+                )
+            ) {
+                wynik.set(
+                    klucz,
+                    {
+                        nazwa:
+                            p.nazwa,
+                        nr:
+                            p.nr,
+                        linie:
+                            []
+                    }
+                );
+            }
+
+            const rekord =
+                wynik.get(
+                    klucz
+                );
+
+            if (
+                !rekord.linie.includes(
+                    linia
+                )
+            ) {
+                rekord.linie.push(
+                    linia
+                );
+            }
+        }
+    }
+
+
+    return Array.from(
+        wynik.values()
+    );
+}
+
+
+async function wczytajIndeksPrzystankow(
+    data
+) {
+    const bazaDane =
+        await pobierzJSON(
+            "/FWTP/dane/przystanki.json"
+        );
+
+    const baza =
+        listaPrzystankow(
+            bazaDane
+        );
+
+
+    const pasujacePaczki =
+        manifestPaczek
+            .filter(
+                paczka =>
+                    paczkaPasujeDoDaty(
+                        paczka,
+                        data
+                    )
+            )
+            .sort(
+                (
+                    a,
+                    b
+                ) =>
+                    Number(
+                        a.priorytet || 0
+                    ) -
+                    Number(
+                        b.priorytet || 0
+                    )
+            );
+
+
+    const paczkiZDanymi =
+        [];
+
+
+    for (
+        const paczka
+        of pasujacePaczki
+    ) {
+        const adres =
+            adresIndeksuPaczki(
+                paczka
+            );
+
+        if (!adres) {
+            continue;
+        }
+
+
+        const dane =
+            await pobierzJSON(
+                adres
+            );
+
+
+        if (!dane) {
+            /*
+             * Starsza paczka może nie mieć jeszcze
+             * własnego przystanki.json.
+             */
+            continue;
+        }
+
+
+        paczkiZDanymi.push(
+            {
+                paczka:
+                    paczka,
+
+                przystanki:
+                    listaPrzystankow(
+                        dane
+                    )
+            }
         );
     }
 
-    const wyniki = await Promise.all(
-        linie.map(async linia => {
-            const dane = await pobierzLinie(linia, data);
-            return zbierzOdjazdyZLinii(dane, linia, data);
-        })
+
+    const lista =
+        scalIndeksyPrzystankow(
+            baza,
+            paczkiZDanymi
+        );
+
+
+    return (
+        lista.find(
+            p =>
+                normalizuj(
+                    p.nazwa
+                ) ===
+                normalizuj(
+                    szukanaNazwa
+                )
+                &&
+                String(
+                    p.nr || ""
+                ).trim() ===
+                szukanyNr
+        ) ||
+        null
     );
+}
+
+
+async function wczytajManifest() {
+    const dane =
+        await pobierzJSON(
+            "/FWTP/dane/paczki.json"
+        );
+
+    manifestPaczek =
+        dane &&
+        Array.isArray(
+            dane.paczki
+        )
+            ? dane.paczki
+            : (
+                Array.isArray(
+                    dane
+                )
+                    ? dane
+                    : []
+            );
+}
+
+
+async function wczytajOdjazdy() {
+    const data =
+        dataZInput(
+            document.getElementById(
+                "data"
+            ).value
+        );
+
+    if (!data) {
+        return;
+    }
+
+
+    document.getElementById(
+        "info"
+    ).textContent =
+        "Wczytywanie odjazdów...";
+
+    document.getElementById(
+        "odjazdy"
+    ).innerHTML =
+        "";
+
+
+    /*
+     * Przy każdej zmianie daty pobieramy właściwy
+     * indeks przystanków: baza + pasujące paczki.
+     */
+    danePrzystanku =
+        await wczytajIndeksPrzystankow(
+            data
+        );
+
+
+    if (!danePrzystanku) {
+        document.getElementById(
+            "info"
+        ).textContent =
+            "Brak tego przystanku w rozkładzie dla wybranego dnia.";
+
+        return;
+    }
+
+
+    let linie =
+        Array.isArray(
+            danePrzystanku.linie
+        )
+            ? danePrzystanku.linie
+            : [];
+
+
+    if (wybranaLinia) {
+        linie =
+            linie.filter(
+                linia =>
+                    String(
+                        linia
+                    ).trim() ===
+                    wybranaLinia
+            );
+    }
+
+
+    const wyniki =
+        await Promise.all(
+            linie.map(
+                async linia => {
+                    const dane =
+                        await pobierzLinie(
+                            linia,
+                            data
+                        );
+
+                    return zbierzOdjazdyZLinii(
+                        dane,
+                        linia,
+                        data
+                    );
+                }
+            )
+        );
+
 
     pokazOdjazdy(
         wyniki.flat(),
@@ -769,52 +1191,85 @@ async function wczytajOdjazdy() {
     );
 }
 
+
 async function start() {
     if (!szukanaNazwa) {
-        document.getElementById("info").textContent =
+        document.getElementById(
+            "info"
+        ).textContent =
             "Nie podano przystanku.";
+
         return;
     }
 
-    const dzisiaj = new Date();
-    dzisiaj.setHours(0, 0, 0, 0);
 
-    document.getElementById("data").value =
-        dataISO(dzisiaj);
+    const dzisiaj =
+        new Date();
 
-    document.getElementById("nazwaPrzystanku").textContent =
+    dzisiaj.setHours(
+        0,
+        0,
+        0,
+        0
+    );
+
+
+    document.getElementById(
+        "data"
+    ).value =
+        dataISO(
+            dzisiaj
+        );
+
+
+    document.getElementById(
+        "nazwaPrzystanku"
+    ).textContent =
         szukanaNazwa;
 
-    document.getElementById("nrPrzystanku").textContent =
+
+    document.getElementById(
+        "nrPrzystanku"
+    ).textContent =
         szukanyNr
             ? (
                 wybranaLinia
-                    ? `Przystanek ${szukanyNr} • linia ${wybranaLinia}`
-                    : `Przystanek ${szukanyNr}`
+                    ? (
+                        "Przystanek " +
+                        szukanyNr +
+                        " • linia " +
+                        wybranaLinia
+                    )
+                    : (
+                        "Przystanek " +
+                        szukanyNr
+                    )
             )
             : (
                 wybranaLinia
-                    ? `Linia ${wybranaLinia}`
+                    ? (
+                        "Linia " +
+                        wybranaLinia
+                    )
                     : ""
             );
 
+
     await wczytajManifest();
-
-    danePrzystanku =
-        await wczytajIndeksPrzystankow();
-
-    if (!danePrzystanku) {
-        document.getElementById("info").textContent =
-            "Nie znaleziono przystanku w przystanki.json.";
-        return;
-    }
 
     await wczytajOdjazdy();
 }
 
+
 document
-    .getElementById("data")
-    .addEventListener("change", wczytajOdjazdy);
+    .getElementById(
+        "data"
+    )
+    .addEventListener(
+        "change",
+        wczytajOdjazdy
+    );
+
 
 start();
 </script>
