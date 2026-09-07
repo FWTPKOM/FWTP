@@ -172,33 +172,31 @@
 }
 
 
-
-
-
-
-
-
-
-
 .tabela-brygady col.kol-separator{
-    width:4px!important;
-    min-width:4px!important;
-    max-width:4px!important;
+    width:1px!important;
+    min-width:1px!important;
+    max-width:1px!important;
 }
 
 .tabela-brygady .separator-komorka{
-    width:4px!important;
-    min-width:4px!important;
-    max-width:4px!important;
+    width:1px!important;
+    min-width:1px!important;
+    max-width:1px!important;
     padding:0!important;
     background:#ffffff!important;
-    border-left:1px solid #111111!important;
-    border-right:1px solid #111111!important;
+    border-left:2px solid #111111!important;
+    border-right:2px solid #111111!important;
     border-top:inherit;
     border-bottom:inherit;
     box-sizing:border-box;
 }
 
+
+.podsumowanie th,
+.podsumowanie td{
+    text-align:center!important;
+    justify-content:center!important;
+}
 </style>
 </head>
 
@@ -1717,49 +1715,161 @@ function policzPodsumowanie(
     postoje
 ){
 
-    let jazda=0;
+    const indeksSeparatora=
+        kursy.findIndex(
+            kurs=>
+                maSeparatorPrzed(kurs)
+        );
 
-    kursy.forEach(k=>{
+    const maPodzial=
+        indeksSeparatora>0;
 
-        if(
-            czyPlaceholderKursu(k)
+    function policzZakres(
+        odIndeksu,
+        doIndeksu
+    ){
+
+        let jazda=0;
+        let przerwy=0;
+
+        for(
+            let i=odIndeksu;
+            i<doIndeksu;
+            i++
         ){
-            return;
+
+            const kurs=
+                kursy[i];
+
+            if(
+                czyPlaceholderKursu(kurs)
+            ){
+                continue;
+            }
+
+            const czasJazdy=
+                roznicaMinut(
+                    kurs.koniec,
+                    kurs.start
+                );
+
+            if(
+                czasJazdy!==null &&
+                czasJazdy>=0
+            ){
+                jazda+=czasJazdy;
+            }
         }
 
-        const r=
-            roznicaMinut(
-                k.koniec,
-                k.start
+        for(
+            let i=odIndeksu;
+            i<doIndeksu-1;
+            i++
+        ){
+
+            if(
+                maSeparatorPrzed(
+                    kursy[i+1]
+                )
+            ){
+                continue;
+            }
+
+            const p=
+                postoje[i];
+
+            if(
+                p!==null &&
+                p!==undefined &&
+                p>=0
+            ){
+                przerwy+=p;
+            }
+        }
+
+        return{
+            jazda,
+            przerwy
+        };
+    }
+
+
+    if(maPodzial){
+
+        const pierwsza=
+            policzZakres(
+                0,
+                indeksSeparatora
             );
 
-        if(
-            r!==null &&
-            r>=0
-        ){
-            jazda+=r;
-        }
-    });
+        const druga=
+            policzZakres(
+                indeksSeparatora,
+                kursy.length
+            );
 
-    let przerwy=0;
+        const jazda=
+            pierwsza.jazda+
+            druga.jazda;
 
-    postoje.forEach(p=>{
+        const przerwy=
+            pierwsza.przerwy+
+            druga.przerwy;
 
-        if(
-            p!==null &&
-            p!==undefined &&
-            p>=0
-        ){
-            przerwy+=p;
-        }
-    });
+        return{
+            jazda,
+            przerwy,
+            razem:
+                jazda+
+                przerwy,
+
+            jazdaTekst:
+                formatCzasTrwania(
+                    pierwsza.jazda
+                )+
+                " / "+
+                formatCzasTrwania(
+                    druga.jazda
+                ),
+
+            przerwyTekst:
+                formatCzasTrwania(
+                    pierwsza.przerwy
+                )+
+                " / "+
+                formatCzasTrwania(
+                    druga.przerwy
+                )
+        };
+    }
+
+
+    const calosc=
+        policzZakres(
+            0,
+            kursy.length
+        );
 
     return{
-        jazda,
-        przerwy,
+        jazda:
+            calosc.jazda,
+
+        przerwy:
+            calosc.przerwy,
+
         razem:
-            jazda+
-            przerwy
+            calosc.jazda+
+            calosc.przerwy,
+
+        jazdaTekst:
+            formatCzasTrwania(
+                calosc.jazda
+            ),
+
+        przerwyTekst:
+            formatCzasTrwania(
+                calosc.przerwy
+            )
     };
 }
 
@@ -1872,11 +1982,11 @@ function renderBrygada(linia,brygada,kursy){
         '<tbody>'+
         '<tr>'+
         '<th>Czas jazdy:</th>'+
-        `<td>${escapeHtml(formatCzasTrwania(podsumowanie.jazda))}</td>`+
+        `<td>${escapeHtml(podsumowanie.jazdaTekst)}</td>`+
         '</tr>'+
         '<tr>'+
         '<th>Czas przerw:</th>'+
-        `<td>${escapeHtml(formatCzasTrwania(podsumowanie.przerwy))}</td>`+
+        `<td>${escapeHtml(podsumowanie.przerwyTekst)}</td>`+
         '</tr>'+
         '<tr class="razem">'+
         '<th>Łączny czas:</th>'+
