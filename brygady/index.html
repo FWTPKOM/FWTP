@@ -25,15 +25,15 @@
 .tabela-brygady{border-collapse:collapse;width:max-content;min-width:100%;background:#fff;table-layout:fixed;border:3px solid #111}
 .tabela-brygady th,.tabela-brygady td{height:24px;padding:2px 4px;border:1px solid #ccc;color:#111;font-size:12px;line-height:1.05;text-align:center;vertical-align:middle;white-space:nowrap}
 .naglowek-brygady{background:#ccc!important;font-size:14px!important;font-weight:800!important;border-bottom:2px solid #111!important}
-.naglowek-kursu{min-width:48px;width:48px;background:#eee;font-size:9px!important;font-weight:700}
+.naglowek-kursu{min-width:40px;width:40px;background:#eee;font-size:9px!important;font-weight:700}
 .kurs-meta{display:block;margin-top:1px;color:#777;font-size:8px;font-weight:500}
 .postoj-label,.postoj-dol-label{text-align:right!important;font-size:10px!important;font-weight:500!important}
 .postoj-label,.postoj-gora{border-bottom:3px solid #111!important}
 .postoj-dol-label,.postoj-dol{border-top:3px solid #111!important}
 .postoj-gora,.postoj-dol{font-weight:700}
-.nr-lewy{min-width:34px;width:34px;padding-left:3px!important;padding-right:3px!important;text-align:left!important;border-right:2px solid #111!important}
-.nazwa-przystanku{min-width:210px;width:210px;text-align:center!important;font-weight:500}
-.nr-prawy{min-width:34px;width:34px;padding-left:3px!important;padding-right:3px!important;text-align:right!important;border-right:3px solid #111!important}
+.nr-lewy{min-width:27px;width:27px;padding-left:2px!important;padding-right:2px!important;text-align:left!important;border-right:2px solid #111!important}
+.nazwa-przystanku{min-width:180px;width:180px;text-align:left!important;font-weight:500;padding-left:6px!important}
+.nr-prawy{min-width:27px;width:27px;padding-left:2px!important;padding-right:2px!important;text-align:right!important;border-right:3px solid #111!important}
 .wiersz-przystanku td{border-top:1px dotted #666;border-bottom:1px dotted #666}
 .wiersz-przystanku .czas-kursu{border-top:1px solid #ccc;border-bottom:1px solid #ccc}
 .koniec-kursu,.przystanek-koniec{font-weight:800!important}
@@ -51,8 +51,8 @@
  .dni::-webkit-scrollbar{display:none}
  .dni .dzien-btn{flex:0 0 112px;min-width:112px}
  .tabela-brygady th,.tabela-brygady td{font-size:11px}
- .nazwa-przystanku{min-width:170px;width:170px}
- .nr-lewy,.nr-prawy{min-width:32px;width:32px}
+ .nazwa-przystanku{min-width:155px;width:155px}
+ .nr-lewy,.nr-prawy{min-width:26px;width:26px}
 }
 </style>
 </head>
@@ -771,6 +771,143 @@ function czasKursuNaOsi(kurs,element){
 }
 
 
+function daneKursuNaOsi(kurs,element){
+    return kurs.kierunek===0
+        ? element.dir0
+        : element.dir1;
+}
+
+
+/*
+ * Znak "-" pokazujemy tylko wtedy, gdy dany punkt leży
+ * wewnątrz zakresu kursu, ale kurs nie ma w nim czasu.
+ *
+ * Dzięki temu:
+ * - wariant omijający przystanek dostaje "-"
+ * - kurs skrócony NIE dostaje "-" za swoim krańcem
+ * - kurs zaczynający później NIE dostaje "-" przed początkiem
+ */
+function czyWariantOmijaPrzystanek(kurs,element){
+
+    const dane=daneKursuNaOsi(kurs,element);
+
+    if(!dane)return false;
+
+    if(kurs.czasy.has(dane.index)){
+        return false;
+    }
+
+    return(
+        dane.index>kurs.startIndex &&
+        dane.index<kurs.koniecIndex
+    );
+}
+
+
+function rozbijCzas(czas){
+
+    const match=/^(\d{1,2}):(\d{2})$/.exec(
+        String(czas||"").trim()
+    );
+
+    if(!match)return null;
+
+    return{
+        godzina:Number(match[1]),
+        minuta:match[2],
+        pelny:
+            String(Number(match[1])).padStart(2,"0")+
+            ":"+
+            match[2]
+    };
+}
+
+
+/*
+ * W kolumnie kursu:
+ * - pierwszy obsługiwany przystanek: pełna godzina
+ * - ostatni obsługiwany przystanek: pełna godzina
+ * - gdy zmienia się godzina: pełna godzina
+ * - w pozostałych wierszach: tylko minuty
+ */
+function tekstCzasuWTabeli(
+    kurs,
+    element,
+    poprzedniPelnyCzas
+){
+
+    const czas=czasKursuNaOsi(
+        kurs,
+        element
+    );
+
+    if(!czas){
+
+        if(
+            czyWariantOmijaPrzystanek(
+                kurs,
+                element
+            )
+        ){
+            return{
+                tekst:"-",
+                pelnyCzas:poprzedniPelnyCzas
+            };
+        }
+
+        return{
+            tekst:"",
+            pelnyCzas:poprzedniPelnyCzas
+        };
+    }
+
+    const dane=daneKursuNaOsi(
+        kurs,
+        element
+    );
+
+    const aktualny=rozbijCzas(
+        czas
+    );
+
+    if(!dane || !aktualny){
+        return{
+            tekst:czas,
+            pelnyCzas:czas
+        };
+    }
+
+    const pierwszy=
+        dane.index===kurs.startIndex;
+
+    const ostatni=
+        dane.index===kurs.koniecIndex;
+
+    const poprzedni=
+        rozbijCzas(
+            poprzedniPelnyCzas
+        );
+
+    const zmianaGodziny=
+        !poprzedni ||
+        poprzedni.godzina!==aktualny.godzina;
+
+    return{
+        tekst:
+            (
+                pierwszy ||
+                ostatni ||
+                zmianaGodziny
+            )
+                ? aktualny.pelny
+                : aktualny.minuta,
+
+        pelnyCzas:
+            aktualny.pelny
+    };
+}
+
+
 function czyEndpointNaOsi(kurs,element){
 
     const dane=kurs.kierunek===0?element.dir0:element.dir1;
@@ -919,20 +1056,54 @@ function renderBrygada(linia,brygada,kursy){
         renderPostojGora(uporzadkowane,postoje)+
         '</thead><tbody>';
 
+    const poprzednieCzasy=
+        new Map();
+
     os.forEach(element=>{
 
         let rowEndpoint=false;
 
         const komorki=uporzadkowane.map(k=>{
 
-            const czas=czasKursuNaOsi(k,element);
-            const endpoint=Boolean(czas)&&czyEndpointNaOsi(k,element);
+            const czasPelny=
+                czasKursuNaOsi(
+                    k,
+                    element
+                );
 
-            if(endpoint)rowEndpoint=true;
+            const endpoint=
+                Boolean(czasPelny)&&
+                czyEndpointNaOsi(
+                    k,
+                    element
+                );
+
+            if(endpoint){
+                rowEndpoint=true;
+            }
+
+            const wynikCzasu=
+                tekstCzasuWTabeli(
+                    k,
+                    element,
+                    poprzednieCzasy.get(
+                        k.key
+                    ) || ""
+                );
+
+            if(
+                czasPelny &&
+                wynikCzasu.pelnyCzas
+            ){
+                poprzednieCzasy.set(
+                    k.key,
+                    wynikCzasu.pelnyCzas
+                );
+            }
 
             return(
                 `<td class="czas-kursu${endpoint?" koniec-kursu":""}">`+
-                `${escapeHtml(czas)}`+
+                `${escapeHtml(wynikCzasu.tekst)}`+
                 `</td>`
             );
         }).join("");
