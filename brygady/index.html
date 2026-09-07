@@ -171,6 +171,22 @@
     border-right:3px solid #111111!important;
 }
 
+
+.tabela-brygady-inner{
+    position:relative;
+    width:max-content;
+}
+
+.separator-zmiany{
+    position:absolute;
+    top:0;
+    bottom:0;
+    width:0;
+    border-left:4px double #111111;
+    pointer-events:none;
+    z-index:5;
+}
+
 </style>
 </head>
 
@@ -694,13 +710,144 @@ function czyBrygadaZmianowa(brygada){
 }
 
 
+function czyPlaceholderKursu(kurs){
+    return Boolean(
+        kurs &&
+        kurs.placeholder===true
+    );
+}
+
+
+function utworzPlaceholderKursu(
+    kierunek,
+    start,
+    separatorPrzed
+){
+
+    return{
+        key:
+            "placeholder|"+
+            kierunek+
+            "|"+
+            start+
+            "|"+
+            Math.random(),
+
+        linia:"",
+        brygada:"",
+        numer:"",
+        wariant:"",
+        kierunek,
+
+        czasy:new Map(),
+        przystanki:[],
+
+        start,
+        koniec:start,
+        startIndex:null,
+        koniecIndex:null,
+
+        placeholder:true,
+        separatorPrzed:
+            Boolean(
+                separatorPrzed
+            )
+    };
+}
+
+
+function ulozBrygadeZmianowa(kursy){
+
+    const chronologiczne=
+        [...kursy].sort(
+            (a,b)=>
+                a.start-b.start ||
+                porownajKursyPoNumerze(a,b)
+        );
+
+    const wynik=[];
+
+    let poprzedni=null;
+
+    chronologiczne.forEach(kurs=>{
+
+        /*
+         * Dla brygad 0xx i 700-799 zachowujemy logikę
+         * z Twojego VBA:
+         *
+         * - kursy są po kolei chronologicznie,
+         * - jeżeli dwa kolejne rzeczywiste kursy są
+         *   w tym samym kierunku, wstawiamy pusty slot
+         *   kierunku przeciwnego,
+         * - dzięki temu strony tabeli nie zamieniają się.
+         *
+         * Dodatkowo, zgodnie z Twoją prośbą:
+         * przerwa > 90 minut oznacza zmianę/długi postój
+         * i dostaje podwójną pionową linię.
+         */
+
+        if(poprzedni){
+
+            const przerwa=
+                roznicaMinut(
+                    kurs.start,
+                    poprzedni.koniec
+                );
+
+            const dlugaPrzerwa=
+                przerwa!==null &&
+                przerwa>90;
+
+            if(
+                kurs.kierunek===
+                poprzedni.kierunek
+            ){
+
+                const brakujacyKierunek=
+                    kurs.kierunek===0
+                        ? 1
+                        : 0;
+
+                wynik.push(
+                    utworzPlaceholderKursu(
+                        brakujacyKierunek,
+                        kurs.start,
+                        dlugaPrzerwa
+                    )
+                );
+
+                /*
+                 * Sama kolumna następnego kursu nie dostaje
+                 * już drugiej linii – linia stoi przed pustym
+                 * slotem, tak jak w Excelu/VBA.
+                 */
+                kurs.separatorPrzed=false;
+
+            }else{
+
+                kurs.separatorPrzed=
+                    dlugaPrzerwa;
+            }
+        }else{
+            kurs.separatorPrzed=false;
+        }
+
+        wynik.push(kurs);
+
+        poprzedni=kurs;
+    });
+
+    return wynik;
+}
+
+
 function ulozKursyBrygady(kursy){
 
     if(!kursy.length)return [];
 
     if(czyBrygadaZmianowa(kursy[0].brygada)){
-        return [...kursy].sort(
-            (a,b)=>a.start-b.start || porownajKursyPoNumerze(a,b)
+        return ulozBrygadeZmianowa(
+            kursy
         );
     }
 
@@ -916,8 +1063,14 @@ function polaczTrasyZKoncami(
 
 function zbudujOsPrzystankow(kursy,startDirection){
 
-    const p0=kursy.find(k=>k.kierunek===0);
-    const p1=kursy.find(k=>k.kierunek===1);
+    const rzeczywiste=
+        kursy.filter(
+            k=>
+                !czyPlaceholderKursu(k)
+        );
+
+    const p0=rzeczywiste.find(k=>k.kierunek===0);
+    const p1=rzeczywiste.find(k=>k.kierunek===1);
 
     const lista0=(p0?.przystanki||[]).map((p,index)=>({
         klucz:normalizuj(p.nazwa),
@@ -1022,6 +1175,10 @@ function pokazNumerPrzystanku(
 
 function czasKursuNaOsi(kurs,element){
 
+    if(czyPlaceholderKursu(kurs)){
+        return "";
+    }
+
     const dane=kurs.kierunek===0?element.dir0:element.dir1;
 
     if(!dane)return "";
@@ -1031,6 +1188,11 @@ function czasKursuNaOsi(kurs,element){
 
 
 function daneKursuNaOsi(kurs,element){
+
+    if(czyPlaceholderKursu(kurs)){
+        return null;
+    }
+
     return kurs.kierunek===0
         ? element.dir0
         : element.dir1;
@@ -1207,6 +1369,10 @@ function tekstCzasuWTabeli(
 
 function czyEndpointNaOsi(kurs,element){
 
+    if(czyPlaceholderKursu(kurs)){
+        return false;
+    }
+
     const dane=kurs.kierunek===0?element.dir0:element.dir1;
 
     if(!dane)return false;
@@ -1215,14 +1381,53 @@ function czyEndpointNaOsi(kurs,element){
 }
 
 
-function zbudujPostoje(kursy){
+function zbudujPostoje(
+    kursy,
+    brygada
+){
 
     const wynik=[];
 
-    for(let i=0;i<kursy.length-1;i++){
-        wynik.push(
-            roznicaMinut(kursy[i+1].start,kursy[i].koniec)
+    const zmianowa=
+        czyBrygadaZmianowa(
+            brygada
         );
+
+    for(
+        let i=0;
+        i<kursy.length-1;
+        i++
+    ){
+
+        const obecny=
+            kursy[i];
+
+        const nastepny=
+            kursy[i+1];
+
+        if(
+            czyPlaceholderKursu(obecny) ||
+            czyPlaceholderKursu(nastepny)
+        ){
+            wynik.push(null);
+            continue;
+        }
+
+        const przerwa=
+            roznicaMinut(
+                nastepny.start,
+                obecny.koniec
+            );
+
+        if(
+            zmianowa &&
+            przerwa!==null &&
+            przerwa>90
+        ){
+            wynik.push(null);
+        }else{
+            wynik.push(przerwa);
+        }
     }
 
     return wynik;
@@ -1326,25 +1531,54 @@ function renderPustyWierszDol(kursy){
 }
 
 
-function policzPodsumowanie(kursy,postoje){
+function policzPodsumowanie(
+    kursy,
+    postoje
+){
 
     let jazda=0;
 
     kursy.forEach(k=>{
-        const r=roznicaMinut(k.koniec,k.start);
-        if(r!==null && r>=0)jazda+=r;
+
+        if(
+            czyPlaceholderKursu(k)
+        ){
+            return;
+        }
+
+        const r=
+            roznicaMinut(
+                k.koniec,
+                k.start
+            );
+
+        if(
+            r!==null &&
+            r>=0
+        ){
+            jazda+=r;
+        }
     });
 
     let przerwy=0;
 
     postoje.forEach(p=>{
-        if(p!==null && p>=0)przerwy+=p;
+
+        if(
+            p!==null &&
+            p!==undefined &&
+            p>=0
+        ){
+            przerwy+=p;
+        }
     });
 
     return{
         jazda,
         przerwy,
-        razem:jazda+przerwy
+        razem:
+            jazda+
+            przerwy
     };
 }
 
@@ -1355,10 +1589,30 @@ function renderBrygada(linia,brygada,kursy){
 
     if(!uporzadkowane.length)return "";
 
-    const startDirection=uporzadkowane[0].kierunek;
+    const pierwszyRzeczywisty=
+        uporzadkowane.find(
+            k=>
+                !czyPlaceholderKursu(k)
+        );
 
-    const os=zbudujOsPrzystankow(uporzadkowane,startDirection);
-    const postoje=zbudujPostoje(uporzadkowane);
+    if(!pierwszyRzeczywisty){
+        return "";
+    }
+
+    const startDirection=
+        pierwszyRzeczywisty.kierunek;
+
+    const os=
+        zbudujOsPrzystankow(
+            uporzadkowane,
+            startDirection
+        );
+
+    const postoje=
+        zbudujPostoje(
+            uporzadkowane,
+            brygada
+        );
     const podsumowanie=policzPodsumowanie(uporzadkowane,postoje);
 
     const szerokoscTabeli=
@@ -1367,9 +1621,41 @@ function renderBrygada(linia,brygada,kursy){
         24+
         (uporzadkowane.length*35);
 
+    const separatory=
+        uporzadkowane
+            .map(
+                (kurs,index)=>({
+                    kurs,
+                    index
+                })
+            )
+            .filter(
+                x=>
+                    x.kurs.separatorPrzed===true
+            );
+
+    const htmlSeparatorow=
+        separatory
+            .map(
+                x=>{
+                    const left=
+                        24+
+                        130+
+                        24+
+                        (x.index*35);
+
+                    return (
+                        `<span class="separator-zmiany" style="left:${left}px"></span>`
+                    );
+                }
+            )
+            .join("");
+
     let html=
         '<section class="brygada">'+
         '<div class="brygada-scroll">'+
+        `<div class="tabela-brygady-inner" style="width:${szerokoscTabeli}px">`+
+        htmlSeparatorow+
         `<table class="tabela-brygady" style="width:${szerokoscTabeli}px!important;min-width:${szerokoscTabeli}px!important;max-width:${szerokoscTabeli}px!important">`+
         '<colgroup>'+
         '<col class="kol-nr">'+
@@ -1384,9 +1670,14 @@ function renderBrygada(linia,brygada,kursy){
         `</th>`;
 
     uporzadkowane.forEach(k=>{
+
         html+=
             '<th class="naglowek-kursu">'+
-            escapeHtml(k.numer)+
+            (
+                czyPlaceholderKursu(k)
+                    ? ""
+                    : escapeHtml(k.numer)
+            )+
             '</th>';
     });
 
@@ -1400,6 +1691,12 @@ function renderBrygada(linia,brygada,kursy){
         let rowEndpoint=false;
 
         const komorki=uporzadkowane.map(k=>{
+
+            if(
+                czyPlaceholderKursu(k)
+            ){
+                return '<td class="czas-kursu"></td>';
+            }
 
             const czasPelny=
                 czasKursuNaOsi(
@@ -1452,7 +1749,7 @@ function renderBrygada(linia,brygada,kursy){
     html+=
         renderPostojDol(uporzadkowane,postoje)+
         renderPustyWierszDol(uporzadkowane)+
-        '</tbody></table></div>'+
+        '</tbody></table></div></div>'+
         '<table class="podsumowanie">'+
         '<colgroup>'+
         '<col class="podsumowanie-opis">'+
