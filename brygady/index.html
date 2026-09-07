@@ -783,6 +783,64 @@
     padding:0!important;
 }
 
+
+/* =========================================================
+   SEPARATOR – DOKŁADNIE W MIEJSCU KOLUMNY
+   ========================================================= */
+
+.tabela-brygady-inner{
+    position:relative!important;
+    isolation:isolate;
+}
+
+.separator-ciagly{
+    position:absolute!important;
+    top:0!important;
+    bottom:0!important;
+    width:6px!important;
+
+    background:
+        linear-gradient(
+            to right,
+            #111111 0,
+            #111111 2px,
+            #ffffff 2px,
+            #ffffff 4px,
+            #111111 4px,
+            #111111 6px
+        )!important;
+
+    pointer-events:none!important;
+
+    /* nie wychodzi nad menu */
+    z-index:1!important;
+}
+
+.tabela-brygady{
+    position:relative!important;
+    z-index:0!important;
+}
+
+.tabela-brygady .separator-komorka{
+    width:6px!important;
+    min-width:6px!important;
+    max-width:6px!important;
+    padding:0!important;
+    border-left:0!important;
+    border-right:0!important;
+    background:transparent!important;
+}
+
+.tabela-brygady th:has(+ .separator-komorka),
+.tabela-brygady td:has(+ .separator-komorka){
+    border-right:0!important;
+}
+
+.tabela-brygady .separator-komorka + th,
+.tabela-brygady .separator-komorka + td{
+    border-left:0!important;
+}
+
 </style>
 </head>
 
@@ -828,7 +886,19 @@
 
 </main>
 
-<script src="/FWTP/js/menu.js"></script>
+<script src="/FWTP/js/menu.js">
+window.addEventListener(
+    "resize",
+    ()=>{
+        requestAnimationFrame(
+            ()=>{
+                ustawPozycjeCiaglychSeparatorow();
+            }
+        );
+    }
+);
+
+</script>
 
 <script>
 const BASE_DANE="/FWTP/dane/";
@@ -2501,38 +2571,112 @@ function renderKomorkiKursow(
 
 function renderCiagleSeparatory(kursy){
 
-    let liczbaWczesniejszychSeparatorow=0;
+    let html="";
 
-    return kursy
-        .map((kurs,index)=>{
+    for(
+        let i=0;
+        i<liczbaSeparatorow(kursy);
+        i++
+    ){
+        html+=
+            '<span class="separator-ciagly"></span>';
+    }
 
-            if(!maSeparatorPrzed(kurs)){
-                return "";
+    return html;
+}
+
+
+function ustawPozycjeCiaglychSeparatorow(){
+
+    document
+        .querySelectorAll(
+            ".tabela-brygady-inner"
+        )
+        .forEach(wrapper=>{
+
+            const tabela=
+                wrapper.querySelector(
+                    ".tabela-brygady"
+                );
+
+            const overlays=
+                Array.from(
+                    wrapper.children
+                ).filter(
+                    el=>
+                        el.classList &&
+                        el.classList.contains(
+                            "separator-ciagly"
+                        )
+                );
+
+            if(
+                !tabela ||
+                !overlays.length
+            ){
+                return;
             }
 
-            /*
-             * Część przystankowa:
-             * 24 + 130 + 24 = 178 px
-             *
-             * Każdy wcześniejszy slot kursu ma 35 px,
-             * także techniczny pusty slot.
-             *
-             * Każdy wcześniejszy separator ma 6 px.
-             */
-            const left=
-                24+
-                130+
-                24+
-                (index*35)+
-                (liczbaWczesniejszychSeparatorow*6);
+            const wrapperRect=
+                wrapper.getBoundingClientRect();
 
-            liczbaWczesniejszychSeparatorow++;
+            const pozycje=[];
 
-            return (
-                `<span class="separator-ciagly" style="left:${left}px"></span>`
+            tabela
+                .querySelectorAll(
+                    ".separator-komorka"
+                )
+                .forEach(komorka=>{
+
+                    const rect=
+                        komorka.getBoundingClientRect();
+
+                    /*
+                     * Bez Math.round i bez żadnego offsetu:
+                     * dokładnie ta sama pozycja, którą
+                     * przeglądarka wyliczyła dla kolumny.
+                     */
+                    const left=
+                        rect.left-
+                        wrapperRect.left;
+
+                    if(
+                        !pozycje.some(
+                            x=>
+                                Math.abs(
+                                    x-left
+                                )<0.5
+                        )
+                    ){
+                        pozycje.push(left);
+                    }
+                });
+
+            pozycje.sort(
+                (a,b)=>a-b
             );
-        })
-        .join("");
+
+            overlays.forEach(
+                (overlay,index)=>{
+
+                    if(
+                        pozycje[index]===
+                        undefined
+                    ){
+                        overlay.style.display=
+                            "none";
+                        return;
+                    }
+
+                    overlay.style.display=
+                        "block";
+
+                    overlay.style.left=
+                        pozycje[index]+
+                        "px";
+                }
+            );
+        });
 }
 
 
@@ -3057,6 +3201,12 @@ function pokazBrygady(dane,data){
             grupy.get(b)
         )
     ).join("");
+
+    requestAnimationFrame(
+        ()=>{
+            ustawPozycjeCiaglychSeparatorow();
+        }
+    );
 
     requestAnimationFrame(
         uruchomPrzesuwanieNazw
