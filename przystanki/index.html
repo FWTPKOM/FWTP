@@ -372,30 +372,13 @@ function pokazListe() {
 
                 <span class="linie">
                     ${linie.slice(0, 8).map(linia => {
-                        const urlLinii = new URL(
-                            "/FWTP/przystanek/",
-                            window.location.origin
-                        );
-
-                        urlLinii.searchParams.set(
-                            "nazwa",
-                            p.nazwa || ""
-                        );
-
-                        urlLinii.searchParams.set(
-                            "nr",
-                            p.nr || ""
-                        );
-
-                        urlLinii.searchParams.set(
-                            "linia",
-                            linia
-                        );
-
                         return `
                             <a
                                 class="linia"
-                                href="${urlLinii.pathname}${urlLinii.search}"
+                                href="#"
+                                data-linia="${escapeHtml(linia)}"
+                                data-nazwa="${escapeHtml(p.nazwa || "")}"
+                                data-nr="${escapeHtml(p.nr || "")}"
                                 title="Rozkład linii ${escapeHtml(linia)} z tego przystanku"
                             >
                                 ${escapeHtml(linia)}
@@ -621,6 +604,411 @@ async function wczytajPrzystankiDlaDaty(data) {
         paczkiZDanymi
     );
 }
+
+
+function pobierzWariantKursu(kurs) {
+    if (!kurs || typeof kurs !== "object") return "";
+
+    const wariant = kurs.wariant;
+
+    if (wariant && typeof wariant === "object") {
+        return String(
+            wariant.litera ||
+            wariant.nazwa ||
+            ""
+        )
+            .trim()
+            .toUpperCase();
+    }
+
+    return String(wariant || "")
+        .trim()
+        .toUpperCase();
+}
+
+
+function czasJestPoprawny(czas) {
+    return /^(\d{1,2}):(\d{2})$/.test(
+        String(czas || "").trim()
+    );
+}
+
+
+function paczkaZawieraLinie(paczka, linia) {
+    if (
+        !Array.isArray(paczka?.linie) ||
+        paczka.linie.length === 0
+    ) {
+        return true;
+    }
+
+    return paczka.linie
+        .map(x => String(x).trim())
+        .includes(String(linia).trim());
+}
+
+
+function adresPlikuLiniiZPaczki(paczka, linia) {
+    const folder = String(paczka?.folder || "")
+        .trim()
+        .replace(/^\/+/, "")
+        .replace(/\/+$/, "");
+
+    if (!folder) return "";
+
+    return (
+        "/FWTP/dane/" +
+        folder +
+        "/" +
+        encodeURIComponent(linia) +
+        ".json"
+    );
+}
+
+
+async function pobierzDaneLiniiDlaDaty(linia, data) {
+    const manifest =
+        await pobierzJSON("/FWTP/dane/paczki.json");
+
+    const paczki =
+        manifest && Array.isArray(manifest.paczki)
+            ? manifest.paczki
+            : (Array.isArray(manifest) ? manifest : []);
+
+    const pasujace =
+        paczki
+            .filter(
+                p =>
+                    paczkaPasujeDoDaty(p, data) &&
+                    paczkaZawieraLinie(p, linia)
+            )
+            .sort(
+                (a, b) =>
+                    Number(b.priorytet || 0) -
+                    Number(a.priorytet || 0)
+            );
+
+    for (const paczka of pasujace) {
+        const adres =
+            adresPlikuLiniiZPaczki(
+                paczka,
+                linia
+            );
+
+        if (!adres) continue;
+
+        const dane =
+            await pobierzJSON(adres);
+
+        if (dane && Array.isArray(dane.rozkłady)) {
+            return dane;
+        }
+    }
+
+    return await pobierzJSON(
+        "/FWTP/dane/" +
+        encodeURIComponent(linia) +
+        ".json"
+    );
+}
+
+
+function znajdzPrzystanekLinii(
+    daneLinii,
+    nazwa,
+    nr
+) {
+    if (
+        !daneLinii ||
+        !Array.isArray(daneLinii.rozkłady)
+    ) {
+        return null;
+    }
+
+    const szukanaNazwa =
+        normalizuj(nazwa);
+
+    const szukanyNr =
+        String(nr || "").trim();
+
+    for (const rozklad of daneLinii.rozkłady) {
+        const kierunki =
+            Array.isArray(rozklad.kierunki)
+                ? rozklad.kierunki
+                : [];
+
+        for (
+            let kierunekIndex = 0;
+            kierunekIndex < kierunki.length;
+            kierunekIndex++
+        ) {
+            const przystanki =
+                Array.isArray(
+                    kierunki[kierunekIndex].przystanki
+                )
+                    ? kierunki[kierunekIndex].przystanki
+                    : [];
+
+            for (
+                let przystanekIndex = 0;
+                przystanekIndex < przystanki.length;
+                przystanekIndex++
+            ) {
+                const p =
+                    przystanki[przystanekIndex];
+
+                if (
+                    normalizuj(p?.nazwa || "") !==
+                    szukanaNazwa
+                ) {
+                    continue;
+                }
+
+                if (
+                    String(p?.nr || "").trim() !==
+                    szukanyNr
+                ) {
+                    continue;
+                }
+
+                /*
+                 * Jeżeli ten sam słupek pojawia się w kilku
+                 * kierunkach, preferujemy taki, z którego
+                 * faktycznie jest odjazd dalej.
+                 */
+                const kursy =
+                    Array.isArray(p.kursy)
+                        ? p.kursy
+                        : [];
+
+                const maOdjazd =
+                    kursy.some(
+                        kurs => {
+                            if (!czasJestPoprawny(kurs.czas)) {
+                                return false;
+                            }
+
+                            const numerKursu =
+                                String(
+                                    kurs.numer || ""
+                                ).trim();
+
+                            if (!numerKursu) {
+                                return true;
+                            }
+
+                            const wariant =
+                                pobierzWariantKursu(
+                                    kurs
+                                );
+
+                            for (
+                                let i =
+                                    przystanekIndex + 1;
+                                i < przystanki.length;
+                                i++
+                            ) {
+                                const dalej =
+                                    Array.isArray(
+                                        przystanki[i].kursy
+                                    )
+                                        ? przystanki[i].kursy
+                                        : [];
+
+                                if (
+                                    dalej.some(
+                                        k =>
+                                            String(
+                                                k.numer || ""
+                                            ).trim() ===
+                                            numerKursu
+                                            &&
+                                            pobierzWariantKursu(k) ===
+                                            wariant
+                                            &&
+                                            czasJestPoprawny(k.czas)
+                                    )
+                                ) {
+                                    return true;
+                                }
+                            }
+
+                            return false;
+                        }
+                    );
+
+                if (maOdjazd) {
+                    return {
+                        kierunek:
+                            kierunekIndex,
+                        przystanek:
+                            przystanekIndex
+                    };
+                }
+            }
+        }
+    }
+
+    /*
+     * Awaryjnie: jeśli nie znaleźliśmy przystanku
+     * z odjazdem dalej, zwracamy pierwsze dokładne
+     * dopasowanie nazwa + numer.
+     */
+    for (const rozklad of daneLinii.rozkłady) {
+        const kierunki =
+            Array.isArray(rozklad.kierunki)
+                ? rozklad.kierunki
+                : [];
+
+        for (
+            let kierunekIndex = 0;
+            kierunekIndex < kierunki.length;
+            kierunekIndex++
+        ) {
+            const przystanki =
+                Array.isArray(
+                    kierunki[kierunekIndex].przystanki
+                )
+                    ? kierunki[kierunekIndex].przystanki
+                    : [];
+
+            const przystanekIndex =
+                przystanki.findIndex(
+                    p =>
+                        normalizuj(p?.nazwa || "") ===
+                        szukanaNazwa
+                        &&
+                        String(p?.nr || "").trim() ===
+                        szukanyNr
+                );
+
+            if (przystanekIndex !== -1) {
+                return {
+                    kierunek:
+                        kierunekIndex,
+                    przystanek:
+                        przystanekIndex
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
+
+async function otworzRozkladLiniiZPrzystanku(
+    linia,
+    nazwa,
+    nr,
+    element
+) {
+    const data = new Date();
+    data.setHours(0, 0, 0, 0);
+
+    if (element) {
+        element.style.pointerEvents = "none";
+        element.setAttribute(
+            "aria-busy",
+            "true"
+        );
+    }
+
+    try {
+        const daneLinii =
+            await pobierzDaneLiniiDlaDaty(
+                linia,
+                data
+            );
+
+        const znaleziony =
+            znajdzPrzystanekLinii(
+                daneLinii,
+                nazwa,
+                nr
+            );
+
+        if (!znaleziony) {
+            throw new Error(
+                "Nie znaleziono przystanku w rozkładzie linii " +
+                linia
+            );
+        }
+
+        const url =
+            new URL(
+                "/FWTP/linia/",
+                window.location.origin
+            );
+
+        url.searchParams.set(
+            "linia",
+            linia
+        );
+
+        url.searchParams.set(
+            "data",
+            dataISO(data)
+        );
+
+        url.searchParams.set(
+            "kierunek",
+            znaleziony.kierunek
+        );
+
+        url.searchParams.set(
+            "przystanek",
+            "idx:" +
+            znaleziony.przystanek
+        );
+
+        window.location.href =
+            url.pathname +
+            url.search;
+
+    } catch (blad) {
+        console.error(blad);
+
+        alert(
+            "Nie udało się otworzyć rozkładu tej linii z wybranego przystanku."
+        );
+
+        if (element) {
+            element.style.pointerEvents = "";
+            element.removeAttribute(
+                "aria-busy"
+            );
+        }
+    }
+}
+
+
+document
+    .getElementById("lista")
+    .addEventListener(
+        "click",
+        function (event) {
+            const link =
+                event.target.closest(
+                    "a.linia"
+                );
+
+            if (!link) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            otworzRozkladLiniiZPrzystanku(
+                link.dataset.linia || "",
+                link.dataset.nazwa || "",
+                link.dataset.nr || "",
+                link
+            );
+        }
+    );
+
 
 async function start() {
     const lista = document.getElementById("lista");
