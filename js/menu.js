@@ -19,6 +19,7 @@ document.addEventListener("DOMContentLoaded", function () {
         <div class="menu-links">
             <a href="/FWTP/">Strona główna</a>
             <a href="/FWTP/linie/">Rozkład jazdy</a>
+            <a href="/FWTP/przystanki/">Przystanki</a>
             <a href="/FWTP/aktualnosci/">Aktualności</a>
         </div>
     `;
