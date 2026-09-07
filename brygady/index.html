@@ -25,14 +25,14 @@
 .tabela-brygady{border-collapse:collapse;width:auto!important;min-width:0!important;max-width:none!important;background:#fff;table-layout:fixed;border:3px solid #111}
 .tabela-brygady th,.tabela-brygady td{height:20px;padding:0 1px;border:1px solid #ccc;color:#111;font-size:12px;line-height:1;text-align:center;vertical-align:middle;white-space:nowrap;overflow:hidden;box-sizing:border-box}
 .naglowek-brygady{background:#ccc!important;font-size:14px!important;font-weight:800!important;border-bottom:2px solid #111!important}
-.naglowek-kursu{width:38px!important;min-width:38px!important;max-width:38px!important;background:#eee;font-size:15px!important;font-weight:700;padding:0!important;overflow:hidden;text-overflow:clip}
-.czas-kursu{width:38px!important;min-width:38px!important;max-width:38px!important;padding:0!important;font-size:17px!important;overflow:hidden}
+.naglowek-kursu{width:38px!important;min-width:38px!important;max-width:38px!important;background:#eee;font-size:8px!important;font-weight:700;padding:0!important;overflow:hidden;text-overflow:clip}
+.czas-kursu{width:38px!important;min-width:38px!important;max-width:38px!important;padding:0!important;font-size:12px!important;overflow:hidden}
 .kurs-meta{display:block;margin-top:1px;color:#777;font-size:8px;font-weight:500}
 .postoj-label,.postoj-dol-label{text-align:right!important;font-size:10px!important;font-weight:500!important}
 .postoj-label,.postoj-gora{border-bottom:3px solid #111!important}
 .postoj-dol-label,.postoj-dol{border-top:3px solid #111!important}
 .postoj-gora,.postoj-dol{font-weight:700}
-.nr-lewy{width:24px!important;min-width:24px!important;max-width:24px!important;padding-left:3px!important;padding-right:0!important;text-align:left!important;border-right:2px solid #111!important;overflow:hidden;box-sizing:border-box}
+.nr-lewy{width:24px!important;min-width:24px!important;max-width:24px!important;padding:0!important;text-align:left!important;border-right:1px solid #ccc!important;overflow:hidden;box-sizing:border-box}
 .nazwa-przystanku{width:130px!important;min-width:130px!important;max-width:130px!important;text-align:left!important;font-weight:500;padding:0!important;overflow:hidden;box-sizing:border-box}
 .nr-prawy{width:24px!important;min-width:24px!important;max-width:24px!important;padding-left:0!important;padding-right:3px!important;text-align:right!important;border-right:3px solid #111!important;overflow:hidden;box-sizing:border-box}
 .wiersz-przystanku td{border-top:1px dotted #666;border-bottom:1px dotted #666}
@@ -108,6 +108,42 @@
 .podsumowanie tr.razem td{
     background:#cccccc;
     font-weight:800;
+}
+
+
+.nr-przystanku-wrap{
+    width:100%;
+    height:100%;
+    display:grid;
+    align-items:center;
+    justify-items:center;
+    box-sizing:border-box;
+}
+
+.nr-przystanku-wrap.lewy{
+    grid-template-columns:1fr 8px;
+    padding-left:3px;
+}
+
+.nr-przystanku-wrap.prawy{
+    grid-template-columns:8px 1fr;
+    padding-right:3px;
+}
+
+.nr-przystanku-tekst{
+    display:block;
+    width:100%;
+    text-align:center;
+    line-height:1;
+}
+
+.nr-przystanku-z{
+    display:block;
+    width:100%;
+    text-align:center;
+    line-height:1;
+    font-size:9px;
+    font-weight:400!important;
 }
 
 </style>
@@ -803,17 +839,45 @@ function escapeHtml(tekst){
 }
 
 
-function pokazNumerPrzystanku(dane,lewy){
+function pokazNumerPrzystanku(
+    dane,
+    lewy
+) {
 
-    if(!dane)return "";
+    if (!dane) {
+        return "";
+    }
 
-    const nr=escapeHtml(dane.nr);
+    const nr =
+        escapeHtml(
+            dane.nr
+        );
 
-    if(!dane.nz)return nr;
+    const z =
+        dane.nz
+            ? '<span class="nr-przystanku-z">ż</span>'
+            : '<span class="nr-przystanku-z"></span>';
 
-    return lewy
-        ? `${nr} <span class="nz">ż</span>`
-        : `<span class="nz">ż</span> ${nr}`;
+    if (lewy) {
+
+        return (
+            '<span class="nr-przystanku-wrap lewy">' +
+            '<span class="nr-przystanku-tekst">' +
+            nr +
+            '</span>' +
+            z +
+            '</span>'
+        );
+    }
+
+    return (
+        '<span class="nr-przystanku-wrap prawy">' +
+        z +
+        '<span class="nr-przystanku-tekst">' +
+        nr +
+        '</span>' +
+        '</span>'
+    );
 }
 
 
@@ -1240,9 +1304,10 @@ function uruchomPrzesuwanieNazw(){
                 return;
             }
 
-            if(element._marqueeTimer){
-                clearInterval(element._marqueeTimer);
-                element._marqueeTimer=null;
+            if(element._marqueeFrame){
+                cancelAnimationFrame(
+                    element._marqueeFrame
+                );
             }
 
             element.scrollLeft=0;
@@ -1262,42 +1327,64 @@ function uruchomPrzesuwanieNazw(){
 
             element.classList.add("przesuwaj");
 
+            let pozycja=0;
             let kierunek=1;
-            let pauza=18;
 
-            element._marqueeTimer=
-                setInterval(()=>{
+            let ostatniCzas=null;
+            let pauzaDo=performance.now()+1400;
 
-                    if(pauza>0){
-                        pauza--;
-                        return;
+            const predkosc=8; // px na sekundę
+
+            function animuj(czas){
+
+                if(ostatniCzas===null){
+                    ostatniCzas=czas;
+                }
+
+                const dt=
+                    Math.min(
+                        50,
+                        czas-ostatniCzas
+                    )/1000;
+
+                ostatniCzas=czas;
+
+                if(czas>=pauzaDo){
+
+                    pozycja+=
+                        kierunek*
+                        predkosc*
+                        dt;
+
+                    if(pozycja>=maxScroll){
+
+                        pozycja=maxScroll;
+                        kierunek=-1;
+                        pauzaDo=czas+1600;
                     }
+                    else if(pozycja<=0){
 
-                    const nowaPozycja=
-                        element.scrollLeft+
-                        kierunek;
+                        pozycja=0;
+                        kierunek=1;
+                        pauzaDo=czas+1600;
+                    }
 
                     element.scrollLeft=
                         Math.round(
-                            nowaPozycja
+                            pozycja
                         );
+                }
 
-                    if(
-                        element.scrollLeft>=maxScroll
-                    ){
-                        element.scrollLeft=maxScroll;
-                        kierunek=-1;
-                        pauza=28;
-                    }
-                    else if(
-                        element.scrollLeft<=0
-                    ){
-                        element.scrollLeft=0;
-                        kierunek=1;
-                        pauza=28;
-                    }
+                element._marqueeFrame=
+                    requestAnimationFrame(
+                        animuj
+                    );
+            }
 
-                },35);
+            element._marqueeFrame=
+                requestAnimationFrame(
+                    animuj
+                );
         });
 }
 
