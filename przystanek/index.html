@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odjazdy z przystanku – FWTP</title>
+
+    <link rel="stylesheet" href="/FWTP/css/style.css">
+
+    <style>
+        .odjazdy-page {
+            max-width: 1000px;
+            margin: 30px auto;
+            padding: 0 15px 50px;
+            box-sizing: border-box;
+        }
+
+        .powrot-przystanki {
+            display: inline-block;
+            margin: 0 0 15px;
+            color: #d61c12;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .panel {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .naglowek {
+            padding: 22px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .naglowek h1 {
+            margin: 0;
+            font-size: 27px;
+        }
+
+        .naglowek .nr {
+            margin-top: 5px;
+            color: #777;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .sterowanie {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 22px;
+            background: #fafafa;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .sterowanie label {
+            font-weight: 600;
+        }
+
+        #data {
+            height: 40px;
+            padding: 0 10px;
+            border: 1px solid #bbb;
+            border-radius: 5px;
+            font: inherit;
+        }
+
+        .info {
+            padding: 11px 22px;
+            border-bottom: 1px solid #eee;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .odjazd {
+            display: grid;
+            grid-template-columns: 72px 70px minmax(0, 1fr);
+            align-items: center;
+            gap: 10px;
+            min-height: 58px;
+            padding: 8px 22px;
+            box-sizing: border-box;
+            border-bottom: 1px solid #eee;
+            text-decoration: none;
+            color: #111;
+        }
+
+        .odjazd:last-child {
+            border-bottom: 0;
+        }
+
+        .odjazd:hover {
+            background: #fafafa;
+        }
+
+        .odjazd:hover .kierunek {
+            color: #d61c12;
+        }
+
+        .czas {
+            font-size: 22px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .numer-linii {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 52px;
+            min-height: 34px;
+            padding: 4px 8px;
+            box-sizing: border-box;
+            border-radius: 5px;
+            background: #d61c12;
+            color: #fff;
+            font-weight: 800;
+            font-size: 17px;
+        }
+
+        .kierunek {
+            min-width: 0;
+            font-weight: 600;
+        }
+
+        .meta {
+            display: block;
+            margin-top: 3px;
+            color: #888;
+            font-size: 12px;
+            font-weight: 400;
+        }
+
+        .komunikat {
+            padding: 30px 22px;
+            color: #666;
+        }
+
+        @media (max-width: 600px) {
+            .odjazdy-page {
+                margin: 15px auto;
+                padding: 0 0 35px;
+            }
+
+            .panel {
+                border-left: 0;
+                border-right: 0;
+                border-radius: 0;
+            }
+
+            .naglowek,
+            .sterowanie,
+            .info,
+            .odjazd {
+                padding-left: 15px;
+                padding-right: 15px;
+            }
+
+            .sterowanie {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .odjazd {
+                grid-template-columns: 62px 62px minmax(0, 1fr);
+                gap: 8px;
+            }
+
+            .czas {
+                font-size: 20px;
+            }
+
+            .numer-linii {
+                min-width: 48px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header class="topbar">
+    <div class="logo">FWTP</div>
+    <nav id="menu"></nav>
+</header>
+
+<main class="odjazdy-page">
+    <a class="powrot-przystanki" href="/FWTP/przystanki/">
+        ← Wszystkie przystanki
+    </a>
+
+    <section class="panel">
+        <div class="naglowek">
+            <h1 id="nazwaPrzystanku">Przystanek</h1>
+            <div class="nr" id="nrPrzystanku"></div>
+        </div>
+
+        <div class="sterowanie">
+            <label for="data">Rozkład na dzień:</label>
+            <input id="data" type="date">
+        </div>
+
+        <div class="info" id="info">Wczytywanie odjazdów...</div>
+        <div id="odjazdy"></div>
+    </section>
+</main>
+
+<script src="/FWTP/js/menu.js"></script>
+
+<script>
+const parametry = new URLSearchParams(window.location.search);
+
+const szukanaNazwa = String(parametry.get("nazwa") || "").trim();
+const szukanyNr = String(parametry.get("nr") || "").trim();
+
+let danePrzystanku = null;
+let manifestPaczek = [];
+
+function escapeHtml(tekst) {
+    return String(tekst ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function normalizuj(tekst) {
+    return String(tekst || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function takiSamPrzystanek(p) {
+    return !!p &&
+        normalizuj(p.nazwa) === normalizuj(szukanaNazwa) &&
+        String(p.nr || "").trim() === szukanyNr;
+}
+
+function dataISO(data) {
+    return (
+        data.getFullYear() + "-" +
+        String(data.getMonth() + 1).padStart(2, "0") + "-" +
+        String(data.getDate()).padStart(2, "0")
+    );
+}
+
+function dataZInput(tekst) {
+    const m = String(tekst || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+    if (!m) return null;
+
+    const data = new Date(
+        Number(m[1]),
+        Number(m[2]) - 1,
+        Number(m[3])
+    );
+
+    data.setHours(0, 0, 0, 0);
+    return data;
+}
+
+function obliczWielkanoc(rok) {
+    const a = rok % 19;
+    const b = Math.floor(rok / 100);
+    const c = rok % 100;
+    const d = Math.floor(b / 4);
+    const e = b % 4;
+    const f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4);
+    const k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const miesiac = Math.floor((h + l - 7 * m + 114) / 31);
+    const dzien = ((h + l - 7 * m + 114) % 31) + 1;
+
+    return new Date(rok, miesiac - 1, dzien);
+}
+
+function kluczDaty(data) {
+    return dataISO(data);
+}
+
+function dodajDni(data, ile) {
+    const wynik = new Date(data);
+    wynik.setDate(wynik.getDate() + ile);
+    return wynik;
+}
+
+function pobierzPolskieSwieta(rok) {
+    const swieta = new Set([
+        `${rok}-01-01`,
+        `${rok}-01-06`,
+        `${rok}-05-01`,
+        `${rok}-05-03`,
+        `${rok}-08-15`,
+        `${rok}-11-01`,
+        `${rok}-11-11`,
+        `${rok}-12-25`,
+        `${rok}-12-26`
+    ]);
+
+    const wielkanoc = obliczWielkanoc(rok);
+
+    swieta.add(kluczDaty(wielkanoc));
+    swieta.add(kluczDaty(dodajDni(wielkanoc, 1)));
+    swieta.add(kluczDaty(dodajDni(wielkanoc, 60)));
+
+    return swieta;
+}
+
+function czySwieto(data) {
+    return pobierzPolskieSwieta(
+        data.getFullYear()
+    ).has(kluczDaty(data));
+}
+
+function czyKursPasujeDoDaty(kurs, data) {
+    if (!kurs) return false;
+
+    const uwagi = String(kurs.uwagi ?? "")
+        .trim()
+        .toUpperCase();
+
+    if (!uwagi) return false;
+
+    const dzien = data.getDay();
+    const swieto = czySwieto(data);
+
+    if (uwagi === "D") {
+        return dzien >= 1 && dzien <= 5 && !swieto;
+    }
+
+    if (uwagi === "C") {
+        return dzien === 6 || dzien === 0 || swieto;
+    }
+
+    if (uwagi === "6") {
+        return dzien === 6 && !swieto;
+    }
+
+    if (uwagi === "7") {
+        return dzien === 0 || swieto;
+    }
+
+    return false;
+}
+
+function pobierzWariant(kurs) {
+    if (!kurs || typeof kurs !== "object") return "";
+
+    const wariant = kurs.wariant;
+
+    if (wariant && typeof wariant === "object") {
+        return String(
+            wariant.litera ||
+            wariant.nazwa ||
+            ""
+        ).trim().toUpperCase();
+    }
+
+    return String(wariant || "").trim().toUpperCase();
+}
+
+function czasNaMinuty(czas) {
+    const m = String(czas || "")
+        .trim()
+        .match(/^(\d{1,2}):(\d{2})$/);
+
+    if (!m) return null;
+
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+
+    if (h < 0 || h > 24 || min < 0 || min > 59) {
+        return null;
+    }
+
+    return h * 60 + min;
+}
+
+function czasDoPokazania(czas) {
+    const m = String(czas || "")
+        .trim()
+        .match(/^(\d{1,2}):(\d{2})$/);
+
+    if (!m) return String(czas || "");
+
+    const h = Number(m[1]);
+
+    return (
+        String(h === 24 ? 0 : h).padStart(2, "0") +
+        ":" +
+        m[2]
+    );
+}
+
+function paczkaPasujeDoDaty(paczka, data) {
+    const dzien = dataISO(data);
+    const od = String(paczka?.od || "").trim();
+    const doDaty = String(paczka?.do || "").trim();
+
+    if (od && dzien < od) return false;
+    if (doDaty && dzien > doDaty) return false;
+
+    return true;
+}
+
+function paczkaZawieraLinie(paczka, linia) {
+    if (!Array.isArray(paczka.linie) || paczka.linie.length === 0) {
+        return true;
+    }
+
+    return paczka.linie
+        .map(x => String(x).trim())
+        .includes(String(linia).trim());
+}
+
+function pasujacePaczki(data, linia) {
+    return manifestPaczek
+        .filter(p =>
+            paczkaPasujeDoDaty(p, data) &&
+            paczkaZawieraLinie(p, linia)
+        )
+        .sort((a, b) =>
+            Number(b.priorytet || 0) -
+            Number(a.priorytet || 0)
+        );
+}
+
+async function pobierzJSON(adres) {
+    try {
+        const odp = await fetch(
+            adres + (adres.includes("?") ? "&" : "?") + "v=" + Date.now(),
+            { cache: "no-store" }
+        );
+
+        if (!odp.ok) return null;
+
+        return await odp.json();
+
+    } catch (e) {
+        console.warn("Nie udało się pobrać:", adres, e);
+        return null;
+    }
+}
+
+function adresZPaczki(paczka, linia) {
+    const folder = String(paczka.folder || "")
+        .trim()
+        .replace(/^\/+/, "")
+        .replace(/\/+$/, "");
+
+    if (!folder) return "";
+
+    return `/FWTP/dane/${folder}/${encodeURIComponent(linia)}.json`;
+}
+
+async function pobierzLinie(linia, data) {
+    for (const paczka of pasujacePaczki(data, linia)) {
+        const adres = adresZPaczki(paczka, linia);
+
+        if (!adres) continue;
+
+        const dane = await pobierzJSON(adres);
+
+        if (dane && Array.isArray(dane.rozkłady)) {
+            return dane;
+        }
+    }
+
+    return await pobierzJSON(
+        `/FWTP/dane/${encodeURIComponent(linia)}.json`
+    );
+}
+
+function czyKursJedzieDalej(przystanki, odIndexu, numer, wariant, data) {
+    for (let i = odIndexu + 1; i < przystanki.length; i++) {
+        const p = przystanki[i];
+
+        const znaleziony = (p.kursy || []).some(k =>
+            String(k.numer || "").trim() === numer &&
+            pobierzWariant(k) === wariant &&
+            czyKursPasujeDoDaty(k, data) &&
+            czasNaMinuty(k.czas) !== null
+        );
+
+        if (znaleziony) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function znajdzCelKursu(przystanki, odIndexu, numer, wariant, data) {
+    let cel = "";
+
+    for (let i = odIndexu + 1; i < przystanki.length; i++) {
+        const p = przystanki[i];
+
+        const znaleziony = (p.kursy || []).some(k =>
+            String(k.numer || "").trim() === numer &&
+            pobierzWariant(k) === wariant &&
+            czyKursPasujeDoDaty(k, data) &&
+            czasNaMinuty(k.czas) !== null
+        );
+
+        if (znaleziony) {
+            const typ = String(p.typ || "")
+                .trim()
+                .toUpperCase();
+
+            if (typ !== "TECH") {
+                cel = String(p.nazwa || "").trim();
+            }
+        }
+    }
+
+    return cel;
+}
+
+function zbierzOdjazdyZLinii(dane, linia, data) {
+    const wynik = [];
+
+    if (!dane || !Array.isArray(dane.rozkłady)) {
+        return wynik;
+    }
+
+    dane.rozkłady.forEach(rozklad => {
+        (rozklad.kierunki || []).forEach((kierunek, indeksKierunku) => {
+            const przystanki = Array.isArray(kierunek.przystanki)
+                ? kierunek.przystanki
+                : [];
+
+            przystanki.forEach((p, index) => {
+                if (!takiSamPrzystanek(p)) return;
+
+                const typ = String(p.typ || "")
+                    .trim()
+                    .toUpperCase();
+
+                if (typ === "TECH" || typ === "WYS") {
+                    return;
+                }
+
+                (p.kursy || []).forEach(kurs => {
+                    if (!czyKursPasujeDoDaty(kurs, data)) {
+                        return;
+                    }
+
+                    const czasMin = czasNaMinuty(kurs.czas);
+
+                    if (czasMin === null) {
+                        return;
+                    }
+
+                    const numer = String(kurs.numer || "").trim();
+                    const wariant = pobierzWariant(kurs);
+
+                    if (!numer) {
+                        return;
+                    }
+
+                    /*
+                     * Kurs, który kończy trasę na tym przystanku,
+                     * nie jest odjazdem i nie trafia na listę.
+                     */
+                    if (!czyKursJedzieDalej(
+                        przystanki,
+                        index,
+                        numer,
+                        wariant,
+                        data
+                    )) {
+                        return;
+                    }
+
+                    wynik.push({
+                        linia: String(linia),
+                        czas: String(kurs.czas || ""),
+                        czasMin,
+                        numerKursu: numer,
+                        wariant,
+                        brygada: String(kurs.brygada || ""),
+                        kierunek:
+                            znajdzCelKursu(
+                                przystanki,
+                                index,
+                                numer,
+                                wariant,
+                                data
+                            ) || "Dalsza trasa",
+                        indeksKierunku
+                    });
+                });
+            });
+        });
+    });
+
+    return wynik;
+}
+
+function usunDuplikaty(lista) {
+    const mapa = new Map();
+
+    lista.forEach(o => {
+        const klucz = [
+            o.linia,
+            o.czas,
+            o.numerKursu,
+            o.wariant,
+            o.indeksKierunku
+        ].join("|");
+
+        if (!mapa.has(klucz)) {
+            mapa.set(klucz, o);
+        }
+    });
+
+    return [...mapa.values()];
+}
+
+function sortujOdjazdy(lista) {
+    return [...lista].sort((a, b) => {
+        if (a.czasMin !== b.czasMin) {
+            return a.czasMin - b.czasMin;
+        }
+
+        return String(a.linia).localeCompare(
+            String(b.linia),
+            "pl",
+            { numeric: true }
+        );
+    });
+}
+
+function linkDoKursu(odjazd, data) {
+    const url = new URL("/FWTP/linia/", window.location.origin);
+
+    url.searchParams.set("linia", odjazd.linia);
+    url.searchParams.set("kierunek", odjazd.indeksKierunku);
+    url.searchParams.set("data", dataISO(data));
+    url.searchParams.set("kurs", odjazd.numerKursu);
+
+    if (odjazd.wariant) {
+        url.searchParams.set("wariantKursu", odjazd.wariant);
+    }
+
+    return url.pathname + url.search;
+}
+
+function pokazOdjazdy(lista, data) {
+    const kontener = document.getElementById("odjazdy");
+    const info = document.getElementById("info");
+
+    const wynik = sortujOdjazdy(
+        usunDuplikaty(lista)
+    );
+
+    info.textContent =
+        wynik.length === 1
+            ? "1 odjazd"
+            : `${wynik.length} odjazdów`;
+
+    if (wynik.length === 0) {
+        kontener.innerHTML =
+            `<div class="komunikat">
+                Brak odjazdów z tego przystanku w wybranym dniu.
+            </div>`;
+        return;
+    }
+
+    kontener.innerHTML = wynik.map(o => {
+        const meta = [];
+
+        if (o.wariant) {
+            meta.push(`wariant ${o.wariant}`);
+        }
+
+        if (o.brygada) {
+            meta.push(`brygada ${o.brygada}`);
+        }
+
+        return `
+            <a class="odjazd" href="${linkDoKursu(o, data)}">
+                <span class="czas">${escapeHtml(czasDoPokazania(o.czas))}</span>
+                <span class="numer-linii">${escapeHtml(o.linia)}</span>
+                <span class="kierunek">
+                    ${escapeHtml(o.kierunek)}
+                    ${meta.length
+                        ? `<span class="meta">${escapeHtml(meta.join(" • "))}</span>`
+                        : ""
+                    }
+                </span>
+            </a>
+        `;
+    }).join("");
+}
+
+async function wczytajIndeksPrzystankow() {
+    const dane = await pobierzJSON("/FWTP/dane/przystanki.json");
+
+    if (!dane) return null;
+
+    const lista = Array.isArray(dane)
+        ? dane
+        : (Array.isArray(dane.przystanki) ? dane.przystanki : []);
+
+    return lista.find(p =>
+        normalizuj(p.nazwa) === normalizuj(szukanaNazwa) &&
+        String(p.nr || "").trim() === szukanyNr
+    ) || null;
+}
+
+async function wczytajManifest() {
+    const dane = await pobierzJSON("/FWTP/dane/paczki.json");
+
+    manifestPaczek =
+        dane && Array.isArray(dane.paczki)
+            ? dane.paczki
+            : (Array.isArray(dane) ? dane : []);
+}
+
+async function wczytajOdjazdy() {
+    const data = dataZInput(
+        document.getElementById("data").value
+    );
+
+    if (!data || !danePrzystanku) return;
+
+    document.getElementById("info").textContent =
+        "Wczytywanie odjazdów...";
+
+    document.getElementById("odjazdy").innerHTML = "";
+
+    const linie = Array.isArray(danePrzystanku.linie)
+        ? danePrzystanku.linie
+        : [];
+
+    const wyniki = await Promise.all(
+        linie.map(async linia => {
+            const dane = await pobierzLinie(linia, data);
+            return zbierzOdjazdyZLinii(dane, linia, data);
+        })
+    );
+
+    pokazOdjazdy(
+        wyniki.flat(),
+        data
+    );
+}
+
+async function start() {
+    if (!szukanaNazwa) {
+        document.getElementById("info").textContent =
+            "Nie podano przystanku.";
+        return;
+    }
+
+    const dzisiaj = new Date();
+    dzisiaj.setHours(0, 0, 0, 0);
+
+    document.getElementById("data").value =
+        dataISO(dzisiaj);
+
+    document.getElementById("nazwaPrzystanku").textContent =
+        szukanaNazwa;
+
+    document.getElementById("nrPrzystanku").textContent =
+        szukanyNr
+            ? `Przystanek ${szukanyNr}`
+            : "";
+
+    await wczytajManifest();
+
+    danePrzystanku =
+        await wczytajIndeksPrzystankow();
+
+    if (!danePrzystanku) {
+        document.getElementById("info").textContent =
+            "Nie znaleziono przystanku w przystanki.json.";
+        return;
+    }
+
+    await wczytajOdjazdy();
+}
+
+document
+    .getElementById("data")
+    .addEventListener("change", wczytajOdjazdy);
+
+start();
+</script>
+
+</body>
+</html>
