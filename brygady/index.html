@@ -550,6 +550,69 @@
     z-index:60!important;
 }
 
+
+/* =========================================================
+   OSTATECZNY WYGLĄD PODWÓJNEGO SEPARATORA
+   ========================================================= */
+
+.tabela-brygady col.kol-separator{
+    width:6px!important;
+    min-width:6px!important;
+    max-width:6px!important;
+}
+
+.tabela-brygady .separator-komorka{
+    position:relative!important;
+
+    width:6px!important;
+    min-width:6px!important;
+    max-width:6px!important;
+
+    padding:0!important;
+    background:#ffffff!important;
+
+    border-left:0!important;
+    border-right:0!important;
+
+    box-sizing:border-box!important;
+}
+
+/* obie czarne linie mają teraz po 2 px */
+.tabela-brygady .separator-komorka::before,
+.tabela-brygady .separator-komorka::after{
+    content:"";
+    position:absolute;
+
+    top:0!important;
+    bottom:0!important;
+
+    width:2px!important;
+
+    background:#111111!important;
+
+    z-index:100!important;
+    pointer-events:none;
+}
+
+.tabela-brygady .separator-komorka::before{
+    left:0!important;
+}
+
+.tabela-brygady .separator-komorka::after{
+    right:0!important;
+}
+
+/* żadnych szarych pionowych linii stykających się z separatorem */
+.tabela-brygady th:has(+ .separator-komorka),
+.tabela-brygady td:has(+ .separator-komorka){
+    border-right-color:transparent!important;
+}
+
+.tabela-brygady .separator-komorka + th,
+.tabela-brygady .separator-komorka + td{
+    border-left-color:transparent!important;
+}
+
 </style>
 </head>
 
@@ -2032,14 +2095,49 @@ function renderPostojGora(kursy,postoje){
 
     let i=0;
 
+    /*
+     * Na początku tabeli i po każdym podwójnym separatorze
+     * układ górnego wiersza zaczyna się od nowa:
+     *
+     * 1) pierwsza kolumna jest pojedyncza i pusta,
+     * 2) następne kolumny są łączone parami.
+     *
+     * Dzięki temu przy dodatku pusty slot po zmianie
+     * pozostaje osobną kolumną, a kolejne postoje są
+     * łączone i liczone od właściwych kursów.
+     */
+    let poczatekSekcji=true;
+
     while(i<kursy.length){
 
         if(maSeparatorPrzed(kursy[i])){
+
             html+=
                 '<td class="separator-komorka"></td>';
+
+            poczatekSekcji=true;
         }
 
-        if(i===0){
+        if(poczatekSekcji){
+
+            html+=
+                '<td class="postoj-gora"></td>';
+
+            poczatekSekcji=false;
+            i++;
+            continue;
+        }
+
+        /*
+         * Jeżeli następna kolumna zaczyna nową sekcję,
+         * bieżąca musi zostać pojedyncza.
+         */
+        if(
+            i===kursy.length-1 ||
+            maSeparatorPrzed(
+                kursy[i+1]
+            )
+        ){
 
             html+=
                 '<td class="postoj-gora"></td>';
@@ -2048,33 +2146,23 @@ function renderPostojGora(kursy,postoje){
             continue;
         }
 
-        if(
-            i<kursy.length-1 &&
-            !maSeparatorPrzed(kursy[i+1])
-        ){
+        /*
+         * Wartość postoju dla połączonej pary to przerwa
+         * pomiędzy pierwszym i drugim kursem tej pary.
+         */
+        const wartosc=
+            postoje[i];
 
-            const wartosc=
-                postoje[i];
+        html+=
+            `<td class="postoj-gora" colspan="2">`+
+            `${wartosc===null||wartosc===undefined?"":escapeHtml(wartosc)}`+
+            `</td>`;
 
-            html+=
-                `<td class="postoj-gora" colspan="2">`+
-                `${wartosc===null||wartosc===undefined?"":escapeHtml(wartosc)}`+
-                `</td>`;
-
-            i+=2;
-
-        }else{
-
-            html+=
-                '<td class="postoj-gora"></td>';
-
-            i++;
-        }
+        i+=2;
     }
 
     return html+"</tr>";
 }
-
 
 function renderPostojDol(kursy,postoje){
 
@@ -2509,7 +2597,7 @@ function renderBrygada(linia,brygada,kursy){
         130+
         24+
         (uporzadkowane.length*35)+
-        (liczbaSeparatorow(uporzadkowane)*4);
+        (liczbaSeparatorow(uporzadkowane)*6);
 
     let html=
         '<section class="brygada">'+
