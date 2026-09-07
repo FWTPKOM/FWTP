@@ -47,25 +47,123 @@
             font-weight: 600;
         }
 
-        .sterowanie {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 14px 22px;
-            background: #fafafa;
-            border-bottom: 1px solid #ddd;
+        /* =========================================================
+           KALENDARZ 7 DNI - TAKI SAM JAK NA STRONIE LINII
+           ========================================================= */
+
+        .dni {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+            gap: 4px;
+
+            width: 80%;
+
+            margin: 14px auto 8px;
+
+            box-sizing: border-box;
         }
 
-        .sterowanie label {
-            font-weight: 600;
+        .dzien-btn {
+            min-width: 0;
+
+            padding: 10px 4px;
+
+            background: #ffffff;
+
+            border: 1px solid #cccccc;
+            border-radius: 6px;
+
+            cursor: pointer;
+
+            font-family:
+                "Barlow Semi Condensed",
+                sans-serif;
+
+            font-size: 15px;
+            line-height: 1.15;
+            font-weight: 700;
+
+            color: #222222;
+
+            text-align: center;
+            white-space: nowrap;
+
+            transition: 0.15s;
+
+            box-sizing: border-box;
+        }
+
+        .dzien-btn:hover {
+            color: #d61c12;
+            border-color: #d61c12;
+            background: #ffffff;
+        }
+
+        .dzien-btn.aktywny {
+            background: #d61c12;
+            color: #ffffff;
+            border-color: #d61c12;
+        }
+
+        .dzien-btn.aktywny:hover {
+            background: #d61c12;
+            color: #ffffff;
+            border-color: #d61c12;
+        }
+
+
+        /* =========================================================
+           WYBÓR INNEGO DNIA
+           ========================================================= */
+
+        .kalendarz {
+            display: none;
+
+            width: 80%;
+
+            margin: 0 auto 8px;
+
+            background: #ffffff;
+
+            border: 1px solid #dddddd;
+            border-radius: 6px;
+
+            padding: 12px 15px;
+
+            box-sizing: border-box;
+        }
+
+        .kalendarz-tytul {
+            margin-bottom: 8px;
+
+            font-size: 15px;
+            font-weight: 700;
+
+            color: #222222;
         }
 
         #data {
-            height: 40px;
-            padding: 0 10px;
-            border: 1px solid #bbb;
+            min-height: 42px;
+
+            padding: 8px 10px;
+
+            font-family:
+                "Barlow Semi Condensed",
+                sans-serif;
+
+            font-size: 16px;
+
+            border: 1px solid #cccccc;
             border-radius: 5px;
-            font: inherit;
+
+            background: #ffffff;
+
+            box-sizing: border-box;
+        }
+
+        #data:focus {
+            outline: none;
+            border-color: #d61c12;
         }
 
         .info {
@@ -152,16 +250,69 @@
             }
 
             .naglowek,
-            .sterowanie,
             .info,
             .odjazd {
                 padding-left: 15px;
                 padding-right: 15px;
             }
 
-            .sterowanie {
-                align-items: flex-start;
-                flex-direction: column;
+            .dni {
+                display: flex !important;
+
+                grid-template-columns: none;
+
+                gap: 5px;
+
+                width: 100%;
+                max-width: 100%;
+
+                margin: 12px 0 8px;
+
+                overflow-x: auto;
+                overflow-y: hidden;
+
+                padding: 0 6px 6px 6px;
+
+                box-sizing: border-box;
+
+                scroll-snap-type: x proximity;
+                scroll-behavior: smooth;
+
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior-x: contain;
+
+                scrollbar-width: none;
+            }
+
+            .dni::-webkit-scrollbar {
+                display: none;
+            }
+
+            .dni .dzien-btn {
+                flex: 0 0 112px;
+                min-width: 112px;
+
+                font-size: 14px;
+
+                padding: 10px 6px;
+
+                scroll-snap-align: start;
+            }
+
+            .kalendarz {
+                width: calc(100% - 12px);
+
+                margin-left: 6px;
+                margin-right: 6px;
+
+                padding: 12px;
+            }
+
+            #data {
+                width: 100%;
+                min-width: 0;
+
+                font-size: 16px;
             }
 
             .odjazd {
@@ -199,9 +350,23 @@
             <div class="nr" id="nrPrzystanku"></div>
         </div>
 
-        <div class="sterowanie">
-            <label for="data">Rozkład na dzień:</label>
-            <input id="data" type="date">
+        <div
+            id="dni"
+            class="dni"
+        ></div>
+
+        <div
+            id="kalendarz"
+            class="kalendarz"
+        >
+            <div class="kalendarz-tytul">
+                Wybór innego dnia
+            </div>
+
+            <input
+                id="data"
+                type="date"
+            >
         </div>
 
         <div class="info" id="info">Wczytywanie odjazdów...</div>
@@ -220,6 +385,7 @@ const wybranaLinia = String(parametry.get("linia") || "").trim();
 
 let danePrzystanku = null;
 let manifestPaczek = [];
+let wybranaData = null;
 
 function escapeHtml(tekst) {
     return String(tekst ?? "")
@@ -1101,13 +1267,269 @@ async function wczytajManifest() {
 }
 
 
+function taSamaData(a, b) {
+    return (
+        a instanceof Date &&
+        b instanceof Date &&
+        a.getFullYear() === b.getFullYear() &&
+        a.getMonth() === b.getMonth() &&
+        a.getDate() === b.getDate()
+    );
+}
+
+
+function czyOstatniDzienKalendarza7(data) {
+    if (!(data instanceof Date)) {
+        return false;
+    }
+
+    const dzisiaj = new Date();
+
+    dzisiaj.setHours(
+        0,
+        0,
+        0,
+        0
+    );
+
+    const ostatniDzien =
+        new Date(
+            dzisiaj
+        );
+
+    ostatniDzien.setDate(
+        dzisiaj.getDate() + 6
+    );
+
+    return taSamaData(
+        data,
+        ostatniDzien
+    );
+}
+
+
+function ustawWidocznoscWyboruInnegoDnia() {
+    const kalendarz =
+        document.getElementById(
+            "kalendarz"
+        );
+
+    if (!kalendarz) {
+        return;
+    }
+
+    kalendarz.style.display =
+        czyOstatniDzienKalendarza7(
+            wybranaData
+        )
+            ? "block"
+            : "none";
+
+    const input =
+        document.getElementById(
+            "data"
+        );
+
+    if (
+        input &&
+        wybranaData instanceof Date
+    ) {
+        input.value =
+            dataISO(
+                wybranaData
+            );
+    }
+}
+
+
+function generujKalendarz7Dni() {
+    const kontener =
+        document.getElementById(
+            "dni"
+        );
+
+    if (!kontener) {
+        return;
+    }
+
+    kontener.innerHTML =
+        "";
+
+    const dzisiaj =
+        new Date();
+
+    dzisiaj.setHours(
+        0,
+        0,
+        0,
+        0
+    );
+
+    const dniTygodnia = [
+        "nd",
+        "pon",
+        "wt",
+        "śr",
+        "czw",
+        "pt",
+        "sob"
+    ];
+
+    for (
+        let i = 0;
+        i < 7;
+        i++
+    ) {
+        const data =
+            new Date(
+                dzisiaj
+            );
+
+        data.setDate(
+            dzisiaj.getDate() + i
+        );
+
+        const btn =
+            document.createElement(
+                "button"
+            );
+
+        btn.type =
+            "button";
+
+        btn.className =
+            "dzien-btn";
+
+        const dataTekst =
+            data.getDate() +
+            "." +
+            String(
+                data.getMonth() + 1
+            ).padStart(
+                2,
+                "0"
+            );
+
+        if (i === 0) {
+            btn.textContent =
+                dataTekst +
+                " (dzisiaj)";
+
+        } else if (i === 1) {
+            btn.textContent =
+                dataTekst +
+                " (jutro)";
+
+        } else {
+            btn.textContent =
+                dataTekst +
+                " (" +
+                dniTygodnia[
+                    data.getDay()
+                ] +
+                ")";
+        }
+
+        if (
+            taSamaData(
+                data,
+                wybranaData
+            )
+        ) {
+            btn.classList.add(
+                "aktywny"
+            );
+        }
+
+        btn.addEventListener(
+            "click",
+            () => {
+                wybierzDateZKalendarza(
+                    data
+                );
+            }
+        );
+
+        kontener.appendChild(
+            btn
+        );
+    }
+}
+
+
+function zapiszDateWURL() {
+    if (!(wybranaData instanceof Date)) {
+        return;
+    }
+
+    const url =
+        new URL(
+            window.location.href
+        );
+
+    url.searchParams.set(
+        "data",
+        dataISO(
+            wybranaData
+        )
+    );
+
+    window.history.replaceState(
+        null,
+        "",
+        url.toString()
+    );
+}
+
+
+async function wybierzDateZKalendarza(data) {
+    wybranaData =
+        new Date(
+            data.getFullYear(),
+            data.getMonth(),
+            data.getDate()
+        );
+
+    wybranaData.setHours(
+        0,
+        0,
+        0,
+        0
+    );
+
+    const input =
+        document.getElementById(
+            "data"
+        );
+
+    if (input) {
+        input.value =
+            dataISO(
+                wybranaData
+            );
+    }
+
+    generujKalendarz7Dni();
+
+    ustawWidocznoscWyboruInnegoDnia();
+
+    zapiszDateWURL();
+
+    await wczytajOdjazdy();
+}
+
+
 async function wczytajOdjazdy() {
     const data =
-        dataZInput(
-            document.getElementById(
-                "data"
-            ).value
-        );
+        wybranaData instanceof Date
+            ? new Date(
+                wybranaData
+            )
+            : dataZInput(
+                document.getElementById(
+                    "data"
+                ).value
+            );
 
     if (!data) {
         return;
@@ -1214,12 +1636,32 @@ async function start() {
     );
 
 
+    const dataZURL =
+        dataZInput(
+            String(
+                parametry.get(
+                    "data"
+                ) || ""
+            )
+        );
+
+
+    wybranaData =
+        dataZURL ||
+        dzisiaj;
+
+
     document.getElementById(
         "data"
     ).value =
         dataISO(
-            dzisiaj
+            wybranaData
         );
+
+
+    generujKalendarz7Dni();
+
+    ustawWidocznoscWyboruInnegoDnia();
 
 
     document.getElementById(
@@ -1267,7 +1709,20 @@ document
     )
     .addEventListener(
         "change",
-        wczytajOdjazdy
+        async function () {
+            const data =
+                dataZInput(
+                    this.value
+                );
+
+            if (!data) {
+                return;
+            }
+
+            await wybierzDateZKalendarza(
+                data
+            );
+        }
     );
 
 
