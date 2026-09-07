@@ -25,7 +25,7 @@
 .tabela-brygady{border-collapse:collapse;width:auto!important;min-width:0!important;max-width:none!important;background:#fff;table-layout:fixed;border:3px solid #111}
 .tabela-brygady th,.tabela-brygady td{height:15px;padding:0 1px;border:1px solid #ccc;color:#111;font-size:10px;line-height:1;text-align:center;vertical-align:middle;white-space:nowrap;overflow:hidden;box-sizing:border-box}
 .naglowek-brygady{background:#ccc!important;font-size:12px!important;font-weight:800!important;border-bottom:2px solid #111!important}
-.naglowek-kursu{width:35px!important;min-width:35px!important;max-width:35px!important;background:#eee;font-size:8px!important;font-weight:500;padding:0!important;overflow:hidden;text-overflow:clip}
+.naglowek-kursu{width:35px!important;min-width:35px!important;max-width:35px!important;background:#eee;font-size:8px!important;font-weight:700;padding:0!important;overflow:hidden;text-overflow:clip}
 .czas-kursu{width:35px!important;min-width:35px!important;max-width:35px!important;padding:0!important;font-size:10px!important;overflow:hidden}
 .kurs-meta{display:block;margin-top:1px;color:#777;font-size:8px;font-weight:500}
 .postoj-label,.postoj-dol-label{text-align:right!important;font-size:10px!important;font-weight:500!important}
@@ -789,59 +789,110 @@ function lcsMerge(a,b){
 
 
 
-function polaczSasiedniePowtorzonePrzystanki(os){
+function polaczTrasyZKoncami(
+    lista0,
+    lista1
+) {
+
+    if(
+        !lista0.length ||
+        !lista1.length
+    ){
+        return lcsMerge(
+            lista0,
+            lista1
+        );
+    }
+
+    const pierwszyWspolny=
+        lista0[0].klucz===
+        lista1[0].klucz;
+
+    const ostatniWspolny=
+        lista0[
+            lista0.length-1
+        ].klucz===
+        lista1[
+            lista1.length-1
+        ].klucz;
+
+    /*
+     * Krańce parujemy osobno.
+     *
+     * To jest ważne dla tras, na których ta sama nazwa
+     * pojawia się również gdzieś indziej. Zwykły LCS może
+     * wtedy dopasować np. ostatnie RONDO DASZYŃSKIEGO
+     * do niewłaściwego wystąpienia.
+     *
+     * Po tej zmianie:
+     * - pierwszy wspólny kraniec ma numery z obu kierunków,
+     * - ostatni wspólny kraniec ma numery z obu kierunków,
+     * - jeżeli ta sama nazwa jest krańcem po obu stronach,
+     *   nadal może wystąpić dwa razy: na początku i na końcu.
+     */
+
+    let start0=0;
+    let start1=0;
+
+    let end0=
+        lista0.length;
+
+    let end1=
+        lista1.length;
 
     const wynik=[];
 
-    for(const element of os){
-
-        const poprzedni=
-            wynik.length
-                ? wynik[wynik.length-1]
-                : null;
-
-        if(
-            poprzedni &&
-            normalizuj(poprzedni.nazwa)===
-                normalizuj(element.nazwa)
-        ){
-
-            const moznaPolaczyc=
-                (
-                    !poprzedni.dir0 &&
-                    element.dir0
-                ) ||
-                (
-                    !poprzedni.dir1 &&
-                    element.dir1
-                );
-
-            if(moznaPolaczyc){
-
-                if(
-                    !poprzedni.dir0 &&
-                    element.dir0
-                ){
-                    poprzedni.dir0=
-                        element.dir0;
-                }
-
-                if(
-                    !poprzedni.dir1 &&
-                    element.dir1
-                ){
-                    poprzedni.dir1=
-                        element.dir1;
-                }
-
-                continue;
-            }
-        }
+    if(pierwszyWspolny){
 
         wynik.push({
-            nazwa:element.nazwa,
-            dir0:element.dir0,
-            dir1:element.dir1
+            nazwa:lista0[0].nazwa,
+            dir0:lista0[0].dir0,
+            dir1:lista1[0].dir1
+        });
+
+        start0=1;
+        start1=1;
+    }
+
+    if(ostatniWspolny){
+        end0--;
+        end1--;
+    }
+
+    const srodek0=
+        lista0.slice(
+            start0,
+            end0
+        );
+
+    const srodek1=
+        lista1.slice(
+            start1,
+            end1
+        );
+
+    wynik.push(
+        ...lcsMerge(
+            srodek0,
+            srodek1
+        )
+    );
+
+    if(ostatniWspolny){
+
+        wynik.push({
+            nazwa:
+                lista0[
+                    lista0.length-1
+                ].nazwa,
+            dir0:
+                lista0[
+                    lista0.length-1
+                ].dir0,
+            dir1:
+                lista1[
+                    lista1.length-1
+                ].dir1
         });
     }
 
@@ -876,7 +927,10 @@ function zbudujOsPrzystankow(kursy,startDirection){
     let os;
 
     if(lista0.length && lista1.length){
-        os=lcsMerge(lista0,lista1);
+        os=polaczTrasyZKoncami(
+            lista0,
+            lista1
+        );
     }else if(lista0.length){
         os=lista0.map(x=>({
             nazwa:x.nazwa,
@@ -894,11 +948,6 @@ function zbudujOsPrzystankow(kursy,startDirection){
     if(startDirection===1){
         os.reverse();
     }
-
-    os=
-        polaczSasiedniePowtorzonePrzystanki(
-            os
-        );
 
     return os;
 }
