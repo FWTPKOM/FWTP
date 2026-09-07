@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Przystanki – FWTP</title>
+
+    <link rel="stylesheet" href="/FWTP/css/style.css">
+
+    <style>
+        .przystanki-page {
+            max-width: 1100px;
+            margin: 30px auto;
+            padding: 0 15px 50px;
+            box-sizing: border-box;
+        }
+
+        .przystanki-box {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .przystanki-head {
+            padding: 22px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .przystanki-head h1 {
+            margin: 0 0 8px;
+            font-size: 26px;
+        }
+
+        .przystanki-head p {
+            margin: 0;
+            color: #666;
+        }
+
+        .wyszukiwarka-wrap {
+            padding: 18px 22px;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        #wyszukiwarka {
+            width: 100%;
+            height: 48px;
+            padding: 0 14px;
+            box-sizing: border-box;
+            border: 1px solid #bbb;
+            border-radius: 6px;
+            font-size: 16px;
+            outline: none;
+        }
+
+        #wyszukiwarka:focus {
+            border-color: #d61c12;
+            box-shadow: 0 0 0 2px rgba(214, 28, 18, 0.10);
+        }
+
+        .licznik {
+            padding: 11px 22px;
+            color: #666;
+            font-size: 14px;
+            background: #fafafa;
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        .pozycja {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 13px 22px;
+            border-bottom: 1px solid #eee;
+            text-decoration: none;
+            color: #111;
+        }
+
+        .pozycja:last-child {
+            border-bottom: 0;
+        }
+
+        .pozycja:hover {
+            background: #fafafa;
+        }
+
+        .pozycja:hover .nazwa {
+            color: #d61c12;
+        }
+
+        .nr {
+            min-width: 42px;
+            font-size: 13px;
+            color: #777;
+            font-weight: 600;
+        }
+
+        .nazwa {
+            flex: 1;
+            font-weight: 600;
+            transition: color .15s ease;
+        }
+
+        .linie {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 5px;
+        }
+
+        .linia {
+            min-width: 38px;
+            padding: 4px 7px;
+            border: 1px solid #d61c12;
+            border-radius: 4px;
+            color: #d61c12;
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+            box-sizing: border-box;
+        }
+
+        .komunikat {
+            padding: 30px 22px;
+            color: #666;
+        }
+
+        @media (max-width: 650px) {
+            .przystanki-page {
+                margin: 15px auto;
+                padding: 0 0 35px;
+            }
+
+            .przystanki-box {
+                border-left: 0;
+                border-right: 0;
+                border-radius: 0;
+            }
+
+            .przystanki-head,
+            .wyszukiwarka-wrap,
+            .licznik,
+            .pozycja {
+                padding-left: 15px;
+                padding-right: 15px;
+            }
+
+            .pozycja {
+                align-items: flex-start;
+            }
+
+            .linie {
+                max-width: 120px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header class="topbar">
+    <div class="logo">FWTP</div>
+    <nav id="menu"></nav>
+</header>
+
+<main class="przystanki-page">
+    <section class="przystanki-box">
+        <div class="przystanki-head">
+            <h1>Odjazdy z przystanków</h1>
+            <p>Wybierz przystanek, aby zobaczyć odjazdy wszystkich linii.</p>
+        </div>
+
+        <div class="wyszukiwarka-wrap">
+            <input
+                id="wyszukiwarka"
+                type="search"
+                placeholder="Wpisz nazwę lub numer przystanku..."
+                autocomplete="off"
+            >
+        </div>
+
+        <div class="licznik" id="licznik">Wczytywanie przystanków...</div>
+        <div id="lista"></div>
+    </section>
+</main>
+
+<script src="/FWTP/js/menu.js"></script>
+
+<script>
+let wszystkiePrzystanki = [];
+
+function normalizuj(tekst) {
+    return String(tekst || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function escapeHtml(tekst) {
+    return String(tekst ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function porownajLinie(a, b) {
+    return String(a).localeCompare(
+        String(b),
+        "pl",
+        { numeric: true, sensitivity: "base" }
+    );
+}
+
+function sortujPrzystanki(lista) {
+    return [...lista].sort((a, b) => {
+        const nazwa = String(a.nazwa || "").localeCompare(
+            String(b.nazwa || ""),
+            "pl",
+            { sensitivity: "base" }
+        );
+
+        if (nazwa !== 0) return nazwa;
+
+        return String(a.nr || "").localeCompare(
+            String(b.nr || ""),
+            "pl",
+            { numeric: true, sensitivity: "base" }
+        );
+    });
+}
+
+function pokazListe() {
+    const lista = document.getElementById("lista");
+    const licznik = document.getElementById("licznik");
+    const szukaj = normalizuj(
+        document.getElementById("wyszukiwarka").value
+    );
+
+    const wynik = wszystkiePrzystanki.filter(p => {
+        if (!szukaj) return true;
+
+        const tekst = normalizuj(
+            `${p.nazwa || ""} ${p.nr || ""} ${(p.linie || []).join(" ")}`
+        );
+
+        return tekst.includes(szukaj);
+    });
+
+    licznik.textContent =
+        wynik.length === 1
+            ? "1 przystanek"
+            : `${wynik.length} przystanków`;
+
+    if (wynik.length === 0) {
+        lista.innerHTML =
+            `<div class="komunikat">Nie znaleziono przystanku.</div>`;
+        return;
+    }
+
+    lista.innerHTML = wynik.map(p => {
+        const url = new URL("/FWTP/przystanek/", window.location.origin);
+
+        url.searchParams.set("nazwa", p.nazwa || "");
+        url.searchParams.set("nr", p.nr || "");
+
+        const linie = [...(p.linie || [])].sort(porownajLinie);
+
+        return `
+            <a class="pozycja" href="${url.pathname}${url.search}">
+                <span class="nr">${escapeHtml(p.nr || "")}</span>
+                <span class="nazwa">${escapeHtml(p.nazwa || "")}</span>
+                <span class="linie">
+                    ${linie.slice(0, 8).map(linia =>
+                        `<span class="linia">${escapeHtml(linia)}</span>`
+                    ).join("")}
+                </span>
+            </a>
+        `;
+    }).join("");
+}
+
+async function start() {
+    const lista = document.getElementById("lista");
+    const licznik = document.getElementById("licznik");
+
+    try {
+        const odpowiedz = await fetch(
+            "/FWTP/dane/przystanki.json?v=" + Date.now(),
+            { cache: "no-store" }
+        );
+
+        if (!odpowiedz.ok) {
+            throw new Error(`HTTP ${odpowiedz.status}`);
+        }
+
+        const dane = await odpowiedz.json();
+
+        wszystkiePrzystanki = sortujPrzystanki(
+            Array.isArray(dane)
+                ? dane
+                : (Array.isArray(dane.przystanki) ? dane.przystanki : [])
+        );
+
+        pokazListe();
+
+    } catch (blad) {
+        console.error(blad);
+        licznik.textContent = "Błąd";
+        lista.innerHTML =
+            `<div class="komunikat">
+                Nie udało się wczytać pliku <b>przystanki.json</b>.
+            </div>`;
+    }
+}
+
+document
+    .getElementById("wyszukiwarka")
+    .addEventListener("input", pokazListe);
+
+start();
+</script>
+
+</body>
+</html>
