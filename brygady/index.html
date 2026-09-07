@@ -173,15 +173,15 @@
 
 
 .tabela-brygady col.kol-separator{
-    width:3px!important;
-    min-width:3px!important;
-    max-width:3px!important;
+    width:2.5px!important;
+    min-width:2.5px!important;
+    max-width:2.5px!important;
 }
 
 .tabela-brygady .separator-komorka{
-    width:3px!important;
-    min-width:3px!important;
-    max-width:3px!important;
+    width:2.5px!important;
+    min-width:2.5px!important;
+    max-width:2.5px!important;
     padding:0!important;
     background:#ffffff!important;
     border-left:2px solid #111111!important;
@@ -192,13 +192,150 @@
 }
 
 
-/* Wyrównanie podsumowania */
-.podsumowanie th{
-    text-align:right!important;
-}
+.podsumowanie th,
 .podsumowanie td{
     text-align:center!important;
+    justify-content:center!important;
 }
+
+/* =========================================================
+   KALENDARZ – ZGODNY Z POZOSTAŁYMI STRONAMI FWTP
+   ========================================================= */
+
+.dni{
+    display:grid;
+    grid-template-columns:repeat(7,minmax(0,1fr));
+    gap:4px;
+
+    width:80%;
+    margin:18px auto 8px;
+
+    box-sizing:border-box;
+}
+
+.dni .dzien-btn{
+    min-width:0;
+    padding:10px 4px;
+
+    background:#ffffff;
+    color:#222222;
+
+    border:1px solid #cccccc;
+    border-radius:6px;
+
+    font:inherit;
+    font-size:15px;
+    font-weight:700;
+    line-height:1.15;
+
+    text-align:center;
+    white-space:nowrap;
+
+    cursor:pointer;
+    box-sizing:border-box;
+}
+
+.dni .dzien-btn:hover{
+    color:#d61c12;
+    border-color:#d61c12;
+    background:#ffffff;
+}
+
+.dni .dzien-btn.aktywny,
+.dni .dzien-btn.aktywny:hover{
+    background:#d61c12;
+    color:#ffffff;
+    border-color:#d61c12;
+}
+
+.kalendarz{
+    display:none;
+
+    width:80%;
+    margin:0 auto 8px;
+
+    padding:12px 15px;
+
+    background:#ffffff;
+
+    border:1px solid #dddddd;
+    border-radius:6px;
+
+    box-sizing:border-box;
+}
+
+.kalendarz-tytul{
+    margin-bottom:8px;
+
+    color:#222222;
+
+    font-size:15px;
+    font-weight:700;
+}
+
+.kalendarz input{
+    padding:10px;
+
+    border:1px solid #cccccc;
+    border-radius:5px;
+
+    font:inherit;
+    font-size:16px;
+}
+
+@media(max-width:550px){
+
+    .dni,
+    .kalendarz{
+        width:100%;
+        max-width:none;
+        margin-left:0;
+        margin-right:0;
+        box-sizing:border-box;
+    }
+
+    .dni{
+        display:flex!important;
+        grid-template-columns:none;
+        gap:5px;
+
+        overflow-x:auto;
+        overflow-y:hidden;
+
+        padding:0 6px 6px;
+
+        scroll-snap-type:x proximity;
+        scroll-behavior:smooth;
+
+        -webkit-overflow-scrolling:touch;
+        overscroll-behavior-x:contain;
+
+        scrollbar-width:none;
+    }
+
+    .dni::-webkit-scrollbar{
+        display:none;
+    }
+
+    .dni .dzien-btn{
+        flex:0 0 112px;
+        min-width:112px;
+
+        padding:10px 6px;
+
+        font-size:14px;
+
+        scroll-snap-align:start;
+    }
+}
+
+/* Dodatkowy końcowy wiersz tylko dla brygad dodatków */
+.podsumowanie tr.laczny-czas-brygady th,
+.podsumowanie tr.laczny-czas-brygady td{
+    background:#e6e6e6;
+    font-weight:800;
+}
+
 </style>
 </head>
 
@@ -225,6 +362,18 @@
     </div>
 
     <div id="dni" class="dni"></div>
+
+    <div id="kalendarz" class="kalendarz">
+        <div class="kalendarz-tytul">
+            Wybór innego dnia
+        </div>
+
+        <input
+            type="date"
+            id="wybranaData"
+        >
+    </div>
+
     <div id="brygadyInfo" class="brygady-info">Wpisz numer linii.</div>
 </section>
 
@@ -271,6 +420,45 @@ document.addEventListener("DOMContentLoaded",()=>{
 
     generujKalendarz7Dni();
 
+    const inputDaty=
+        document.getElementById(
+            "wybranaData"
+        );
+
+    if(inputDaty){
+
+        inputDaty.value=
+            dataISO(
+                wybranaData
+            );
+
+        inputDaty.addEventListener(
+            "change",
+            function(){
+
+                if(!this.value){
+                    return;
+                }
+
+                const czesci=
+                    this.value.split(
+                        "-"
+                    );
+
+                const data=
+                    new Date(
+                        Number(czesci[0]),
+                        Number(czesci[1])-1,
+                        Number(czesci[2])
+                    );
+
+                wybierzDateZKalendarza(
+                    data
+                );
+            }
+        );
+    }
+
     if(aktualnaLinia){
         wczytajIBuduj();
     }
@@ -316,39 +504,213 @@ function tenSamDzien(a,b){
 }
 
 
-function generujKalendarz7Dni(){
+function taSamaData(a,b){
 
-    const kontener=document.getElementById("dni");
-    kontener.innerHTML="";
+    return(
+        a instanceof Date &&
+        b instanceof Date &&
+        a.getFullYear()===b.getFullYear() &&
+        a.getMonth()===b.getMonth() &&
+        a.getDate()===b.getDate()
+    );
+}
+
+
+function czyOstatniDzienKalendarza7(data){
+
+    if(!(data instanceof Date)){
+        return false;
+    }
 
     const dzisiaj=new Date();
     dzisiaj.setHours(0,0,0,0);
 
-    const dni=["nd","pon","wt","śr","czw","pt","sob"];
+    const ostatniDzien=
+        new Date(dzisiaj);
+
+    ostatniDzien.setDate(
+        dzisiaj.getDate()+6
+    );
+
+    return taSamaData(
+        data,
+        ostatniDzien
+    );
+}
+
+
+function ustawWidocznoscWyboruInnegoDnia(){
+
+    const kalendarz=
+        document.getElementById(
+            "kalendarz"
+        );
+
+    if(!kalendarz){
+        return;
+    }
+
+    kalendarz.style.display=
+        czyOstatniDzienKalendarza7(
+            wybranaData
+        )
+            ? "block"
+            : "none";
+
+    if(
+        kalendarz.style.display===
+        "block"
+    ){
+
+        const input=
+            document.getElementById(
+                "wybranaData"
+            );
+
+        if(input){
+            input.value=
+                dataISO(
+                    wybranaData
+                );
+        }
+    }
+}
+
+
+function generujKalendarz7Dni(){
+
+    const kontener=
+        document.getElementById(
+            "dni"
+        );
+
+    if(!kontener){
+        return;
+    }
+
+    kontener.innerHTML="";
+
+    const dzisiaj=
+        new Date();
+
+    dzisiaj.setHours(
+        0,0,0,0
+    );
+
+    const dniTygodnia=[
+        "nd",
+        "pon",
+        "wt",
+        "śr",
+        "czw",
+        "pt",
+        "sob"
+    ];
 
     for(let i=0;i<7;i++){
 
-        const d=dodajDni(dzisiaj,i);
-        const btn=document.createElement("button");
+        const data=
+            new Date(
+                dzisiaj
+            );
+
+        data.setDate(
+            dzisiaj.getDate()+i
+        );
+
+        const btn=
+            document.createElement(
+                "button"
+            );
 
         btn.type="button";
-        btn.className="dzien-btn"+(tenSamDzien(d,wybranaData)?" aktywny":"");
+        btn.className="dzien-btn";
 
-        const dopisek=i===0?"dzisiaj":i===1?"jutro":dni[d.getDay()];
+        const dataTekst=
+            data.getDate()+
+            "."+
+            String(
+                data.getMonth()+1
+            ).padStart(2,"0");
 
-        btn.textContent=`${d.getDate()}.${d.getMonth()+1} (${dopisek})`;
+        if(i===0){
 
-        btn.addEventListener("click",()=>{
-            wybranaData=new Date(d.getFullYear(),d.getMonth(),d.getDate());
-            ustawURL();
-            generujKalendarz7Dni();
+            btn.textContent=
+                dataTekst+
+                " (dzisiaj)";
 
-            if(aktualnaLinia){
-                wczytajIBuduj();
+        }else if(i===1){
+
+            btn.textContent=
+                dataTekst+
+                " (jutro)";
+
+        }else{
+
+            btn.textContent=
+                dataTekst+
+                " ("+
+                dniTygodnia[
+                    data.getDay()
+                ]+
+                ")";
+        }
+
+        if(
+            taSamaData(
+                data,
+                wybranaData
+            )
+        ){
+            btn.classList.add(
+                "aktywny"
+            );
+        }
+
+        btn.addEventListener(
+            "click",
+            ()=>{
+                wybierzDateZKalendarza(
+                    data
+                );
             }
-        });
+        );
 
-        kontener.appendChild(btn);
+        kontener.appendChild(
+            btn
+        );
+    }
+
+    ustawWidocznoscWyboruInnegoDnia();
+}
+
+
+function wybierzDateZKalendarza(data){
+
+    wybranaData=
+        new Date(
+            data.getFullYear(),
+            data.getMonth(),
+            data.getDate()
+        );
+
+    const input=
+        document.getElementById(
+            "wybranaData"
+        );
+
+    if(input){
+        input.value=
+            dataISO(
+                wybranaData
+            );
+    }
+
+    ustawURL();
+    generujKalendarz7Dni();
+
+    if(aktualnaLinia){
+        wczytajIBuduj();
     }
 }
 
@@ -1791,7 +2153,10 @@ function policzPodsumowanie(
 
         return{
             jazda,
-            przerwy
+            przerwy,
+            razem:
+                jazda+
+                przerwy
         };
     }
 
@@ -1810,20 +2175,18 @@ function policzPodsumowanie(
                 kursy.length
             );
 
-        const jazda=
-            pierwsza.jazda+
-            druga.jazda;
-
-        const przerwy=
-            pierwsza.przerwy+
-            druga.przerwy;
-
         return{
-            jazda,
-            przerwy,
+            jazda:
+                pierwsza.jazda+
+                druga.jazda,
+
+            przerwy:
+                pierwsza.przerwy+
+                druga.przerwy,
+
             razem:
-                jazda+
-                przerwy,
+                pierwsza.razem+
+                druga.razem,
 
             jazdaTekst:
                 formatCzasTrwania(
@@ -1845,14 +2208,20 @@ function policzPodsumowanie(
 
             razemTekst:
                 formatCzasTrwania(
-                    pierwsza.jazda+
-                    pierwsza.przerwy
+                    pierwsza.razem
                 )+
                 " / "+
                 formatCzasTrwania(
-                    druga.jazda+
-                    druga.przerwy
-                )
+                    druga.razem
+                ),
+
+            lacznyCzasBrygadyTekst:
+                formatCzasTrwania(
+                    pierwsza.razem+
+                    druga.razem
+                ),
+
+            podzielone:true
         };
     }
 
@@ -1864,15 +2233,9 @@ function policzPodsumowanie(
         );
 
     return{
-        jazda:
-            calosc.jazda,
-
-        przerwy:
-            calosc.przerwy,
-
-        razem:
-            calosc.jazda+
-            calosc.przerwy,
+        jazda:calosc.jazda,
+        przerwy:calosc.przerwy,
+        razem:calosc.razem,
 
         jazdaTekst:
             formatCzasTrwania(
@@ -1886,9 +2249,11 @@ function policzPodsumowanie(
 
         razemTekst:
             formatCzasTrwania(
-                calosc.jazda+
-                calosc.przerwy
-            )
+                calosc.razem
+            ),
+
+        lacznyCzasBrygadyTekst:"",
+        podzielone:false
     };
 }
 
@@ -2011,6 +2376,16 @@ function renderBrygada(linia,brygada,kursy){
         '<th>Łączny czas:</th>'+
         `<td>${escapeHtml(podsumowanie.razemTekst)}</td>`+
         '</tr>'+
+        (
+            podsumowanie.podzielone
+                ? (
+                    '<tr class="laczny-czas-brygady">'+
+                    '<th>Łączny czas brygady:</th>'+
+                    `<td>${escapeHtml(podsumowanie.lacznyCzasBrygadyTekst)}</td>`+
+                    '</tr>'
+                )
+                : ""
+        )+
         '</tbody>'+
         '</table>'+
         '</section>';
