@@ -8342,6 +8342,32 @@ przystanki.forEach(
 );
 
 
+/*
+ * Zachowujemy oryginalną informację o przebiegu podstawowym.
+ *
+ * To jest bardzo ważne przy kursach WYDŁUŻONYCH.
+ *
+ * Przykład linii 131:
+ *
+ * trasa podstawowa:
+ *   ... -> Goraszewska -> Sadyba 05
+ *
+ * kurs wydłużony:
+ *   ... -> Goraszewska -> Sadyba 01 -> ... -> Wilanów
+ *
+ * Sadyba 05 jest krańcem trasy podstawowej, ale kurs wydłużony
+ * jej NIE obsługuje. Taki kurs musi ominąć ten przystanek
+ * po LEWEJ stronie, zamiast prowadzić czarną linię przez
+ * nieobsługiwany Sadyba 05.
+ *
+ * Później isOnMainAxis może być rozszerzane ze względów
+ * graficznych, dlatego do wykrywania takich pominięć używamy
+ * osobnej, niezmiennej kopii.
+ */
+const isOnMainAxisBazowa =
+    isOnMainAxis.slice();
+
+
     /* =====================================================
        ŚCIEŻKI
        ===================================================== */
@@ -8650,14 +8676,50 @@ przystanki.forEach(
                 )
             ) {
 
-                isOnMainAxis[
-                    e.u
-                ] = true;
+                /*
+                 * Jeżeli pośrednie punkty NIE należą do trasy
+                 * podstawowej, są tylko boczną odnogą i wtedy
+                 * bezpośrednia krawędź może pozostać osią główną.
+                 *
+                 * Jeżeli natomiast po drodze znajduje się punkt
+                 * trasy podstawowej (np. Sadyba 05 na linii 131),
+                 * nie wolno potraktować bezpośredniego przejazdu
+                 * jako zwykłej pionowej osi.
+                 */
+                let maPosredniPunktBazowy =
+                    false;
 
 
-                isOnMainAxis[
-                    e.v
-                ] = true;
+                for (
+                    let k =
+                        e.u + 1;
+                    k < e.v;
+                    k++
+                ) {
+
+                    if (
+                        isOnMainAxisBazowa[k]
+                    ) {
+
+                        maPosredniPunktBazowy =
+                            true;
+
+                        break;
+                    }
+                }
+
+
+                if (!maPosredniPunktBazowy) {
+
+                    isOnMainAxis[
+                        e.u
+                    ] = true;
+
+
+                    isOnMainAxis[
+                        e.v
+                    ] = true;
+                }
             }
         }
     );
@@ -8671,11 +8733,52 @@ przystanki.forEach(
                 e.u + 1;
 
 
+            /*
+             * Czy pomiędzy końcami tej krawędzi znajduje się
+             * przystanek należący do RZECZYWISTEJ trasy
+             * podstawowej?
+             *
+             * Jeżeli tak, a dany kurs przechodzi bezpośrednio
+             * z u do v, to znaczy, że pomija ten przystanek.
+             *
+             * To obejmuje także sytuację, gdy pomijany przystanek
+             * jest KRAŃCEM trasy podstawowej i nie istnieje już
+             * dalsza krawędź trasy A do punktu v.
+             */
+            let pomijaPrzystanekTrasyPodstawowej =
+                false;
+
+
+            if (maPrzystankiPomiedzy) {
+
+                for (
+                    let k =
+                        e.u + 1;
+                    k < e.v;
+                    k++
+                ) {
+
+                    if (
+                        isOnMainAxisBazowa[k]
+                    ) {
+
+                        pomijaPrzystanekTrasyPodstawowej =
+                            true;
+
+                        break;
+                    }
+                }
+            }
+
+
             const rzeczywiscieOmija =
                 maPrzystankiPomiedzy &&
-                istniejeAlternatywnaSciezkaFWTP(
-                    e.u,
-                    e.v
+                (
+                    pomijaPrzystanekTrasyPodstawowej ||
+                    istniejeAlternatywnaSciezkaFWTP(
+                        e.u,
+                        e.v
+                    )
                 );
 
 
@@ -8754,6 +8857,32 @@ przystanki.forEach(
                     e => e.v
                 )
         );
+
+
+    /*
+     * Jeżeli punkt kończący lewe pominięcie ma dalszą krawędź
+     * wybranego / dowolnego wariantu, traktujemy go jako powrót
+     * na oś środkową. Dzięki temu po ominięciu krańca podstawowego
+     * kurs wydłużony może dalej iść pionowo.
+     */
+    leftSkipVariantEndIndexes.forEach(
+        index => {
+
+            const maDalszyOdcinek =
+                edges.some(
+                    e =>
+                        e.u === index
+                );
+
+
+            if (maDalszyOdcinek) {
+
+                isOnMainAxis[
+                    index
+                ] = true;
+            }
+        }
+    );
 
 
     /* =====================================================
