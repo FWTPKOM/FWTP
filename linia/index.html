@@ -9642,7 +9642,7 @@ const isOnMainAxisBazowa =
 
 
     /*
-     * GLOBALNA GEOMETRIA 1–2 POMINIĘĆ — WG MIEJSCA POWROTU
+     * GLOBALNA GEOMETRIA LEWEGO OMINIĘCIA — WG POŁOŻENIA OSI
      *
      * Wcześniej poprawna geometria była przypisana wyłącznie
      * do linii 131. Okazało się jednak, że dokładnie ten sam
@@ -9770,16 +9770,72 @@ const isOnMainAxisBazowa =
                  *   przy zwartej geometrii;
                  * - nie ma warunku zależnego od numeru linii.
                  */
+                /*
+                 * KLUCZOWA ZASADA GEOMETRII
+                 *
+                 * Nie liczba pomijanych przystanków decyduje o tym,
+                 * czy trzeba zwiększać wysokość wiersza.
+                 *
+                 * Trzeba sprawdzić, z jakiej osi wychodzi i na jaką
+                 * oś wraca lewa krawędź.
+                 *
+                 * SPINE_X <-> LEFT_X = 22 px poziomo
+                 * -----------------------------------
+                 * Wystarcza zwykły wiersz 44 px:
+                 *
+                 *     punkt główny
+                 *          \
+                 *           |
+                 *           |   pomijane przystanki
+                 *           |
+                 *          /
+                 *     punkt główny
+                 *
+                 * To jest dokładnie przypadek linii 311:
+                 * Umińskiego -> [Rechniewskiego 02, 01]
+                 * -> Nowaka-Jeziorańskiego.
+                 *
+                 * RIGHT_X <-> LEFT_X = 44 px poziomo
+                 * -----------------------------------
+                 * Tutaj potrzebujemy dodatkowych 22 px wysokości,
+                 * żeby przekątna pozostała pod kątem 45 stopni.
+                 *
+                 * Dzięki temu zachowujemy poprawne przypadki typu 131,
+                 * ale nie rozciągamy niepotrzebnie 311 ani innych tras,
+                 * które odchodzą i wracają do zwykłej osi głównej.
+                 */
+                const wymagaDodatkowejWysokosci =
+                    isOnMainAxis[
+                        e.u
+                    ] !== true ||
+                    isOnMainAxis[
+                        e.v
+                    ] !== true;
+
+
+                /*
+                 * Geometria typu wcześniejszego 131 jest potrzebna
+                 * tylko przy krótkim (1-2 przystanki) ominięciu,
+                 * gdy rzeczywiście występuje przejście pomiędzy
+                 * RIGHT_X i LEFT_X.
+                 */
                 e.useLegacySingleSkipGeometry =
                     pomijaneBazowe.length >= 1 &&
                     pomijaneBazowe.length <= 2 &&
-                    isOnMainAxis[
-                        e.v
-                    ] === true;
+                    wymagaDodatkowejWysokosci;
 
 
+                /*
+                 * Zwiększamy wysokość ostatniego pomijanego wiersza
+                 * WYŁĄCZNIE wtedy, gdy geometria naprawdę potrzebuje
+                 * dodatkowych 22 px.
+                 *
+                 * Jeżeli oba końce leżą na osi głównej, wszystkie
+                 * pomijane wiersze zostają zwykłe: 44 px.
+                 */
                 if (
-                    ostatniPomijanyBazowy >= 0
+                    ostatniPomijanyBazowy >= 0 &&
+                    wymagaDodatkowejWysokosci
                 ) {
 
                     leftSkipIntermediateMainIndexes.add(
@@ -9789,15 +9845,10 @@ const isOnMainAxisBazowa =
 
 
                 if (
-                    e.useLegacySingleSkipGeometry
+                    e.useLegacySingleSkipGeometry &&
+                    ostatniPomijanyBazowy >= 0
                 ) {
 
-                    /*
-                     * Dla jednego pominięcia jest to ten sam punkt.
-                     * Dla dwóch pominięć przesuwamy tylko OSTATNI
-                     * pomijany przystanek. Dzięki temu środek odnogi
-                     * zachowuje zwykłe odstępy 44 px.
-                     */
                     legacySingleSkipIntermediateIndexes.add(
                         ostatniPomijanyBazowy
                     );
