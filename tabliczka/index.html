@@ -541,11 +541,13 @@
             align-self: start;
 
             padding-top: 0;
-            padding-right: 0;
+            padding-right: 1px;
 
             text-align: right;
             white-space: nowrap;
             line-height: 13px;
+        
+            font-size: 12px;
         }
 
         .trasa-os {
@@ -559,7 +561,7 @@
 
             position: absolute;
 
-            left: 4.25px;
+            left: 3px;
             top: 0;
             bottom: 0;
 
@@ -2602,49 +2604,143 @@ function listaTrasyDoWyswietlenia(){
         baza?.przystanki||
         [];
 
+    if(!lista.length){
+        return[];
+    }
+
+    /*
+       Dla każdego przystanku sprawdzamy, czy kursy obsługujące dany wpis
+       jadą dalej niż ten przystanek.
+
+       To pozwala odróżnić:
+       - zwykłe powtórzenie tej samej nazwy na trasie -> ZOSTAWIAMY,
+       - drugi numer stanowiska używany wyłącznie przez kursy skrócone
+         kończące się na tym przystanku -> USUWAMY.
+    */
+    const kursJedzieDalej=
+        (index,kurs)=>{
+
+            const numer=
+                String(
+                    kurs?.numer||
+                    ""
+                );
+
+            if(!numer){
+                return false;
+            }
+
+            for(
+                let j=index+1;
+                j<lista.length;
+                j++
+            ){
+                const dalej=
+                    (
+                        lista[j]?.kursy||
+                        []
+                    ).some(
+                        k=>
+                            String(
+                                k?.numer||
+                                ""
+                            )===numer
+                    );
+
+                if(dalej){
+                    return true;
+                }
+            }
+
+            return false;
+        };
+
+    const maKursPelny=
+        index=>
+            (
+                lista[index]?.kursy||
+                []
+            ).some(
+                kurs=>
+                    kursJedzieDalej(
+                        index,
+                        kurs
+                    )
+            );
+
     const wynik=[];
 
     let i=0;
 
     while(i<lista.length){
 
-        const nazwa=
+        const aktualna=
+            lista[i];
+
+        const nastepna=
+            lista[i+1];
+
+        const taSamaNazwa=
+            nastepna&&
             normalizuj(
-                lista[i]?.nazwa
+                aktualna?.nazwa
+            )===
+            normalizuj(
+                nastepna?.nazwa
             );
 
-        let koniec=i+1;
+        if(!taSamaNazwa){
 
-        while(
-            koniec<lista.length&&
-            normalizuj(
-                lista[koniec]?.nazwa
-            )===nazwa
-        ){
-            koniec++;
+            wynik.push({
+                p:aktualna,
+                index:i
+            });
+
+            i++;
+            continue;
         }
 
-        let wybranyIndex=i;
+        /*
+           Mamy dwa KOLEJNE wpisy o tej samej nazwie.
+           Usuwamy jeden tylko wtedy, gdy jeden z nich jest wyraźnie
+           stanowiskiem dla kursów jadących dalej, a drugi nie ma żadnego
+           kursu jadącego dalej (czyli jest stanowiskiem końcowym wariantu).
+        */
+        const pierwszyPelny=
+            maKursPelny(i);
 
-        for(
-            let j=i;
-            j<koniec;
-            j++
+        const drugiPelny=
+            maKursPelny(i+1);
+
+        if(
+            pierwszyPelny!==drugiPelny
         ){
-            if(
-                j===aktualnyPrzystanek
-            ){
-                wybranyIndex=j;
-                break;
-            }
+
+            const zachowajIndex=
+                pierwszyPelny
+                    ? i
+                    : i+1;
+
+            wynik.push({
+                p:lista[zachowajIndex],
+                index:zachowajIndex
+            });
+
+            i+=2;
+            continue;
         }
 
+        /*
+           Jeśli oba wpisy są "pełne" albo oba są końcowe,
+           NIE zakładamy, że to wariant. Zostawiamy oba,
+           bo linia może rzeczywiście dwa razy odwiedzać ten sam przystanek.
+        */
         wynik.push({
-            p:lista[wybranyIndex],
-            index:wybranyIndex
+            p:aktualna,
+            index:i
         });
 
-        i=koniec;
+        i++;
     }
 
     return wynik;
