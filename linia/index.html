@@ -8252,40 +8252,147 @@ const wariantyDoWyboruGlownejOsi =
 
 
 /* =========================================================
-   REPREZENTATYWNE PRZEBIEGI WARIANTÓW
+   REPREZENTATYWNE PRZEBIEGI WARIANTÓW — GLOBALNIE
    =========================================================
 
-   Najważniejsza zasada geometrii:
+   Nie wybieramy już reprezentatywnego przebiegu przez
+   znajdzKursBazowy(), bo pierwszy znaleziony kurs potrafi być
+   kursem skróconym albo zaczynającym/kończącym w środku trasy.
 
-   jeżeli dwa warianty mają ten sam początek i ten sam koniec,
-   a jeden z nich jedzie BEZPOŚREDNIO między wspólnymi punktami,
-   natomiast drugi odwiedza po drodze dodatkowe przystanki,
-   to wariant bezpośredni jest osią główną.
+   To było szczególnie widoczne na 228: w jednym kierunku kod
+   potrafił uznać przebieg przez dodatkowe przystanki za oś główną,
+   mimo że istnieje prostszy przejazd pomiędzy tymi samymi punktami.
 
-   Przykłady:
+   Teraz:
+   1. zbieramy WSZYSTKIE rzeczywiste ścieżki kursów dla wariantu,
+   2. jako reprezentatywną wybieramy najpełniejszą (najwięcej punktów),
+   3. później porównujemy warianty lokalnie pomiędzy wspólnymi punktami.
 
-   110:
-       Wólka Węglowa -----------------> Trenów-Las
-       Wólka Węglowa -> Widokowa -> ... -> Trenów-Las
-
-   126:
-       Marywilska-Las ----------------> PKP Żerań / Os. Marywilska
-       Marywilska-Las -> Płytowa -> Kupiecka -> ...
-
-   331:
-       Terminal Cargo ----------------> Osmańska
-       Terminal Cargo -> Osmańska 03 -> Osmańska-DHL -> Osmańska 01
-
-   W takich przypadkach:
-   - trasa bezpośrednia ma być na osi głównej,
-   - przystanki dodatkowego objazdu mają być po PRAWEJ stronie,
-   - NIE wolno wybierać objazdu na oś główną tylko dlatego,
-     że ma więcej kursów albo literę A.
-
-   Linie takie jak 210 i 239 nadal działają poprawnie, ponieważ
-   ta reguła nie jest zależna od numeru linii. Sprawdza wyłącznie
-   rzeczywistą strukturę przebiegów.
+   Dzięki temu zasada działa w obu kierunkach i nie zależy od numeru linii.
  */
+const wszystkieSciezkiWariantow =
+    new Map();
+
+
+wariantyDoWyboruGlownejOsi.forEach(
+    wariant => {
+
+        wszystkieSciezkiWariantow.set(
+            wariant,
+            new Map()
+        );
+    }
+);
+
+
+przystanki.forEach(
+    (
+        p,
+        indexPrzystanku
+    ) => {
+
+        (
+            p.kursy || []
+        ).forEach(
+            kurs => {
+
+                if (
+                    czasNaMinuty(
+                        kurs.czas
+                    ) === null
+                ) {
+                    return;
+                }
+
+
+                const wariant =
+                    pobierzWariant(
+                        kurs
+                    );
+
+
+                if (
+                    !wszystkieSciezkiWariantow.has(
+                        wariant
+                    )
+                ) {
+                    return;
+                }
+
+
+                const numer =
+                    String(
+                        kurs.numer !== undefined &&
+                        kurs.numer !== null
+                            ? kurs.numer
+                            : ""
+                    ).trim();
+
+
+                const brygada =
+                    String(
+                        kurs.brygada || ""
+                    ).trim();
+
+
+                /*
+                 * Pole numer jest najlepszym identyfikatorem kursu.
+                 * Gdy go brak, używamy brygady + wariantu jako
+                 * awaryjnego klucza. Nie używamy czasu, bo czas zmienia
+                 * się na każdym kolejnym przystanku tego samego kursu.
+                 */
+                const kluczKursu =
+                    numer
+                        ? "N:" + numer
+                        : (
+                            brygada
+                                ? "B:" + brygada + "||" + wariant
+                                : "AUTO:" + wariant
+                          );
+
+
+                const mapaKursow =
+                    wszystkieSciezkiWariantow.get(
+                        wariant
+                    );
+
+
+                if (
+                    !mapaKursow.has(
+                        kluczKursu
+                    )
+                ) {
+
+                    mapaKursow.set(
+                        kluczKursu,
+                        []
+                    );
+                }
+
+
+                const sciezka =
+                    mapaKursow.get(
+                        kluczKursu
+                    );
+
+
+                if (
+                    sciezka.length === 0 ||
+                    sciezka[
+                        sciezka.length - 1
+                    ] !== indexPrzystanku
+                ) {
+
+                    sciezka.push(
+                        indexPrzystanku
+                    );
+                }
+            }
+        );
+    }
+);
+
+
 const reprezentatywneSciezkiWariantow =
     new Map();
 
@@ -8293,44 +8400,87 @@ const reprezentatywneSciezkiWariantow =
 wariantyDoWyboruGlownejOsi.forEach(
     wariant => {
 
-        const kurs =
-            znajdzKursBazowy(
-                kierunekDlaDaty,
+        const mapaKursow =
+            wszystkieSciezkiWariantow.get(
                 wariant
             );
 
 
-        const indeksy =
-            kurs &&
-            Array.isArray(
-                kurs.punkty
-            )
-                ? kurs.punkty
-                    .filter(
-                        punkt =>
-                            punkt &&
-                            czasNaMinuty(
-                                punkt.czas
-                            ) !== null
-                    )
-                    .map(
-                        punkt =>
-                            Number(
-                                punkt.index
-                            )
-                    )
-                    .filter(
-                        index =>
-                            Number.isInteger(
-                                index
-                            )
-                    )
+        const sciezki =
+            mapaKursow
+                ? Array.from(
+                    mapaKursow.values()
+                  )
                 : [];
+
+
+        sciezki.forEach(
+            sciezka => {
+
+                sciezka.sort(
+                    (
+                        a,
+                        b
+                    ) => a - b
+                );
+            }
+        );
+
+
+        sciezki.sort(
+            (
+                a,
+                b
+            ) => {
+
+                if (
+                    b.length !== a.length
+                ) {
+
+                    return (
+                        b.length -
+                        a.length
+                    );
+                }
+
+
+                if (
+                    a.length === 0 ||
+                    b.length === 0
+                ) {
+                    return 0;
+                }
+
+
+                /*
+                 * Przy tej samej liczbie punktów preferujemy przebieg
+                 * obejmujący większy zakres indeksów listy.
+                 */
+                const zakresA =
+                    a[
+                        a.length - 1
+                    ] - a[0];
+
+
+                const zakresB =
+                    b[
+                        b.length - 1
+                    ] - b[0];
+
+
+                return (
+                    zakresB -
+                    zakresA
+                );
+            }
+        );
 
 
         reprezentatywneSciezkiWariantow.set(
             wariant,
-            indeksy
+            sciezki.length > 0
+                ? sciezki[0]
+                : []
         );
     }
 );
@@ -9463,7 +9613,7 @@ const isOnMainAxisBazowa =
 
 
     /*
-     * GLOBALNA GEOMETRIA "JEDNEGO POMINIĘCIA"
+     * GLOBALNA GEOMETRIA "JEDNEGO POMINIĘCIA" — WG MIEJSCA POWROTU
      *
      * Wcześniej poprawna geometria była przypisana wyłącznie
      * do linii 131. Okazało się jednak, że dokładnie ten sam
@@ -9536,37 +9686,51 @@ const isOnMainAxisBazowa =
                     ostatniPomijanyBazowy;
 
 
+                /*
+                 * GLOBALNA ZASADA GEOMETRII JEDNEGO POMINIĘCIA
+                 *
+                 * Są dwa różne układy, które wcześniej przypadkiem
+                 * były rozróżniane numerem linii / kierunkiem:
+                 *
+                 * 1. wariant omija jeden przystanek i WRACA na oś główną
+                 *    (e.v leży na osi głównej)
+                 *    -> geometria taka jak poprawny kierunek 131 oraz
+                 *       poprawiony kierunek 170 do Ronda Starzyńskiego;
+                 *       dodatkowe 22 px są NAD pomijanym punktem,
+                 *       a lewy pion dochodzi do końca wiersza.
+                 *
+                 * 2. wariant omija jeden przystanek, ale po pominięciu
+                 *    DALEJ JEDZIE BOCZNĄ osią (e.v nie leży na osi głównej)
+                 *    -> geometria zwarta; dodatkowe 22 px są POD punktem,
+                 *       a pion kończy się wcześniej, bo następna przekątna
+                 *       zaczyna się 22 px ponad kolejnym wierszem.
+                 *
+                 * To jest dokładnie różnica, przez którą 170 w jednym
+                 * kierunku wymagało zachowania v7, a w drugim v8.
+                 */
                 e.useLegacySingleSkipGeometry =
-                    pomijaneBazowe.length === 1;
+                    pomijaneBazowe.length === 1 &&
+                    isOnMainAxis[
+                        e.v
+                    ] === true;
+
+
+                if (
+                    ostatniPomijanyBazowy >= 0
+                ) {
+
+                    leftSkipIntermediateMainIndexes.add(
+                        ostatniPomijanyBazowy
+                    );
+                }
 
 
                 if (
                     e.useLegacySingleSkipGeometry
                 ) {
 
-                    const jedynyPomijany =
-                        pomijaneBazowe[0];
-
-
-                    leftSkipIntermediateMainIndexes.add(
-                        jedynyPomijany
-                    );
-
-
                     legacySingleSkipIntermediateIndexes.add(
-                        jedynyPomijany
-                    );
-
-                } else if (
-                    ostatniPomijanyBazowy >= 0
-                ) {
-
-                    /*
-                     * Kilka pominiętych przystanków:
-                     * dodatkową wysokość dostaje tylko ostatni.
-                     */
-                    leftSkipIntermediateMainIndexes.add(
-                        ostatniPomijanyBazowy
+                        pomijaneBazowe[0]
                     );
                 }
             }
@@ -10253,97 +10417,25 @@ const isOnMainAxisBazowa =
                                 rowHeight;
 
 
+                            /*
+                             * Jeżeli wariant wraca na oś główną,
+                             * lewy pion dochodzi do końca wiersza.
+                             *
+                             * Jeżeli po pominięciu przechodzi na prawą oś,
+                             * przekątna LEFT_X -> RIGHT_X zaczyna się
+                             * 22 px ponad następnym wierszem. Wtedy pion
+                             * trzeba zakończyć dokładnie 22 px wcześniej.
+                             *
+                             * Nie ma tu już wyjątków dla 131, 170 ani
+                             * żadnego konkretnego numeru linii.
+                             */
                             if (
-                                e.useLegacySingleSkipGeometry
-                            ) {
-
-                                /*
-                                 * Dla każdego układu z dokładnie jednym
-                                 * pomijanym przystankiem używamy geometrii,
-                                 * która wcześniej była zarezerwowana dla 131.
-                                 *
-                                 * Zachowujemy tylko jeden naprawdę szczególny
-                                 * przypadek 131 w kierunku Wilanowa:
-                                 *
-                                 * Goraszewska 01 -> Sadyba 05 -> Sadyba 01
-                                 *
-                                 * Tam pion musi skończyć się 22 px wcześniej,
-                                 * aby nie powstał pionowy ogonek.
-                                 */
-                                const indeksGoraszewska01 =
-                                    przystanki.findIndex(
-                                        przystanek =>
-                                            normalizujTekst(
-                                                przystanek.nazwa
-                                            ) ===
-                                            normalizujTekst(
-                                                "Goraszewska"
-                                            ) &&
-                                            String(
-                                                przystanek.nr || ""
-                                            ).trim() === "01"
-                                    );
-
-
-                                const indeksSadyba05 =
-                                    przystanki.findIndex(
-                                        przystanek =>
-                                            normalizujTekst(
-                                                przystanek.nazwa
-                                            ) ===
-                                            normalizujTekst(
-                                                "Sadyba"
-                                            ) &&
-                                            String(
-                                                przystanek.nr || ""
-                                            ).trim() === "05"
-                                    );
-
-
-                                const indeksSadyba01 =
-                                    przystanki.findIndex(
-                                        przystanek =>
-                                            normalizujTekst(
-                                                przystanek.nazwa
-                                            ) ===
-                                            normalizujTekst(
-                                                "Sadyba"
-                                            ) &&
-                                            String(
-                                                przystanek.nr || ""
-                                            ).trim() === "01"
-                                    );
-
-
-                                const czyUkladSadyba131 =
-                                    String(
-                                        numerLinii || ""
-                                    ).trim() === "131" &&
-                                    indeksGoraszewska01 >= 0 &&
-                                    indeksSadyba05 >= 0 &&
-                                    indeksSadyba01 >= 0 &&
-                                    indeksGoraszewska01 <
-                                        indeksSadyba05 &&
-                                    indeksSadyba05 <
-                                        indeksSadyba01;
-
-
-                                if (
-                                    czyUkladSadyba131 &&
-                                    i === indeksSadyba05 &&
-                                    e.v === indeksSadyba01 &&
-                                    isSkippedMainIntermediate
-                                ) {
-
-                                    koniecPionu =
-                                        rowHeight -
-                                        ROW_HEIGHT / 2;
-                                }
-
-                            } else if (
+                                !e.useLegacySingleSkipGeometry &&
                                 e.lastSkippedMainIndex === i &&
-                                i === e.v - 1 &&
-                                isSkippedMainIntermediate
+                                isSkippedMainIntermediate &&
+                                isOnMainAxis[
+                                    e.v
+                                ] !== true
                             ) {
 
                                 koniecPionu =
