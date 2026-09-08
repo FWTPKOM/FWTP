@@ -9642,7 +9642,7 @@ const isOnMainAxisBazowa =
 
 
     /*
-     * GLOBALNA GEOMETRIA LEWEGO OMINIĘCIA — WG POŁOŻENIA OSI
+     * GLOBALNA GEOMETRIA 1–2 POMINIĘĆ — WG MIEJSCA POWROTU
      *
      * Wcześniej poprawna geometria była przypisana wyłącznie
      * do linii 131. Okazało się jednak, że dokładnie ten sam
@@ -9667,6 +9667,22 @@ const isOnMainAxisBazowa =
      * i dodatkowe miejsce tylko przed przekątną powrotu.
      */
     const legacySingleSkipIntermediateIndexes =
+        new Set();
+
+
+    /*
+     * LINIA 311, KIERUNEK 1 (KAMIONKA)
+     *
+     * W tym kierunku odstęp ma być większy POMIĘDZY
+     * ostatnim przystankiem wariantowym a pierwszym
+     * przystankiem, który wraca na oś główną.
+     *
+     * Następny przystanek osi głównej ma już mieć
+     * zwykły odstęp.
+     *
+     * Drugi kierunek 311 zostawiamy dokładnie jak w v12.
+     */
+    const extraTopMainAxisAfterVariantIndexes =
         new Set();
 
 
@@ -9770,72 +9786,44 @@ const isOnMainAxisBazowa =
                  *   przy zwartej geometrii;
                  * - nie ma warunku zależnego od numeru linii.
                  */
-                /*
-                 * KLUCZOWA ZASADA GEOMETRII
-                 *
-                 * Nie liczba pomijanych przystanków decyduje o tym,
-                 * czy trzeba zwiększać wysokość wiersza.
-                 *
-                 * Trzeba sprawdzić, z jakiej osi wychodzi i na jaką
-                 * oś wraca lewa krawędź.
-                 *
-                 * SPINE_X <-> LEFT_X = 22 px poziomo
-                 * -----------------------------------
-                 * Wystarcza zwykły wiersz 44 px:
-                 *
-                 *     punkt główny
-                 *          \
-                 *           |
-                 *           |   pomijane przystanki
-                 *           |
-                 *          /
-                 *     punkt główny
-                 *
-                 * To jest dokładnie przypadek linii 311:
-                 * Umińskiego -> [Rechniewskiego 02, 01]
-                 * -> Nowaka-Jeziorańskiego.
-                 *
-                 * RIGHT_X <-> LEFT_X = 44 px poziomo
-                 * -----------------------------------
-                 * Tutaj potrzebujemy dodatkowych 22 px wysokości,
-                 * żeby przekątna pozostała pod kątem 45 stopni.
-                 *
-                 * Dzięki temu zachowujemy poprawne przypadki typu 131,
-                 * ale nie rozciągamy niepotrzebnie 311 ani innych tras,
-                 * które odchodzą i wracają do zwykłej osi głównej.
-                 */
-                const wymagaDodatkowejWysokosci =
-                    isOnMainAxis[
-                        e.u
-                    ] !== true ||
-                    isOnMainAxis[
-                        e.v
-                    ] !== true;
-
-
-                /*
-                 * Geometria typu wcześniejszego 131 jest potrzebna
-                 * tylko przy krótkim (1-2 przystanki) ominięciu,
-                 * gdy rzeczywiście występuje przejście pomiędzy
-                 * RIGHT_X i LEFT_X.
-                 */
                 e.useLegacySingleSkipGeometry =
                     pomijaneBazowe.length >= 1 &&
                     pomijaneBazowe.length <= 2 &&
-                    wymagaDodatkowejWysokosci;
+                    isOnMainAxis[
+                        e.v
+                    ] === true;
 
 
-                /*
-                 * Zwiększamy wysokość ostatniego pomijanego wiersza
-                 * WYŁĄCZNIE wtedy, gdy geometria naprawdę potrzebuje
-                 * dodatkowych 22 px.
-                 *
-                 * Jeżeli oba końce leżą na osi głównej, wszystkie
-                 * pomijane wiersze zostają zwykłe: 44 px.
-                 */
+                const czy311KamionkaDwaPomijane =
+                    String(
+                        numerLinii || ""
+                    ).trim() === "311" &&
+                    Number(
+                        aktualnyKierunek
+                    ) === 1 &&
+                    pomijaneBazowe.length === 2 &&
+                    isOnMainAxis[
+                        e.v
+                    ] === true;
+
+
                 if (
-                    ostatniPomijanyBazowy >= 0 &&
-                    wymagaDodatkowejWysokosci
+                    czy311KamionkaDwaPomijane
+                ) {
+
+                    /*
+                     * Dodatkowe 22 px przenosimy na PIERWSZY
+                     * przystanek osi głównej po wariancie.
+                     */
+                    extraTopMainAxisAfterVariantIndexes.add(
+                        e.v
+                    );
+
+                    e.extraTopAtReturn =
+                        true;
+
+                } else if (
+                    ostatniPomijanyBazowy >= 0
                 ) {
 
                     leftSkipIntermediateMainIndexes.add(
@@ -9846,9 +9834,13 @@ const isOnMainAxisBazowa =
 
                 if (
                     e.useLegacySingleSkipGeometry &&
-                    ostatniPomijanyBazowy >= 0
+                    !czy311KamionkaDwaPomijane
                 ) {
 
+                    /*
+                     * Wszystkie pozostałe przypadki zachowują
+                     * dokładnie geometrię v12.
+                     */
                     legacySingleSkipIntermediateIndexes.add(
                         ostatniPomijanyBazowy
                     );
@@ -10147,8 +10139,19 @@ const isOnMainAxisBazowa =
                 leftSkipIntermediateMainIndexes.has(i);
 
 
+            const isExtraTopMainAxisAfterVariant =
+                extraTopMainAxisAfterVariantIndexes.has(
+                    i
+                );
+
+
+            const isPowiekszonyWiersz =
+                isSkippedMainIntermediate ||
+                isExtraTopMainAxisAfterVariant;
+
+
             const rowHeight =
-                isSkippedMainIntermediate
+                isPowiekszonyWiersz
                     ? ROW_HEIGHT + ROW_HEIGHT / 2
                     : ROW_HEIGHT;
 
@@ -10184,13 +10187,17 @@ const isOnMainAxisBazowa =
 
 
             const nodeY =
-                useLegacySingleSkipRowGeometry
-                    ? (
-                        nodeActive
-                            ? ROW_HEIGHT / 2
-                            : ROW_HEIGHT
-                    )
-                    : ROW_HEIGHT / 2;
+                isExtraTopMainAxisAfterVariant
+                    ? ROW_HEIGHT
+                    : (
+                        useLegacySingleSkipRowGeometry
+                            ? (
+                                nodeActive
+                                    ? ROW_HEIGHT / 2
+                                    : ROW_HEIGHT
+                            )
+                            : ROW_HEIGHT / 2
+                    );
 
 
             const beforeVariantStart =
@@ -10231,7 +10238,7 @@ const isOnMainAxisBazowa =
              * linie wyglądały na rozłączone.
              */
             if (
-                isSkippedMainIntermediate
+                isPowiekszonyWiersz
             ) {
 
                 btn.style.height =
@@ -10601,15 +10608,50 @@ const isOnMainAxisBazowa =
 
                             } else {
 
-                                /*
-                                 * LEFT_X -> SPINE_X to 22 px poziomo,
-                                 * więc zwykłe 0 -> 22 px daje 45°.
-                                 */
-                                drawLine(
-                                    LEFT_X, 0,
-                                    endX, nodeY,
-                                    isEdgeActive
-                                );
+                                if (
+                                    e.extraTopAtReturn === true &&
+                                    isExtraTopMainAxisAfterVariant
+                                ) {
+
+                                    /*
+                                     * 311 -> Kamionka:
+                                     *
+                                     * dodatkowe 22 px są NAD pierwszym
+                                     * przystankiem osi głównej po wariancie.
+                                     *
+                                     * Najpierw 22 px pionu po lewej,
+                                     * potem przekątna 22 x 22 do punktu.
+                                     */
+                                    drawLine(
+                                        LEFT_X,
+                                        0,
+                                        LEFT_X,
+                                        ROW_HEIGHT / 2,
+                                        isEdgeActive
+                                    );
+
+                                    drawLine(
+                                        LEFT_X,
+                                        ROW_HEIGHT / 2,
+                                        endX,
+                                        nodeY,
+                                        isEdgeActive
+                                    );
+
+                                } else {
+
+                                    /*
+                                     * Standardowe LEFT_X -> SPINE_X:
+                                     * 22 px poziomo i 22 px pionowo.
+                                     */
+                                    drawLine(
+                                        LEFT_X,
+                                        0,
+                                        endX,
+                                        nodeY,
+                                        isEdgeActive
+                                    );
+                                }
                             }
                         }
                     }
@@ -10799,7 +10841,7 @@ const isOnMainAxisBazowa =
              * dokładnie na wysokości kropki / kwadratu.
              */
             const przesuniecieTekstuY =
-                isSkippedMainIntermediate
+                isPowiekszonyWiersz
                     ? (
                         nodeY -
                         rowHeight / 2
