@@ -8349,7 +8349,7 @@ wariantyDoWyboruGlownejOsi.forEach(
  *   w tej samej kolejności,
  * - dłuższy ma co najmniej jeden dodatkowy przystanek.
  */
-function czyBezposredniPrzebiegJestSzkieletemFWTP(
+function czyPodciagWTejSamejKolejnosciFWTP(
     krotszy,
     dluzszy
 ) {
@@ -8357,22 +8357,8 @@ function czyBezposredniPrzebiegJestSzkieletemFWTP(
     if (
         !Array.isArray(krotszy) ||
         !Array.isArray(dluzszy) ||
-        krotszy.length < 2 ||
-        dluzszy.length <= krotszy.length
-    ) {
-
-        return false;
-    }
-
-
-    if (
-        krotszy[0] !== dluzszy[0] ||
-        krotszy[
-            krotszy.length - 1
-        ] !==
-        dluzszy[
-            dluzszy.length - 1
-        ]
+        krotszy.length === 0 ||
+        dluzszy.length < krotszy.length
     ) {
 
         return false;
@@ -8411,11 +8397,171 @@ function czyBezposredniPrzebiegJestSzkieletemFWTP(
 
 
 /*
+ * GLOBALNE WYKRYWANIE OBJAZDU MIĘDZY DWOMA WSPÓLNYMI PUNKTAMI.
+ *
+ * To jest ważniejsza i bardziej ogólna wersja wcześniejszego
+ * porównania całych przebiegów.
+ *
+ * Wcześniej wymagaliśmy, aby oba warianty miały dokładnie ten sam
+ * pierwszy i ostatni przystanek. To działało np. na części linii 110,
+ * 126 i 331, ale potrafiło zawieść w jednym kierunku linii 228,
+ * jeżeli jeden przebieg zaczynał się albo kończył wcześniej/później.
+ *
+ * Teraz szukamy DWÓCH WSPÓLNYCH KOTWIC wewnątrz tras:
+ *
+ *     A: ... X ---------------- Y ...
+ *     B: ... X -> p1 -> p2 -> Y ...
+ *
+ * Jeżeli pomiędzy tym samym X i Y jedna trasa jest bezpośredniejsza,
+ * a druga zawiera dodatkowe przystanki, to dłuższa część jest objazdem.
+ *
+ * Dzięki temu kierunek jazdy i różne początki/końce kursów nie powinny
+ * zmieniać tego, która geometria jest osią główną.
+ */
+function policzKareLokalnegoObjazduFWTP(
+    kandydatObjazdu,
+    kandydatProsty
+) {
+
+    if (
+        !Array.isArray(kandydatObjazdu) ||
+        !Array.isArray(kandydatProsty) ||
+        kandydatObjazdu.length < 2 ||
+        kandydatProsty.length < 2
+    ) {
+
+        return 0;
+    }
+
+
+    let najlepszaKara =
+        0;
+
+
+    /*
+     * Bierzemy każdą parę kolejnych punktów z prostszego przebiegu.
+     * Jeżeli w drugim przebiegu pomiędzy tymi samymi punktami są
+     * dodatkowe przystanki, jest to lokalny objazd.
+     *
+     * Przykład:
+     *
+     * prosty:   [10, 20]
+     * objazd:   [10, 11, 12, 20]
+     * kara = 2
+     */
+    for (
+        let a = 0;
+        a < kandydatProsty.length - 1;
+        a++
+    ) {
+
+        const start =
+            kandydatProsty[a];
+
+
+        for (
+            let b = a + 1;
+            b < kandydatProsty.length;
+            b++
+        ) {
+
+            const koniec =
+                kandydatProsty[b];
+
+
+            const startObjazdu =
+                kandydatObjazdu.indexOf(
+                    start
+                );
+
+
+            if (
+                startObjazdu < 0
+            ) {
+
+                continue;
+            }
+
+
+            const koniecObjazdu =
+                kandydatObjazdu.indexOf(
+                    koniec,
+                    startObjazdu + 1
+                );
+
+
+            if (
+                koniecObjazdu < 0
+            ) {
+
+                continue;
+            }
+
+
+            const fragmentProsty =
+                kandydatProsty.slice(
+                    a,
+                    b + 1
+                );
+
+
+            const fragmentObjazdu =
+                kandydatObjazdu.slice(
+                    startObjazdu,
+                    koniecObjazdu + 1
+                );
+
+
+            if (
+                fragmentObjazdu.length <=
+                fragmentProsty.length
+            ) {
+
+                continue;
+            }
+
+
+            /*
+             * Wszystkie punkty prostszego fragmentu muszą występować
+             * w objazdowym fragmencie w tej samej kolejności.
+             */
+            if (
+                !czyPodciagWTejSamejKolejnosciFWTP(
+                    fragmentProsty,
+                    fragmentObjazdu
+                )
+            ) {
+
+                continue;
+            }
+
+
+            const kara =
+                fragmentObjazdu.length -
+                fragmentProsty.length;
+
+
+            if (
+                kara > najlepszaKara
+            ) {
+
+                najlepszaKara =
+                    kara;
+            }
+        }
+    }
+
+
+    return najlepszaKara;
+}
+
+
+/*
  * Kara za bycie objazdem.
  *
- * Jeżeli wariant zawiera wszystkie punkty innego wariantu,
- * ale dodatkowo odwiedza przystanki pomiędzy wspólnym początkiem
- * i końcem, dostaje karę równą liczbie tych dodatkowych punktów.
+ * Jeżeli wariant pomiędzy dowolnymi dwoma wspólnymi punktami
+ * odwiedza dodatkowe przystanki, dostaje karę za lokalny objazd.
+ * Nie wymagamy już identycznego początku i końca całych tras.
  *
  * Im mniejsza kara, tym lepszy kandydat na oś główną.
  */
@@ -8461,14 +8607,22 @@ wariantyDoWyboruGlownejOsi.forEach(
 
 
                 /*
-                 * Jeżeli B jest krótszym szkieletem A,
-                 * to A jest objazdem przez dodatkowe przystanki.
+                 * Sprawdzamy nie tylko CAŁE trasy, ale również lokalny
+                 * przebieg pomiędzy wspólnymi punktami.
+                 *
+                 * Dzięki temu np. wariant z dodatkowymi przystankami
+                 * nie staje się osią główną tylko dlatego, że w tym
+                 * kierunku ma inny początek albo inny koniec kursu.
                  */
+                const karaLokalna =
+                    policzKareLokalnegoObjazduFWTP(
+                        sciezkaA,
+                        sciezkaB
+                    );
+
+
                 if (
-                    czyBezposredniPrzebiegJestSzkieletemFWTP(
-                        sciezkaB,
-                        sciezkaA
-                    )
+                    karaLokalna > 0
                 ) {
 
                     karaObjazduWariantu.set(
@@ -8478,10 +8632,7 @@ wariantyDoWyboruGlownejOsi.forEach(
                                 wariantA
                             ) || 0
                         ) +
-                        (
-                            sciezkaA.length -
-                            sciezkaB.length
-                        )
+                        karaLokalna
                     );
                 }
             }
