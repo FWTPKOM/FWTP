@@ -9180,7 +9180,10 @@ const isOnMainAxisBazowa =
        SPECJALNA GEOMETRIA LINII 126
        =====================================================
 
-       W kierunku, w którym występuje układ:
+       Linia 126 ma w okolicy Marywilskiej dwa kierunki,
+       w których długa krawędź omija kilka przystanków.
+
+       KIERUNEK 1:
 
        MARYWILSKA-LAS 02
            -> PŁYTOWA 03
@@ -9190,26 +9193,34 @@ const isOnMainAxisBazowa =
            -> OS. MARYWILSKA 04
            -> PKP ŻERAŃ 02
 
-       wariant omijający przystanki pośrednie biegnie lewą osią.
+       W tym kierunku wszystkie pośrednie wiersze mają normalne
+       44 px. Dodatkowe 22 px dokładamy WYŁĄCZNIE pod
+       OS. MARYWILSKA 04, czyli dokładnie przed PKP ŻERAŃ 02.
 
-       Dla tej konkretnej geometrii NIE zwiększamy wysokości
-       każdego pomijanego przystanku. Wszystkie pośrednie wiersze
-       zachowują standardowe 44 px, a dodatkowe 22 px dokładamy
-       dopiero POD ostatnim pomijanym przystankiem:
+       KIERUNEK 2:
 
-           OS. MARYWILSKA 04
+       PKP ŻERAŃ 06
+           -> PKP ŻERAŃ 04
+           -> PŁYTOWA 03
+           -> KUPIECKA 01
+           -> PŁYTOWA 01
+           -> PKP ŻERAŃ 07
+           -> OS. MARYWILSKA 04
 
-       Dzięki temu:
-       - nie ma przerw między Płytową / Kupiecką / PKP Żerań 07
-         / Os. Marywilska 04,
-       - większy odstęp powstaje tylko między OS. MARYWILSKA 04
-         i PKP ŻERAŃ 02,
-       - przekątna powrotna ma miejsce na pełne 44 x 44 px,
-       - linie stykają się bez szczelin.
+       W tym kierunku żaden z pomijanych wierszy nie jest
+       powiększany. Lewa linia ma przechodzić przez wszystkie
+       wiersze bez 22-pikselowych przerw.
 
-       Kierunek przeciwny nie spełnia poniższej kolejności indeksów,
-       więc pozostaje całkowicie bez zmian.
+       Ta logika jest ograniczona wyłącznie do linii 126 i do
+       rozpoznanych zakresów przystanków. Linia 131 oraz pozostałe
+       układy korzystają z dotychczasowej geometrii.
     */
+    const czyLinia126 =
+        String(
+            numerLinii || ""
+        ).trim() === "126";
+
+
     const indeksMarywilskaLas02_126 =
         przystanki.findIndex(
             przystanek =>
@@ -9255,10 +9266,38 @@ const isOnMainAxisBazowa =
         );
 
 
-    const czySpecjalnyUklad126 =
-        String(
-            numerLinii || ""
-        ).trim() === "126" &&
+    const indeksPKPZeran06_126 =
+        przystanki.findIndex(
+            przystanek =>
+                normalizujTekst(
+                    przystanek.nazwa
+                ) ===
+                normalizujTekst(
+                    "PKP Żerań"
+                ) &&
+                String(
+                    przystanek.nr || ""
+                ).trim() === "06"
+        );
+
+
+    const indeksPKPZeran04_126 =
+        przystanki.findIndex(
+            przystanek =>
+                normalizujTekst(
+                    przystanek.nazwa
+                ) ===
+                normalizujTekst(
+                    "PKP Żerań"
+                ) &&
+                String(
+                    przystanek.nr || ""
+                ).trim() === "04"
+        );
+
+
+    const czyUklad126DoPKPZeran02 =
+        czyLinia126 &&
         indeksMarywilskaLas02_126 >= 0 &&
         indeksOsMarywilska04_126 >= 0 &&
         indeksPKPZeran02_126 >= 0 &&
@@ -9267,6 +9306,30 @@ const isOnMainAxisBazowa =
         indeksOsMarywilska04_126 <
             indeksPKPZeran02_126;
 
+
+    const czyUklad126OdPKPZeran06 =
+        czyLinia126 &&
+        indeksPKPZeran06_126 >= 0 &&
+        indeksPKPZeran04_126 >= 0 &&
+        indeksOsMarywilska04_126 >= 0 &&
+        indeksPKPZeran06_126 <
+            indeksPKPZeran04_126 &&
+        indeksPKPZeran04_126 <
+            indeksOsMarywilska04_126;
+
+
+    const czyWierszKorytarza126 =
+        i =>
+            (
+                czyUklad126DoPKPZeran02 &&
+                i > indeksMarywilskaLas02_126 &&
+                i <= indeksOsMarywilska04_126
+            ) ||
+            (
+                czyUklad126OdPKPZeran06 &&
+                i > indeksPKPZeran06_126 &&
+                i < indeksOsMarywilska04_126
+            );
 
     /* =====================================================
        LISTA PRZYSTANKÓW
@@ -9341,12 +9404,20 @@ const isOnMainAxisBazowa =
              * linia 131, nadal używają dotychczasowej logiki.
              */
             const isSkippedMainIntermediate =
-                czySpecjalnyUklad126
+                czyUklad126DoPKPZeran02 &&
+                i > indeksMarywilskaLas02_126 &&
+                i <= indeksOsMarywilska04_126
                     ? (
                         i ===
                         indeksOsMarywilska04_126
                     )
-                    : isSkippedMainIntermediateBazowy;
+                    : (
+                        czyUklad126OdPKPZeran06 &&
+                        i > indeksPKPZeran06_126 &&
+                        i < indeksOsMarywilska04_126
+                            ? false
+                            : isSkippedMainIntermediateBazowy
+                    );
 
 
             const rowHeight =
@@ -9383,7 +9454,7 @@ const isOnMainAxisBazowa =
                 !isSkippedMainIntermediate
                     ? ROW_HEIGHT / 2
                     : (
-                        czySpecjalnyUklad126 &&
+                        czyUklad126DoPKPZeran02 &&
                         i === indeksOsMarywilska04_126
                             ? ROW_HEIGHT / 2
                             : (
@@ -9710,10 +9781,14 @@ const isOnMainAxisBazowa =
                              * każdą widoczną szczelinę na łączeniu.
                              */
                             const poczatekPionu =
-                                isSkippedMainIntermediate &&
-                                !nodeActive
-                                    ? ROW_HEIGHT / 2
-                                    : 0;
+                                czyWierszKorytarza126(i)
+                                    ? 0
+                                    : (
+                                        isSkippedMainIntermediate &&
+                                        !nodeActive
+                                            ? ROW_HEIGHT / 2
+                                            : 0
+                                    );
 
 
                             /*
@@ -9822,26 +9897,12 @@ const isOnMainAxisBazowa =
 
 
                             /*
-                             * LINIA 126 — ostatni pomijany przystanek.
-                             *
-                             * Wiersz OS. MARYWILSKA 04 ma 66 px, ale
-                             * pion po lewej kończymy na 44 px.
-                             * Ostatnie 22 px zajmuje przekątna, która jest
-                             * rysowana z następnego wiersza od y=-22.
-                             * Dzięki temu pion i przekątna spotykają się
-                             * dokładnie w jednym punkcie.
+                             * Linia 126 nie skraca pionu na ostatnim
+                             * pomijanym wierszu. Pion dochodzi do końca
+                             * wiersza, a przekątna z następnego wiersza
+                             * zaczyna się 22 px wcześniej. Odcinki wtedy
+                             * zachodzą na siebie i nie powstaje szczelina.
                              */
-                            if (
-                                czySpecjalnyUklad126 &&
-                                i === indeksOsMarywilska04_126 &&
-                                e.v === indeksPKPZeran02_126 &&
-                                isSkippedMainIntermediate
-                            ) {
-
-                                koniecPionu =
-                                    rowHeight -
-                                    ROW_HEIGHT / 2;
-                            }
 
 
                             drawLine(
