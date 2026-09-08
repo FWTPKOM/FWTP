@@ -8919,14 +8919,16 @@ const isOnMainAxisBazowa =
 
 
     /*
-     * Przystanki trasy podstawowej pomijane przez lewy wariant,
-     * dla których rzeczywiście potrzebny jest większy odstęp.
+     * Przystanki trasy podstawowej, które są POMIJANE przez
+     * lewy wariant.
      *
-     * Odstęp dodajemy tylko wtedy, gdy po ominięciu kurs przechodzi
-     * na dodatkowy przystanek wariantu.
+     * Taki wiersz może dostać większą wysokość zgodnie
+     * z ustaloną geometrią. Sama linia omijająca nie jest już
+     * dzielona pomiędzy te wiersze - jest rysowana ciągle
+     * od punktu początkowego do końcowego.
      *
-     * Jeżeli kurs po ominięciu wraca od razu na trasę podstawową,
-     * pozostawiamy normalny odstęp 44 px.
+     * Nie rozciągamy natomiast przystanku, na którym wariant
+     * wraca na wspólną trasę.
      */
     const leftSkipIntermediateMainIndexes =
         new Set();
@@ -8939,46 +8941,6 @@ const isOnMainAxisBazowa =
         )
         .forEach(
             e => {
-
-                /*
-                 * WIĘKSZY ODSTĘP ROBIMY TYLKO WTEDY, GDY:
-                 *
-                 * kurs omija przystanek / fragment trasy podstawowej
-                 * i po ominięciu NIE wraca od razu na trasę podstawową,
-                 * tylko przechodzi na dodatkowy przystanek wariantu.
-                 *
-                 * Przykład wymagający odstępu:
-                 *
-                 *   Wiertnicza 02
-                 *        \
-                 *       Sadyba 05   <- pomijany kraniec podstawowy
-                 *        \
-                 *       Sadyba 02   <- dodatkowy przystanek wariantu
-                 *
-                 * Przykład BEZ dodatkowego odstępu:
-                 *
-                 *   PKP Żerań 06
-                 *        \
-                 *       pomijane przystanki
-                 *        \
-                 *   Os. Marywilska 04
-                 *
-                 * Tutaj kurs wraca od razu na trasę podstawową,
-                 * więc standardowe 44 px wiersza wystarcza.
-                 */
-                const wracaOdRazuNaTrasePodstawowa =
-                    !!isOnMainAxisBazowa[
-                        e.v
-                    ];
-
-
-                if (
-                    wracaOdRazuNaTrasePodstawowa
-                ) {
-
-                    return;
-                }
-
 
                 for (
                     let k = e.u + 1;
@@ -9215,6 +9177,106 @@ const isOnMainAxisBazowa =
 
 
     /* =====================================================
+       GEOMETRIA WIERSZY - OBLICZANA Z GÓRY
+       =====================================================
+
+       Wcześniej lewy wariant był dzielony na osobne fragmenty
+       rysowane w kolejnych SVG. Przy wariancie takim jak linia 126:
+
+           Marywilska-Las
+                  \
+                   |  pomijane przystanki
+                   |
+                   \________ PKP Żerań
+
+       fragmenty mogły nie stykać się na granicach wierszy.
+
+       Teraz znamy z góry wysokość i pozycję znacznika KAŻDEGO
+       wiersza. Dzięki temu krawędź track = -1 możemy narysować
+       jako jeden ciągły przebieg w SVG przystanku początkowego.
+       SVG ma overflow: visible, więc linia może przechodzić
+       przez kolejne wiersze bez żadnych szczelin.
+       ===================================================== */
+
+    const rowHeightByIndex =
+        przystanki.map(
+            (
+                p,
+                index
+            ) => {
+
+                const isSkippedMainIntermediate =
+                    leftSkipIntermediateMainIndexes.has(
+                        index
+                    );
+
+
+                return isSkippedMainIntermediate
+                    ? ROW_HEIGHT + ROW_HEIGHT / 2
+                    : ROW_HEIGHT;
+            }
+        );
+
+
+    const nodeYByIndex =
+        przystanki.map(
+            (
+                p,
+                index
+            ) => {
+
+                const isSkippedMainIntermediate =
+                    leftSkipIntermediateMainIndexes.has(
+                        index
+                    );
+
+
+                if (!isSkippedMainIntermediate) {
+                    return ROW_HEIGHT / 2;
+                }
+
+
+                /*
+                 * Ta sama asymetryczna zasada, którą już ustaliliśmy:
+                 *
+                 * - pomijany, nieaktywny punkt:
+                 *       większy odstęp NAD nim,
+                 *
+                 * - aktywny punkt podstawowy:
+                 *       większy odstęp POD nim.
+                 */
+                return selectedActive[index]
+                    ? ROW_HEIGHT / 2
+                    : ROW_HEIGHT;
+            }
+        );
+
+
+    function odlegloscPionowaDoWiersza(
+        startIndex,
+        endIndex
+    ) {
+
+        let wynik =
+            0;
+
+
+        for (
+            let index = startIndex;
+            index < endIndex;
+            index++
+        ) {
+
+            wynik +=
+                rowHeightByIndex[index];
+        }
+
+
+        return wynik;
+    }
+
+
+    /* =====================================================
        LISTA PRZYSTANKÓW
        ===================================================== */
 
@@ -9276,43 +9338,16 @@ const isOnMainAxisBazowa =
 
 
             const rowHeight =
-                isSkippedMainIntermediate
-                    ? ROW_HEIGHT + ROW_HEIGHT / 2
-                    : ROW_HEIGHT;
+                rowHeightByIndex[i];
 
 
             /*
-             * Dla powiększonego wiersza NIE ustawiamy znacznika
-             * pośrodku 66 px.
-             *
-             * nodeActive = false:
-             *     nodeY = 44 px
-             *     -> dodatkowe 22 px NAD przystankiem,
-             *     -> normalne 22 px POD nim.
-             *
-             * nodeActive = true:
-             *     nodeY = 22 px
-             *     -> normalne 22 px NAD przystankiem,
-             *     -> dodatkowe 22 px POD nim.
-             *
-             * To daje dokładnie:
-             *
-             * zdjęcie 1:
-             * Wiertnicza 02 -> [większy odstęp] -> Sadyba 05
-             * -> [normalny odstęp] -> Sadyba 02
-             *
-             * zdjęcie 2:
-             * Goraszewska 01 -> [normalny odstęp] -> Sadyba 05
-             * -> [większy odstęp] -> Sadyba 01
+             * Pozycja znacznika jest policzona wcześniej dla całej
+             * listy, aby geometria linii i geometria wierszy zawsze
+             * korzystały dokładnie z tych samych wartości.
              */
             const nodeY =
-                !isSkippedMainIntermediate
-                    ? ROW_HEIGHT / 2
-                    : (
-                        nodeActive
-                            ? ROW_HEIGHT / 2
-                            : ROW_HEIGHT
-                    );
+                nodeYByIndex[i];
 
 
             const beforeVariantStart =
@@ -9559,6 +9594,7 @@ const isOnMainAxisBazowa =
                                 ? SPINE_X
                                 : RIGHT_X;
 
+
                         const endX =
                             isOnMainAxis[e.v]
                                 ? SPINE_X
@@ -9566,113 +9602,127 @@ const isOnMainAxisBazowa =
 
 
                         /*
-                         * Wariant pomijający przystanki:
-                         * pion po lewej jest rysowany od granicy
-                         * do granicy wiersza, dlatego odcinki łączą się.
+                         * LEWY WARIANT / POMINIĘCIE
+                         * =========================
+                         *
+                         * Rysujemy CAŁĄ krawędź tylko w SVG
+                         * przystanku początkowego.
+                         *
+                         * Przykład z działającej geometrii:
+                         *
+                         * Wiertnicza:
+                         *   x=66,y=22 -> x=22,y=66
+                         *
+                         * czyli różnica 44 px w poziomie i 44 px
+                         * w pionie = dokładnie 45°.
+                         *
+                         * Ponieważ SVG ma overflow: visible,
+                         * możemy narysować dalej pion i ostatnią
+                         * przekątną przez wszystkie następne wiersze.
+                         * Nie dzielimy już krawędzi pomiędzy różne
+                         * elementy SVG, więc nie mogą powstać przerwy.
                          */
                         if (i === e.u) {
 
-                            if (startX === RIGHT_X) {
-                                drawCrossingLine(
-                                    startX, nodeY,
-                                    LEFT_X, rowHeight,
-                                    isEdgeActive
-                                );
-                            } else {
-                                drawLine(
-                                    startX, nodeY,
-                                    LEFT_X, rowHeight,
-                                    isEdgeActive
-                                );
-                            }
-                        }
+                            const startNodeY =
+                                nodeYByIndex[
+                                    e.u
+                                ];
 
 
-                        if (i > e.u && i < e.v) {
-
-                            /*
-                             * Jeżeli wariant ma wrócić na PRAWĄ oś,
-                             * potrzebujemy przekątnej 44 x 44 px.
-                             *
-                             * Ostatnie 22 px tej przekątnej zaczynamy
-                             * jeszcze w poprzednim (powiększonym)
-                             * wierszu. Dlatego pion po lewej kończymy
-                             * 22 px przed jego dolną krawędzią.
-                             */
-                            const konczyNaPrawej =
+                            const endNodeY =
                                 (
-                                    isOnMainAxis[e.v]
-                                        ? SPINE_X
-                                        : RIGHT_X
-                                ) === RIGHT_X;
-
-
-                            const ostatniPosredni =
-                                i === e.v - 1;
+                                    odlegloscPionowaDoWiersza(
+                                        e.u,
+                                        e.v
+                                    ) +
+                                    nodeYByIndex[
+                                        e.v
+                                    ]
+                                );
 
 
                             /*
-                             * Jeżeli następny punkt jest na prawej osi,
-                             * przekątna ma mieć 44 x 44 px.
+                             * Pierwsza przekątna:
                              *
-                             * Następny punkt znajduje się 22 px od góry
-                             * swojego wiersza, więc początek przekątnej
-                             * musi leżeć 22 px PRZED dolną krawędzią
-                             * poprzedniego wiersza.
-                             *
-                             * Działa to także wtedy, gdy wiersz ma 66 px
-                             * i znacznik jest przesunięty asymetrycznie.
+                             * SPINE -> LEFT = 22 x 22 px
+                             * RIGHT -> LEFT = 44 x 44 px
                              */
-                            const koniecPionu =
-                                konczyNaPrawej &&
-                                ostatniPosredni
-                                    ? rowHeight - ROW_HEIGHT / 2
-                                    : rowHeight;
+                            const startDiagonalHeight =
+                                Math.abs(
+                                    startX -
+                                    LEFT_X
+                                );
 
 
-                            drawLine(
-                                LEFT_X, 0,
-                                LEFT_X, koniecPionu,
+                            const startCornerY =
+                                startNodeY +
+                                startDiagonalHeight;
+
+
+                            /*
+                             * Ostatnia przekątna:
+                             *
+                             * LEFT -> SPINE = 22 x 22 px
+                             * LEFT -> RIGHT = 44 x 44 px
+                             */
+                            const endDiagonalHeight =
+                                Math.abs(
+                                    endX -
+                                    LEFT_X
+                                );
+
+
+                            const endCornerY =
+                                endNodeY -
+                                endDiagonalHeight;
+
+
+                            /*
+                             * 1. zejście z punktu początkowego
+                             *    pod kątem dokładnie 45°
+                             */
+                            drawCrossingLine(
+                                startX,
+                                startNodeY,
+                                LEFT_X,
+                                startCornerY,
                                 isEdgeActive
                             );
-                        }
 
 
-                        if (i === e.v) {
+                            /*
+                             * 2. ciągły pion po lewej
+                             *
+                             * Jeżeli początek i koniec są bardzo blisko,
+                             * pion może mieć długość 0 i wtedy go pomijamy.
+                             */
+                            if (
+                                endCornerY >
+                                startCornerY
+                            ) {
 
-                            if (endX === RIGHT_X) {
-
-                                /*
-                                 * LEFT_X -> RIGHT_X to 44 px poziomo.
-                                 * Zaczynamy 22 px nad bieżącym wierszem
-                                 * i kończymy w jego środku (22 px),
-                                 * czyli mamy również 44 px pionowo.
-                                 *
-                                 * Efekt: idealny kąt 45° i pełne
-                                 * połączenie z pionową linią po lewej,
-                                 * również przy asymetrycznym odstępie
-                                 * wokół pomijanego przystanku.
-                                 */
-                                drawCrossingLine(
-                                    LEFT_X,
-                                    -ROW_HEIGHT / 2,
-                                    endX,
-                                    nodeY,
-                                    isEdgeActive
-                                );
-
-                            } else {
-
-                                /*
-                                 * LEFT_X -> SPINE_X to 22 px poziomo,
-                                 * więc zwykłe 0 -> 22 px daje 45°.
-                                 */
                                 drawLine(
-                                    LEFT_X, 0,
-                                    endX, nodeY,
+                                    LEFT_X,
+                                    startCornerY,
+                                    LEFT_X,
+                                    endCornerY,
                                     isEdgeActive
                                 );
                             }
+
+
+                            /*
+                             * 3. wejście do punktu końcowego
+                             *    również pod kątem dokładnie 45°
+                             */
+                            drawCrossingLine(
+                                LEFT_X,
+                                endCornerY,
+                                endX,
+                                endNodeY,
+                                isEdgeActive
+                            );
                         }
                     }
                 }
