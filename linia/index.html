@@ -6278,9 +6278,14 @@ function zbudujAnalizeWariantowFWTP(
 
 
                 /*
-                 * Klucz przystanku zawiera nazwę i numer.
-                 * Dzięki temu dwa stanowiska o tej samej nazwie
-                 * nie są automatycznie traktowane jako jeden punkt.
+                 * Przy ustalaniu, czy wariant WRACA na trasę główną,
+                 * porównujemy nazwę zespołu przystankowego.
+                 *
+                 * Numer stanowiska może być inny po drugiej stronie
+                 * skrzyżowania / pętli, ale nadal jest to powrót
+                 * do tej samej trasy. Wcześniej porównanie
+                 * "nazwa + numer" powodowało, że część prawdziwych
+                 * wariantów "kurs przez ..." nie była wykrywana.
                  */
                 const kluczPrzystanku =
                     index => {
@@ -6296,16 +6301,8 @@ function zbudujAnalizeWariantowFWTP(
                         }
 
 
-                        return (
-                            normalizujTekst(
-                                p.nazwa || ""
-                            ) +
-                            "||" +
-                            String(
-                                p.nr || ""
-                            )
-                                .trim()
-                                .toUpperCase()
+                        return normalizujTekst(
+                            p.nazwa || ""
                         );
                     };
 
@@ -8629,6 +8626,43 @@ przystanki.forEach(
     }
 
 
+    /*
+     * Jeżeli długa krawędź przechodzi "nad" przystankami
+     * wpisanymi pomiędzy indeksami, ale NIE istnieje droga
+     * u -> ... -> v przez te przystanki, oznacza to, że
+     * przystanki pośrednie należą do bocznej odnogi.
+     *
+     * Wtedy ciąg u -> v ma iść PROSTO po osi głównej,
+     * a odnoga może odchodzić w prawo.
+     *
+     * To naprawia sytuację jak:
+     * Wękarska -> Strzygłowska (prosto)
+     * oraz osobno Wękarska -> Rychnowska -> ... -> Skalnicowa.
+     */
+    edges.forEach(
+        e => {
+
+            if (
+                e.v > e.u + 1 &&
+                !istniejeAlternatywnaSciezkaFWTP(
+                    e.u,
+                    e.v
+                )
+            ) {
+
+                isOnMainAxis[
+                    e.u
+                ] = true;
+
+
+                isOnMainAxis[
+                    e.v
+                ] = true;
+            }
+        }
+    );
+
+
     edges.forEach(
         e => {
 
@@ -8686,6 +8720,28 @@ przystanki.forEach(
        Dzięki temu końcowy wiersz jest automatycznie obniżany
        również tam, gdzie wcześniej linie się nie stykały.
        ===================================================== */
+
+    /*
+     * Jeżeli wariant pomijający rozpoczyna się na przystanku
+     * po PRAWEJ stronie osi, musi mieć dodatkową wysokość,
+     * żeby przekątna RIGHT_X -> LEFT_X miała miejsce na pełne
+     * 44 px w pionie.
+     */
+    const leftSkipVariantStartIndexes =
+        new Set(
+            edges
+                .filter(
+                    e =>
+                        e.track === -1 &&
+                        !isOnMainAxis[
+                            e.u
+                        ]
+                )
+                .map(
+                    e => e.u
+                )
+        );
+
 
     const leftSkipVariantEndIndexes =
         new Set(
@@ -8932,20 +8988,67 @@ przystanki.forEach(
              * znacznika leży na y = 44 px. Dzięki temu ostatnia
              * przekątna LEFT_X -> RIGHT_X ma 44 x 44 px = 45°.
              */
+            const isLowerLeftSkipStart =
+                leftSkipVariantStartIndexes.has(i);
+
+
             const isLowerLeftSkipEnd =
                 leftSkipVariantEndIndexes.has(i);
 
 
-            const rowHeight =
-                isLowerLeftSkipEnd
-                    ? ROW_HEIGHT + ROW_HEIGHT / 2
-                    : ROW_HEIGHT;
+            /*
+             * Wariant może:
+             * - tylko się zaczynać,
+             * - tylko wracać,
+             * - wracać i od razu rozpoczynać kolejne pominięcie.
+             *
+             * W ostatnim przypadku potrzebujemy miejsca na dwie
+             * pełne przekątne po 44 px.
+             */
+            let rowHeight =
+                ROW_HEIGHT;
 
 
-            const nodeY =
+            let nodeY =
+                ROW_HEIGHT / 2;
+
+
+            if (
+                isLowerLeftSkipStart &&
                 isLowerLeftSkipEnd
-                    ? ROW_HEIGHT
-                    : ROW_HEIGHT / 2;
+            ) {
+
+                rowHeight =
+                    ROW_HEIGHT * 2;
+
+
+                nodeY =
+                    ROW_HEIGHT;
+
+            } else if (
+                isLowerLeftSkipStart
+            ) {
+
+                rowHeight =
+                    ROW_HEIGHT +
+                    ROW_HEIGHT / 2;
+
+
+                nodeY =
+                    ROW_HEIGHT / 2;
+
+            } else if (
+                isLowerLeftSkipEnd
+            ) {
+
+                rowHeight =
+                    ROW_HEIGHT +
+                    ROW_HEIGHT / 2;
+
+
+                nodeY =
+                    ROW_HEIGHT;
+            }
 
 
             const beforeVariantStart =
@@ -8978,7 +9081,11 @@ przystanki.forEach(
                 );
 
 
-            if (isLowerLeftSkipEnd) {
+            if (
+                isLowerLeftSkipStart ||
+                isLowerLeftSkipEnd
+            ) {
+
                 btn.style.height =
                     rowHeight + "px";
             }
@@ -9195,7 +9302,7 @@ przystanki.forEach(
                             if (startX === RIGHT_X) {
                                 drawCrossingLine(
                                     startX, nodeY,
-                                    LEFT_X, rowHeight + ROW_HEIGHT / 2,
+                                    LEFT_X, rowHeight,
                                     isEdgeActive
                                 );
                             } else {
@@ -10023,6 +10130,100 @@ function pokazRozkladWybranegoPrzystanku(
         zbudujAnalizeWariantowFWTP(
             kierunekDlaDaty
         );
+
+
+    /*
+     * Jeżeli eksporter ma już poprawny opis "kurs przez ...",
+     * zachowujemy go jako zabezpieczenie. Nie przywracamy
+     * tekstów typu "bez podjazdów".
+     *
+     * Wariant podstawowy nadal pozostaje bez oznaczenia.
+     */
+    if (
+        analizaWariantow &&
+        analizaWariantow.warianty &&
+        Array.isArray(
+            rozklad.warianty
+        )
+    ) {
+
+        rozklad.warianty.forEach(
+            wariant => {
+
+                const litera =
+                    String(
+                        wariant?.litera ||
+                        ""
+                    )
+                        .trim()
+                        .toUpperCase();
+
+
+                const opisJSON =
+                    String(
+                        wariant?.opis ||
+                        ""
+                    ).trim();
+
+
+                if (
+                    !litera ||
+                    !opisJSON ||
+                    !/^kurs\s+przez\b/i.test(
+                        opisJSON
+                    )
+                ) {
+
+                    return;
+                }
+
+
+                const daneAnalizy =
+                    analizaWariantow.warianty.get(
+                        litera
+                    );
+
+
+                if (
+                    !daneAnalizy ||
+                    daneAnalizy.typ ===
+                        "podstawowy"
+                ) {
+
+                    return;
+                }
+
+
+                /*
+                 * Jeżeli analiza sama rozpoznała skrócenie
+                 * lub wydłużenie, taki opis ma pierwszeństwo.
+                 */
+                if (
+                    daneAnalizy.opis &&
+                    (
+                        daneAnalizy.typ === "skrocony" ||
+                        daneAnalizy.typ === "wydluzony" ||
+                        daneAnalizy.typ === "przez"
+                    )
+                ) {
+
+                    return;
+                }
+
+
+                daneAnalizy.typ =
+                    "przez";
+
+
+                daneAnalizy.opis =
+                    opisJSON;
+
+
+                daneAnalizy.pokazOznaczenie =
+                    true;
+            }
+        );
+    }
 
 
     if (
