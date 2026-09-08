@@ -9462,10 +9462,33 @@ const isOnMainAxisBazowa =
         new Set();
 
 
-    const czyLinia131Geometria =
-        String(
-            numerLinii || ""
-        ).trim() === "131";
+    /*
+     * GLOBALNA GEOMETRIA "JEDNEGO POMINIĘCIA"
+     *
+     * Wcześniej poprawna geometria była przypisana wyłącznie
+     * do linii 131. Okazało się jednak, że dokładnie ten sam
+     * układ występuje również np. na linii 170:
+     *
+     *     punkt wspólny
+     *          \
+     *           \   wariant pomija JEDEN przystanek osi głównej
+     *            \
+     *     pomijany przystanek
+     *              \
+     *               punkt powrotu
+     *
+     * Jeżeli lewa krawędź omija dokładnie JEDEN przystanek
+     * rzeczywistej osi głównej, używamy starej geometrii 131:
+     * - wiersz ma 66 px,
+     * - nieaktywny znacznik jest na y = 44 px,
+     * - pion po lewej zaczyna się na y = 22 px.
+     *
+     * Jeżeli pomijanych przystanków jest kilka (np. 110/126/331),
+     * zachowujemy nową zwartą geometrię: zwykłe odstępy pośrodku
+     * i dodatkowe miejsce tylko przed przekątną powrotu.
+     */
+    const legacySingleSkipIntermediateIndexes =
+        new Set();
 
 
     edges
@@ -9476,8 +9499,8 @@ const isOnMainAxisBazowa =
         .forEach(
             e => {
 
-                let ostatniPomijanyBazowy =
-                    -1;
+                const pomijaneBazowe =
+                    [];
 
 
                 for (
@@ -9490,43 +9513,58 @@ const isOnMainAxisBazowa =
                         isOnMainAxisBazowa[k]
                     ) {
 
-                        ostatniPomijanyBazowy =
-                            k;
-
-
-                        /*
-                         * LINIA 131:
-                         * zachowujemy dokładnie wcześniejszą geometrię,
-                         * czyli każdy rzeczywiście pomijany przystanek
-                         * osi głównej może otrzymać powiększony wiersz.
-                         *
-                         * To jest ważne zwłaszcza w kierunku
-                         * Dw. Centralnego, gdzie po globalnej zmianie
-                         * przekątna przestała trafiać w pionową linię.
-                         */
-                        if (czyLinia131Geometria) {
-
-                            leftSkipIntermediateMainIndexes.add(
-                                k
-                            );
-                        }
+                        pomijaneBazowe.push(
+                            k
+                        );
                     }
                 }
+
+
+                const ostatniPomijanyBazowy =
+                    pomijaneBazowe.length > 0
+                        ? pomijaneBazowe[
+                            pomijaneBazowe.length - 1
+                          ]
+                        : -1;
+
+
+                e.skippedMainIndexes =
+                    pomijaneBazowe;
 
 
                 e.lastSkippedMainIndex =
                     ostatniPomijanyBazowy;
 
 
-                /*
-                 * Dla pozostałych linii zostaje nowa reguła globalna:
-                 * powiększamy tylko ostatni pomijany przystanek.
-                 */
+                e.useLegacySingleSkipGeometry =
+                    pomijaneBazowe.length === 1;
+
+
                 if (
-                    !czyLinia131Geometria &&
+                    e.useLegacySingleSkipGeometry
+                ) {
+
+                    const jedynyPomijany =
+                        pomijaneBazowe[0];
+
+
+                    leftSkipIntermediateMainIndexes.add(
+                        jedynyPomijany
+                    );
+
+
+                    legacySingleSkipIntermediateIndexes.add(
+                        jedynyPomijany
+                    );
+
+                } else if (
                     ostatniPomijanyBazowy >= 0
                 ) {
 
+                    /*
+                     * Kilka pominiętych przystanków:
+                     * dodatkową wysokość dostaje tylko ostatni.
+                     */
                     leftSkipIntermediateMainIndexes.add(
                         ostatniPomijanyBazowy
                     );
@@ -9855,16 +9893,18 @@ const isOnMainAxisBazowa =
              * Goraszewska 01 -> [normalny odstęp] -> Sadyba 05
              * -> [większy odstęp] -> Sadyba 01
              */
+            const useLegacySingleSkipRowGeometry =
+                legacySingleSkipIntermediateIndexes.has(
+                    i
+                );
+
+
             const nodeY =
-                czyLinia131Geometria
+                useLegacySingleSkipRowGeometry
                     ? (
-                        !isSkippedMainIntermediate
+                        nodeActive
                             ? ROW_HEIGHT / 2
-                            : (
-                                nodeActive
-                                    ? ROW_HEIGHT / 2
-                                    : ROW_HEIGHT
-                            )
+                            : ROW_HEIGHT
                     )
                     : ROW_HEIGHT / 2;
 
@@ -10185,13 +10225,10 @@ const isOnMainAxisBazowa =
                              * każdą widoczną szczelinę na łączeniu.
                              */
                             const poczatekPionu =
-                                czyLinia131Geometria
-                                    ? (
-                                        isSkippedMainIntermediate &&
-                                        !nodeActive
-                                            ? ROW_HEIGHT / 2
-                                            : 0
-                                    )
+                                e.useLegacySingleSkipGeometry &&
+                                isSkippedMainIntermediate &&
+                                !nodeActive
+                                    ? ROW_HEIGHT / 2
                                     : 0;
 
 
@@ -10216,17 +10253,22 @@ const isOnMainAxisBazowa =
                                 rowHeight;
 
 
-                            if (czyLinia131Geometria) {
+                            if (
+                                e.useLegacySingleSkipGeometry
+                            ) {
 
                                 /*
-                                 * Dla 131 wracamy do geometrii sprzed
-                                 * globalnej zmiany. Jedyny wcześniejszy
-                                 * wyjątek dotyczy układu:
+                                 * Dla każdego układu z dokładnie jednym
+                                 * pomijanym przystankiem używamy geometrii,
+                                 * która wcześniej była zarezerwowana dla 131.
+                                 *
+                                 * Zachowujemy tylko jeden naprawdę szczególny
+                                 * przypadek 131 w kierunku Wilanowa:
                                  *
                                  * Goraszewska 01 -> Sadyba 05 -> Sadyba 01
                                  *
-                                 * Rozpoznajemy go po kolejności przystanków,
-                                 * więc przeciwny kierunek pozostaje nietknięty.
+                                 * Tam pion musi skończyć się 22 px wcześniej,
+                                 * aby nie powstał pionowy ogonek.
                                  */
                                 const indeksGoraszewska01 =
                                     przystanki.findIndex(
@@ -10274,6 +10316,9 @@ const isOnMainAxisBazowa =
 
 
                                 const czyUkladSadyba131 =
+                                    String(
+                                        numerLinii || ""
+                                    ).trim() === "131" &&
                                     indeksGoraszewska01 >= 0 &&
                                     indeksSadyba05 >= 0 &&
                                     indeksSadyba01 >= 0 &&
