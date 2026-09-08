@@ -538,10 +538,14 @@
         }
 
         .trasa-czas {
+            align-self: start;
+
+            padding-top: 0;
             padding-right: 0;
 
             text-align: right;
             white-space: nowrap;
+            line-height: 13px;
         }
 
         .trasa-os {
@@ -572,8 +576,8 @@
             left: 1px;
             top: 3px;
 
-            width: 9px;
-            height: 9px;
+            width: 8.5px;
+            height: 8.5px;
 
             transform: none;
 
@@ -600,8 +604,13 @@
             word-break: normal;
             hyphens: none;
 
-            font-weight: 700;
+            font-weight: 400;
             line-height: 1;
+        }
+
+        .trasa-stop:first-child .trasa-nazwa,
+        .trasa-stop:last-child .trasa-nazwa {
+            font-weight: 700;
         }
 
         .trasa-nazwa.zawijaj {
@@ -636,6 +645,8 @@
             padding: 0;
             margin: 0;
 
+            font-weight: inherit;
+
             box-decoration-break: clone;
             -webkit-box-decoration-break: clone;
         }
@@ -652,6 +663,7 @@
 
         .trasa-nz {
             justify-self: end;
+            align-self: start;
 
             position: relative;
             right: -1px;
@@ -662,7 +674,7 @@
 
             font-size: 13px;
             line-height: 1;
-            font-weight: 700;
+            font-weight: 400;
         }
 
 
@@ -2042,7 +2054,144 @@ function czyOznaczacWariant(opis){
 }
 
 
-function symbolWariantu(kurs){
+
+function koncowyPrzystanekKursu(
+    kurs,
+    symbol
+){
+
+    const numer=
+        String(
+            kurs?.numer||
+            ""
+        );
+
+    if(!numer){
+        return"";
+    }
+
+    let ostatniaNazwa="";
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const kierunek=
+                Array.isArray(
+                    rozklad?.kierunki
+                )
+                    ? rozklad.kierunki[
+                        aktualnyKierunek
+                    ]
+                    : null;
+
+            (
+                kierunek?.przystanki||
+                []
+            ).forEach(
+                p=>{
+
+                    const jest=
+                        (
+                            p?.kursy||
+                            []
+                        ).some(
+                            k=>
+                                String(
+                                    k?.numer||
+                                    ""
+                                )===numer&&
+                                symbolDnia(k)===
+                                    symbol
+                        );
+
+                    if(jest){
+                        ostatniaNazwa=
+                            String(
+                                p?.nazwa||
+                                ""
+                            );
+                    }
+                }
+            );
+        }
+    );
+
+    return ostatniaNazwa;
+}
+
+
+function znajdzLitereSkroceniaPoKoncu(
+    kurs,
+    symbol
+){
+
+    const koniec=
+        koncowyPrzystanekKursu(
+            kurs,
+            symbol
+        );
+
+    if(!koniec){
+        return"";
+    }
+
+    const baza=
+        kierunekBazowy();
+
+    const koniecPelnej=
+        String(
+            baza?.przystanki?.[
+                (baza?.przystanki?.length||1)-1
+            ]?.nazwa||
+            ""
+        );
+
+    if(
+        normalizuj(koniec)===
+        normalizuj(koniecPelnej)
+    ){
+        return"";
+    }
+
+    const mapa=
+        mapaWariantow();
+
+    for(
+        const [litera,opis]
+        of mapa.entries()
+    ){
+
+        const tekst=
+            String(
+                opis||
+                ""
+            );
+
+        if(
+            /skrócon|tylko do/i
+                .test(tekst)&&
+            normalizuj(tekst)
+                .includes(
+                    normalizuj(koniec)
+                )
+        ){
+            return String(
+                litera||
+                ""
+            )
+                .trim()
+                .toLowerCase();
+        }
+    }
+
+    return"";
+}
+
+
+function symbolWariantu(kurs,symbol){
 
     const litera=
         String(
@@ -2055,13 +2204,21 @@ function symbolWariantu(kurs){
         "";
 
     if(
-        !litera||
-        !czyOznaczacWariant(opis)
+        litera&&
+        czyOznaczacWariant(opis)
     ){
-        return"";
+        return litera.toLowerCase();
     }
 
-    return litera.toLowerCase();
+    /*
+       Jeżeli np. w NIEDZIELĘ wszystkie kursy kończą się
+       na URSYNÓW PŁD. i w danych kurs nie ma jawnego pola wariant,
+       nadal pokazujemy właściwą literę wariantu skróconego.
+    */
+    return znajdzLitereSkroceniaPoKoncu(
+        kurs,
+        symbol
+    );
 }
 
 
@@ -2139,7 +2296,8 @@ function renderDzien(grupa){
 
                                         const sym=
                                             symbolWariantu(
-                                                item.kurs
+                                                item.kurs,
+                                                grupa.symbol
                                             );
 
                                         return(
@@ -2434,6 +2592,65 @@ function czyNZ(p){
 }
 
 
+
+function listaTrasyDoWyswietlenia(){
+
+    const baza=
+        kierunekBazowy();
+
+    const lista=
+        baza?.przystanki||
+        [];
+
+    const wynik=[];
+
+    let i=0;
+
+    while(i<lista.length){
+
+        const nazwa=
+            normalizuj(
+                lista[i]?.nazwa
+            );
+
+        let koniec=i+1;
+
+        while(
+            koniec<lista.length&&
+            normalizuj(
+                lista[koniec]?.nazwa
+            )===nazwa
+        ){
+            koniec++;
+        }
+
+        let wybranyIndex=i;
+
+        for(
+            let j=i;
+            j<koniec;
+            j++
+        ){
+            if(
+                j===aktualnyPrzystanek
+            ){
+                wybranyIndex=j;
+                break;
+            }
+        }
+
+        wynik.push({
+            p:lista[wybranyIndex],
+            index:wybranyIndex
+        });
+
+        i=koniec;
+    }
+
+    return wynik;
+}
+
+
 function podzielTrase(lista){
 
     /*
@@ -2487,11 +2704,26 @@ function renderTrasaKolumna(
         '<ul class="trasa-lista">'+
         fragment.lista
             .map(
-                (p,lokalny)=>{
+                (element,lokalny)=>{
+
+                    const p=
+                        element&&
+                        Object.prototype.hasOwnProperty.call(
+                            element,
+                            "p"
+                        )
+                            ? element.p
+                            : element;
 
                     const index=
-                        fragment.start+
-                        lokalny;
+                        element&&
+                        Object.prototype.hasOwnProperty.call(
+                            element,
+                            "index"
+                        )
+                            ? element.index
+                            : fragment.start+
+                              lokalny;
 
                     const przed=
                         index<
@@ -2590,10 +2822,19 @@ function renderLegenda(){
             ).forEach(
                 kurs=>{
 
+                    const symbol=
+                        symbolWariantu(
+                            kurs,
+                            grupa.symbol
+                        );
+
                     const litera=
                         String(
-                            kurs.wariant||""
-                        ).trim();
+                            symbol||
+                            ""
+                        )
+                            .trim()
+                            .toUpperCase();
 
                     const opis=
                         opisy.get(litera)||
@@ -2969,7 +3210,7 @@ function dopasujKolumnyTrasy() {
 
     if (!tabliczka || !columns) return;
 
-    const lista = kierunekBazowy()?.przystanki || [];
+    const lista = listaTrasyDoWyswietlenia();
     if (!lista.length) return;
 
     const czasy = czasyTrasy();
