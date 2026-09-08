@@ -8234,7 +8234,7 @@ wariantyKierunku.forEach(
 /*
  * Wariant skrócony nie może zostać osią główną tylko dlatego,
  * że ma więcej kursów. Najpierw wybieramy spośród wariantów
- * nieskróconych. Jeżeli nie ma żadnego, używamy starej logiki.
+ * nieskróconych. Jeżeli nie ma żadnego, używamy wszystkich.
  */
 const kandydaciGlownejOsi =
     wariantyKierunku.filter(
@@ -8251,6 +8251,245 @@ const wariantyDoWyboruGlownejOsi =
         : wariantyKierunku;
 
 
+/* =========================================================
+   REPREZENTATYWNE PRZEBIEGI WARIANTÓW
+   =========================================================
+
+   Najważniejsza zasada geometrii:
+
+   jeżeli dwa warianty mają ten sam początek i ten sam koniec,
+   a jeden z nich jedzie BEZPOŚREDNIO między wspólnymi punktami,
+   natomiast drugi odwiedza po drodze dodatkowe przystanki,
+   to wariant bezpośredni jest osią główną.
+
+   Przykłady:
+
+   110:
+       Wólka Węglowa -----------------> Trenów-Las
+       Wólka Węglowa -> Widokowa -> ... -> Trenów-Las
+
+   126:
+       Marywilska-Las ----------------> PKP Żerań / Os. Marywilska
+       Marywilska-Las -> Płytowa -> Kupiecka -> ...
+
+   331:
+       Terminal Cargo ----------------> Osmańska
+       Terminal Cargo -> Osmańska 03 -> Osmańska-DHL -> Osmańska 01
+
+   W takich przypadkach:
+   - trasa bezpośrednia ma być na osi głównej,
+   - przystanki dodatkowego objazdu mają być po PRAWEJ stronie,
+   - NIE wolno wybierać objazdu na oś główną tylko dlatego,
+     że ma więcej kursów albo literę A.
+
+   Linie takie jak 210 i 239 nadal działają poprawnie, ponieważ
+   ta reguła nie jest zależna od numeru linii. Sprawdza wyłącznie
+   rzeczywistą strukturę przebiegów.
+ */
+const reprezentatywneSciezkiWariantow =
+    new Map();
+
+
+wariantyDoWyboruGlownejOsi.forEach(
+    wariant => {
+
+        const kurs =
+            znajdzKursBazowy(
+                kierunekDlaDaty,
+                wariant
+            );
+
+
+        const indeksy =
+            kurs &&
+            Array.isArray(
+                kurs.punkty
+            )
+                ? kurs.punkty
+                    .filter(
+                        punkt =>
+                            punkt &&
+                            czasNaMinuty(
+                                punkt.czas
+                            ) !== null
+                    )
+                    .map(
+                        punkt =>
+                            Number(
+                                punkt.index
+                            )
+                    )
+                    .filter(
+                        index =>
+                            Number.isInteger(
+                                index
+                            )
+                    )
+                : [];
+
+
+        reprezentatywneSciezkiWariantow.set(
+            wariant,
+            indeksy
+        );
+    }
+);
+
+
+/*
+ * Czy krótszy przebieg jest rzeczywistym szkieletem dłuższego?
+ *
+ * Nie wymagamy, żeby indeksy były obok siebie. Właśnie brak
+ * przystanków pomiędzy nimi oznacza bezpośredni przejazd.
+ *
+ * Warunki:
+ * - ten sam pierwszy przystanek,
+ * - ten sam ostatni przystanek,
+ * - wszystkie punkty krótszego przebiegu występują w dłuższym
+ *   w tej samej kolejności,
+ * - dłuższy ma co najmniej jeden dodatkowy przystanek.
+ */
+function czyBezposredniPrzebiegJestSzkieletemFWTP(
+    krotszy,
+    dluzszy
+) {
+
+    if (
+        !Array.isArray(krotszy) ||
+        !Array.isArray(dluzszy) ||
+        krotszy.length < 2 ||
+        dluzszy.length <= krotszy.length
+    ) {
+
+        return false;
+    }
+
+
+    if (
+        krotszy[0] !== dluzszy[0] ||
+        krotszy[
+            krotszy.length - 1
+        ] !==
+        dluzszy[
+            dluzszy.length - 1
+        ]
+    ) {
+
+        return false;
+    }
+
+
+    let pozycja = 0;
+
+
+    for (
+        const index
+        of dluzszy
+    ) {
+
+        if (
+            index ===
+            krotszy[pozycja]
+        ) {
+
+            pozycja++;
+
+
+            if (
+                pozycja ===
+                krotszy.length
+            ) {
+
+                return true;
+            }
+        }
+    }
+
+
+    return false;
+}
+
+
+/*
+ * Kara za bycie objazdem.
+ *
+ * Jeżeli wariant zawiera wszystkie punkty innego wariantu,
+ * ale dodatkowo odwiedza przystanki pomiędzy wspólnym początkiem
+ * i końcem, dostaje karę równą liczbie tych dodatkowych punktów.
+ *
+ * Im mniejsza kara, tym lepszy kandydat na oś główną.
+ */
+const karaObjazduWariantu =
+    new Map();
+
+
+wariantyDoWyboruGlownejOsi.forEach(
+    wariant => {
+
+        karaObjazduWariantu.set(
+            wariant,
+            0
+        );
+    }
+);
+
+
+wariantyDoWyboruGlownejOsi.forEach(
+    wariantA => {
+
+        const sciezkaA =
+            reprezentatywneSciezkiWariantow.get(
+                wariantA
+            ) || [];
+
+
+        wariantyDoWyboruGlownejOsi.forEach(
+            wariantB => {
+
+                if (
+                    wariantA === wariantB
+                ) {
+
+                    return;
+                }
+
+
+                const sciezkaB =
+                    reprezentatywneSciezkiWariantow.get(
+                        wariantB
+                    ) || [];
+
+
+                /*
+                 * Jeżeli B jest krótszym szkieletem A,
+                 * to A jest objazdem przez dodatkowe przystanki.
+                 */
+                if (
+                    czyBezposredniPrzebiegJestSzkieletemFWTP(
+                        sciezkaB,
+                        sciezkaA
+                    )
+                ) {
+
+                    karaObjazduWariantu.set(
+                        wariantA,
+                        (
+                            karaObjazduWariantu.get(
+                                wariantA
+                            ) || 0
+                        ) +
+                        (
+                            sciezkaA.length -
+                            sciezkaB.length
+                        )
+                    );
+                }
+            }
+        );
+    }
+);
+
+
 let mainWariant =
     wariantyDoWyboruGlownejOsi[0] ||
     "";
@@ -8259,6 +8498,46 @@ let mainWariant =
 wariantyDoWyboruGlownejOsi.forEach(
     wariant => {
 
+        const karaAktualnego =
+            karaObjazduWariantu.get(
+                wariant
+            ) || 0;
+
+
+        const karaGlownego =
+            karaObjazduWariantu.get(
+                mainWariant
+            ) || 0;
+
+
+        /*
+         * Najpierw wybieramy przebieg, który NIE jest objazdem.
+         */
+        if (
+            karaAktualnego <
+            karaGlownego
+        ) {
+
+            mainWariant =
+                wariant;
+
+            return;
+        }
+
+
+        if (
+            karaAktualnego >
+            karaGlownego
+        ) {
+
+            return;
+        }
+
+
+        /*
+         * Dopiero gdy dwa warianty są geometrycznie równorzędne,
+         * używamy liczby kursów jako drugiego kryterium.
+         */
         const liczbaAktualnego =
             liczbaKursowWariantu.get(
                 wariant
@@ -8284,10 +8563,9 @@ wariantyDoWyboruGlownejOsi.forEach(
 
 
         /*
-         * Przy remisie zostawiamy A jako główny,
+         * Przy pełnym remisie zostawiamy A jako główny,
          * jeżeli A bierze udział w remisie.
          */
-
         if (
             liczbaAktualnego ===
                 liczbaGlownego &&
@@ -8301,6 +8579,30 @@ wariantyDoWyboruGlownejOsi.forEach(
     }
 );
 
+
+console.info(
+    "FWTP: wybór osi głównej",
+    {
+        linia:
+            numerLinii,
+
+        kierunek:
+            aktualnyKierunek,
+
+        mainWariant:
+            mainWariant,
+
+        karyObjazdu:
+            Object.fromEntries(
+                karaObjazduWariantu
+            ),
+
+        sciezki:
+            Object.fromEntries(
+                reprezentatywneSciezkiWariantow
+            )
+    }
+);
 
 /*
  * Oś główna jest określana na podstawie
