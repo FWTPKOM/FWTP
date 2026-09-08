@@ -177,7 +177,7 @@
 
             width: min(560px, calc(100% - 18px));
 
-            margin: 12px 0 0 26px;
+            margin: 12px 0 0 12px;
         }
 
         .numer-linii-box {
@@ -187,12 +187,19 @@
             align-items: center;
             justify-content: center;
 
+            padding: 0;
+            margin: 0;
+
             border: 1px solid #777;
 
             font-size: 67px;
             line-height: 1;
             font-weight: 800;
             letter-spacing: -2px;
+            text-align: center;
+            text-indent: 0;
+
+            box-sizing: border-box;
         }
 
         .dane-linii {
@@ -232,7 +239,7 @@
         .rozklady-wrap {
             width: min(640px, calc(100% - 36px));
 
-            margin: 3px 0 0 26px;
+            margin: 3px 0 0 12px;
         }
 
         .rozklady-grid {
@@ -311,18 +318,25 @@
 
             min-height: 18px;
 
-            border-bottom: 1px solid #999;
+            border-bottom: 1px solid #111;
 
             font-size: 10px;
             font-weight: 700;
         }
 
         .godziny-head > div {
-            padding: 2px 3px;
+            padding: 2px 2px;
         }
 
         .godziny-head > div:first-child {
-            }
+            padding-left: 2px;
+            padding-right: 0;
+        }
+
+        .godziny-head > div:last-child {
+            padding-left: 8px;
+            padding-right: 2px;
+        }
 
         .godzina-row {
             display: grid;
@@ -341,7 +355,7 @@
         .godzina-cell {
             padding: 0 3px;
 
-            border-right: 1px solid #aaa;
+            border-right: 1px solid #111;
 
             font-size: 14px;
             line-height: 13px;
@@ -411,7 +425,7 @@
         .legenda {
             max-width: 620px;
 
-            margin: 11px 26px 12px;
+            margin: 11px 12px 12px;
 
             font-size: 11px;
             line-height: 1.25;
@@ -426,7 +440,8 @@
         .legenda-litera {
             display: inline-block;
 
-            min-width: 13px;
+            min-width: 7px;
+            margin-right: 1px;
         }
 
 
@@ -513,8 +528,9 @@
 
             color: #111;
 
-            font-size: 11px;
-            line-height: 1.02;
+            font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
+            font-size: 14px;
+            line-height: 1;
         }
 
         .trasa-stop.przed {
@@ -791,6 +807,7 @@ const BASE_DANE="/FWTP/dane/";
 
 let daneLinii=null;
 let manifestPaczek=null;
+let waznyOdDanych="";
 
 const parametry=
     new URLSearchParams(
@@ -1183,7 +1200,7 @@ async function pobierzLinie(
                     )
             );
 
-    const urls=[];
+    const zrodla=[];
 
     pasujace.forEach(
         p=>{
@@ -1196,30 +1213,37 @@ async function pobierzLinie(
                     .replace(/\/+$/,"");
 
             if(folder){
-                urls.push(
-                    BASE_DANE+
-                    folder+
-                    "/"+
-                    encodeURIComponent(linia)+
-                    ".json"
-                );
+                zrodla.push({
+                    url:
+                        BASE_DANE+
+                        folder+
+                        "/"+
+                        encodeURIComponent(linia)+
+                        ".json",
+                    od:
+                        String(
+                            p.od||""
+                        )
+                });
             }
         }
     );
 
-    urls.push(
-        BASE_DANE+
-        encodeURIComponent(linia)+
-        ".json"
-    );
+    zrodla.push({
+        url:
+            BASE_DANE+
+            encodeURIComponent(linia)+
+            ".json",
+        od:""
+    });
 
-    for(const url of urls){
+    for(const zrodlo of zrodla){
 
         try{
 
             const r=
                 await fetch(
-                    url+
+                    zrodlo.url+
                     "?ts="+
                     Date.now(),
                     {
@@ -1229,7 +1253,20 @@ async function pobierzLinie(
 
             if(!r.ok)continue;
 
-            return await r.json();
+            const json=
+                await r.json();
+
+            waznyOdDanych=
+                String(
+                    json?.od||
+                    json?.waznyOd||
+                    json?.dataOd||
+                    json?.obowiazujeOd||
+                    zrodlo.od||
+                    ""
+                );
+
+            return json;
         }
         catch{
             /* następny */
@@ -2560,7 +2597,7 @@ function renderLegenda(){
                         litera.toLowerCase()
                     )+
                     '</span>'+
-                    ' - '+
+                    '- '+
                     escapeHtml(
                         opisy.get(litera)||
                         ""
@@ -2711,11 +2748,13 @@ function renderuj(){
         )+
         '</div>'+
         '<div class="wazny">'+
-        'Rozkład dla dnia '+
-        escapeHtml(
-            dataISO(
-                wybranaData
-            )
+        (
+            waznyOdDanych
+                ? 'Ważny od '+
+                  escapeHtml(
+                      waznyOdDanych
+                  )
+                : ''
         )+
         '</div>'+
         '</div>'+
