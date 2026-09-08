@@ -141,7 +141,7 @@
             background: #fff;
             color: #111;
 
-            border: 2px solid #111;
+            border: 4px double #111;
 
 
             box-sizing: border-box;
@@ -306,7 +306,7 @@ font-size: 14px;
 
         .godziny-head {
             display: grid;
-            grid-template-columns: 21px minmax(0, 1fr);
+            grid-template-columns: 20px minmax(0, 1fr);
             width: 100%;
 
             min-height: 18px;
@@ -326,7 +326,7 @@ font-size: 14px;
 
         .godzina-row {
             display: grid;
-            grid-template-columns: 21px minmax(0, 1fr);
+            grid-template-columns: 20px minmax(0, 1fr);
             width: 100%;
 
             min-height: 18px;
@@ -488,7 +488,7 @@ font-size: 14px;
             min-width: 0;
             overflow: visible;
 
-            padding: 5px 7px 10px;
+            padding: 4px 2px 8px 7px;
 
             border-right: 1px solid #777;
         }
@@ -509,7 +509,7 @@ font-size: 14px;
             grid-template-columns: 26px 12px minmax(0, 1fr) 12px;
             align-items: center;
 
-            min-height: 17px;
+            min-height: 14px;
 
             color: #111;
 
@@ -542,7 +542,7 @@ font-size: 14px;
             top: 0;
             bottom: 0;
 
-            width: 2px;
+            width: 3px;
 
             background: currentColor;
         }
@@ -578,13 +578,21 @@ font-size: 14px;
 
             overflow: visible;
 
-            white-space: normal;
+            white-space: nowrap;
             overflow-wrap: normal;
             word-break: normal;
             hyphens: none;
 
             font-weight: 700;
-            line-height: 1.02;
+            line-height: 1;
+        }
+
+        .trasa-columns.trasa-zawijaj .trasa-nazwa {
+            white-space: normal;
+        }
+
+        .trasa-columns.trasa-zawijaj .trasa-nazwa-aktywna {
+            white-space: normal;
         }
 
         .trasa-stop.wybrany .trasa-nazwa {
@@ -628,12 +636,16 @@ font-size: 14px;
         .trasa-nz {
             justify-self: end;
 
+            position: relative;
+            right: -1px;
+
             padding-right: 0;
 
             text-align: right;
 
-            font-size: 10px;
+            font-size: 12px;
             line-height: 1;
+            font-weight: 700;
         }
 
 
@@ -1372,18 +1384,60 @@ function pobierzKierunki(){
     );
 
     const wynik=[];
+    const widzianeTrasy=new Set();
 
     for(let i=0;i<max;i++){
 
         const k=
             znajdzNajpelniejszyKierunek(i);
 
-        if(k){
-            wynik.push({
-                index:i,
-                dane:k
-            });
+        if(!k){
+            continue;
         }
+
+        /*
+           WAŻNE:
+           numer przystanku NIE bierze udziału w porównaniu.
+           Jeżeli dwa kierunki/warianty mają dokładnie ten sam ciąg nazw
+           przystanków i różnią się tylko polami "nr", traktujemy je jako
+           tę samą trasę i pokazujemy tylko pierwszy.
+        */
+        const klucz=
+            (
+                k.przystanki||
+                []
+            )
+            .map(
+                p=>
+                    String(
+                        p?.nazwa||
+                        ""
+                    )
+                    .trim()
+                    .toUpperCase()
+                    .replace(/\s+/g," ")
+            )
+            .join("||");
+
+        if(
+            klucz&&
+            widzianeTrasy.has(
+                klucz
+            )
+        ){
+            continue;
+        }
+
+        if(klucz){
+            widzianeTrasy.add(
+                klucz
+            );
+        }
+
+        wynik.push({
+            index:i,
+            dane:k
+        });
     }
 
     return wynik;
@@ -2847,6 +2901,8 @@ function dopasujKolumnyTrasy() {
         czasy
     );
 
+    ustawZawijanieNazwTrasy(columns);
+
     const jednaKolumna = columns.querySelector(".trasa-kol");
     const jednaLista = columns.querySelector(".trasa-lista");
 
@@ -2879,6 +2935,8 @@ function dopasujKolumnyTrasy() {
             czasy
         ) +
         '<div class="trasa-kol trasa-kol-pusta"></div>';
+
+    ustawZawijanieNazwTrasy(columns);
 
     const pierwszaKolumna = columns.querySelector(".trasa-kol");
     const wiersze = Array.from(
@@ -2935,34 +2993,51 @@ function dopasujKolumnyTrasy() {
             },
             czasy
         );
+
+    ustawZawijanieNazwTrasy(columns);
 }
 
 
 
-function kluczTrasyBezNumerow(kierunek) {
-    return (kierunek?.przystanki || [])
-        .map(p =>
-            String(p?.nazwa || "")
-                .trim()
-                .toUpperCase()
-        )
-        .join("||");
-}
 
-function unikalneKierunkiPoNazwach(kierunki) {
-    const wynik = [];
-    const seen = new Set();
 
-    for (const k of (kierunki || [])) {
-        const key = kluczTrasyBezNumerow(k);
 
-        if (!seen.has(key)) {
-            seen.add(key);
-            wynik.push(k);
-        }
+function ustawZawijanieNazwTrasy(columns){
+
+    if(!columns){
+        return;
     }
 
-    return wynik;
+    /*
+       Najpierw próbujemy BEZ zawijania.
+       Dopiero jeśli choć jedna nazwa nie mieści się w swojej komórce,
+       włączamy zawijanie dla całej listy.
+    */
+    columns.classList.remove("trasa-zawijaj");
+
+    const nazwy=
+        Array.from(
+            columns.querySelectorAll(
+                ".trasa-nazwa"
+            )
+        );
+
+    const trzebaZawijac=
+        nazwy.some(
+            el=>
+                Math.ceil(
+                    el.scrollWidth
+                )>
+                Math.ceil(
+                    el.clientWidth
+                )+1
+        );
+
+    if(trzebaZawijac){
+        columns.classList.add(
+            "trasa-zawijaj"
+        );
+    }
 }
 
 </script>
