@@ -5603,10 +5603,11 @@ function znajdzDomyslnyWariant(
       traktujemy jako przebieg podstawowy i NIE oznaczamy go
       literą przy minutach.
 
-   2. Jeżeli różne przebiegi kończą się na TYM SAMYM krańcu,
-      nie opisujemy ich jako "kurs przez ...". Taka informacja
-      jest potrzebna do narysowania trasy, ale nie do legendy
-      rozkładu.
+   2. Jeżeli różne przebiegi kończą się na TYM SAMYM krańcu:
+      - inny początek kursu nie dostaje opisu,
+      - rzeczywisty objazd w środku trasy, przez dodatkowe
+        przystanki i z powrotem na trasę główną, dostaje opis
+        "kurs przez ...".
 
    3. Jeżeli kurs kończy wcześniej na przebiegu podstawowym:
          kurs skrócony do przystanku NAZWA
@@ -5615,9 +5616,8 @@ function znajdzDomyslnyWariant(
       na innym krańcu:
          kurs wydłużony do krańca NAZWA
 
-   Dzięki temu reguła działa dla wszystkich linii, bez wyjątków
-   wpisywanych ręcznie dla 120, 131, 136, 142, 153, 166, 170,
-   176, 210 itd.
+   Dzięki temu reguła działa dla wszystkich linii bez wpisywania
+   wyjątków dla konkretnych numerów linii.
    ========================================================= */
 
 function zbudujAnalizeWariantowFWTP(
@@ -6193,13 +6193,316 @@ function zbudujAnalizeWariantowFWTP(
             ) {
 
                 /*
-                 * Wszystkie kursy jadą do tego samego krańca.
-                 * Różnica przebiegu pozostaje widoczna na osi,
-                 * ale bez liter przy minutach i bez opisu
-                 * "kurs przez ...".
+                 * TEN SAM KRANIEC nie oznacza automatycznie,
+                 * że wariant ma być bez opisu.
+                 *
+                 * Rozróżniamy dwa przypadki:
+                 *
+                 * 1. Kurs zaczyna się z innego przystanku / innej
+                 *    odnogi i potem tylko DOŁĄCZA do trasy głównej.
+                 *    Wtedy NIE pokazujemy "kurs przez ...".
+                 *
+                 * 2. Kurs jedzie trasą główną, następnie ODBIJA
+                 *    przez dodatkowe przystanki i później WRACA
+                 *    na trasę główną.
+                 *    Wtedy pokazujemy:
+                 *
+                 *        kurs przez NAZWA, NAZWA...
+                 *
+                 * To jest m.in. przypadek linii 210.
                  */
-                typ =
-                    "ten-sam-kraniec";
+
+                let kursReprezentatywnyWariantu =
+                    null;
+
+
+                kursyWariantu.forEach(
+                    kurs => {
+
+                        if (
+                            !Array.isArray(
+                                kurs.punkty
+                            ) ||
+                            kurs.punkty.length === 0
+                        ) {
+
+                            return;
+                        }
+
+
+                        const ostatni =
+                            kurs.punkty[
+                                kurs.punkty.length - 1
+                            ];
+
+
+                        if (
+                            ostatni.index !==
+                                koniecIndex
+                        ) {
+
+                            return;
+                        }
+
+
+                        if (
+                            !kursReprezentatywnyWariantu ||
+                            kurs.punkty.length >
+                                kursReprezentatywnyWariantu.punkty.length
+                        ) {
+
+                            kursReprezentatywnyWariantu =
+                                kurs;
+                        }
+                    }
+                );
+
+
+                if (
+                    !kursReprezentatywnyWariantu &&
+                    kursyWariantu.length > 0
+                ) {
+
+                    kursReprezentatywnyWariantu =
+                        kursyWariantu
+                            .slice()
+                            .sort(
+                                (
+                                    a,
+                                    b
+                                ) =>
+                                    b.punkty.length -
+                                    a.punkty.length
+                            )[0];
+                }
+
+
+                /*
+                 * Klucz przystanku zawiera nazwę i numer.
+                 * Dzięki temu dwa stanowiska o tej samej nazwie
+                 * nie są automatycznie traktowane jako jeden punkt.
+                 */
+                const kluczPrzystanku =
+                    index => {
+
+                        const p =
+                            przystanki[
+                                index
+                            ];
+
+
+                        if (!p) {
+                            return "";
+                        }
+
+
+                        return (
+                            normalizujTekst(
+                                p.nazwa || ""
+                            ) +
+                            "||" +
+                            String(
+                                p.nr || ""
+                            )
+                                .trim()
+                                .toUpperCase()
+                        );
+                    };
+
+
+                const kluczeGlownejTrasy =
+                    new Set(
+                        glownyKurs
+                            ? glownyKurs.punkty
+                                .map(
+                                    punkt =>
+                                        kluczPrzystanku(
+                                            punkt.index
+                                        )
+                                )
+                                .filter(Boolean)
+                            : []
+                    );
+
+
+                const punktyWariantu =
+                    kursReprezentatywnyWariantu &&
+                    Array.isArray(
+                        kursReprezentatywnyWariantu.punkty
+                    )
+                        ? kursReprezentatywnyWariantu.punkty
+                        : [];
+
+
+                /*
+                 * Szukamy dodatkowych przystanków TYLKO pomiędzy
+                 * dwoma punktami wspólnymi z trasą główną.
+                 *
+                 * Dodatkowe przystanki przed pierwszym wspólnym
+                 * punktem oznaczają jedynie inny POCZĄTEK kursu
+                 * i nie tworzą opisu "kurs przez ...".
+                 *
+                 * Analogicznie nie opisujemy samego innego początku
+                 * trasy, co zachowuje poprawne zachowanie np. dla
+                 * kierunków wychodzących z różnych krańców.
+                 */
+                const wspolny =
+                    punktyWariantu.map(
+                        punkt =>
+                            kluczeGlownejTrasy.has(
+                                kluczPrzystanku(
+                                    punkt.index
+                                )
+                            )
+                    );
+
+
+                let pierwszyWspolny =
+                    -1;
+
+
+                let ostatniWspolny =
+                    -1;
+
+
+                wspolny.forEach(
+                    (
+                        czyWspolny,
+                        index
+                    ) => {
+
+                        if (!czyWspolny) {
+                            return;
+                        }
+
+
+                        if (
+                            pierwszyWspolny === -1
+                        ) {
+
+                            pierwszyWspolny =
+                                index;
+                        }
+
+
+                        ostatniWspolny =
+                            index;
+                    }
+                );
+
+
+                const dodatkoweNazwy =
+                    [];
+
+
+                const widzianeNazwy =
+                    new Set();
+
+
+                if (
+                    pierwszyWspolny >= 0 &&
+                    ostatniWspolny >
+                        pierwszyWspolny
+                ) {
+
+                    for (
+                        let i =
+                            pierwszyWspolny + 1;
+                        i < ostatniWspolny;
+                        i++
+                    ) {
+
+                        if (
+                            wspolny[i]
+                        ) {
+
+                            continue;
+                        }
+
+
+                        const punkt =
+                            punktyWariantu[i];
+
+
+                        const przystanek =
+                            punkt
+                                ? przystanki[
+                                    punkt.index
+                                  ]
+                                : null;
+
+
+                        if (!przystanek) {
+                            continue;
+                        }
+
+
+                        const nazwa =
+                            String(
+                                przystanek.nazwa ||
+                                ""
+                            ).trim();
+
+
+                        const kluczNazwy =
+                            normalizujTekst(
+                                nazwa
+                            );
+
+
+                        if (
+                            !nazwa ||
+                            !kluczNazwy ||
+                            widzianeNazwy.has(
+                                kluczNazwy
+                            )
+                        ) {
+
+                            continue;
+                        }
+
+
+                        widzianeNazwy.add(
+                            kluczNazwy
+                        );
+
+
+                        dodatkoweNazwy.push(
+                            nazwa
+                        );
+                    }
+                }
+
+
+                if (
+                    dodatkoweNazwy.length > 0
+                ) {
+
+                    typ =
+                        "przez";
+
+
+                    opis =
+                        "kurs przez " +
+                        dodatkoweNazwy
+                            .map(
+                                nazwa =>
+                                    String(
+                                        nazwa
+                                    ).toUpperCase()
+                            )
+                            .join(", ");
+
+                } else {
+
+                    /*
+                     * Ten sam kraniec, ale brak rzeczywistego
+                     * objazdu w środku trasy. Najczęściej jest to
+                     * tylko inny przystanek początkowy.
+                     */
+                    typ =
+                        "ten-sam-kraniec";
+                }
 
             } else {
 
@@ -8211,28 +8514,143 @@ przystanki.forEach(
         );
 
 
+    /*
+     * Sprawdzamy, czy pomiędzy u i v istnieje RZECZYWISTA
+     * alternatywna droga przez przystanki pośrednie.
+     *
+     * Jest to ważne przy układach takich jak:
+     *
+     *   Wiertnicza -> Sadyba 05 -> Sadyba 02
+     *   Wiertnicza -------------> Sadyba 02
+     *
+     * Tu druga krawędź rzeczywiście OMIJA wariant, więc idzie
+     * po lewej stronie.
+     *
+     * Natomiast gdy przystanki znajdujące się pomiędzy indeksami
+     * tworzą osobną odnogę, która NIE wraca do v, długa krawędź
+     * nie jest objazdem. Jest zwykłym ciągiem trasy i może iść
+     * prosto. To naprawia m.in. układ Wękarska / Rychnowska /
+     * Romantyczna / Cyklamenów / Skalnicowa / Strzygłowska.
+     */
+    function istniejeAlternatywnaSciezkaFWTP(
+        u,
+        v
+    ) {
+
+        if (v <= u + 1) {
+            return false;
+        }
+
+
+        const sasiedzi =
+            new Map();
+
+
+        edges.forEach(
+            krawedz => {
+
+                if (
+                    krawedz.u < u ||
+                    krawedz.v > v ||
+                    (
+                        krawedz.u === u &&
+                        krawedz.v === v
+                    )
+                ) {
+                    return;
+                }
+
+
+                if (
+                    !sasiedzi.has(
+                        krawedz.u
+                    )
+                ) {
+                    sasiedzi.set(
+                        krawedz.u,
+                        []
+                    );
+                }
+
+
+                sasiedzi
+                    .get(krawedz.u)
+                    .push(krawedz.v);
+            }
+        );
+
+
+        const stos =
+            [u];
+
+
+        const odwiedzone =
+            new Set([u]);
+
+
+        while (stos.length > 0) {
+
+            const aktualny =
+                stos.pop();
+
+
+            const dalej =
+                sasiedzi.get(aktualny) ||
+                [];
+
+
+            for (const nastepny of dalej) {
+
+                if (nastepny === v) {
+                    return true;
+                }
+
+
+                if (
+                    !odwiedzone.has(
+                        nastepny
+                    )
+                ) {
+
+                    odwiedzone.add(
+                        nastepny
+                    );
+
+
+                    stos.push(
+                        nastepny
+                    );
+                }
+            }
+        }
+
+
+        return false;
+    }
+
+
     edges.forEach(
         e => {
 
-            /*
-             * Jeżeli pomiędzy dwoma kolejnymi punktami danego kursu
-             * znajdują się w tablicy inne przystanki, oznacza to,
-             * że TEN KURS JE POMIJA.
-             *
-             * Nie sprawdzamy już tylko przystanków osi głównej.
-             * To naprawia wariant wewnątrz wariantu (np. 228 / 338):
-             * - pominięcie -> lewa strona,
-             * - przejazd przez dodatkowe przystanki -> prawa strona.
-             */
-            const pomijaPrzystanki =
+            const maPrzystankiPomiedzy =
                 e.v >
                 e.u + 1;
 
 
-            if (
-                pomijaPrzystanki
-            ) {
+            const rzeczywiscieOmija =
+                maPrzystankiPomiedzy &&
+                istniejeAlternatywnaSciezkaFWTP(
+                    e.u,
+                    e.v
+                );
 
+
+            if (rzeczywiscieOmija) {
+
+                /*
+                 * Istnieje druga droga u -> ... -> v, więc ta
+                 * krawędź jest prawdziwym pominięciem.
+                 */
                 e.track =
                     -1;
 
@@ -8242,7 +8660,9 @@ przystanki.forEach(
             ) {
 
                 /*
-                 * Zwykły odcinek trasy podstawowej.
+                 * Oba końce leżą na osi głównej.
+                 * Nawet jeśli w tablicy pomiędzy nimi są wpisane
+                 * przystanki osobnej odnogi, linia idzie PROSTO.
                  */
                 e.track =
                     0;
@@ -8250,9 +8670,7 @@ przystanki.forEach(
             } else {
 
                 /*
-                 * Wariant prowadzący PRZEZ dodatkowy
-                 * przystanek / dodatkowe przystanki
-                 * rysujemy po PRAWEJ stronie.
+                 * Przejazd przez dodatkową odnogę / wariant.
                  */
                 e.track =
                     1;
@@ -8274,8 +8692,7 @@ przystanki.forEach(
             edges
                 .filter(
                     e =>
-                        e.track === -1 &&
-                        !isOnMainAxis[e.v]
+                        e.track === -1
                 )
                 .map(
                     e => e.v
