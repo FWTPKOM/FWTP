@@ -9673,16 +9673,22 @@ const isOnMainAxisBazowa =
     /*
      * LINIA 311, KIERUNEK 1 (KAMIONKA)
      *
-     * W tym kierunku odstęp ma być większy POMIĘDZY
-     * ostatnim przystankiem wariantowym a pierwszym
-     * przystankiem, który wraca na oś główną.
+     * Większy odstęp ma być TYLKO na początku ominięcia:
      *
-     * Następny przystanek osi głównej ma już mieć
-     * zwykły odstęp.
+     * Umińskiego
+     *      ↓ większy odstęp
+     * Rechniewskiego 02
+     *      ↓ zwykły odstęp
+     * Rechniewskiego 01
+     *      ↓ zwykły odstęp
+     * Nowaka-Jeziorańskiego
      *
-     * Drugi kierunek 311 zostawiamy dokładnie jak w v12.
+     * Dlatego dodatkowe 22 px dostaje PIERWSZY pomijany
+     * przystanek, a nie punkt powrotu na oś główną.
+     *
+     * Drugi kierunek linii 311 pozostaje dokładnie tak jak w v12.
      */
-    const extraTopMainAxisAfterVariantIndexes =
+    const extraTopFirstSkippedVariantIndexes =
         new Set();
 
 
@@ -9811,15 +9817,23 @@ const isOnMainAxisBazowa =
                     czy311KamionkaDwaPomijane
                 ) {
 
+                    const pierwszyPomijanyBazowy =
+                        pomijaneBazowe[0];
+
+
                     /*
-                     * Dodatkowe 22 px przenosimy na PIERWSZY
-                     * przystanek osi głównej po wariancie.
+                     * Dodatkowe 22 px umieszczamy NAD pierwszym
+                     * pomijanym przystankiem:
+                     * Umińskiego -> Rechniewskiego 02.
                      */
-                    extraTopMainAxisAfterVariantIndexes.add(
-                        e.v
+                    extraTopFirstSkippedVariantIndexes.add(
+                        pierwszyPomijanyBazowy
                     );
 
-                    e.extraTopAtReturn =
+                    e.firstSkippedMainIndex =
+                        pierwszyPomijanyBazowy;
+
+                    e.extraTopAtStart =
                         true;
 
                 } else if (
@@ -10139,15 +10153,15 @@ const isOnMainAxisBazowa =
                 leftSkipIntermediateMainIndexes.has(i);
 
 
-            const isExtraTopMainAxisAfterVariant =
-                extraTopMainAxisAfterVariantIndexes.has(
+            const isExtraTopFirstSkippedVariant =
+                extraTopFirstSkippedVariantIndexes.has(
                     i
                 );
 
 
             const isPowiekszonyWiersz =
                 isSkippedMainIntermediate ||
-                isExtraTopMainAxisAfterVariant;
+                isExtraTopFirstSkippedVariant;
 
 
             const rowHeight =
@@ -10187,7 +10201,7 @@ const isOnMainAxisBazowa =
 
 
             const nodeY =
-                isExtraTopMainAxisAfterVariant
+                isExtraTopFirstSkippedVariant
                     ? ROW_HEIGHT
                     : (
                         useLegacySingleSkipRowGeometry
@@ -10480,13 +10494,36 @@ const isOnMainAxisBazowa =
 
                             } else {
 
-                                drawLine(
-                                    startX,
-                                    nodeY,
-                                    LEFT_X,
-                                    rowHeight,
-                                    isEdgeActive
-                                );
+                                if (
+                                    e.extraTopAtStart === true
+                                ) {
+
+                                    /*
+                                     * 311 -> Kamionka:
+                                     *
+                                     * Przekątna z Umińskiego wchodzi
+                                     * dodatkowe 22 px w następny wiersz.
+                                     * Dzięki temu większa przerwa jest
+                                     * między Umińskiego i Rechniewskiego 02.
+                                     */
+                                    drawLine(
+                                        startX,
+                                        nodeY,
+                                        LEFT_X,
+                                        rowHeight + ROW_HEIGHT / 2,
+                                        isEdgeActive
+                                    );
+
+                                } else {
+
+                                    drawLine(
+                                        startX,
+                                        nodeY,
+                                        LEFT_X,
+                                        rowHeight,
+                                        isEdgeActive
+                                    );
+                                }
                             }
                         }
 
@@ -10516,11 +10553,18 @@ const isOnMainAxisBazowa =
                              * każdą widoczną szczelinę na łączeniu.
                              */
                             const poczatekPionu =
-                                e.useLegacySingleSkipGeometry &&
-                                isSkippedMainIntermediate &&
-                                !nodeActive
+                                (
+                                    e.extraTopAtStart === true &&
+                                    i === e.firstSkippedMainIndex
+                                )
                                     ? ROW_HEIGHT / 2
-                                    : 0;
+                                    : (
+                                        e.useLegacySingleSkipGeometry &&
+                                        isSkippedMainIntermediate &&
+                                        !nodeActive
+                                            ? ROW_HEIGHT / 2
+                                            : 0
+                                    );
 
 
                             /*
@@ -10608,50 +10652,17 @@ const isOnMainAxisBazowa =
 
                             } else {
 
-                                if (
-                                    e.extraTopAtReturn === true &&
-                                    isExtraTopMainAxisAfterVariant
-                                ) {
-
-                                    /*
-                                     * 311 -> Kamionka:
-                                     *
-                                     * dodatkowe 22 px są NAD pierwszym
-                                     * przystankiem osi głównej po wariancie.
-                                     *
-                                     * Najpierw 22 px pionu po lewej,
-                                     * potem przekątna 22 x 22 do punktu.
-                                     */
-                                    drawLine(
-                                        LEFT_X,
-                                        0,
-                                        LEFT_X,
-                                        ROW_HEIGHT / 2,
-                                        isEdgeActive
-                                    );
-
-                                    drawLine(
-                                        LEFT_X,
-                                        ROW_HEIGHT / 2,
-                                        endX,
-                                        nodeY,
-                                        isEdgeActive
-                                    );
-
-                                } else {
-
-                                    /*
-                                     * Standardowe LEFT_X -> SPINE_X:
-                                     * 22 px poziomo i 22 px pionowo.
-                                     */
-                                    drawLine(
-                                        LEFT_X,
-                                        0,
-                                        endX,
-                                        nodeY,
-                                        isEdgeActive
-                                    );
-                                }
+                                /*
+                                 * Powrót na oś główną ma już zwykłą
+                                 * geometrię i zwykły odstęp.
+                                 */
+                                drawLine(
+                                    LEFT_X,
+                                    0,
+                                    endX,
+                                    nodeY,
+                                    isEdgeActive
+                                );
                             }
                         }
                     }
