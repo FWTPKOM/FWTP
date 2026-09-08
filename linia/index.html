@@ -8919,55 +8919,16 @@ const isOnMainAxisBazowa =
 
 
     /*
-     * MIEJSCE DODATKOWEGO ODSTĘPU DLA LEWEGO OMINIĘCIA
+     * Przystanki trasy podstawowej pomijane przez lewy wariant,
+     * dla których rzeczywiście potrzebny jest większy odstęp.
      *
-     * Nie wolno zwiększać wysokości KAŻDEGO pomijanego
-     * przystanku. To właśnie powodowało na linii 126 duże
-     * przerwy pomiędzy:
+     * Odstęp dodajemy tylko wtedy, gdy po ominięciu kurs przechodzi
+     * na dodatkowy przystanek wariantu.
      *
-     *   Płytowa -> Kupiecka -> Płytowa -> PKP Żerań
-     *   -> Os. Marywilska
-     *
-     * Zasada:
-     *
-     * 1. Jeżeli pomijany jest tylko JEDEN przystanek,
-     *    zachowujemy dotychczasową logikę. Jest to ważne
-     *    między innymi dla poprawionego układu linii 131.
-     *
-     * 2. Jeżeli pomijanych przystanków jest WIĘCEJ,
-     *    wszystkie mają zwykłe 44 px, a dodatkową wysokość
-     *    dostaje wyłącznie OSTATNI przystanek przed punktem,
-     *    w którym wariant wraca / przechodzi na inną oś.
-     *
-     * Dla linii 126 oznacza to:
-     * - brak przerw wewnątrz grupy pomijanych przystanków,
-     * - dodatkowy odstęp dopiero pomiędzy Os. Marywilska
-     *   a PKP Żerań.
+     * Jeżeli kurs po ominięciu wraca od razu na trasę podstawową,
+     * pozostawiamy normalny odstęp 44 px.
      */
     const leftSkipIntermediateMainIndexes =
-        new Set();
-
-
-    /*
-     * Kierunek dodatkowego miejsca:
-     *
-     * "auto"  - dotychczasowa logika dla pojedynczego
-     *           pomijanego przystanku (m.in. 131),
-     *
-     * "after" - dodatkowe 22 px POD przystankiem,
-     *           czyli przed następnym punktem wariantu.
-     */
-    const leftSkipSpacingMode =
-        new Map();
-
-
-    /*
-     * Jeżeli po ostatnim pomijanym przystanku wariant wraca
-     * z LEFT_X aż na RIGHT_X, potrzebna jest przekątna 44x44.
-     * W takim wierszu pion po lewej kończymy 22 px wcześniej,
-     * dokładnie w miejscu rozpoczęcia przekątnej.
-     */
-    const leftSkipCutBeforeRightReturn =
         new Set();
 
 
@@ -8979,8 +8940,44 @@ const isOnMainAxisBazowa =
         .forEach(
             e => {
 
-                const posrednieBazowe =
-                    [];
+                /*
+                 * WIĘKSZY ODSTĘP ROBIMY TYLKO WTEDY, GDY:
+                 *
+                 * kurs omija przystanek / fragment trasy podstawowej
+                 * i po ominięciu NIE wraca od razu na trasę podstawową,
+                 * tylko przechodzi na dodatkowy przystanek wariantu.
+                 *
+                 * Przykład wymagający odstępu:
+                 *
+                 *   Wiertnicza 02
+                 *        \
+                 *       Sadyba 05   <- pomijany kraniec podstawowy
+                 *        \
+                 *       Sadyba 02   <- dodatkowy przystanek wariantu
+                 *
+                 * Przykład BEZ dodatkowego odstępu:
+                 *
+                 *   PKP Żerań 06
+                 *        \
+                 *       pomijane przystanki
+                 *        \
+                 *   Os. Marywilska 04
+                 *
+                 * Tutaj kurs wraca od razu na trasę podstawową,
+                 * więc standardowe 44 px wiersza wystarcza.
+                 */
+                const wracaOdRazuNaTrasePodstawowa =
+                    !!isOnMainAxisBazowa[
+                        e.v
+                    ];
+
+
+                if (
+                    wracaOdRazuNaTrasePodstawowa
+                ) {
+
+                    return;
+                }
 
 
                 for (
@@ -8993,86 +8990,10 @@ const isOnMainAxisBazowa =
                         isOnMainAxisBazowa[k]
                     ) {
 
-                        posrednieBazowe.push(
+                        leftSkipIntermediateMainIndexes.add(
                             k
                         );
                     }
-                }
-
-
-                if (
-                    posrednieBazowe.length === 0
-                ) {
-
-                    return;
-                }
-
-
-                if (
-                    posrednieBazowe.length === 1
-                ) {
-
-                    const index =
-                        posrednieBazowe[0];
-
-
-                    leftSkipIntermediateMainIndexes.add(
-                        index
-                    );
-
-
-                    if (
-                        !leftSkipSpacingMode.has(
-                            index
-                        )
-                    ) {
-
-                        leftSkipSpacingMode.set(
-                            index,
-                            "auto"
-                        );
-                    }
-
-
-                    return;
-                }
-
-
-                /*
-                 * Przy wielu pomijanych przystankach tylko ostatni
-                 * otrzymuje dodatkową wysokość.
-                 */
-                const ostatniIndex =
-                    posrednieBazowe[
-                        posrednieBazowe.length - 1
-                    ];
-
-
-                leftSkipIntermediateMainIndexes.add(
-                    ostatniIndex
-                );
-
-
-                leftSkipSpacingMode.set(
-                    ostatniIndex,
-                    "after"
-                );
-
-
-                /*
-                 * Jeżeli punkt końcowy tej krawędzi leży na prawej
-                 * osi, LEFT_X -> RIGHT_X ma 44 px w poziomie.
-                 * Potrzebujemy więc 44 px również w pionie.
-                 */
-                if (
-                    !isOnMainAxis[
-                        e.v
-                    ]
-                ) {
-
-                    leftSkipCutBeforeRightReturn.add(
-                        ostatniIndex
-                    );
                 }
             }
         );
@@ -9354,11 +9275,6 @@ const isOnMainAxisBazowa =
                 leftSkipIntermediateMainIndexes.has(i);
 
 
-            const spacingMode =
-                leftSkipSpacingMode.get(i) ||
-                "";
-
-
             const rowHeight =
                 isSkippedMainIntermediate
                     ? ROW_HEIGHT + ROW_HEIGHT / 2
@@ -9366,32 +9282,36 @@ const isOnMainAxisBazowa =
 
 
             /*
-             * Pozycja znacznika w powiększonym wierszu.
+             * Dla powiększonego wiersza NIE ustawiamy znacznika
+             * pośrodku 66 px.
              *
-             * "after":
-             *     nodeY = 22
-             *     -> zwykły odstęp NAD punktem,
-             *     -> dodatkowe 22 px POD punktem.
+             * nodeActive = false:
+             *     nodeY = 44 px
+             *     -> dodatkowe 22 px NAD przystankiem,
+             *     -> normalne 22 px POD nim.
              *
-             * Jest to potrzebne przy 126, gdzie odstęp ma być
-             * dopiero pomiędzy ostatnim pomijanym przystankiem
-             * (Os. Marywilska) a PKP Żerań.
+             * nodeActive = true:
+             *     nodeY = 22 px
+             *     -> normalne 22 px NAD przystankiem,
+             *     -> dodatkowe 22 px POD nim.
              *
-             * "auto":
-             *     zachowujemy wcześniejsze zachowanie, które
-             *     zostało dopasowane do linii 131.
+             * To daje dokładnie:
+             *
+             * zdjęcie 1:
+             * Wiertnicza 02 -> [większy odstęp] -> Sadyba 05
+             * -> [normalny odstęp] -> Sadyba 02
+             *
+             * zdjęcie 2:
+             * Goraszewska 01 -> [normalny odstęp] -> Sadyba 05
+             * -> [większy odstęp] -> Sadyba 01
              */
             const nodeY =
                 !isSkippedMainIntermediate
                     ? ROW_HEIGHT / 2
                     : (
-                        spacingMode === "after"
+                        nodeActive
                             ? ROW_HEIGHT / 2
-                            : (
-                                nodeActive
-                                    ? ROW_HEIGHT / 2
-                                    : ROW_HEIGHT
-                            )
+                            : ROW_HEIGHT
                     );
 
 
@@ -9653,33 +9573,15 @@ const isOnMainAxisBazowa =
                         if (i === e.u) {
 
                             if (startX === RIGHT_X) {
-
-                                /*
-                                 * Dokładnie jak w poprawnym fragmencie
-                                 * przesłanym przez użytkownika:
-                                 *
-                                 * np. Wiertnicza:
-                                 * 66,22 -> 22,66
-                                 *
-                                 * Linia może wyjść poza wysokość SVG,
-                                 * ponieważ .node-wrapper svg ma
-                                 * overflow: visible.
-                                 */
                                 drawCrossingLine(
-                                    startX,
-                                    nodeY,
-                                    LEFT_X,
-                                    rowHeight + ROW_HEIGHT / 2,
+                                    startX, nodeY,
+                                    LEFT_X, rowHeight,
                                     isEdgeActive
                                 );
-
                             } else {
-
                                 drawLine(
-                                    startX,
-                                    nodeY,
-                                    LEFT_X,
-                                    rowHeight,
+                                    startX, nodeY,
+                                    LEFT_X, rowHeight,
                                     isEdgeActive
                                 );
                             }
@@ -9697,164 +9599,40 @@ const isOnMainAxisBazowa =
                              * wierszu. Dlatego pion po lewej kończymy
                              * 22 px przed jego dolną krawędzią.
                              */
-                            /*
-                             * Dla pomijanego, nieaktywnego przystanku
-                             * większy odstęp jest NAD znacznikiem.
-                             *
-                             * Przykład przesłanego poprawnego fragmentu
-                             * Sadyba 05:
-                             *
-                             * x=22, y=22 -> y=66.
-                             *
-                             * Nie skracamy też pionu przed przekątną.
-                             * Odcinki mogą się lekko nakładać, co usuwa
-                             * każdą widoczną szczelinę na łączeniu.
-                             */
-                            const poczatekPionu =
-                                isSkippedMainIntermediate &&
-                                spacingMode === "auto" &&
-                                !nodeActive
-                                    ? ROW_HEIGHT / 2
-                                    : 0;
+                            const konczyNaPrawej =
+                                (
+                                    isOnMainAxis[e.v]
+                                        ? SPINE_X
+                                        : RIGHT_X
+                                ) === RIGHT_X;
+
+
+                            const ostatniPosredni =
+                                i === e.v - 1;
 
 
                             /*
-                             * WYJĄTEK GEOMETRII DLA LINII 131
-                             * W KIERUNKU WILANOWA.
+                             * Jeżeli następny punkt jest na prawej osi,
+                             * przekątna ma mieć 44 x 44 px.
                              *
-                             * Układ przystanków w tym kierunku:
+                             * Następny punkt znajduje się 22 px od góry
+                             * swojego wiersza, więc początek przekątnej
+                             * musi leżeć 22 px PRZED dolną krawędzią
+                             * poprzedniego wiersza.
                              *
-                             *   Goraszewska 01
-                             *         |
-                             *         |\
-                             *         | \
-                             *   Sadyba 05 \
-                             *              \
-                             *           Sadyba 01
-                             *
-                             * Sadyba 05 jest krańcem trasy podstawowej,
-                             * a kurs wydłużony do Wilanowa ją omija.
-                             *
-                             * W powiększonym wierszu Sadyba 05 przekątna
-                             * do Sadyby 01 zaczyna się 22 px przed dolną
-                             * krawędzią wiersza. Pion po lewej musi więc
-                             * zakończyć się dokładnie w tym samym miejscu.
-                             *
-                             * Rozpoznajemy kierunek po KOLEJNOŚCI
-                             * przystanków, dzięki czemu kierunek przeciwny
-                             * linii 131 pozostaje bez zmian.
+                             * Działa to także wtedy, gdy wiersz ma 66 px
+                             * i znacznik jest przesunięty asymetrycznie.
                              */
-                            let koniecPionu =
-                                rowHeight;
-
-
-                            /*
-                             * Wieloprzystankowe ominięcie, np. 126:
-                             * ostatni pomijany przystanek ma 66 px,
-                             * ale pion po lewej kończy się na y=44.
-                             *
-                             * Następna przekątna zaczyna się dokładnie
-                             * w tym samym miejscu i biegnie 44x44 px
-                             * do prawej osi. Dzięki temu:
-                             * - nie ma przerwy,
-                             * - nie ma wystającego pionowego ogonka,
-                             * - przekątna ma 45°.
-                             */
-                            if (
-                                leftSkipCutBeforeRightReturn.has(
-                                    i
-                                )
-                            ) {
-
-                                koniecPionu =
-                                    rowHeight -
-                                    ROW_HEIGHT / 2;
-                            }
-
-
-                            /*
-                             * Istniejąca geometria 131 zostaje zachowana.
-                             */
-                            if (
-                                String(
-                                    numerLinii || ""
-                                ).trim() === "131"
-                            ) {
-
-                                const indeksGoraszewska01 =
-                                    przystanki.findIndex(
-                                        przystanek =>
-                                            normalizujTekst(
-                                                przystanek.nazwa
-                                            ) ===
-                                            normalizujTekst(
-                                                "Goraszewska"
-                                            ) &&
-                                            String(
-                                                przystanek.nr || ""
-                                            ).trim() === "01"
-                                    );
-
-
-                                const indeksSadyba05 =
-                                    przystanki.findIndex(
-                                        przystanek =>
-                                            normalizujTekst(
-                                                przystanek.nazwa
-                                            ) ===
-                                            normalizujTekst(
-                                                "Sadyba"
-                                            ) &&
-                                            String(
-                                                przystanek.nr || ""
-                                            ).trim() === "05"
-                                    );
-
-
-                                const indeksSadyba01 =
-                                    przystanki.findIndex(
-                                        przystanek =>
-                                            normalizujTekst(
-                                                przystanek.nazwa
-                                            ) ===
-                                            normalizujTekst(
-                                                "Sadyba"
-                                            ) &&
-                                            String(
-                                                przystanek.nr || ""
-                                            ).trim() === "01"
-                                    );
-
-
-                                const czyKierunekWilanow131 =
-                                    indeksGoraszewska01 >= 0 &&
-                                    indeksSadyba05 >= 0 &&
-                                    indeksSadyba01 >= 0 &&
-                                    indeksGoraszewska01 <
-                                        indeksSadyba05 &&
-                                    indeksSadyba05 <
-                                        indeksSadyba01;
-
-
-                                if (
-                                    czyKierunekWilanow131 &&
-                                    i === indeksSadyba05 &&
-                                    e.v === indeksSadyba01 &&
-                                    isSkippedMainIntermediate
-                                ) {
-
-                                    koniecPionu =
-                                        rowHeight -
-                                        ROW_HEIGHT / 2;
-                                }
-                            }
+                            const koniecPionu =
+                                konczyNaPrawej &&
+                                ostatniPosredni
+                                    ? rowHeight - ROW_HEIGHT / 2
+                                    : rowHeight;
 
 
                             drawLine(
-                                LEFT_X,
-                                poczatekPionu,
-                                LEFT_X,
-                                koniecPionu,
+                                LEFT_X, 0,
+                                LEFT_X, koniecPionu,
                                 isEdgeActive
                             );
                         }
@@ -9870,12 +9648,10 @@ const isOnMainAxisBazowa =
                                  * i kończymy w jego środku (22 px),
                                  * czyli mamy również 44 px pionowo.
                                  *
-                                 * Przekątna zaczyna się 22 px
-                                 * ponad bieżącym wierszem. Pion po lewej
-                                 * jest celowo dociągnięty do końca
-                                 * poprzedniego wiersza, więc elementy
-                                 * nachodzą na siebie na łączeniu i nie
-                                 * powstaje żadna szczelina.
+                                 * Efekt: idealny kąt 45° i pełne
+                                 * połączenie z pionową linią po lewej,
+                                 * również przy asymetrycznym odstępie
+                                 * wokół pomijanego przystanku.
                                  */
                                 drawCrossingLine(
                                     LEFT_X,
