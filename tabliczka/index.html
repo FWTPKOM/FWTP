@@ -352,7 +352,7 @@ font-size: 14px;
         .minuty-cell {
             display: grid;
             grid-auto-flow: column;
-            grid-auto-columns: 26px;
+            grid-auto-columns: 23px;
             align-items: end;
             justify-content: start;
             column-gap: 0;
@@ -364,6 +364,7 @@ font-size: 14px;
             font-size: 13px;
             line-height: 17px;
             white-space: nowrap;
+            font-variant-numeric: tabular-nums;
         }
 
         .minuta {
@@ -371,8 +372,8 @@ font-size: 14px;
             align-items: baseline;
             justify-content: flex-start;
 
-            width: 26px;
-            min-width: 26px;
+            width: 23px;
+            min-width: 23px;
 
             white-space: nowrap;
         }
@@ -485,6 +486,7 @@ font-size: 14px;
 
         .trasa-kol {
             min-width: 0;
+            overflow: visible;
 
             padding: 5px 7px 10px;
 
@@ -540,7 +542,7 @@ font-size: 14px;
             top: 0;
             bottom: 0;
 
-            width: 1.5px;
+            width: 2px;
 
             background: currentColor;
         }
@@ -551,12 +553,12 @@ font-size: 14px;
             position: absolute;
 
             left: 1px;
-            top: 50%;
+            top: 4px;
 
             width: 9px;
             height: 9px;
 
-            transform: translateY(-50%);
+            transform: none;
 
             background: currentColor;
 
@@ -564,27 +566,32 @@ font-size: 14px;
         }
 
         .trasa-stop:first-child .trasa-os::before {
-            top: 50%;
+            top: 8px;
         }
 
         .trasa-stop:last-child .trasa-os::before {
-            bottom: 50%;
+            bottom: calc(100% - 8px);
         }
 
         .trasa-nazwa {
-            overflow: hidden;
+            min-width: 0;
 
-            white-space: nowrap;
-            text-overflow: ellipsis;
+            overflow: visible;
+
+            white-space: normal;
+            overflow-wrap: normal;
+            word-break: normal;
+            hyphens: none;
 
             font-weight: 700;
+            line-height: 1.02;
         }
 
         .trasa-stop.wybrany .trasa-nazwa {
-            display: inline-block;
+            display: inline;
 
-            width: max-content;
-            max-width: 100%;
+            width: auto;
+            max-width: none;
 
             padding: 0;
             margin: 0;
@@ -592,9 +599,11 @@ font-size: 14px;
             background: #111;
             color: #fff;
 
-            overflow: hidden;
-
-            text-overflow: ellipsis;
+            overflow: visible;
+            white-space: normal;
+            text-overflow: clip;
+            box-decoration-break: clone;
+            -webkit-box-decoration-break: clone;
         }
 
         .trasa-stop.wybrany {
@@ -2809,33 +2818,28 @@ function dopasujKolumnyTrasy() {
     const lista = kierunekBazowy()?.przystanki || [];
     if (!lista.length) return;
 
-    /*
-       Najpierw wymuszamy jedną kolumnę i wąski wariant prawego panelu.
-    */
+    const czasy = czasyTrasy();
+
+    // Najpierw próbujemy wszystko w jednej kolumnie.
     tabliczka.classList.remove("trasa-2-kol");
     columns.className = "trasa-columns cols-1";
     columns.innerHTML = renderTrasaKolumna(
         { start: 0, lista: lista },
-        czasyTrasy()
+        czasy
     );
 
-    /*
-       Sprawdzamy faktyczną wysokość listy.
-       Jeśli wszystkie przystanki mieszczą się w dostępnej wysokości,
-       pozostaje jedna kolumna.
-    */
-    const kolumna = columns.querySelector(".trasa-kol");
-    const listaEl = columns.querySelector(".trasa-lista");
+    const jednaKolumna = columns.querySelector(".trasa-kol");
+    const jednaLista = columns.querySelector(".trasa-lista");
 
-    if (!kolumna || !listaEl) return;
+    if (!jednaKolumna || !jednaLista) return;
 
-    const style = getComputedStyle(kolumna);
-    const paddingY =
-        parseFloat(style.paddingTop || 0) +
-        parseFloat(style.paddingBottom || 0);
+    const style1 = getComputedStyle(jednaKolumna);
+    const paddingY1 =
+        parseFloat(style1.paddingTop || 0) +
+        parseFloat(style1.paddingBottom || 0);
 
     const potrzebnaWysokosc =
-        Math.ceil(listaEl.getBoundingClientRect().height + paddingY);
+        Math.ceil(jednaLista.getBoundingClientRect().height + paddingY1);
 
     const dostepnaWysokosc =
         Math.floor(columns.clientHeight);
@@ -2844,18 +2848,74 @@ function dopasujKolumnyTrasy() {
         return;
     }
 
-    /*
-       Dopiero gdy jedna kolumna się nie mieści,
-       przechodzimy na dwie kolumny i szerszy prawy panel.
-    */
-    const fragmenty = podzielTraseNaDwie(lista);
-    const czasy = czasyTrasy();
-
+    // Jeśli się nie mieści, przechodzimy na szeroki panel 2-kolumnowy.
     tabliczka.classList.add("trasa-2-kol");
     columns.className = "trasa-columns cols-2";
-    columns.innerHTML = fragmenty
-        .map(f => renderTrasaKolumna(f, czasy))
-        .join("");
+
+    // Do pierwszej kolumny tymczasowo wkładamy wszystko,
+    // aby sprawdzić ile kolejnych przystanków realnie się mieści.
+    columns.innerHTML =
+        renderTrasaKolumna(
+            { start: 0, lista: lista },
+            czasy
+        ) +
+        '<div class="trasa-kol trasa-kol-pusta"></div>';
+
+    const pierwszaKolumna = columns.querySelector(".trasa-kol");
+    const wiersze = Array.from(
+        pierwszaKolumna?.querySelectorAll(".trasa-stop") || []
+    );
+
+    if (!pierwszaKolumna || !wiersze.length) return;
+
+    const stylKolumny = getComputedStyle(pierwszaKolumna);
+    const paddingBottom = parseFloat(stylKolumny.paddingBottom || 0);
+
+    const maxDol =
+        pierwszaKolumna.getBoundingClientRect().top +
+        columns.clientHeight -
+        paddingBottom;
+
+    let ileSieMiesci = 0;
+
+    for (const wiersz of wiersze) {
+        const rect = wiersz.getBoundingClientRect();
+
+        if (rect.bottom <= maxDol + 0.5) {
+            ileSieMiesci++;
+        } else {
+            break;
+        }
+    }
+
+    ileSieMiesci = Math.max(
+        1,
+        Math.min(
+            ileSieMiesci,
+            lista.length - 1
+        )
+    );
+
+    const pierwszaLista = lista.slice(0, ileSieMiesci);
+    const drugaLista = lista.slice(ileSieMiesci);
+
+    // Pierwsza kolumna = maksymalnie dużo przystanków.
+    // Druga kolumna = wyłącznie te, które się nie zmieściły.
+    columns.innerHTML =
+        renderTrasaKolumna(
+            {
+                start: 0,
+                lista: pierwszaLista
+            },
+            czasy
+        ) +
+        renderTrasaKolumna(
+            {
+                start: ileSieMiesci,
+                lista: drugaLista
+            },
+            czasy
+        );
 }
 
 </script>
