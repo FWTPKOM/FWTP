@@ -8546,8 +8546,12 @@ const isOnMainAxisBazowa =
      *   Wiertnicza -> Sadyba 05 -> Sadyba 02
      *   Wiertnicza -------------> Sadyba 02
      *
-     * Tu druga krawędź rzeczywiście OMIJA wariant, więc idzie
-     * po lewej stronie.
+     * Jeżeli bezpośrednia krawędź należy do trasy podstawowej,
+     * pozostaje ona PROSTO, a wariant przez dodatkowe przystanki
+     * jest rysowany po PRAWEJ stronie.
+     *
+     * Lewa strona jest używana dopiero wtedy, gdy konkretny kurs
+     * rzeczywiście pomija przystanek trasy podstawowej.
      *
      * Natomiast gdy przystanki znajdujące się pomiędzy indeksami
      * tworzą osobną odnogę, która NIE wraca do v, długa krawędź
@@ -8771,22 +8775,77 @@ const isOnMainAxisBazowa =
             }
 
 
-            const rzeczywiscieOmija =
+            const maAlternatywnaSciezke =
                 maPrzystankiPomiedzy &&
-                (
-                    pomijaPrzystanekTrasyPodstawowej ||
-                    istniejeAlternatywnaSciezkaFWTP(
-                        e.u,
-                        e.v
-                    )
+                istniejeAlternatywnaSciezkaFWTP(
+                    e.u,
+                    e.v
                 );
 
 
-            if (rzeczywiscieOmija) {
+            const nalezyDoWariantuPodstawowego =
+                e.warianty &&
+                typeof e.warianty.has ===
+                    "function" &&
+                e.warianty.has(
+                    mainWariant
+                );
+
+
+            /*
+             * KLUCZOWA ZASADA GEOMETRII:
+             *
+             * Jeżeli przebieg podstawowy jedzie BEZPOŚREDNIO
+             * z u do v, a inny wariant odbija pomiędzy nimi
+             * przez dodatkowe przystanki i wraca do v, to:
+             *
+             * - przebieg podstawowy zostaje PROSTO,
+             * - wariant przez dodatkowe przystanki idzie PRAWO.
+             *
+             * Nie wolno wtedy przenosić bezpośredniej krawędzi
+             * na lewą stronę tylko dlatego, że istnieje
+             * alternatywna droga.
+             *
+             * Przykład linii 210:
+             * Sierakowska -> Langiewicza = prosto,
+             * a Sierakowska -> Langiewicza 03 -> Hornówek
+             * -> Langiewicza 02 = prawa odnoga.
+             */
+            const podstawowaKrawedzZObjazdem =
+                nalezyDoWariantuPodstawowego &&
+                maAlternatywnaSciezke &&
+                !pomijaPrzystanekTrasyPodstawowej;
+
+
+            const rzeczywiscieOmija =
+                maPrzystankiPomiedzy &&
+                !podstawowaKrawedzZObjazdem &&
+                (
+                    pomijaPrzystanekTrasyPodstawowej ||
+                    maAlternatywnaSciezke
+                );
+
+
+            if (
+                podstawowaKrawedzZObjazdem
+            ) {
 
                 /*
-                 * Istnieje druga droga u -> ... -> v, więc ta
-                 * krawędź jest prawdziwym pominięciem.
+                 * Trasa podstawowa idzie prosto.
+                 * Boczne przystanki zostaną narysowane po prawej
+                 * przez krawędzie track = 1.
+                 */
+                e.track =
+                    0;
+
+            } else if (
+                rzeczywiscieOmija
+            ) {
+
+                /*
+                 * Rzeczywiste pominięcie przystanku należącego
+                 * do trasy podstawowej albo skrót niebędący
+                 * przebiegiem podstawowym rysujemy po lewej.
                  */
                 e.track =
                     -1;
