@@ -8580,6 +8580,74 @@ wariantyDoWyboruGlownejOsi.forEach(
 );
 
 
+/* =====================================================
+   LINIA 131 — ZACHOWANIE STAREGO WYBORU OSI GŁÓWNEJ
+   =====================================================
+
+   W wersji globalnej v5 zmieniliśmy wybór osi głównej tak, aby
+   wariant z dodatkowymi przystankami nie stawał się osią główną.
+
+   Dla linii 131 wcześniejszy układ był już poprawnie dopasowany,
+   dlatego 131 zachowuje poprzednią zasadę:
+   - najwięcej unikalnych kursów,
+   - przy remisie preferencja wariantu A.
+
+   Dzięki temu nowe reguły dla 110 / 126 / 331 nie zmieniają
+   geometrii 131.
+*/
+if (
+    String(
+        numerLinii || ""
+    ).trim() === "131"
+) {
+
+    mainWariant =
+        wariantyDoWyboruGlownejOsi[0] ||
+        "";
+
+
+    wariantyDoWyboruGlownejOsi.forEach(
+        wariant => {
+
+            const liczbaAktualnego =
+                liczbaKursowWariantu.get(
+                    wariant
+                ) || 0;
+
+
+            const liczbaGlownego =
+                liczbaKursowWariantu.get(
+                    mainWariant
+                ) || 0;
+
+
+            if (
+                liczbaAktualnego >
+                liczbaGlownego
+            ) {
+
+                mainWariant =
+                    wariant;
+
+                return;
+            }
+
+
+            if (
+                liczbaAktualnego ===
+                    liczbaGlownego &&
+                wariant === "A" &&
+                mainWariant !== "A"
+            ) {
+
+                mainWariant =
+                    "A";
+            }
+        }
+    );
+}
+
+
 console.info(
     "FWTP: wybór osi głównej",
     {
@@ -9243,6 +9311,12 @@ const isOnMainAxisBazowa =
         new Set();
 
 
+    const czyLinia131Geometria =
+        String(
+            numerLinii || ""
+        ).trim() === "131";
+
+
     edges
         .filter(
             e =>
@@ -9267,6 +9341,24 @@ const isOnMainAxisBazowa =
 
                         ostatniPomijanyBazowy =
                             k;
+
+
+                        /*
+                         * LINIA 131:
+                         * zachowujemy dokładnie wcześniejszą geometrię,
+                         * czyli każdy rzeczywiście pomijany przystanek
+                         * osi głównej może otrzymać powiększony wiersz.
+                         *
+                         * To jest ważne zwłaszcza w kierunku
+                         * Dw. Centralnego, gdzie po globalnej zmianie
+                         * przekątna przestała trafiać w pionową linię.
+                         */
+                        if (czyLinia131Geometria) {
+
+                            leftSkipIntermediateMainIndexes.add(
+                                k
+                            );
+                        }
                     }
                 }
 
@@ -9275,7 +9367,12 @@ const isOnMainAxisBazowa =
                     ostatniPomijanyBazowy;
 
 
+                /*
+                 * Dla pozostałych linii zostaje nowa reguła globalna:
+                 * powiększamy tylko ostatni pomijany przystanek.
+                 */
                 if (
+                    !czyLinia131Geometria &&
                     ostatniPomijanyBazowy >= 0
                 ) {
 
@@ -9608,7 +9705,17 @@ const isOnMainAxisBazowa =
              * -> [większy odstęp] -> Sadyba 01
              */
             const nodeY =
-                ROW_HEIGHT / 2;
+                czyLinia131Geometria
+                    ? (
+                        !isSkippedMainIntermediate
+                            ? ROW_HEIGHT / 2
+                            : (
+                                nodeActive
+                                    ? ROW_HEIGHT / 2
+                                    : ROW_HEIGHT
+                            )
+                    )
+                    : ROW_HEIGHT / 2;
 
 
             const beforeVariantStart =
@@ -9927,7 +10034,14 @@ const isOnMainAxisBazowa =
                              * każdą widoczną szczelinę na łączeniu.
                              */
                             const poczatekPionu =
-                                0;
+                                czyLinia131Geometria
+                                    ? (
+                                        isSkippedMainIntermediate &&
+                                        !nodeActive
+                                            ? ROW_HEIGHT / 2
+                                            : 0
+                                    )
+                                    : 0;
 
 
                             /*
@@ -9951,7 +10065,86 @@ const isOnMainAxisBazowa =
                                 rowHeight;
 
 
-                            if (
+                            if (czyLinia131Geometria) {
+
+                                /*
+                                 * Dla 131 wracamy do geometrii sprzed
+                                 * globalnej zmiany. Jedyny wcześniejszy
+                                 * wyjątek dotyczy układu:
+                                 *
+                                 * Goraszewska 01 -> Sadyba 05 -> Sadyba 01
+                                 *
+                                 * Rozpoznajemy go po kolejności przystanków,
+                                 * więc przeciwny kierunek pozostaje nietknięty.
+                                 */
+                                const indeksGoraszewska01 =
+                                    przystanki.findIndex(
+                                        przystanek =>
+                                            normalizujTekst(
+                                                przystanek.nazwa
+                                            ) ===
+                                            normalizujTekst(
+                                                "Goraszewska"
+                                            ) &&
+                                            String(
+                                                przystanek.nr || ""
+                                            ).trim() === "01"
+                                    );
+
+
+                                const indeksSadyba05 =
+                                    przystanki.findIndex(
+                                        przystanek =>
+                                            normalizujTekst(
+                                                przystanek.nazwa
+                                            ) ===
+                                            normalizujTekst(
+                                                "Sadyba"
+                                            ) &&
+                                            String(
+                                                przystanek.nr || ""
+                                            ).trim() === "05"
+                                    );
+
+
+                                const indeksSadyba01 =
+                                    przystanki.findIndex(
+                                        przystanek =>
+                                            normalizujTekst(
+                                                przystanek.nazwa
+                                            ) ===
+                                            normalizujTekst(
+                                                "Sadyba"
+                                            ) &&
+                                            String(
+                                                przystanek.nr || ""
+                                            ).trim() === "01"
+                                    );
+
+
+                                const czyUkladSadyba131 =
+                                    indeksGoraszewska01 >= 0 &&
+                                    indeksSadyba05 >= 0 &&
+                                    indeksSadyba01 >= 0 &&
+                                    indeksGoraszewska01 <
+                                        indeksSadyba05 &&
+                                    indeksSadyba05 <
+                                        indeksSadyba01;
+
+
+                                if (
+                                    czyUkladSadyba131 &&
+                                    i === indeksSadyba05 &&
+                                    e.v === indeksSadyba01 &&
+                                    isSkippedMainIntermediate
+                                ) {
+
+                                    koniecPionu =
+                                        rowHeight -
+                                        ROW_HEIGHT / 2;
+                                }
+
+                            } else if (
                                 e.lastSkippedMainIndex === i &&
                                 i === e.v - 1 &&
                                 isSkippedMainIntermediate
