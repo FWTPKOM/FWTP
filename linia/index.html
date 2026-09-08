@@ -9158,6 +9158,9 @@ function wybierzPrzystanek(
     index
 ) {
 
+    /*
+     * Najpierw zapisujemy wybrany przystanek.
+     */
     ustawWybranyPrzystanek(
         p,
         index
@@ -9168,12 +9171,146 @@ function wybierzPrzystanek(
         false;
 
 
+    /*
+     * Aktualizujemy URL bez przeładowania strony.
+     */
     aktualizujHistorieURL(
         "idx:" + index
     );
 
 
-    pokazRozklad();
+    /*
+     * WAŻNE:
+     * Nie wracamy już po kliknięciu przystanku przez cały
+     * pokazRozklad(), bo ta funkcja ponownie ustala stan widoku
+     * i przy pierwszym kliknięciu mogła pozostawić listę
+     * przystanków. Po odświeżeniu URL zawierał już "przystanek",
+     * dlatego dopiero wtedy rozkład się pojawiał.
+     *
+     * Teraz od razu renderujemy rozkład klikniętego przystanku.
+     */
+    const rozklad =
+        znajdzRozklad();
+
+
+    if (
+        rozklad &&
+        Array.isArray(
+            rozklad.kierunki
+        ) &&
+        rozklad.kierunki[
+            aktualnyKierunek
+        ]
+    ) {
+
+        const kierunek =
+            rozklad.kierunki[
+                aktualnyKierunek
+            ];
+
+
+        let przystanekDoPokazania =
+            null;
+
+
+        /*
+         * Najpierw próbujemy użyć dokładnego indeksu z listy.
+         */
+        if (
+            Number.isInteger(
+                Number(index)
+            ) &&
+            Number(index) >= 0 &&
+            Number(index) <
+                (
+                    kierunek.przystanki ||
+                    []
+                ).length
+        ) {
+
+            przystanekDoPokazania =
+                kierunek.przystanki[
+                    Number(index)
+                ];
+        }
+
+
+        /*
+         * Gdyby indeks pochodził z przefiltrowanej listy,
+         * odnajdujemy przystanek po numerze i nazwie.
+         */
+        if (
+            !przystanekDoPokazania ||
+            normalizujTekst(
+                przystanekDoPokazania.nazwa
+            ) !==
+                normalizujTekst(
+                    p?.nazwa
+                ) ||
+            String(
+                przystanekDoPokazania.nr || ""
+            ).trim() !==
+                String(
+                    p?.nr || ""
+                ).trim()
+        ) {
+
+            przystanekDoPokazania =
+                (
+                    kierunek.przystanki ||
+                    []
+                ).find(
+                    przystanek =>
+                        String(
+                            przystanek.nr || ""
+                        ).trim() ===
+                            String(
+                                p?.nr || ""
+                            ).trim()
+                        &&
+                        normalizujTekst(
+                            przystanek.nazwa
+                        ) ===
+                            normalizujTekst(
+                                p?.nazwa
+                            )
+                ) ||
+                p;
+        }
+
+
+        const prawidlowyIndex =
+            (
+                kierunek.przystanki ||
+                []
+            ).indexOf(
+                przystanekDoPokazania
+            );
+
+
+        ustawWybranyPrzystanek(
+            przystanekDoPokazania,
+            prawidlowyIndex >= 0
+                ? prawidlowyIndex
+                : index
+        );
+
+
+        /*
+         * Bezpośrednie wyświetlenie rozkładu.
+         */
+        pokazRozkladWybranegoPrzystanku(
+            rozklad,
+            przystanekDoPokazania
+        );
+
+    } else {
+
+        /*
+         * Awaryjnie zachowujemy dotychczasową ścieżkę.
+         */
+        pokazRozklad();
+    }
 
 
     requestAnimationFrame(
