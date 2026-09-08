@@ -5595,6 +5595,767 @@ function znajdzDomyslnyWariant(
 
 
 /* =========================================================
+   INTELIGENTNE OZNACZENIA WARIANTÓW
+   =========================================================
+
+   Zasady:
+   1. Wariant najczęściej wykonywany w danym kierunku/dniu
+      traktujemy jako przebieg podstawowy i NIE oznaczamy go
+      literą przy minutach.
+
+   2. Jeżeli różne przebiegi kończą się na TYM SAMYM krańcu,
+      nie opisujemy ich jako "kurs przez ...". Taka informacja
+      jest potrzebna do narysowania trasy, ale nie do legendy
+      rozkładu.
+
+   3. Jeżeli kurs kończy wcześniej na przebiegu podstawowym:
+         kurs skrócony do przystanku NAZWA
+
+   4. Jeżeli kurs odchodzi od przebiegu podstawowego i kończy
+      na innym krańcu:
+         kurs wydłużony do krańca NAZWA
+
+   Dzięki temu reguła działa dla wszystkich linii, bez wyjątków
+   wpisywanych ręcznie dla 120, 131, 136, 142, 153, 166, 170,
+   176, 210 itd.
+   ========================================================= */
+
+function zbudujAnalizeWariantowFWTP(
+    kierunek
+) {
+
+    const wynik = {
+        glownyWariant: "",
+        glownyKoniecIndex: -1,
+        glownyKoniecNazwa: "",
+        warianty: new Map()
+    };
+
+
+    if (
+        !kierunek ||
+        !Array.isArray(
+            kierunek.przystanki
+        )
+    ) {
+
+        return wynik;
+    }
+
+
+    const przystanki =
+        kierunek.przystanki;
+
+
+    const mapaKursow =
+        new Map();
+
+
+    przystanki.forEach(
+        (
+            p,
+            index
+        ) => {
+
+            (
+                p.kursy ||
+                []
+            ).forEach(
+                kurs => {
+
+                    const czas =
+                        czasNaMinuty(
+                            kurs?.czas
+                        );
+
+
+                    if (czas === null) {
+                        return;
+                    }
+
+
+                    const numer =
+                        String(
+                            kurs?.numer ?? ""
+                        ).trim();
+
+
+                    if (!numer) {
+                        return;
+                    }
+
+
+                    const wariant =
+                        pobierzWariant(
+                            kurs
+                        );
+
+
+                    const klucz =
+                        numer +
+                        "||" +
+                        wariant;
+
+
+                    if (
+                        !mapaKursow.has(
+                            klucz
+                        )
+                    ) {
+
+                        mapaKursow.set(
+                            klucz,
+                            {
+                                numer:
+                                    numer,
+
+                                wariant:
+                                    wariant,
+
+                                punkty:
+                                    []
+                            }
+                        );
+                    }
+
+
+                    mapaKursow
+                        .get(klucz)
+                        .punkty
+                        .push(
+                            {
+                                index:
+                                    index,
+
+                                czas:
+                                    czas
+                            }
+                        );
+                }
+            );
+        }
+    );
+
+
+    const wszystkieKursy =
+        Array.from(
+            mapaKursow.values()
+        )
+            .map(
+                kurs => {
+
+                    kurs.punkty.sort(
+                        (
+                            a,
+                            b
+                        ) =>
+                            a.index -
+                            b.index
+                    );
+
+
+                    return kurs;
+                }
+            )
+            .filter(
+                kurs =>
+                    kurs.punkty.length > 0
+            );
+
+
+    if (
+        wszystkieKursy.length === 0
+    ) {
+
+        return wynik;
+    }
+
+
+    /*
+     * Liczymy liczbę UNIKALNYCH kursów każdego wariantu.
+     * Najczęstszy wariant jest przebiegiem podstawowym.
+     */
+    const licznikWariantow =
+        new Map();
+
+
+    wszystkieKursy.forEach(
+        kurs => {
+
+            const wariant =
+                kurs.wariant;
+
+
+            if (!wariant) {
+                return;
+            }
+
+
+            licznikWariantow.set(
+                wariant,
+                (
+                    licznikWariantow.get(
+                        wariant
+                    ) || 0
+                ) + 1
+            );
+        }
+    );
+
+
+    const warianty =
+        Array.from(
+            licznikWariantow.keys()
+        );
+
+
+    if (
+        warianty.length === 0
+    ) {
+
+        return wynik;
+    }
+
+
+    let glownyWariant =
+        warianty[0];
+
+
+    warianty.forEach(
+        wariant => {
+
+            const liczba =
+                licznikWariantow.get(
+                    wariant
+                ) || 0;
+
+
+            const liczbaGlownego =
+                licznikWariantow.get(
+                    glownyWariant
+                ) || 0;
+
+
+            if (
+                liczba >
+                liczbaGlownego
+            ) {
+
+                glownyWariant =
+                    wariant;
+
+                return;
+            }
+
+
+            /*
+             * Przy remisie wariant A pozostaje przebiegiem
+             * podstawowym, jeżeli występuje.
+             */
+            if (
+                liczba ===
+                    liczbaGlownego &&
+                wariant === "A" &&
+                glownyWariant !== "A"
+            ) {
+
+                glownyWariant =
+                    "A";
+            }
+        }
+    );
+
+
+    wynik.glownyWariant =
+        glownyWariant;
+
+
+    const kursyGlownegoWariantu =
+        wszystkieKursy.filter(
+            kurs =>
+                kurs.wariant ===
+                glownyWariant
+        );
+
+
+    /*
+     * Najpierw ustalamy najczęstszy przystanek końcowy
+     * przebiegu podstawowego.
+     */
+    const konceGlownego =
+        new Map();
+
+
+    kursyGlownegoWariantu.forEach(
+        kurs => {
+
+            const ostatni =
+                kurs.punkty[
+                    kurs.punkty.length - 1
+                ];
+
+
+            const index =
+                ostatni.index;
+
+
+            konceGlownego.set(
+                index,
+                (
+                    konceGlownego.get(
+                        index
+                    ) || 0
+                ) + 1
+            );
+        }
+    );
+
+
+    let glownyKoniecIndex =
+        -1;
+
+
+    let najwiecejKoncow =
+        -1;
+
+
+    konceGlownego.forEach(
+        (
+            liczba,
+            index
+        ) => {
+
+            if (
+                liczba >
+                najwiecejKoncow
+            ) {
+
+                najwiecejKoncow =
+                    liczba;
+
+                glownyKoniecIndex =
+                    Number(index);
+
+                return;
+            }
+
+
+            /*
+             * Przy remisie wybieramy dalszy przebieg.
+             */
+            if (
+                liczba ===
+                    najwiecejKoncow &&
+                Number(index) >
+                    glownyKoniecIndex
+            ) {
+
+                glownyKoniecIndex =
+                    Number(index);
+            }
+        }
+    );
+
+
+    /*
+     * Reprezentatywny przebieg podstawowy:
+     * najdłuższy kurs kończący się na głównym krańcu.
+     */
+    let glownyKurs =
+        null;
+
+
+    kursyGlownegoWariantu.forEach(
+        kurs => {
+
+            const ostatni =
+                kurs.punkty[
+                    kurs.punkty.length - 1
+                ];
+
+
+            if (
+                ostatni.index !==
+                    glownyKoniecIndex
+            ) {
+
+                return;
+            }
+
+
+            if (
+                !glownyKurs ||
+                kurs.punkty.length >
+                    glownyKurs.punkty.length
+            ) {
+
+                glownyKurs =
+                    kurs;
+            }
+        }
+    );
+
+
+    if (
+        !glownyKurs &&
+        kursyGlownegoWariantu.length > 0
+    ) {
+
+        glownyKurs =
+            kursyGlownegoWariantu
+                .slice()
+                .sort(
+                    (
+                        a,
+                        b
+                    ) =>
+                        b.punkty.length -
+                        a.punkty.length
+                )[0];
+
+
+        glownyKoniecIndex =
+            glownyKurs.punkty[
+                glownyKurs.punkty.length - 1
+            ].index;
+    }
+
+
+    wynik.glownyKoniecIndex =
+        glownyKoniecIndex;
+
+
+    wynik.glownyKoniecNazwa =
+        glownyKoniecIndex >= 0 &&
+        przystanki[
+            glownyKoniecIndex
+        ]
+            ? String(
+                przystanki[
+                    glownyKoniecIndex
+                ].nazwa || ""
+              ).trim()
+            : "";
+
+
+    const indeksyGlownejTrasy =
+        new Set(
+            glownyKurs
+                ? glownyKurs.punkty.map(
+                    p => p.index
+                  )
+                : []
+        );
+
+
+    const nazwyGlownejTrasy =
+        new Set(
+            glownyKurs
+                ? glownyKurs.punkty.map(
+                    punkt =>
+                        normalizujTekst(
+                            przystanki[
+                                punkt.index
+                            ]?.nazwa || ""
+                        )
+                  )
+                : []
+        );
+
+
+    /*
+     * Analiza każdego wariantu.
+     */
+    warianty.forEach(
+        wariant => {
+
+            const kursyWariantu =
+                wszystkieKursy.filter(
+                    kurs =>
+                        kurs.wariant ===
+                            wariant
+                );
+
+
+            const konce =
+                new Map();
+
+
+            kursyWariantu.forEach(
+                kurs => {
+
+                    const ostatni =
+                        kurs.punkty[
+                            kurs.punkty.length - 1
+                        ];
+
+
+                    konce.set(
+                        ostatni.index,
+                        (
+                            konce.get(
+                                ostatni.index
+                            ) || 0
+                        ) + 1
+                    );
+                }
+            );
+
+
+            let koniecIndex =
+                -1;
+
+
+            let liczbaKoncow =
+                -1;
+
+
+            konce.forEach(
+                (
+                    liczba,
+                    index
+                ) => {
+
+                    if (
+                        liczba >
+                        liczbaKoncow
+                    ) {
+
+                        liczbaKoncow =
+                            liczba;
+
+                        koniecIndex =
+                            Number(index);
+
+                        return;
+                    }
+
+
+                    if (
+                        liczba ===
+                            liczbaKoncow &&
+                        Number(index) >
+                            koniecIndex
+                    ) {
+
+                        koniecIndex =
+                            Number(index);
+                    }
+                }
+            );
+
+
+            const koniecNazwa =
+                koniecIndex >= 0 &&
+                przystanki[
+                    koniecIndex
+                ]
+                    ? String(
+                        przystanki[
+                            koniecIndex
+                        ].nazwa || ""
+                      ).trim()
+                    : "";
+
+
+            const taSamaNazwaKonca =
+                normalizujTekst(
+                    koniecNazwa
+                ) ===
+                normalizujTekst(
+                    wynik.glownyKoniecNazwa
+                );
+
+
+            let typ =
+                "bez-oznaczenia";
+
+
+            let opis =
+                "";
+
+
+            if (
+                wariant ===
+                glownyWariant
+            ) {
+
+                /*
+                 * Główny wariant jest zwykłym przebiegiem.
+                 * Nie pokazujemy A (ani innej litery, jeśli
+                 * główny wariant nie jest A).
+                 */
+                typ =
+                    "podstawowy";
+
+            } else if (
+                taSamaNazwaKonca
+            ) {
+
+                /*
+                 * Wszystkie kursy jadą do tego samego krańca.
+                 * Różnica przebiegu pozostaje widoczna na osi,
+                 * ale bez liter przy minutach i bez opisu
+                 * "kurs przez ...".
+                 */
+                typ =
+                    "ten-sam-kraniec";
+
+            } else {
+
+                const nazwaKoncaNorm =
+                    normalizujTekst(
+                        koniecNazwa
+                    );
+
+
+                const koniecLezyNaGlownejTrasie =
+                    indeksyGlownejTrasy.has(
+                        koniecIndex
+                    ) ||
+                    nazwyGlownejTrasy.has(
+                        nazwaKoncaNorm
+                    );
+
+
+                const koniecJestWczesniej =
+                    koniecIndex >= 0 &&
+                    wynik.glownyKoniecIndex >= 0 &&
+                    koniecIndex <
+                        wynik.glownyKoniecIndex;
+
+
+                if (
+                    koniecLezyNaGlownejTrasie ||
+                    koniecJestWczesniej
+                ) {
+
+                    typ =
+                        "skrocony";
+
+
+                    opis =
+                        "kurs skrócony do przystanku " +
+                        String(
+                            koniecNazwa
+                        ).toUpperCase();
+
+                } else {
+
+                    typ =
+                        "wydluzony";
+
+
+                    opis =
+                        "kurs wydłużony do krańca " +
+                        String(
+                            koniecNazwa
+                        ).toUpperCase();
+                }
+            }
+
+
+            wynik.warianty.set(
+                wariant,
+                {
+                    wariant:
+                        wariant,
+
+                    typ:
+                        typ,
+
+                    opis:
+                        opis,
+
+                    koniecIndex:
+                        koniecIndex,
+
+                    koniecNazwa:
+                        koniecNazwa,
+
+                    liczbaKursow:
+                        kursyWariantu.length,
+
+                    pokazOznaczenie:
+                        opis !== ""
+                }
+            );
+        }
+    );
+
+
+    return wynik;
+}
+
+
+function pobierzOpisWariantuFWTP(
+    analiza,
+    wariant
+) {
+
+    if (
+        !analiza ||
+        !analiza.warianty ||
+        typeof analiza.warianty.get !==
+            "function"
+    ) {
+
+        return "";
+    }
+
+
+    const dane =
+        analiza.warianty.get(
+            String(
+                wariant || ""
+            )
+                .trim()
+                .toUpperCase()
+        );
+
+
+    return dane
+        ? String(
+            dane.opis || ""
+          )
+        : "";
+}
+
+
+function czyPokazacOznaczenieWariantuFWTP(
+    analiza,
+    wariant
+) {
+
+    if (
+        !analiza ||
+        !analiza.warianty ||
+        typeof analiza.warianty.get !==
+            "function"
+    ) {
+
+        return false;
+    }
+
+
+    const dane =
+        analiza.warianty.get(
+            String(
+                wariant || ""
+            )
+                .trim()
+                .toUpperCase()
+        );
+
+
+    return !!(
+        dane &&
+        dane.pokazOznaczenie
+    );
+}
+
+
+/* =========================================================
    CZAS NA MINUTY
    ========================================================= */
 
@@ -7454,42 +8215,22 @@ przystanki.forEach(
         e => {
 
             /*
-             * Najpierw sprawdzamy, czy dana krawędź
-             * POMIJA przystanki należące do trasy głównej.
+             * Jeżeli pomiędzy dwoma kolejnymi punktami danego kursu
+             * znajdują się w tablicy inne przystanki, oznacza to,
+             * że TEN KURS JE POMIJA.
              *
-             * Taki przebieg zawsze rysujemy po LEWEJ stronie,
-             * nawet gdy jego koniec jest przystankiem
-             * wariantowym po prawej stronie.
-             *
-             * Przykład 126:
-             * Marywilska-Las -> PKP Żerań
-             * z pominięciem przystanków po drodze.
+             * Nie sprawdzamy już tylko przystanków osi głównej.
+             * To naprawia wariant wewnątrz wariantu (np. 228 / 338):
+             * - pominięcie -> lewa strona,
+             * - przejazd przez dodatkowe przystanki -> prawa strona.
              */
-            let skipsMain =
-                false;
-
-
-            for (
-                let k =
-                    e.u + 1;
-                k < e.v;
-                k++
-            ) {
-
-                if (
-                    isOnMainAxis[k]
-                ) {
-
-                    skipsMain =
-                        true;
-
-                    break;
-                }
-            }
+            const pomijaPrzystanki =
+                e.v >
+                e.u + 1;
 
 
             if (
-                skipsMain
+                pomijaPrzystanki
             ) {
 
                 e.track =
@@ -7522,6 +8263,10 @@ przystanki.forEach(
 
     /* =====================================================
        KOŃCE LEWEGO WARIANTU POMIJAJĄCEGO
+
+       Dotyczy również pominięć wewnątrz innego wariantu.
+       Dzięki temu końcowy wiersz jest automatycznie obniżany
+       również tam, gdzie wcześniej linie się nie stykały.
        ===================================================== */
 
     const leftSkipVariantEndIndexes =
@@ -8744,55 +9489,19 @@ function pokazRozkladWybranegoPrzystanku(
             );
 
 
-        const wszystkieWarianty =
-            kierunekDlaDaty
-                ? zbierzWariantyDlaKierunku(
-                    kierunekDlaDaty
-                )
-                : [];
-
-
-        const jestCzteryLubWiecejWariantow =
-            wszystkieWarianty.length >= 4;
-
-
         /*
-         * Literę przy minucie pokazujemy tylko wtedy, gdy ten wariant
-         * ma normalny wpis w legendzie rozkładu.
+         * Analiza wariantów jest wykonywana na RZECZYWISTYCH
+         * kursach dla wybranego kierunku i daty.
          *
-         * Techniczne warianty startowe (np. kurs zaczynający od
-         * Ursynów Płd. 06) mogą pozostać w danych kursu po to,
-         * żeby strona znała jego przebieg, ale nie powinny mieć
-         * literki przy minucie ani własnej legendy.
+         * Nie polegamy już na opisach zapisanych przez VBA,
+         * bo to właśnie one powodowały m.in.:
+         * - "bez podjazdów" na linii bez podjazdów,
+         * - traktowanie kursu wydłużonego jako skróconego,
+         * - niepotrzebne opisy "kurs przez..." przy tym samym krańcu.
          */
-        const wariantyWidoczneWLegendzie =
-            new Set(
-                (
-                    Array.isArray(
-                        rozklad.warianty
-                    )
-                        ? rozklad.warianty
-                        : []
-                )
-                    .map(
-                        wariant =>
-                            String(
-                                wariant &&
-                                typeof wariant === "object"
-                                    ? (
-                                        wariant.litera ||
-                                        wariant.nazwa ||
-                                        ""
-                                    )
-                                    : (
-                                        wariant ||
-                                        ""
-                                    )
-                            )
-                                .trim()
-                                .toUpperCase()
-                    )
-                    .filter(Boolean)
+        const analizaWariantow =
+            zbudujAnalizeWariantowFWTP(
+                kierunekDlaDaty
             );
 
 
@@ -8891,44 +9600,21 @@ function pokazRozkladWybranegoPrzystanku(
 
 
                 /*
-                 * A jest zapisane normalnie jako "A".
+                 * Literę pokazujemy WYŁĄCZNIE wtedy, gdy wariant
+                 * oznacza rzeczywistą zmianę krańca:
+                 * - kurs skrócony,
+                 * - kurs wydłużony.
                  *
-                 * Ukrywamy je tylko wizualnie,
-                 * gdy wariantów jest mniej niż 4.
+                 * Główny przebieg oraz warianty jadące do tego
+                 * samego krańca są bez liter.
                  */
-
                 let literaDoPokazania =
-                    litera;
-
-
-                /*
-                 * Wariant techniczny bez opisu/legendy:
-                 * nie pokazujemy litery przy minucie.
-                 */
-                if (
-                    literaDoPokazania &&
-                    !wariantyWidoczneWLegendzie.has(
-                        literaDoPokazania
+                    czyPokazacOznaczenieWariantuFWTP(
+                        analizaWariantow,
+                        litera
                     )
-                ) {
-
-                    literaDoPokazania =
-                        "";
-                }
-
-
-                /*
-                 * A jest ukrywane wizualnie przy mniej niż
-                 * czterech normalnych wariantach.
-                 */
-                if (
-                    literaDoPokazania === "A" &&
-                    !jestCzteryLubWiecejWariantow
-                ) {
-
-                    literaDoPokazania =
-                        "";
-                }
+                        ? litera
+                        : "";
 
 
                 const pokazWariant =
@@ -8994,29 +9680,14 @@ function pokazRozkladWybranegoPrzystanku(
 
     /* =====================================================
        LEGENDA WARIANTÓW
+       =====================================================
+
+       Pokazujemy tylko oznaczenia mające znaczenie dla pasażera:
+       kurs skrócony / kurs wydłużony.
        ===================================================== */
 
     const uzyteWarianty =
-        new Map();
-
-
-    const wariantyLegendyKierunku =
-        rozklad.kierunki[
-            aktualnyKierunek
-        ]
-            ? zbierzWariantyDlaKierunku(
-                przygotujKierunekDlaDaty(
-                    rozklad.kierunki[
-                        aktualnyKierunek
-                    ],
-                    wybranaData
-                )
-            )
-            : [];
-
-
-    const pokazALegendy =
-        wariantyLegendyKierunku.length >= 4;
+        new Set();
 
 
     if (
@@ -9033,26 +9704,15 @@ function pokazRozkladWybranegoPrzystanku(
 
 
                 if (
-                    w === "A"
+                    w &&
+                    czyPokazacOznaczenieWariantuFWTP(
+                        analizaWariantow,
+                        w
+                    )
                 ) {
 
-                    if (
-                        pokazALegendy
-                    ) {
-
-                        uzyteWarianty.set(
-                            "A",
-                            ""
-                        );
-                    }
-
-                } else if (
-                    w
-                ) {
-
-                    uzyteWarianty.set(
-                        w,
-                        ""
+                    uzyteWarianty.add(
+                        w
                     );
                 }
             }
@@ -9061,10 +9721,7 @@ function pokazRozkladWybranegoPrzystanku(
 
 
     if (
-        uzyteWarianty.size > 0 &&
-        Array.isArray(
-            rozklad.warianty
-        )
+        uzyteWarianty.size > 0
     ) {
 
         const leg =
@@ -9082,47 +9739,36 @@ function pokazRozkladWybranegoPrzystanku(
 
 
         uzyteWarianty.forEach(
-            (
-                _,
-                litera
-            ) => {
+            litera => {
 
-                const w =
-                    rozklad.warianty.find(
-                        x =>
-                            String(
-                                x.litera ||
-                                ""
-                            )
-                                .trim()
-                                .toUpperCase() ===
-                            litera
+                const opis =
+                    pobierzOpisWariantuFWTP(
+                        analizaWariantow,
+                        litera
                     );
 
 
-                const literaLegendy =
-                    litera;
-
-
-                if (w) {
-
-                    legList +=
-                        `<div class="legenda-element">
-
-                            <span class="legenda-litera">
-                                ${literaLegendy}
-                            </span>
-
-                            <span class="legenda-separator">
-                                -
-                            </span>
-
-                            <span class="legenda-opis">
-                                ${w.opis || ""}
-                            </span>
-
-                        </div>`;
+                if (!opis) {
+                    return;
                 }
+
+
+                legList +=
+                    `<div class="legenda-element">
+
+                        <span class="legenda-litera">
+                            ${litera}
+                        </span>
+
+                        <span class="legenda-separator">
+                            -
+                        </span>
+
+                        <span class="legenda-opis">
+                            ${opis}
+                        </span>
+
+                    </div>`;
             }
         );
 
@@ -9139,7 +9785,6 @@ function pokazRozkladWybranegoPrzystanku(
             leg
         );
     }
-
 
     kontener.appendChild(
         blok
