@@ -9158,6 +9158,291 @@ if (
 }
 
 
+
+/* =====================================================
+   GLOBALNIE: "KURS PRZEZ" NIE JEST OSIĄ GŁÓWNĄ
+   =====================================================
+
+   To poprawia układy takie jak linia 338 w obu kierunkach.
+
+   Zasada:
+   - jeżeli wariant ma opis "kurs przez ...",
+   - i istnieje inny wariant, którego przebieg jest szkieletem
+     tego "kursu przez" (czyli jedzie tymi samymi wspólnymi
+     punktami, ale pomija dodatkowe przystanki),
+   - to właśnie TEN KRÓTSZY / BEZPOŚREDNI wariant staje się
+     osią główną,
+   - a "kurs przez" jest rysowany jako prawa odnoga.
+
+   Dzięki temu kierunek nie ma znaczenia:
+   ten sam układ działa symetrycznie w obie strony.
+
+   Reguła uruchamia się WYŁĄCZNIE dla wariantów opisanych
+   "kurs przez", więc nie zmienia zwykłych wariantów,
+   kursów skróconych ani wcześniejszych wyjątków geometrii.
+*/
+
+const wariantyKursPrzezDoWyboruOsi =
+    new Set(
+        (
+            Array.isArray(
+                rozklad.warianty
+            )
+                ? rozklad.warianty
+                : []
+        )
+            .filter(
+                wariant => {
+
+                    const opis =
+                        String(
+                            wariant?.opis ||
+                            ""
+                        )
+                            .trim()
+                            .toLowerCase();
+
+
+                    return opis.startsWith(
+                        "kurs przez"
+                    );
+                }
+            )
+            .map(
+                wariant =>
+                    String(
+                        wariant?.litera ||
+                        ""
+                    )
+                        .trim()
+                        .toUpperCase()
+            )
+            .filter(Boolean)
+    );
+
+
+if (
+    wariantyKursPrzezDoWyboruOsi.size > 0
+) {
+
+    let najlepszyKandydatBezposredni =
+        null;
+
+
+    let najlepszaDlugoscKandydata =
+        -1;
+
+
+    let najlepszaLiczbaKursowKandydata =
+        -1;
+
+
+    wariantyKursPrzezDoWyboruOsi.forEach(
+        wariantPrzez => {
+
+            const sciezkaPrzez =
+                reprezentatywneSciezkiWariantow.get(
+                    wariantPrzez
+                ) || [];
+
+
+            if (
+                !Array.isArray(
+                    sciezkaPrzez
+                ) ||
+                sciezkaPrzez.length < 3
+            ) {
+
+                return;
+            }
+
+
+            wariantyDoWyboruGlownejOsi.forEach(
+                wariantBezposredni => {
+
+                    if (
+                        wariantBezposredni ===
+                            wariantPrzez ||
+                        wariantyKursPrzezDoWyboruOsi.has(
+                            wariantBezposredni
+                        )
+                    ) {
+
+                        return;
+                    }
+
+
+                    const sciezkaBezposrednia =
+                        reprezentatywneSciezkiWariantow.get(
+                            wariantBezposredni
+                        ) || [];
+
+
+                    if (
+                        !Array.isArray(
+                            sciezkaBezposrednia
+                        ) ||
+                        sciezkaBezposrednia.length < 2 ||
+                        sciezkaBezposrednia.length >=
+                            sciezkaPrzez.length
+                    ) {
+
+                        return;
+                    }
+
+
+                    /*
+                     * Bezpośrednia trasa musi występować w tej samej
+                     * kolejności wewnątrz "kursu przez".
+                     *
+                     * Przykład:
+                     *
+                     * bezpośrednio:
+                     *   A -> B -> C
+                     *
+                     * kurs przez:
+                     *   A -> X -> Y -> B -> Z -> C
+                     *
+                     * wtedy A-B-C jest szkieletem przebiegu przez.
+                     */
+                    if (
+                        !czyPodciagWTejSamejKolejnosciFWTP(
+                            sciezkaBezposrednia,
+                            sciezkaPrzez
+                        )
+                    ) {
+
+                        return;
+                    }
+
+
+                    /*
+                     * Muszą mieć przynajmniej wspólny początek i koniec
+                     * reprezentatywnego fragmentu; to chroni przed
+                     * przypadkowym dopasowaniem zupełnie innych tras.
+                     */
+                    const pierwszyBezposredni =
+                        sciezkaBezposrednia[0];
+
+
+                    const ostatniBezposredni =
+                        sciezkaBezposrednia[
+                            sciezkaBezposrednia.length - 1
+                        ];
+
+
+                    if (
+                        !sciezkaPrzez.includes(
+                            pierwszyBezposredni
+                        ) ||
+                        !sciezkaPrzez.includes(
+                            ostatniBezposredni
+                        )
+                    ) {
+
+                        return;
+                    }
+
+
+                    const liczbaKursow =
+                        liczbaKursowWariantu.get(
+                            wariantBezposredni
+                        ) || 0;
+
+
+                    /*
+                     * Preferujemy najbardziej kompletny szkielet.
+                     * Przy remisie wybieramy wariant z większą liczbą
+                     * kursów, a następnie A.
+                     */
+                    if (
+                        sciezkaBezposrednia.length >
+                        najlepszaDlugoscKandydata
+                    ) {
+
+                        najlepszyKandydatBezposredni =
+                            wariantBezposredni;
+
+                        najlepszaDlugoscKandydata =
+                            sciezkaBezposrednia.length;
+
+                        najlepszaLiczbaKursowKandydata =
+                            liczbaKursow;
+
+                        return;
+                    }
+
+
+                    if (
+                        sciezkaBezposrednia.length ===
+                            najlepszaDlugoscKandydata &&
+                        liczbaKursow >
+                            najlepszaLiczbaKursowKandydata
+                    ) {
+
+                        najlepszyKandydatBezposredni =
+                            wariantBezposredni;
+
+                        najlepszaLiczbaKursowKandydata =
+                            liczbaKursow;
+
+                        return;
+                    }
+
+
+                    if (
+                        sciezkaBezposrednia.length ===
+                            najlepszaDlugoscKandydata &&
+                        liczbaKursow ===
+                            najlepszaLiczbaKursowKandydata &&
+                        wariantBezposredni === "A" &&
+                        najlepszyKandydatBezposredni !== "A"
+                    ) {
+
+                        najlepszyKandydatBezposredni =
+                            "A";
+                    }
+                }
+            );
+        }
+    );
+
+
+    if (
+        najlepszyKandydatBezposredni
+    ) {
+
+        mainWariant =
+            najlepszyKandydatBezposredni;
+
+
+        console.info(
+            'FWTP: "kurs przez" po prawej, bezpośredni wariant jako oś',
+            {
+                linia:
+                    numerLinii,
+
+                kierunek:
+                    aktualnyKierunek,
+
+                mainWariant:
+                    mainWariant,
+
+                wariantyKursPrzez:
+                    Array.from(
+                        wariantyKursPrzezDoWyboruOsi
+                    ),
+
+                sciezkaGlownej:
+                    reprezentatywneSciezkiWariantow.get(
+                        mainWariant
+                    ) || []
+            }
+        );
+    }
+}
+
+
 /* =====================================================
    LINIA 131 — ZACHOWANIE STAREGO WYBORU OSI GŁÓWNEJ
    =====================================================
