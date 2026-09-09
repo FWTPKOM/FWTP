@@ -1286,6 +1286,14 @@
 
 <script>
 
+/* =========================================================
+   FWTP WWW v34
+   - próg 4 wariantów liczony OSOBNO dla aktualnego kierunku
+   - A: ukryte przy 1-3, widoczne przy 4+ w tym kierunku
+   - idx: zawsze indeks listy pasażerskiej bez TECH
+   - odświeżenie pozostaje na dokładnie tym samym przystanku
+   ========================================================= */
+
 if ("scrollRestoration" in history) {
     history.scrollRestoration = "manual";
 }
@@ -2924,18 +2932,47 @@ function uruchomStrone() {
             )
         ) {
 
+            /*
+             * URL "idx:X" zawsze odnosi się do listy
+             * PASAŻERSKIEJ, czyli po usunięciu TECH.
+             *
+             * Dzięki temu odświeżenie strony nie może
+             * przesunąć użytkownika na TECH znajdujący się
+             * wcześniej w surowej tablicy JSON.
+             */
+            const kierunekDlaDaty =
+                przygotujKierunekDlaDaty(
+                    kierunek,
+                    wybranaData
+                );
+
+
+            const przystankiPasazerskie =
+                kierunekDlaDaty
+                    ? (
+                        kierunekDlaDaty.przystanki ||
+                        []
+                      )
+                    : filtrujPrzystankiSpecjalneFWTP(
+                        kierunek.przystanki ||
+                        []
+                      );
+
+
             const znaleziony =
                 znajdzPrzystanek(
-                    kierunek.przystanki,
+                    przystankiPasazerskie,
                     paramP
                 );
+
 
             if (znaleziony) {
 
                 const indeks =
-                    kierunek.przystanki.indexOf(
+                    przystankiPasazerskie.indexOf(
                         znaleziony
                     );
+
 
                 ustawWybranyPrzystanek(
                     znaleziony,
@@ -7705,14 +7742,30 @@ function pokazRozklad() {
             )
         ) {
 
-            /*
-             * Nie zakładamy już, że stary indeks
-             * zawsze wskazuje ten sam przystanek.
-             *
-             * Najpierw próbujemy znaleźć go po numerze
-             * i nazwie.
-             */
+            const kierunekDlaDaty =
+                przygotujKierunekDlaDaty(
+                    kierunek,
+                    wybranaData
+                );
 
+
+            const przystankiPasazerskie =
+                kierunekDlaDaty
+                    ? (
+                        kierunekDlaDaty.przystanki ||
+                        []
+                      )
+                    : filtrujPrzystankiSpecjalneFWTP(
+                        kierunek.przystanki ||
+                        []
+                      );
+
+
+            /*
+             * Nie zakładamy, że sam indeks wystarczy.
+             * Najpierw szukamy po numerze i nazwie,
+             * ale WYŁĄCZNIE na liście pasażerskiej.
+             */
             let znaleziony =
                 null;
 
@@ -7722,7 +7775,7 @@ function pokazRozklad() {
             ) {
 
                 znaleziony =
-                    kierunek.przystanki.find(
+                    przystankiPasazerskie.find(
                         p =>
                             String(
                                 p.nr || ""
@@ -7741,11 +7794,6 @@ function pokazRozklad() {
             }
 
 
-            /*
-             * Dopiero gdy nie znaleziono po numerze/nazwie,
-             * używamy indeksu.
-             */
-
             if (
                 !znaleziony
             ) {
@@ -7760,11 +7808,11 @@ function pokazRozklad() {
                     Number.isInteger(idx) &&
                     idx >= 0 &&
                     idx <
-                    kierunek.przystanki.length
+                    przystankiPasazerskie.length
                 ) {
 
                     znaleziony =
-                        kierunek.przystanki[
+                        przystankiPasazerskie[
                             idx
                         ];
                 }
@@ -7780,7 +7828,7 @@ function pokazRozklad() {
 
 
                 wybranyPrzystanekIndex =
-                    kierunek.przystanki.indexOf(
+                    przystankiPasazerskie.indexOf(
                         znaleziony
                     );
 
@@ -11876,6 +11924,25 @@ function wybierzPrzystanek(
             ];
 
 
+        const kierunekDlaDaty =
+            przygotujKierunekDlaDaty(
+                kierunek,
+                wybranaData
+            );
+
+
+        const przystankiPasazerskie =
+            kierunekDlaDaty
+                ? (
+                    kierunekDlaDaty.przystanki ||
+                    []
+                  )
+                : filtrujPrzystankiSpecjalneFWTP(
+                    kierunek.przystanki ||
+                    []
+                  );
+
+
         let przystanekDoPokazania =
             null;
 
@@ -11889,14 +11956,11 @@ function wybierzPrzystanek(
             ) &&
             Number(index) >= 0 &&
             Number(index) <
-                (
-                    kierunek.przystanki ||
-                    []
-                ).length
+                przystankiPasazerskie.length
         ) {
 
             przystanekDoPokazania =
-                kierunek.przystanki[
+                przystankiPasazerskie[
                     Number(index)
                 ];
         }
@@ -11923,10 +11987,7 @@ function wybierzPrzystanek(
         ) {
 
             przystanekDoPokazania =
-                (
-                    kierunek.przystanki ||
-                    []
-                ).find(
+                przystankiPasazerskie.find(
                     przystanek =>
                         String(
                             przystanek.nr || ""
@@ -11947,10 +12008,7 @@ function wybierzPrzystanek(
 
 
         const prawidlowyIndex =
-            (
-                kierunek.przystanki ||
-                []
-            ).indexOf(
+            przystankiPasazerskie.indexOf(
                 przystanekDoPokazania
             );
 
@@ -12076,10 +12134,17 @@ function pokazRozkladWybranegoPrzystanku(
      * numer kursu i wariant występują jeszcze na którymś
      * następnym przystanku w tym kierunku.
      */
-    const kierunekDoSprawdzeniaKoncow =
+    const kierunekSurowyDoSprawdzeniaKoncow =
         rozklad.kierunki[
             aktualnyKierunek
         ];
+
+
+    const kierunekDoSprawdzeniaKoncow =
+        przygotujKierunekDlaDaty(
+            kierunekSurowyDoSprawdzeniaKoncow,
+            wybranaData
+        );
 
 
     if (
@@ -12390,9 +12455,11 @@ function pokazRozkladWybranegoPrzystanku(
      *    warianty inne niż A mogą mieć literę niezależnie
      *    od tego, który przebieg geometria wybrała jako główny;
      *
-     * 2. A pozostaje ukryte przy 1-3 wariantach;
+     * 2. A pozostaje ukryte przy 1-3 wariantach
+     *    W AKTUALNYM KIERUNKU;
      *
-     * 3. przy co najmniej 4 wariantach pokazujemy również A
+     * 3. przy co najmniej 4 wariantach W AKTUALNYM KIERUNKU
+     *    pokazujemy również A
      *    (zgodnie z wcześniejszą zasadą FWTP);
      *
      * 4. opis bierzemy najpierw z analizy, a jeśli analiza
@@ -12410,15 +12477,27 @@ function pokazRozkladWybranegoPrzystanku(
             : [];
 
 
-    const literyWariantowRozkladu =
+    /*
+     * Warianty widoczne przy minutach liczymy WYŁĄCZNIE
+     * dla aktualnego kierunku.
+     *
+     * To jest ważne przy zasadzie:
+     * - 1-3 warianty w tym kierunku -> A ukryte,
+     * - 4 lub więcej wariantów w tym kierunku -> A widoczne.
+     *
+     * Nie liczymy wariantów występujących tylko w przeciwnym
+     * kierunku.
+     */
+    const literyWariantowKierunku =
         [
             ...new Set(
-                definicjeWariantowRozkladu
+                zbierzWariantyDlaKierunku(
+                    kierunekDlaDaty
+                )
                     .map(
-                        wariant =>
+                        litera =>
                             String(
-                                wariant?.litera ||
-                                ""
+                                litera || ""
                             )
                                 .trim()
                                 .toUpperCase()
@@ -12430,8 +12509,8 @@ function pokazRozkladWybranegoPrzystanku(
         ];
 
 
-    const liczbaWariantowRozkladu =
-        literyWariantowRozkladu.length;
+    const liczbaWariantowKierunku =
+        literyWariantowKierunku.length;
 
 
     function pobierzDefinicjeWariantuZRozkladu(
@@ -12560,8 +12639,8 @@ function pokazRozkladWybranegoPrzystanku(
          * który z nich analiza geometrii uznała za główny.
          */
         if (
-            liczbaWariantowRozkladu > 1 &&
-            literyWariantowRozkladu.includes(
+            liczbaWariantowKierunku > 1 &&
+            literyWariantowKierunku.includes(
                 znak
             )
         ) {
@@ -12572,7 +12651,7 @@ function pokazRozkladWybranegoPrzystanku(
              */
             if (
                 znak === "A" &&
-                liczbaWariantowRozkladu < 4
+                liczbaWariantowKierunku < 4
             ) {
 
                 return false;
