@@ -8910,6 +8910,254 @@ wariantyDoWyboruGlownejOsi.forEach(
 );
 
 
+
+/* =====================================================
+   GLOBALNA REGUŁA:
+   DŁUŻSZA TRASA PRZY PODOBNEJ LICZBIE KURSÓW
+   =====================================================
+
+   Problem widoczny m.in. na linii 228:
+
+   - istnieje dłuższy przebieg przez więcej przystanków,
+   - istnieje krótszy przebieg omijający część tej trasy,
+   - liczba kursów obu przebiegów jest bardzo podobna.
+
+   W takim układzie nie chcemy automatycznie wybierać
+   krótszej trasy jako osi głównej tylko dlatego, że jest
+   geometrycznie prostsza.
+
+   Zasada:
+
+   1. szukamy wariantu z NAJDŁUŻSZĄ reprezentatywną trasą,
+   2. szukamy krótszych wariantów, które są z nim rzeczywiście
+      powiązane (dłuższy przebieg jest lokalnym objazdem /
+      rozwinięciem krótszego),
+   3. bierzemy największą liczbę kursów wśród takich krótszych
+      przebiegów,
+   4. jeżeli dłuższa trasa ma tyle samo kursów albo najwyżej
+      o 3 kursy mniej, uznajemy ją za trasę podstawową.
+
+   Czyli przykładowo:
+
+       dłuższa:  12 kursów
+       krótsza:  12 kursów  -> dłuższa jest podstawowa
+
+       dłuższa:  11 kursów
+       krótsza:  13 kursów  -> dłuższa jest podstawowa
+
+       dłuższa:  10 kursów
+       krótsza:  13 kursów  -> dłuższa jest podstawowa
+
+       dłuższa:   9 kursów
+       krótsza:  13 kursów  -> zostaje zwykła logika
+
+   Tolerancja = 3 kursy.
+
+   Reguła jest globalna i nie sprawdza numeru linii.
+   Dzięki temu może zadziałać również na innych liniach
+   o takim samym układzie jak 228.
+*/
+
+const TOLERANCJA_KURSOW_DLUZSZEJ_TRASY =
+    3;
+
+
+let kandydatNajdluzszejTrasy =
+    null;
+
+
+let dlugoscNajdluzszejTrasy =
+    -1;
+
+
+wariantyDoWyboruGlownejOsi.forEach(
+    wariant => {
+
+        const sciezka =
+            reprezentatywneSciezkiWariantow.get(
+                wariant
+            ) || [];
+
+
+        const dlugosc =
+            Array.isArray(
+                sciezka
+            )
+                ? sciezka.length
+                : 0;
+
+
+        if (
+            dlugosc >
+            dlugoscNajdluzszejTrasy
+        ) {
+
+            kandydatNajdluzszejTrasy =
+                wariant;
+
+            dlugoscNajdluzszejTrasy =
+                dlugosc;
+        }
+    }
+);
+
+
+if (
+    kandydatNajdluzszejTrasy
+) {
+
+    const sciezkaNajdluzsza =
+        reprezentatywneSciezkiWariantow.get(
+            kandydatNajdluzszejTrasy
+        ) || [];
+
+
+    const liczbaKursowNajdluzszej =
+        liczbaKursowWariantu.get(
+            kandydatNajdluzszejTrasy
+        ) || 0;
+
+
+    let maksymalnaLiczbaKursowKrotszej =
+        -1;
+
+
+    let znalezionoPowiazanaKrotszaTrase =
+        false;
+
+
+    wariantyKierunku.forEach(
+        wariantKrotszy => {
+
+            if (
+                wariantKrotszy ===
+                kandydatNajdluzszejTrasy
+            ) {
+
+                return;
+            }
+
+
+            const sciezkaKrotsza =
+                reprezentatywneSciezkiWariantow.get(
+                    wariantKrotszy
+                ) || [];
+
+
+            if (
+                !Array.isArray(
+                    sciezkaKrotsza
+                ) ||
+                sciezkaKrotsza.length === 0 ||
+                sciezkaKrotsza.length >=
+                    sciezkaNajdluzsza.length
+            ) {
+
+                return;
+            }
+
+
+            /*
+             * Dłuższa trasa musi być rzeczywiście rozwinięciem
+             * / objazdem względem krótszej, a nie zupełnie inną
+             * trasą o przypadkowo mniejszej liczbie punktów.
+             */
+            const karaRozwiniecia =
+                policzKareLokalnegoObjazduFWTP(
+                    sciezkaNajdluzsza,
+                    sciezkaKrotsza
+                );
+
+
+            if (
+                karaRozwiniecia <= 0
+            ) {
+
+                return;
+            }
+
+
+            znalezionoPowiazanaKrotszaTrase =
+                true;
+
+
+            const liczbaKursowKrotszej =
+                liczbaKursowWariantu.get(
+                    wariantKrotszy
+                ) || 0;
+
+
+            if (
+                liczbaKursowKrotszej >
+                maksymalnaLiczbaKursowKrotszej
+            ) {
+
+                maksymalnaLiczbaKursowKrotszej =
+                    liczbaKursowKrotszej;
+            }
+        }
+    );
+
+
+    if (
+        znalezionoPowiazanaKrotszaTrase &&
+        maksymalnaLiczbaKursowKrotszej >= 0
+    ) {
+
+        const roznicaKursow =
+            maksymalnaLiczbaKursowKrotszej -
+            liczbaKursowNajdluzszej;
+
+
+        /*
+         * Jeżeli dłuższa trasa ma co najmniej tyle kursów,
+         * co krótsza MINUS tolerancja 3, staje się osią główną.
+         *
+         * Ujemna różnica oznacza, że dłuższa ma nawet więcej
+         * kursów — wtedy również oczywiście ją wybieramy.
+         */
+        if (
+            roznicaKursow <=
+            TOLERANCJA_KURSOW_DLUZSZEJ_TRASY
+        ) {
+
+            mainWariant =
+                kandydatNajdluzszejTrasy;
+
+
+            console.info(
+                "FWTP: dłuższa trasa wybrana jako podstawowa",
+                {
+                    linia:
+                        numerLinii,
+
+                    kierunek:
+                        aktualnyKierunek,
+
+                    wariant:
+                        kandydatNajdluzszejTrasy,
+
+                    liczbaKursowDluzszej:
+                        liczbaKursowNajdluzszej,
+
+                    maksymalnaLiczbaKursowKrotszej:
+                        maksymalnaLiczbaKursowKrotszej,
+
+                    roznica:
+                        roznicaKursow,
+
+                    tolerancja:
+                        TOLERANCJA_KURSOW_DLUZSZEJ_TRASY,
+
+                    dlugoscSciezki:
+                        sciezkaNajdluzsza.length
+                }
+            );
+        }
+    }
+}
+
+
 /* =====================================================
    LINIA 131 — ZACHOWANIE STAREGO WYBORU OSI GŁÓWNEJ
    =====================================================
