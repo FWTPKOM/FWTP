@@ -1440,7 +1440,7 @@ let aktualnyAdresDanych = null;
    PARAMETRY URL
    ========================================================= */
 
-const parametry =
+let parametry =
     new URLSearchParams(
         window.location.search
     );
@@ -3005,6 +3005,184 @@ function uruchomStrone() {
         );
     }
 }
+
+
+/* =========================================================
+   HISTORIA PRZEGLĄDARKI — WSTECZ / DALEJ
+   =========================================================
+
+   Problem:
+   po kliknięciu drugiego kierunku aktualizujemy URL przez
+   history.pushState(), ale przeglądarka sama nie uruchamia
+   ponownie JavaScriptu po kliknięciu Wstecz.
+
+   Dodatkowo wcześniej "parametry" były tworzone tylko raz
+   przy starcie strony, więc po Wstecz nadal zawierały stare
+   wartości z momentu pierwszego załadowania.
+
+   Teraz:
+   1. przy każdym popstate ponownie odczytujemy window.location.search,
+   2. zerujemy stan zależny od poprzedniego widoku,
+   3. przywracamy kierunek / wariant / przystanek / kurs z URL,
+   4. renderujemy stronę bez ponownego pobierania JSON.
+
+   Dzięki temu:
+       kierunek 0
+       -> klik kierunek 1
+       -> Wstecz
+       -> znowu kierunek 0
+
+   Działa to również dla wariantów, przystanków i konkretnych kursów.
+*/
+
+let trwaPrzywracanieHistorii =
+    false;
+
+
+function przywrocStanZAktualnegoURL() {
+
+    if (
+        !daneLinii ||
+        trwaPrzywracanieHistorii
+    ) {
+
+        return;
+    }
+
+
+    trwaPrzywracanieHistorii =
+        true;
+
+
+    try {
+
+        /*
+         * URL po Wstecz/Dalej jest już zmieniony przez przeglądarkę.
+         * Musimy więc utworzyć NOWY URLSearchParams.
+         */
+        parametry =
+            new URLSearchParams(
+                window.location.search
+            );
+
+
+        /*
+         * Numer linii normalnie się nie zmienia w obrębie tego widoku,
+         * ale odczytujemy go ponownie dla pełnej zgodności z URL.
+         */
+        const liniaZURL =
+            parametry.get(
+                "linia"
+            );
+
+
+        if (
+            liniaZURL !== null &&
+            String(
+                liniaZURL
+            ).trim() !== ""
+        ) {
+
+            numerLinii =
+                String(
+                    liniaZURL
+                ).trim();
+        }
+
+
+        /*
+         * Zerujemy wszystko, czego może już nie być
+         * w starszym wpisie historii.
+         *
+         * To jest ważne np. gdy:
+         * - obecnie jesteśmy na kierunku 1,
+         * - poprzedni wpis był kierunkiem 0,
+         * - poprzedni wpis nie miał wariantu ani przystanku.
+         */
+        aktualnyKierunek =
+            0;
+
+        aktualnyWariant =
+            null;
+
+        ustawWybranyPrzystanek(
+            null
+        );
+
+        widokKursuAktywny =
+            false;
+
+
+        /*
+         * Data również może znajdować się w URL.
+         * Jeśli jest poprawna, przywracamy ją.
+         */
+        const dataZHistorii =
+            dataZParametruURL(
+                parametry.get(
+                    "data"
+                )
+            );
+
+
+        if (
+            dataZHistorii
+        ) {
+
+            wybranaData =
+                dataZHistorii;
+        }
+
+
+        /*
+         * uruchomStrone() już zawiera pełną logikę:
+         * - kierunek,
+         * - przystanek,
+         * - wariant,
+         * - konkretny kurs,
+         * - ponowne narysowanie rozkładu.
+         *
+         * Nie wywołujemy pobierzDane(), bo dane tej linii
+         * mamy już w pamięci.
+         */
+        uruchomStrone();
+
+
+        /*
+         * Po odtworzeniu widoku wracamy na górę tylko wtedy,
+         * gdy historia nie wskazuje konkretnego przystanku/kursu.
+         * Gdy wskazuje, istniejąca logika strony ustawi właściwy widok.
+         */
+        if (
+            !parametry.get(
+                "przystanek"
+            ) &&
+            !parametry.get(
+                "kurs"
+            )
+        ) {
+
+            window.scrollTo(
+                0,
+                0
+            );
+        }
+
+    } finally {
+
+        trwaPrzywracanieHistorii =
+            false;
+    }
+}
+
+
+window.addEventListener(
+    "popstate",
+    () => {
+
+        przywrocStanZAktualnegoURL();
+    }
+);
 
 
 /* =========================================================
