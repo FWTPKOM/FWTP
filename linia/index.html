@@ -9604,6 +9604,405 @@ const isOnMainAxisBazowa =
     }
 
 
+
+    /* =====================================================
+       KURS "PRZEZ" PO PRAWEJ + PRZEJAZD OMIJAJĄCY PROSTO
+       =====================================================
+
+       Przykład: linia 338.
+
+       Jeżeli mamy wariant opisany jako:
+
+           "kurs przez ..."
+
+       i ten wariant tworzy rzeczywistą alternatywną drogę:
+
+           UTRATA
+              \
+               ○ dodatkowy przystanek
+               ○ dodatkowy przystanek
+               ○ dodatkowy przystanek
+              /
+           DALEJ
+
+       to ten przebieg "przez" ma być rysowany po PRAWEJ.
+
+       Jeżeli równocześnie istnieje kurs jadący BEZPOŚREDNIO:
+
+           UTRATA
+              |
+              |
+              |
+           DALEJ
+
+       to nie ma sensu wysyłać tego bezpośredniego przejazdu
+       na lewą stronę. Może on zostać osią główną.
+
+       Bardzo ważne:
+       - nie sprawdzamy numeru linii 338,
+       - reguła działa wyłącznie wtedy, gdy faktycznie istnieje
+         wariant z opisem zaczynającym się od "kurs przez",
+       - alternatywna ścieżka musi być zbudowana z krawędzi
+         należących do takiego wariantu,
+       - bezpośrednia krawędź musi należeć do INNEGO wariantu,
+       - dzięki temu nie ruszamy zwykłych pominięć z 126, 131,
+         170, 311, 711 itd.
+    */
+
+    const wariantyKursPrzez =
+        new Set(
+            (
+                Array.isArray(
+                    rozklad.warianty
+                )
+                    ? rozklad.warianty
+                    : []
+            )
+                .filter(
+                    wariant => {
+
+                        const opis =
+                            String(
+                                wariant?.opis ||
+                                ""
+                            )
+                                .trim()
+                                .toLowerCase();
+
+
+                        return opis.startsWith(
+                            "kurs przez"
+                        );
+                    }
+                )
+                .map(
+                    wariant =>
+                        String(
+                            wariant?.litera ||
+                            ""
+                        )
+                            .trim()
+                            .toUpperCase()
+                )
+                .filter(Boolean)
+        );
+
+
+    function krawedzNalezyDoKursuPrzezFWTP(
+        krawedz
+    ) {
+
+        if (
+            !krawedz ||
+            !krawedz.warianty ||
+            typeof krawedz.warianty.has !==
+                "function"
+        ) {
+
+            return false;
+        }
+
+
+        for (
+            const wariant
+            of wariantyKursPrzez
+        ) {
+
+            if (
+                krawedz.warianty.has(
+                    wariant
+                )
+            ) {
+
+                return true;
+            }
+        }
+
+
+        return false;
+    }
+
+
+    function krawedzMaWariantNiePrzezFWTP(
+        krawedz
+    ) {
+
+        if (
+            !krawedz ||
+            !krawedz.warianty ||
+            typeof krawedz.warianty[
+                Symbol.iterator
+            ] !== "function"
+        ) {
+
+            return false;
+        }
+
+
+        for (
+            const wariant
+            of krawedz.warianty
+        ) {
+
+            if (
+                !wariantyKursPrzez.has(
+                    wariant
+                )
+            ) {
+
+                return true;
+            }
+        }
+
+
+        return false;
+    }
+
+
+    /*
+     * Sprawdza, czy pomiędzy u i v istnieje pełna ścieżka
+     * zbudowana WYŁĄCZNIE z wariantu / wariantów "kurs przez".
+     */
+    function istniejeSciezkaKursPrzezFWTP(
+        u,
+        v
+    ) {
+
+        if (
+            wariantyKursPrzez.size === 0 ||
+            v <= u + 1
+        ) {
+
+            return false;
+        }
+
+
+        const sasiedziPrzez =
+            new Map();
+
+
+        edges.forEach(
+            krawedz => {
+
+                if (
+                    krawedz.u < u ||
+                    krawedz.v > v ||
+                    (
+                        krawedz.u === u &&
+                        krawedz.v === v
+                    ) ||
+                    !krawedzNalezyDoKursuPrzezFWTP(
+                        krawedz
+                    )
+                ) {
+
+                    return;
+                }
+
+
+                if (
+                    !sasiedziPrzez.has(
+                        krawedz.u
+                    )
+                ) {
+
+                    sasiedziPrzez.set(
+                        krawedz.u,
+                        []
+                    );
+                }
+
+
+                sasiedziPrzez
+                    .get(
+                        krawedz.u
+                    )
+                    .push(
+                        krawedz.v
+                    );
+            }
+        );
+
+
+        const stos =
+            [u];
+
+
+        const odwiedzone =
+            new Set([u]);
+
+
+        while (
+            stos.length > 0
+        ) {
+
+            const aktualny =
+                stos.pop();
+
+
+            const dalej =
+                sasiedziPrzez.get(
+                    aktualny
+                ) || [];
+
+
+            for (
+                const nastepny
+                of dalej
+            ) {
+
+                if (
+                    nastepny === v
+                ) {
+
+                    return true;
+                }
+
+
+                if (
+                    !odwiedzone.has(
+                        nastepny
+                    )
+                ) {
+
+                    odwiedzone.add(
+                        nastepny
+                    );
+
+
+                    stos.push(
+                        nastepny
+                    );
+                }
+            }
+        }
+
+
+        return false;
+    }
+
+
+    /*
+     * Najpierw zaznaczamy bezpośrednie przejazdy, które mają
+     * po prawej rzeczywisty wariant "kurs przez".
+     *
+     * Robimy to PRZED nadaniem tracków, aby późniejsza geometria
+     * wiedziała, że bezpośrednia krawędź ma zostać na środku.
+     */
+    edges.forEach(
+        e => {
+
+            if (
+                e.v <= e.u + 1 ||
+                wariantyKursPrzez.size === 0 ||
+                !krawedzMaWariantNiePrzezFWTP(
+                    e
+                ) ||
+                !istniejeSciezkaKursPrzezFWTP(
+                    e.u,
+                    e.v
+                )
+            ) {
+
+                return;
+            }
+
+
+            e.forceMainAxisBecauseThroughVariant =
+                true;
+
+
+            /*
+             * Początek i koniec bezpośredniej krawędzi są osią.
+             */
+            isOnMainAxis[
+                e.u
+            ] = true;
+
+
+            isOnMainAxis[
+                e.v
+            ] = true;
+
+
+            /*
+             * Przystanki znajdujące się WYŁĄCZNIE na wariancie
+             * "kurs przez" przenosimy z osi głównej na prawą odnogę.
+             *
+             * Jeśli dany przystanek obsługuje także któryś wariant
+             * bezpośredniej krawędzi, nie ruszamy go.
+             */
+            const wariantyBezposrednie =
+                new Set(
+                    Array
+                        .from(
+                            e.warianty || []
+                        )
+                        .filter(
+                            wariant =>
+                                !wariantyKursPrzez.has(
+                                    wariant
+                                )
+                        )
+                );
+
+
+            for (
+                let k =
+                    e.u + 1;
+                k < e.v;
+                k++
+            ) {
+
+                const kursyPunktu =
+                    (
+                        przystanki[k]?.kursy ||
+                        []
+                    );
+
+
+                const maKursPrzez =
+                    kursyPunktu.some(
+                        kurs =>
+                            wariantyKursPrzez.has(
+                                pobierzWariant(
+                                    kurs
+                                )
+                            )
+                    );
+
+
+                if (
+                    !maKursPrzez
+                ) {
+
+                    continue;
+                }
+
+
+                const maWariantBezposredni =
+                    kursyPunktu.some(
+                        kurs =>
+                            wariantyBezposrednie.has(
+                                pobierzWariant(
+                                    kurs
+                                )
+                            )
+                    );
+
+
+                if (
+                    !maWariantBezposredni
+                ) {
+
+                    isOnMainAxis[k] =
+                        false;
+                }
+            }
+        }
+    );
+
+
     /*
      * Jeżeli długa krawędź przechodzi "nad" przystankami
      * wpisanymi pomiędzy indeksami, ale NIE istnieje droga
@@ -9775,6 +10174,18 @@ const isOnMainAxisBazowa =
 
 
             if (
+                e.forceMainAxisBecauseThroughVariant ===
+                    true
+            ) {
+
+                /*
+                 * Jeżeli obok istnieje pełny wariant "kurs przez",
+                 * bezpośredni przejazd zostaje osią główną.
+                 */
+                e.track =
+                    0;
+
+            } else if (
                 podstawowaKrawedzZObjazdem
             ) {
 
