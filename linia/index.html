@@ -1287,6 +1287,13 @@
 <script>
 
 /* =========================================================
+   FWTP v35
+   - godziny nocne: 24->00, 25->01, 26->02 itd.
+   - 00/24, 01/25, 02/26 itd. są łączone w jeden wiersz
+   ========================================================= */
+
+
+/* =========================================================
    FWTP WWW v34
    - próg 4 wariantów liczony OSOBNO dla aktualnego kierunku
    - A: ukryte przy 1-3, widoczne przy 4+ w tym kierunku
@@ -12690,16 +12697,31 @@ function pokazRozkladWybranegoPrzystanku(
 
     } else {
 
-        let aktGodz =
-            null;
+        /*
+         * =====================================================
+         * GODZINY NOCNE 24 / 25 / 26...
+         * =====================================================
+         *
+         * Ten widok jest budowany z pola "kursy", a nie z pola
+         * "godziny" z JSON-u. Dlatego 25:xx, 26:xx itd. trzeba
+         * normalizować także tutaj.
+         *
+         * 24 -> 00
+         * 25 -> 01
+         * 26 -> 02
+         * 27 -> 03
+         * itd.
+         *
+         * Godziny równoważne są łączone:
+         * 00 i 24 -> jeden wiersz 00
+         * 01 i 25 -> jeden wiersz 01
+         * 02 i 26 -> jeden wiersz 02
+         * itd.
+         * =====================================================
+         */
 
-
-        let wiersz =
-            null;
-
-
-        let minutyWiersza =
-            null;
+        const grupyGodzin =
+            new Map();
 
 
         przystanekDlaDaty.kursy.forEach(
@@ -12715,85 +12737,136 @@ function pokazRozkladWybranegoPrzystanku(
                         );
 
 
-                if (!dop)
+                if (!dop) {
                     return;
+                }
 
 
-                const g =
+                const godzinaSurowa =
                     Number(
                         dop[1]
                     );
 
 
-                const m =
-                    dop[2];
-
-
                 if (
-                    aktGodz !== g
+                    !Number.isFinite(
+                        godzinaSurowa
+                    )
                 ) {
-
-                    aktGodz =
-                        g;
-
-
-                    wiersz =
-                        document.createElement(
-                            "div"
-                        );
+                    return;
+                }
 
 
-                    wiersz.className =
-                        "wiersz-godziny";
+                const godzinaNormalna =
+                    (
+                        (
+                            godzinaSurowa % 24
+                        ) +
+                        24
+                    ) % 24;
 
 
-                    const godzinaDoPokazania =
-                        g === 24
-                            ? "00"
-                            : String(g).padStart(2, "0");
-
-
-                    wiersz.innerHTML =
-                        `<div class="kolumna-godzina">
-                            ${godzinaDoPokazania}
-                        </div>`;
-
-
-                    minutyWiersza =
-                        document.createElement(
-                            "div"
-                        );
-
-
-                    minutyWiersza.className =
-                        "minuty-w-godzinie";
-
-
-                    wiersz.appendChild(
-                        minutyWiersza
+                const kluczGodziny =
+                    String(
+                        godzinaNormalna
+                    ).padStart(
+                        2,
+                        "0"
                     );
 
 
-                    godziny.appendChild(
-                        wiersz
+                if (
+                    !grupyGodzin.has(
+                        kluczGodziny
+                    )
+                ) {
+
+                    grupyGodzin.set(
+                        kluczGodziny,
+                        []
                     );
                 }
 
 
-                const kol =
+                grupyGodzin.get(
+                    kluczGodziny
+                ).push(
+                    {
+                        kurs: k,
+                        minuta: dop[2]
+                    }
+                );
+            }
+        );
+
+
+        grupyGodzin.forEach(
+            (
+                pozycjeGodziny,
+                godzinaDoPokazania
+            ) => {
+
+                const wiersz =
                     document.createElement(
                         "div"
                     );
 
 
-                kol.className =
-                    "kolumna-minuta";
+                wiersz.className =
+                    "wiersz-godziny";
 
 
-                const litera =
-                    pobierzWariant(
-                        k
+                wiersz.innerHTML =
+                    `<div class="kolumna-godzina">
+                        ${godzinaDoPokazania}
+                    </div>`;
+
+
+                const minutyWiersza =
+                    document.createElement(
+                        "div"
                     );
+
+
+                minutyWiersza.className =
+                    "minuty-w-godzinie";
+
+
+                wiersz.appendChild(
+                    minutyWiersza
+                );
+
+
+                godziny.appendChild(
+                    wiersz
+                );
+
+
+                pozycjeGodziny.forEach(
+                    pozycja => {
+
+                        const k =
+                            pozycja.kurs;
+
+
+                        const m =
+                            pozycja.minuta;
+
+
+                        const kol =
+                            document.createElement(
+                                "div"
+                            );
+
+
+                        kol.className =
+                            "kolumna-minuta";
+
+
+                        const litera =
+                            pobierzWariant(
+                                k
+                            );
 
 
                 /*
@@ -12861,8 +12934,10 @@ function pokazRozkladWybranegoPrzystanku(
                 }
 
 
-                minutyWiersza.appendChild(
-                    kol
+                        minutyWiersza.appendChild(
+                            kol
+                        );
+                    }
                 );
             }
         );
