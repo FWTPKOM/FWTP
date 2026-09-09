@@ -9677,6 +9677,412 @@ const isOnMainAxisBazowa =
     );
 
 
+
+    /* =====================================================
+       LOKALNA GEOMETRIA "KURS PRZEZ"
+       =====================================================
+
+       Cel:
+       - NIE zmieniamy globalnego mainWariant,
+       - NIE zmieniamy globalnego isOnMainAxis,
+       - więc nie psujemy linii 126 ani innych działających linii.
+
+       Jeżeli istnieje:
+       1. bezpośrednia krawędź u -> v,
+       2. a pomiędzy u i v istnieje pełna alternatywna ścieżka
+          należąca do wariantu opisanego "kurs przez ...",
+
+       to tylko na tym lokalnym fragmencie:
+       - bezpośrednia krawędź dostaje track = 0 (środek),
+       - krawędzie "kurs przez" dostają track = 1 (prawo),
+       - przystanki występujące wyłącznie na "kurs przez"
+         są rysowane na RIGHT_X.
+
+       Dzięki temu:
+       - 338: przejazd omijający dodatkowe przystanki idzie środkiem,
+       - wariant przez Rondo Granzowa / Szeroką / Dudziarską idzie prawą stroną,
+       - 126 pozostaje dokładnie w geometrii v19/v22.
+    */
+
+    const wariantyKursPrzezLokalnie =
+        new Set(
+            (
+                Array.isArray(
+                    rozklad.warianty
+                )
+                    ? rozklad.warianty
+                    : []
+            )
+                .filter(
+                    wariant => {
+
+                        const opis =
+                            String(
+                                wariant?.opis ||
+                                ""
+                            )
+                                .trim()
+                                .toLowerCase();
+
+
+                        return opis.startsWith(
+                            "kurs przez"
+                        );
+                    }
+                )
+                .map(
+                    wariant =>
+                        String(
+                            wariant?.litera ||
+                            ""
+                        )
+                            .trim()
+                            .toUpperCase()
+                )
+                .filter(Boolean)
+        );
+
+
+    const forceRightVariantNodeIndexes =
+        new Set();
+
+
+    function edgeMaWariantKursPrzezFWTP(
+        e
+    ) {
+
+        if (
+            !e ||
+            !e.warianty ||
+            typeof e.warianty.has !== "function"
+        ) {
+
+            return false;
+        }
+
+
+        for (
+            const wariant
+            of wariantyKursPrzezLokalnie
+        ) {
+
+            if (
+                e.warianty.has(
+                    wariant
+                )
+            ) {
+
+                return true;
+            }
+        }
+
+
+        return false;
+    }
+
+
+    function edgeMaWariantNieKursPrzezFWTP(
+        e
+    ) {
+
+        if (
+            !e ||
+            !e.warianty ||
+            typeof e.warianty[
+                Symbol.iterator
+            ] !== "function"
+        ) {
+
+            return false;
+        }
+
+
+        for (
+            const wariant
+            of e.warianty
+        ) {
+
+            if (
+                !wariantyKursPrzezLokalnie.has(
+                    wariant
+                )
+            ) {
+
+                return true;
+            }
+        }
+
+
+        return false;
+    }
+
+
+    function znajdzSciezkeKursPrzezFWTP(
+        start,
+        koniec
+    ) {
+
+        if (
+            wariantyKursPrzezLokalnie.size === 0 ||
+            koniec <= start + 1
+        ) {
+
+            return null;
+        }
+
+
+        const sasiedzi =
+            new Map();
+
+
+        edges.forEach(
+            e => {
+
+                if (
+                    e.u < start ||
+                    e.v > koniec ||
+                    (
+                        e.u === start &&
+                        e.v === koniec
+                    ) ||
+                    !edgeMaWariantKursPrzezFWTP(
+                        e
+                    )
+                ) {
+
+                    return;
+                }
+
+
+                if (
+                    !sasiedzi.has(
+                        e.u
+                    )
+                ) {
+
+                    sasiedzi.set(
+                        e.u,
+                        []
+                    );
+                }
+
+
+                sasiedzi
+                    .get(
+                        e.u
+                    )
+                    .push({
+                        v:
+                            e.v,
+                        edge:
+                            e
+                    });
+            }
+        );
+
+
+        const kolejka =
+            [{
+                index:
+                    start,
+                nodes:
+                    [start],
+                edges:
+                    []
+            }];
+
+
+        const odwiedzone =
+            new Set();
+
+
+        while (
+            kolejka.length > 0
+        ) {
+
+            const stan =
+                kolejka.shift();
+
+
+            if (
+                stan.index === koniec
+            ) {
+
+                return stan;
+            }
+
+
+            const klucz =
+                stan.index +
+                "|" +
+                stan.nodes.join(",");
+
+
+            if (
+                odwiedzone.has(
+                    klucz
+                )
+            ) {
+
+                continue;
+            }
+
+
+            odwiedzone.add(
+                klucz
+            );
+
+
+            const dalej =
+                sasiedzi.get(
+                    stan.index
+                ) || [];
+
+
+            dalej.forEach(
+                krok => {
+
+                    if (
+                        krok.v <= stan.index ||
+                        stan.nodes.includes(
+                            krok.v
+                        )
+                    ) {
+
+                        return;
+                    }
+
+
+                    kolejka.push({
+                        index:
+                            krok.v,
+
+                        nodes:
+                            [
+                                ...stan.nodes,
+                                krok.v
+                            ],
+
+                        edges:
+                            [
+                                ...stan.edges,
+                                krok.edge
+                            ]
+                    });
+                }
+            );
+        }
+
+
+        return null;
+    }
+
+
+    /*
+     * Szukamy bezpośredniej krawędzi, która ma obok
+     * pełną ścieżkę "kurs przez".
+     */
+    if (
+        wariantyKursPrzezLokalnie.size > 0
+    ) {
+
+        edges.forEach(
+            e => {
+
+                if (
+                    e.v <= e.u + 1 ||
+                    !edgeMaWariantNieKursPrzezFWTP(
+                        e
+                    )
+                ) {
+
+                    return;
+                }
+
+
+                const sciezkaPrzez =
+                    znajdzSciezkeKursPrzezFWTP(
+                        e.u,
+                        e.v
+                    );
+
+
+                if (
+                    !sciezkaPrzez ||
+                    !Array.isArray(
+                        sciezkaPrzez.edges
+                    ) ||
+                    sciezkaPrzez.edges.length < 2
+                ) {
+
+                    return;
+                }
+
+
+                /*
+                 * Bezpośredni przejazd zostaje środkiem.
+                 */
+                e.forceLocalMainTrack =
+                    true;
+
+
+                /*
+                 * Cała alternatywna ścieżka "kurs przez"
+                 * idzie po prawej.
+                 */
+                sciezkaPrzez.edges.forEach(
+                    edgePrzez => {
+
+                        edgePrzez.forceLocalRightTrack =
+                            true;
+                    }
+                );
+
+
+                /*
+                 * Tylko WEWNĘTRZNE punkty wariantu przesuwamy
+                 * na prawą oś. Początek i koniec pozostają
+                 * na głównej osi, aby odnoga poprawnie odchodziła
+                 * i wracała.
+                 */
+                sciezkaPrzez.nodes
+                    .slice(
+                        1,
+                        -1
+                    )
+                    .forEach(
+                        index => {
+
+                            forceRightVariantNodeIndexes.add(
+                                index
+                            );
+                        }
+                    );
+            }
+        );
+    }
+
+
+    function xDlaPunktuTrasyFWTP(
+        index
+    ) {
+
+        if (
+            forceRightVariantNodeIndexes.has(
+                index
+            )
+        ) {
+
+            return RIGHT_X;
+        }
+
+
+        return isOnMainAxis[index]
+            ? SPINE_X
+            : RIGHT_X;
+    }
+
+
     edges.forEach(
         e => {
 
@@ -9775,6 +10181,29 @@ const isOnMainAxisBazowa =
 
 
             if (
+                e.forceLocalMainTrack ===
+                    true
+            ) {
+
+                /*
+                 * Lokalny bezpośredni przejazd obok "kurs przez"
+                 * pozostaje na osi głównej.
+                 */
+                e.track =
+                    0;
+
+            } else if (
+                e.forceLocalRightTrack ===
+                    true
+            ) {
+
+                /*
+                 * Lokalna ścieżka "kurs przez" idzie po prawej.
+                 */
+                e.track =
+                    1;
+
+            } else if (
                 podstawowaKrawedzZObjazdem
             ) {
 
@@ -10718,14 +11147,14 @@ const isOnMainAxisBazowa =
                     } else if (e.track === 1) {
 
                         const startX =
-                            isOnMainAxis[e.u]
-                                ? SPINE_X
-                                : RIGHT_X;
+                            xDlaPunktuTrasyFWTP(
+                                e.u
+                            );
 
                         const endX =
-                            isOnMainAxis[e.v]
-                                ? SPINE_X
-                                : RIGHT_X;
+                            xDlaPunktuTrasyFWTP(
+                                e.v
+                            );
 
 
                         if (i === e.u) {
@@ -10754,14 +11183,14 @@ const isOnMainAxisBazowa =
                     } else if (e.track === -1) {
 
                         const startX =
-                            isOnMainAxis[e.u]
-                                ? SPINE_X
-                                : RIGHT_X;
+                            xDlaPunktuTrasyFWTP(
+                                e.u
+                            );
 
                         const endX =
-                            isOnMainAxis[e.v]
-                                ? SPINE_X
-                                : RIGHT_X;
+                            xDlaPunktuTrasyFWTP(
+                                e.v
+                            );
 
 
                         /*
@@ -10970,9 +11399,9 @@ const isOnMainAxisBazowa =
             );
 
             const nodeX =
-                isOnMainAxis[i]
-                    ? SPINE_X
-                    : RIGHT_X;
+                xDlaPunktuTrasyFWTP(
+                    i
+                );
 
 
             const isBlackStart =
@@ -11117,9 +11546,15 @@ const isOnMainAxisBazowa =
              * dotychczasowy odstęp od prawej osi.
              */
             const szerokoscOsiDlaWiersza =
-                isOnMainAxis[i]
-                    ? SPINE_X + 16
-                    : SVG_W;
+                forceRightVariantNodeIndexes.has(
+                    i
+                )
+                    ? SVG_W
+                    : (
+                        isOnMainAxis[i]
+                            ? SPINE_X + 16
+                            : SVG_W
+                    );
 
 
             nodeWrapper.style.width =
