@@ -9679,175 +9679,51 @@ const isOnMainAxisBazowa =
 
 
     /* =====================================================
-       LOKALNA GEOMETRIA "KURS PRZEZ"
+       LINIA 338 — LOKALNA GEOMETRIA PĘTLI / "KURS PRZEZ"
        =====================================================
 
-       Cel:
-       - NIE zmieniamy globalnego mainWariant,
-       - NIE zmieniamy globalnego isOnMainAxis,
-       - więc nie psujemy linii 126 ani innych działających linii.
+       WAŻNE:
+       - nie zmieniamy mainWariant,
+       - nie zmieniamy isOnMainAxis,
+       - nie zmieniamy isOnMainAxisBazowa,
+       - nie zmieniamy geometrii innych linii.
 
-       Jeżeli istnieje:
-       1. bezpośrednia krawędź u -> v,
-       2. a pomiędzy u i v istnieje pełna alternatywna ścieżka
-          należąca do wariantu opisanego "kurs przez ...",
+       Problem 338 jest specyficzny:
+       istnieje długi przejazd BEZPOŚREDNI między dwoma punktami,
+       a równolegle istnieje pełna ścieżka przez dodatkowe
+       przystanki (Rondo Granzowa / Szeroka / Dudziarska itd.).
 
-       to tylko na tym lokalnym fragmencie:
-       - bezpośrednia krawędź dostaje track = 0 (środek),
-       - krawędzie "kurs przez" dostają track = 1 (prawo),
-       - przystanki występujące wyłącznie na "kurs przez"
-         są rysowane na RIGHT_X.
+       Dla 338 chcemy:
+       - długi przejazd omijający te punkty = OŚ GŁÓWNA (track 0),
+       - ścieżka przez dodatkowe punkty = PRAWA ODNOGA (track 1),
+       - wewnętrzne punkty tej odnogi = RIGHT_X.
 
-       Dzięki temu:
-       - 338: przejazd omijający dodatkowe przystanki idzie środkiem,
-       - wariant przez Rondo Granzowa / Szeroką / Dudziarską idzie prawą stroną,
-       - 126 pozostaje dokładnie w geometrii v19/v22.
+       Robimy to tylko lokalnie dla 338, więc 126, 131, 170,
+       228, 311, 711 itd. pozostają dokładnie jak w v22.
     */
 
-    const wariantyKursPrzezLokalnie =
-        new Set(
-            (
-                Array.isArray(
-                    rozklad.warianty
-                )
-                    ? rozklad.warianty
-                    : []
-            )
-                .filter(
-                    wariant => {
-
-                        const opis =
-                            String(
-                                wariant?.opis ||
-                                ""
-                            )
-                                .trim()
-                                .toLowerCase();
-
-
-                        return opis.startsWith(
-                            "kurs przez"
-                        );
-                    }
-                )
-                .map(
-                    wariant =>
-                        String(
-                            wariant?.litera ||
-                            ""
-                        )
-                            .trim()
-                            .toUpperCase()
-                )
-                .filter(Boolean)
-        );
-
-
-    const forceRightVariantNodeIndexes =
+    const force338RightNodes =
         new Set();
 
 
-    function edgeMaWariantKursPrzezFWTP(
-        e
-    ) {
-
-        if (
-            !e ||
-            !e.warianty ||
-            typeof e.warianty.has !== "function"
-        ) {
-
-            return false;
-        }
-
-
-        for (
-            const wariant
-            of wariantyKursPrzezLokalnie
-        ) {
-
-            if (
-                e.warianty.has(
-                    wariant
-                )
-            ) {
-
-                return true;
-            }
-        }
-
-
-        return false;
-    }
-
-
-    function edgeMaWariantNieKursPrzezFWTP(
-        e
-    ) {
-
-        if (
-            !e ||
-            !e.warianty ||
-            typeof e.warianty[
-                Symbol.iterator
-            ] !== "function"
-        ) {
-
-            return false;
-        }
-
-
-        for (
-            const wariant
-            of e.warianty
-        ) {
-
-            if (
-                !wariantyKursPrzezLokalnie.has(
-                    wariant
-                )
-            ) {
-
-                return true;
-            }
-        }
-
-
-        return false;
-    }
-
-
-    function znajdzSciezkeKursPrzezFWTP(
+    function znajdzAlternatywnaSciezke338(
         start,
-        koniec
+        koniec,
+        pomijanaKrawedz
     ) {
-
-        if (
-            wariantyKursPrzezLokalnie.size === 0 ||
-            koniec <= start + 1
-        ) {
-
-            return null;
-        }
-
 
         const sasiedzi =
             new Map();
 
 
         edges.forEach(
-            e => {
+            krawedz => {
 
                 if (
-                    e.u < start ||
-                    e.v > koniec ||
-                    (
-                        e.u === start &&
-                        e.v === koniec
-                    ) ||
-                    !edgeMaWariantKursPrzezFWTP(
-                        e
-                    )
+                    krawedz === pomijanaKrawedz ||
+                    krawedz.u < start ||
+                    krawedz.v > koniec ||
+                    krawedz.v <= krawedz.u
                 ) {
 
                     return;
@@ -9856,12 +9732,12 @@ const isOnMainAxisBazowa =
 
                 if (
                     !sasiedzi.has(
-                        e.u
+                        krawedz.u
                     )
                 ) {
 
                     sasiedzi.set(
-                        e.u,
+                        krawedz.u,
                         []
                     );
                 }
@@ -9869,14 +9745,11 @@ const isOnMainAxisBazowa =
 
                 sasiedzi
                     .get(
-                        e.u
+                        krawedz.u
                     )
-                    .push({
-                        v:
-                            e.v,
-                        edge:
-                            e
-                    });
+                    .push(
+                        krawedz
+                    );
             }
         );
 
@@ -9912,15 +9785,9 @@ const isOnMainAxisBazowa =
             }
 
 
-            const klucz =
-                stan.index +
-                "|" +
-                stan.nodes.join(",");
-
-
             if (
                 odwiedzone.has(
-                    klucz
+                    stan.index
                 )
             ) {
 
@@ -9929,7 +9796,7 @@ const isOnMainAxisBazowa =
 
 
             odwiedzone.add(
-                klucz
+                stan.index
             );
 
 
@@ -9939,38 +9806,38 @@ const isOnMainAxisBazowa =
                 ) || [];
 
 
-            dalej.forEach(
-                krok => {
+            for (
+                const krawedz
+                of dalej
+            ) {
 
-                    if (
-                        krok.v <= stan.index ||
-                        stan.nodes.includes(
-                            krok.v
-                        )
-                    ) {
+                if (
+                    stan.nodes.includes(
+                        krawedz.v
+                    )
+                ) {
 
-                        return;
-                    }
-
-
-                    kolejka.push({
-                        index:
-                            krok.v,
-
-                        nodes:
-                            [
-                                ...stan.nodes,
-                                krok.v
-                            ],
-
-                        edges:
-                            [
-                                ...stan.edges,
-                                krok.edge
-                            ]
-                    });
+                    continue;
                 }
-            );
+
+
+                kolejka.push({
+                    index:
+                        krawedz.v,
+
+                    nodes:
+                        [
+                            ...stan.nodes,
+                            krawedz.v
+                        ],
+
+                    edges:
+                        [
+                            ...stan.edges,
+                            krawedz
+                        ]
+                });
+            }
         }
 
 
@@ -9978,41 +9845,63 @@ const isOnMainAxisBazowa =
     }
 
 
-    /*
-     * Szukamy bezpośredniej krawędzi, która ma obok
-     * pełną ścieżkę "kurs przez".
-     */
     if (
-        wariantyKursPrzezLokalnie.size > 0
+        String(
+            numerLinii || ""
+        ).trim() === "338"
     ) {
+
+        /*
+         * Szukamy najbardziej charakterystycznej długiej krawędzi:
+         * musi ominąć co najmniej 4 indeksy i mieć pełną
+         * alternatywną ścieżkę pomiędzy tymi samymi końcami.
+         *
+         * Jeżeli takich krawędzi jest kilka, wybieramy tę
+         * o największej liczbie pomijanych punktów.
+         */
+        let najlepszyKandydat338 =
+            null;
+
+
+        let najlepszaSciezka338 =
+            null;
+
+
+        let najlepszyRozmiar338 =
+            -1;
+
 
         edges.forEach(
             e => {
 
+                const rozmiar =
+                    e.v -
+                    e.u -
+                    1;
+
+
                 if (
-                    e.v <= e.u + 1 ||
-                    !edgeMaWariantNieKursPrzezFWTP(
-                        e
-                    )
+                    rozmiar < 4
                 ) {
 
                     return;
                 }
 
 
-                const sciezkaPrzez =
-                    znajdzSciezkeKursPrzezFWTP(
+                const sciezka =
+                    znajdzAlternatywnaSciezke338(
                         e.u,
-                        e.v
+                        e.v,
+                        e
                     );
 
 
                 if (
-                    !sciezkaPrzez ||
+                    !sciezka ||
                     !Array.isArray(
-                        sciezkaPrzez.edges
+                        sciezka.edges
                     ) ||
-                    sciezkaPrzez.edges.length < 2
+                    sciezka.edges.length < 2
                 ) {
 
                     return;
@@ -10020,55 +9909,105 @@ const isOnMainAxisBazowa =
 
 
                 /*
-                 * Bezpośredni przejazd zostaje środkiem.
+                 * Alternatywna trasa musi rzeczywiście przechodzić
+                 * przez przynajmniej kilka punktów pośrednich.
                  */
-                e.forceLocalMainTrack =
-                    true;
+                if (
+                    sciezka.nodes.length < 4
+                ) {
+
+                    return;
+                }
 
 
-                /*
-                 * Cała alternatywna ścieżka "kurs przez"
-                 * idzie po prawej.
-                 */
-                sciezkaPrzez.edges.forEach(
-                    edgePrzez => {
+                if (
+                    rozmiar >
+                    najlepszyRozmiar338
+                ) {
 
-                        edgePrzez.forceLocalRightTrack =
-                            true;
+                    najlepszyKandydat338 =
+                        e;
+
+                    najlepszaSciezka338 =
+                        sciezka;
+
+                    najlepszyRozmiar338 =
+                        rozmiar;
+                }
+            }
+        );
+
+
+        if (
+            najlepszyKandydat338 &&
+            najlepszaSciezka338
+        ) {
+
+            /*
+             * Przejazd omijający pętlę idzie środkiem.
+             */
+            najlepszyKandydat338.force338MainTrack =
+                true;
+
+
+            /*
+             * Cała ścieżka przez dodatkowe przystanki
+             * idzie po prawej.
+             */
+            najlepszaSciezka338.edges.forEach(
+                e => {
+
+                    e.force338RightTrack =
+                        true;
+                }
+            );
+
+
+            /*
+             * Tylko wewnętrzne punkty alternatywnej ścieżki
+             * przesuwamy na prawą oś.
+             */
+            najlepszaSciezka338.nodes
+                .slice(
+                    1,
+                    -1
+                )
+                .forEach(
+                    index => {
+
+                        force338RightNodes.add(
+                            index
+                        );
                     }
                 );
 
 
-                /*
-                 * Tylko WEWNĘTRZNE punkty wariantu przesuwamy
-                 * na prawą oś. Początek i koniec pozostają
-                 * na głównej osi, aby odnoga poprawnie odchodziła
-                 * i wracała.
-                 */
-                sciezkaPrzez.nodes
-                    .slice(
-                        1,
-                        -1
-                    )
-                    .forEach(
-                        index => {
+            console.info(
+                "FWTP: 338 - lokalna geometria pętli",
+                {
+                    kierunek:
+                        aktualnyKierunek,
 
-                            forceRightVariantNodeIndexes.add(
-                                index
-                            );
-                        }
-                    );
-            }
-        );
+                    bezposrednia:
+                        [
+                            najlepszyKandydat338.u,
+                            najlepszyKandydat338.v
+                        ],
+
+                    sciezkaPrzez:
+                        najlepszaSciezka338.nodes
+                }
+            );
+        }
     }
 
 
-    function xDlaPunktuTrasyFWTP(
+    function xDlaPunktu338(
         index
     ) {
 
         if (
-            forceRightVariantNodeIndexes.has(
+            force338RightNodes.has(
                 index
             )
         ) {
@@ -10181,24 +10120,25 @@ const isOnMainAxisBazowa =
 
 
             if (
-                e.forceLocalMainTrack ===
+                e.force338MainTrack ===
                     true
             ) {
 
                 /*
-                 * Lokalny bezpośredni przejazd obok "kurs przez"
-                 * pozostaje na osi głównej.
+                 * 338: przejazd omijający pętlę zostaje
+                 * dokładnie na osi głównej.
                  */
                 e.track =
                     0;
 
             } else if (
-                e.forceLocalRightTrack ===
+                e.force338RightTrack ===
                     true
             ) {
 
                 /*
-                 * Lokalna ścieżka "kurs przez" idzie po prawej.
+                 * 338: przejazd przez dodatkowe przystanki
+                 * idzie po prawej.
                  */
                 e.track =
                     1;
@@ -11147,14 +11087,34 @@ const isOnMainAxisBazowa =
                     } else if (e.track === 1) {
 
                         const startX =
-                            xDlaPunktuTrasyFWTP(
-                                e.u
-                            );
+                            (
+                                String(
+                                    numerLinii || ""
+                                ).trim() === "338"
+                            )
+                                ? xDlaPunktu338(
+                                    e.u
+                                )
+                                : (
+                                    isOnMainAxis[e.u]
+                                        ? SPINE_X
+                                        : RIGHT_X
+                                );
 
                         const endX =
-                            xDlaPunktuTrasyFWTP(
-                                e.v
-                            );
+                            (
+                                String(
+                                    numerLinii || ""
+                                ).trim() === "338"
+                            )
+                                ? xDlaPunktu338(
+                                    e.v
+                                )
+                                : (
+                                    isOnMainAxis[e.v]
+                                        ? SPINE_X
+                                        : RIGHT_X
+                                );
 
 
                         if (i === e.u) {
@@ -11183,14 +11143,34 @@ const isOnMainAxisBazowa =
                     } else if (e.track === -1) {
 
                         const startX =
-                            xDlaPunktuTrasyFWTP(
-                                e.u
-                            );
+                            (
+                                String(
+                                    numerLinii || ""
+                                ).trim() === "338"
+                            )
+                                ? xDlaPunktu338(
+                                    e.u
+                                )
+                                : (
+                                    isOnMainAxis[e.u]
+                                        ? SPINE_X
+                                        : RIGHT_X
+                                );
 
                         const endX =
-                            xDlaPunktuTrasyFWTP(
-                                e.v
-                            );
+                            (
+                                String(
+                                    numerLinii || ""
+                                ).trim() === "338"
+                            )
+                                ? xDlaPunktu338(
+                                    e.v
+                                )
+                                : (
+                                    isOnMainAxis[e.v]
+                                        ? SPINE_X
+                                        : RIGHT_X
+                                );
 
 
                         /*
@@ -11399,9 +11379,19 @@ const isOnMainAxisBazowa =
             );
 
             const nodeX =
-                xDlaPunktuTrasyFWTP(
-                    i
-                );
+                (
+                    String(
+                        numerLinii || ""
+                    ).trim() === "338"
+                )
+                    ? xDlaPunktu338(
+                        i
+                    )
+                    : (
+                        isOnMainAxis[i]
+                            ? SPINE_X
+                            : RIGHT_X
+                    );
 
 
             const isBlackStart =
@@ -11546,8 +11536,13 @@ const isOnMainAxisBazowa =
              * dotychczasowy odstęp od prawej osi.
              */
             const szerokoscOsiDlaWiersza =
-                forceRightVariantNodeIndexes.has(
-                    i
+                (
+                    String(
+                        numerLinii || ""
+                    ).trim() === "338" &&
+                    force338RightNodes.has(
+                        i
+                    )
                 )
                     ? SVG_W
                     : (
