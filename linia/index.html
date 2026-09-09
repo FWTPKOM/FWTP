@@ -1287,7 +1287,8 @@
 <script>
 
 /* =========================================================
-   FWTP v39
+   FWTP v40
+   - nie pokazuje nieopisanych/wewnętrznych liter wariantów (np. 900 C)
    - koniec skróconego kursu na NŻ = pełny czerwony kwadrat
    - widok konkretnego kursu: 24->00, 25->01, 26->02 itd.
    - N64: wariant A wymuszony jako oś główna geometrii
@@ -12575,7 +12576,46 @@ function pokazRozkladWybranegoPrzystanku(
      * Nie liczymy wariantów występujących tylko w przeciwnym
      * kierunku.
      */
-    const literyWariantowKierunku =
+    /*
+     * =====================================================
+     * PUBLICZNE WARIANTY W DANYM KIERUNKU
+     * =====================================================
+     *
+     * W "kursy" może istnieć wewnętrzna litera przebiegu,
+     * która NIE ma publicznej definicji w rozklad.warianty.
+     *
+     * Przykład 900:
+     * w kierunku Winnica -> Dom Samotnej Matki zwykły
+     * przebieg podstawowy może mieć wewnętrznie "C",
+     * ale C nie ma opisu w rozklad.warianty.
+     *
+     * Takiej litery:
+     * - nie pokazujemy przy minutach,
+     * - nie liczymy do progu 4 wariantów,
+     * - nie pokazujemy w legendzie jako publicznego wariantu.
+     *
+     * Zachowanie jak przy 131.
+     * =====================================================
+     */
+    const publiczneLiteryWariantow =
+        new Set(
+            definicjeWariantowRozkladu
+                .map(
+                    wariant =>
+                        String(
+                            wariant?.litera ||
+                            ""
+                        )
+                            .trim()
+                            .toUpperCase()
+                )
+                .filter(
+                    Boolean
+                )
+        );
+
+
+    const wszystkieLiteryWKierunku =
         [
             ...new Set(
                 zbierzWariantyDlaKierunku(
@@ -12594,6 +12634,17 @@ function pokazRozkladWybranegoPrzystanku(
                     )
             )
         ];
+
+
+    const literyWariantowKierunku =
+        publiczneLiteryWariantow.size > 0
+            ? wszystkieLiteryWKierunku.filter(
+                litera =>
+                    publiczneLiteryWariantow.has(
+                        litera
+                    )
+              )
+            : wszystkieLiteryWKierunku;
 
 
     const liczbaWariantowKierunku =
@@ -12716,6 +12767,28 @@ function pokazRozkladWybranegoPrzystanku(
 
 
         if (!znak) {
+            return false;
+        }
+
+
+        /*
+         * Jeżeli JSON ma publiczne definicje wariantów,
+         * litera nieobecna w tych definicjach jest tylko
+         * wewnętrznym oznaczeniem przebiegu.
+         *
+         * Nie pokazujemy jej przy minutach.
+         *
+         * Przykład 900: wewnętrzne C = zwykły przebieg bazowy
+         * w przeciwnym kierunku. Brak definicji C w JSON-ie
+         * oznacza brak publicznej literki C.
+         */
+        if (
+            definicjeWariantowRozkladu.length > 0 &&
+            !pobierzDefinicjeWariantuZRozkladu(
+                znak
+            )
+        ) {
+
             return false;
         }
 
