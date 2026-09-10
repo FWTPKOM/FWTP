@@ -1855,17 +1855,11 @@ function ocenaDopasowaniaOsi(a,b,i,n,j,m){
     const nb=formatNrPrzystankuDoDopasowania(b.nr);
 
     /*
-     * Jeżeli po obu stronach mamy konkretny numer przystanku,
-     * wolno połączyć wiersze TYLKO wtedy, gdy numery są takie same.
-     * Sama zgodna nazwa nie wystarcza.
-     *
-     * To rozdziela np. GROTY 01 od GROTY 02 i jednocześnie
-     * pozwala połączyć dwa wystąpienia METRO STADION NARODOWY 71.
+     * Logika z krótszego, poprawnie działającego pliku:
+     * zgodny numer jest dużo ważniejszy niż sama zgodna nazwa.
+     * Dzięki temu przy kilku wystąpieniach tej samej nazwy wybierane
+     * jest właściwe wystąpienie, a nie pierwsze/leżące najbliżej.
      */
-    if(na && nb && na!==nb){
-        return 0;
-    }
-
     if(na && nb && na===nb){
         score+=1000;
     }
@@ -3903,32 +3897,40 @@ function vbaGetStopMatchScore(
         return 0;
     }
 
-    const primaryNr = vbaNr(primary?.nr);
-    const secondaryNr = vbaNr(secondary?.nr);
+    const nrPrimary = vbaNr(primary?.nr);
+    const nrSecondary = vbaNr(secondary?.nr);
 
-    /*
-     * Różne numery przy tej samej nazwie są dozwolone na trasie,
-     * np. 01 | GROTY | 02.
-     *
-     * Rozdzielamy je tylko wtedy, gdy przynajmniej jeden z tych
-     * przystanków jest krańcem danego kierunku. Dzięki temu:
-     *  - kraniec GROTY 01 może utworzyć 01 | GROTY | 01,
-     *  - przejazd GROTY 02 dostaje wtedy osobny wiersz,
-     *  - ale poza krańcami 01 | NAZWA | 02 nadal jest poprawne.
-     */
-    const primaryEndpoint =
+    const primaryJestKrancem =
         primaryIndex === 0 ||
         primaryIndex === primaryCount - 1;
 
-    const secondaryEndpoint =
+    const secondaryJestKrancem =
         secondaryIndex === 0 ||
         secondaryIndex === secondaryCount - 1;
 
+    /*
+     * WAŻNE:
+     * różne numery tej samej nazwy są DOZWOLONE na zwykłej trasie.
+     *
+     * Przykład:
+     *   01 | GROTY | 02
+     * jest poprawny, jeżeli GROTY nie jest w tym miejscu krańcem.
+     *
+     * Jeżeli jednak choć jedno z dopasowywanych wystąpień jest
+     * krańcem danego kierunku, nie wolno połączyć dwóch różnych
+     * numerów w jeden wiersz. Wtedy algorytm tworzy osobny wiersz
+     * dla drugiego wystąpienia przystanku.
+     *
+     * Dzięki temu kraniec:
+     *   01 | GROTY | 01
+     * pozostaje krańcem 01, a przejazd przez GROTY 02 trafia
+     * do osobnego wiersza.
+     */
     if(
-        (primaryEndpoint || secondaryEndpoint) &&
-        primaryNr &&
-        secondaryNr &&
-        !vbaTextEquals(primaryNr, secondaryNr)
+        nrPrimary &&
+        nrSecondary &&
+        !vbaTextEquals(nrPrimary, nrSecondary) &&
+        (primaryJestKrancem || secondaryJestKrancem)
     ){
         return 0;
     }
@@ -3936,9 +3938,9 @@ function vbaGetStopMatchScore(
     let score = 100;
 
     if(
-        primaryNr &&
-        secondaryNr &&
-        vbaTextEquals(primaryNr, secondaryNr)
+        nrPrimary &&
+        nrSecondary &&
+        vbaTextEquals(nrPrimary, nrSecondary)
     ){
         score += 1000;
     }
@@ -4699,92 +4701,73 @@ function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
         return 0;
     }
 
-    /*
-     * Porównujemy numery po tej stronie, po której faktycznie są
-     * wyświetlane w tabeli. Dzięki temu nie tworzymy jednego
-     * "hybrydowego" wiersza z lewym numerem z jednej linii i prawym
-     * numerem z innej linii.
-     */
-    const firstLeft = firstEntry.reverse
-        ? vbaNr(firstStop?.code1)
-        : vbaNr(firstStop?.code0);
+    const firstCodes = [
+        vbaNr(firstStop?.code0),
+        vbaNr(firstStop?.code1)
+    ].filter(Boolean);
 
-    const firstRight = firstEntry.reverse
-        ? vbaNr(firstStop?.code0)
-        : vbaNr(firstStop?.code1);
+    const secondCodes = [
+        vbaNr(secondStop?.code0),
+        vbaNr(secondStop?.code1)
+    ].filter(Boolean);
 
-    const secondLeft = secondEntry.reverse
-        ? vbaNr(secondStop?.code1)
-        : vbaNr(secondStop?.code0);
+    const wspolneKody =
+        firstCodes.filter(code =>
+            secondCodes.some(other =>
+                other && vbaTextEquals(code,other)
+            )
+        );
 
-    const secondRight = secondEntry.reverse
-        ? vbaNr(secondStop?.code0)
-        : vbaNr(secondStop?.code1);
+    const firstLast =
+        firstEntry.lineData.stopCount - 1;
 
-    /*
-     * Różne numery tej samej nazwy mogą być scalone na zwykłym
-     * odcinku trasy. Rozdzielamy je dopiero wtedy, gdy przynajmniej
-     * jeden z porównywanych wierszy jest krańcem swojej linii.
-     *
-     * Przykład:
-     *  - linia kończy na GROTY 01 -> wiersz krańcowy ma zachować 01,
-     *  - inna linia tylko przejeżdża przez GROTY 02 -> osobny wiersz,
-     *  - dwie przejeżdżające linie mogą nadal utworzyć 01 | GROTY | 02.
-     */
-    const firstLast = firstEntry.lineData.stopCount - 1;
-    const secondLast = secondEntry.lineData.stopCount - 1;
+    const secondLast =
+        secondEntry.lineData.stopCount - 1;
 
-    const firstEndpoint =
+    const firstJestKrancem =
         firstEntry.rowIndex === 0 ||
         firstEntry.rowIndex === firstLast;
 
-    const secondEndpoint =
+    const secondJestKrancem =
         secondEntry.rowIndex === 0 ||
         secondEntry.rowIndex === secondLast;
 
-    if(firstEndpoint || secondEndpoint){
-        if(
-            firstLeft && secondLeft &&
-            !vbaTextEquals(firstLeft, secondLeft)
-        ){
-            return 0;
-        }
-
-        if(
-            firstRight && secondRight &&
-            !vbaTextEquals(firstRight, secondRight)
-        ){
-            return 0;
-        }
+    /*
+     * RÓŻNE NUMERY BLOKUJEMY TYLKO PRZY KRAŃCACH.
+     *
+     * Na zwykłej trasie:
+     *   01 | NAZWA | 02
+     * jest prawidłowe i takie wiersze mogą być wspólne.
+     *
+     * Jeżeli jednak wiersz jest krańcem którejś z łączonych linii,
+     * dwa wystąpienia o tej samej nazwie, ale bez wspólnego numeru,
+     * muszą pozostać osobnymi wierszami.
+     *
+     * Przykład:
+     *   linia A kończy na GROTY 01,
+     *   linia B przejeżdża przez GROTY 02.
+     *
+     * Wtedy GROTY 02 nie zostanie dopisane do wiersza krańcowego
+     * GROTY 01, lecz dostanie osobny wiersz.
+     */
+    if(
+        firstCodes.length > 0 &&
+        secondCodes.length > 0 &&
+        wspolneKody.length === 0 &&
+        (firstJestKrancem || secondJestKrancem)
+    ){
+        return 0;
     }
 
     let score = 100;
 
-    if(
-        firstLeft && secondLeft &&
-        vbaTextEquals(firstLeft, secondLeft)
-    ){
-        score += 5000;
-    }
+    /*
+     * Zgodny numer nadal ma bardzo duży priorytet, dzięki czemu
+     * identyczne krańce, np. 71 + 71, łączą się w jeden wiersz.
+     */
+    score += wspolneKody.length * 5000;
 
-    if(
-        firstRight && secondRight &&
-        vbaTextEquals(firstRight, secondRight)
-    ){
-        score += 5000;
-    }
-
-    /* identyczna para numerów jest praktycznie pewnym dopasowaniem */
-    if(
-        firstLeft && firstRight &&
-        secondLeft && secondRight &&
-        vbaTextEquals(firstLeft, secondLeft) &&
-        vbaTextEquals(firstRight, secondRight)
-    ){
-        score += 10000;
-    }
-
-    if(firstEndpoint && secondEndpoint){
+    if(firstJestKrancem && secondJestKrancem){
         score += 500;
     }
 
