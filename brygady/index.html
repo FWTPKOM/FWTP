@@ -3666,10 +3666,18 @@ function utworzWierszLaczony(entry){
 function scoreParyPrzystankowLaczonych(a,b){
     if(normalizuj(a?.nazwa)!==normalizuj(b?.nazwa))return 0;
 
-    let score=100;
-
     const nrA=String(a?.nr||"").trim();
     const nrB=String(b?.nr||"").trim();
+
+    /*
+     * Ta sama nazwa zespołu nie wystarcza do scalenia.
+     * Przykład METRO STADION NARODOWY 71 i 07:
+     * są to dwa różne słupki i muszą pozostać w dwóch wierszach.
+     * Jeżeli oba wpisy mają numer i numery są różne, zabraniamy matchu.
+     */
+    if(nrA && nrB && nrA!==nrB)return 0;
+
+    let score=100;
 
     if(nrA && nrB && nrA===nrB)score+=5000;
     if(a?.endpoint && b?.endpoint)score+=500;
@@ -4090,7 +4098,9 @@ function numeryWierszaLaczonego(element){
     let lewy=null;
     let prawy=null;
 
-    for(const wpis of element.entries||[]){
+    const entries=Array.isArray(element?.entries)?element.entries:[];
+
+    for(const wpis of entries){
         const dane={nr:String(wpis.nr||""),nz:Boolean(wpis.nz)};
 
         if(wpis.reverse){
@@ -4100,8 +4110,41 @@ function numeryWierszaLaczonego(element){
         }
     }
 
-    // Gdy jeden kierunek nie dostarczył numeru, wykorzystujemy dostępny numer
-    // tylko po właściwej stronie; druga pozostaje pusta jak w dotychczasowej tabeli.
+    /*
+     * Jeżeli jest to rzeczywisty punkt połączenia dwóch linii na tym samym
+     * słupku (np. 102 kończy na METRO STADION NARODOWY 07, a 202
+     * rozpoczyna z METRO STADION NARODOWY 07), numer słupka pokazujemy
+     * po obu stronach tabeli.
+     *
+     * Nie dotyczy to słupka 71, ponieważ po poprawce wyżej 71 i 07
+     * nie mogą już trafić do jednego wiersza.
+     */
+    const endpointy=entries.filter(e=>e?.endpoint===true);
+    const linieEndpointow=new Set(
+        endpointy.map(e=>String(e?.linia||"").trim()).filter(Boolean)
+    );
+    const numeryEndpointow=endpointy
+        .map(e=>String(e?.nr||"").trim())
+        .filter(Boolean);
+
+    const wspolnyNumer=
+        numeryEndpointow.length>=2 &&
+        numeryEndpointow.every(nr=>nr===numeryEndpointow[0])
+            ? numeryEndpointow[0]
+            : "";
+
+    if(wspolnyNumer && linieEndpointow.size>=2){
+        const nz=endpointy.some(e=>Boolean(e?.nz));
+
+        if(!lewy || !lewy.nr){
+            lewy={nr:wspolnyNumer,nz};
+        }
+
+        if(!prawy || !prawy.nr){
+            prawy={nr:wspolnyNumer,nz};
+        }
+    }
+
     return{lewy,prawy};
 }
 
