@@ -3907,14 +3907,25 @@ function vbaGetStopMatchScore(
     const secondaryNr = vbaNr(secondary?.nr);
 
     /*
-     * Najważniejsza zasada łączenia dwóch kierunków:
-     * ta sama nazwa + dwa różne, konkretne numery = DWA WIERSZE.
+     * Różne numery przy tej samej nazwie są dozwolone na trasie,
+     * np. 01 | GROTY | 02.
      *
-     * Przykład GROTY:
-     *  - kraniec GROTY 01 ma zostać 01 | GROTY | 01,
-     *  - przejazd GROTY 02 ma dostać osobny wiersz.
+     * Rozdzielamy je tylko wtedy, gdy przynajmniej jeden z tych
+     * przystanków jest krańcem danego kierunku. Dzięki temu:
+     *  - kraniec GROTY 01 może utworzyć 01 | GROTY | 01,
+     *  - przejazd GROTY 02 dostaje wtedy osobny wiersz,
+     *  - ale poza krańcami 01 | NAZWA | 02 nadal jest poprawne.
      */
+    const primaryEndpoint =
+        primaryIndex === 0 ||
+        primaryIndex === primaryCount - 1;
+
+    const secondaryEndpoint =
+        secondaryIndex === 0 ||
+        secondaryIndex === secondaryCount - 1;
+
     if(
+        (primaryEndpoint || secondaryEndpoint) &&
         primaryNr &&
         secondaryNr &&
         !vbaTextEquals(primaryNr, secondaryNr)
@@ -4711,22 +4722,40 @@ function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
         : vbaNr(secondStop?.code1);
 
     /*
-     * Jeżeli na tej samej stronie są dwa różne konkretne numery,
-     * są to dwa różne wystąpienia przystanku i muszą mieć osobne
-     * wiersze. To jest kluczowe m.in. dla GROTY 01 / GROTY 02.
+     * Różne numery tej samej nazwy mogą być scalone na zwykłym
+     * odcinku trasy. Rozdzielamy je dopiero wtedy, gdy przynajmniej
+     * jeden z porównywanych wierszy jest krańcem swojej linii.
+     *
+     * Przykład:
+     *  - linia kończy na GROTY 01 -> wiersz krańcowy ma zachować 01,
+     *  - inna linia tylko przejeżdża przez GROTY 02 -> osobny wiersz,
+     *  - dwie przejeżdżające linie mogą nadal utworzyć 01 | GROTY | 02.
      */
-    if(
-        firstLeft && secondLeft &&
-        !vbaTextEquals(firstLeft, secondLeft)
-    ){
-        return 0;
-    }
+    const firstLast = firstEntry.lineData.stopCount - 1;
+    const secondLast = secondEntry.lineData.stopCount - 1;
 
-    if(
-        firstRight && secondRight &&
-        !vbaTextEquals(firstRight, secondRight)
-    ){
-        return 0;
+    const firstEndpoint =
+        firstEntry.rowIndex === 0 ||
+        firstEntry.rowIndex === firstLast;
+
+    const secondEndpoint =
+        secondEntry.rowIndex === 0 ||
+        secondEntry.rowIndex === secondLast;
+
+    if(firstEndpoint || secondEndpoint){
+        if(
+            firstLeft && secondLeft &&
+            !vbaTextEquals(firstLeft, secondLeft)
+        ){
+            return 0;
+        }
+
+        if(
+            firstRight && secondRight &&
+            !vbaTextEquals(firstRight, secondRight)
+        ){
+            return 0;
+        }
     }
 
     let score = 100;
@@ -4755,15 +4784,7 @@ function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
         score += 10000;
     }
 
-    const firstLast = firstEntry.lineData.stopCount - 1;
-    const secondLast = secondEntry.lineData.stopCount - 1;
-
-    if(
-        (firstEntry.rowIndex === 0 ||
-         firstEntry.rowIndex === firstLast) &&
-        (secondEntry.rowIndex === 0 ||
-         secondEntry.rowIndex === secondLast)
-    ){
+    if(firstEndpoint && secondEndpoint){
         score += 500;
     }
 
