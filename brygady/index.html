@@ -4203,6 +4203,152 @@ function realokujWpisyDoDokladnegoSlupka(wiersze){
     return wynik.filter(wiersz=>Array.isArray(wiersz.entries) && wiersz.entries.length>0);
 }
 
+
+
+/* =========================================================
+   v9 – WYRÓWNANIE POWTARZAJĄCYCH SIĘ KRAŃCÓW PO NUMERZE SŁUPKA
+   =========================================================
+
+   Jeżeli kilka kolejnych wierszy ma tę samą nazwę przystanku
+   (np. METRO BEMOWO), a po lewej i prawej stronie występuje
+   ten sam numer słupka, to ten sam fizyczny słupek powinien
+   znaleźć się w jednym wierszu.
+
+   Reguła uruchamia się tylko w grupie powtarzającej się nazwy
+   i tylko wtedy, gdy wspólny numer występuje jako kraniec
+   rzeczywistego kursu po obu stronach. Dzięki temu zwykłe
+   przystanki w środku trasy nie są przebudowywane.
+*/
+function wyrownajPowtarzajaceKrancePoNumerze(wiersze){
+    if(!Array.isArray(wiersze) || wiersze.length<2){
+        return wiersze;
+    }
+
+    const wynik=wiersze.map(wiersz=>({
+        ...wiersz,
+        entries:Array.isArray(wiersz?.entries)
+            ? wiersz.entries.map(entry=>({...entry}))
+            : []
+    }));
+
+    let start=0;
+
+    while(start<wynik.length){
+        const nazwa=normalizuj(wynik[start]?.entries?.[0]?.nazwa);
+        let koniec=start+1;
+
+        while(
+            koniec<wynik.length &&
+            normalizuj(wynik[koniec]?.entries?.[0]?.nazwa)===nazwa
+        ){
+            koniec++;
+        }
+
+        // Pojedynczego wystąpienia nie ruszamy.
+        if(!nazwa || koniec-start<2){
+            start=koniec;
+            continue;
+        }
+
+        const lewyEndpoint=new Set();
+        const prawyEndpoint=new Set();
+
+        for(let i=start;i<koniec;i++){
+            for(const e of wynik[i].entries||[]){
+                if(e?.endpoint!==true)continue;
+
+                const nr=String(e?.nr||"").trim();
+                if(!nr)continue;
+
+                if(e.reverse){
+                    prawyEndpoint.add(nr);
+                }else{
+                    lewyEndpoint.add(nr);
+                }
+            }
+        }
+
+        const wspolne=[...lewyEndpoint].filter(nr=>prawyEndpoint.has(nr));
+
+        if(!wspolne.length){
+            start=koniec;
+            continue;
+        }
+
+        /*
+         * Każdy wspólny numer ustawiamy w jednym wierszu.
+         * Docelowy wiersz wybieramy jako późniejsze z pierwszych
+         * wystąpień po lewej i prawej stronie. To nie przesuwa
+         * wspólnego krańca przed przystanek, który w danym
+         * przebiegu występuje wcześniej.
+         */
+        for(const nr of wspolne){
+            let pierwszyLewy=-1;
+            let pierwszyPrawy=-1;
+
+            for(let i=start;i<koniec;i++){
+                for(const e of wynik[i].entries||[]){
+                    if(String(e?.nr||"").trim()!==nr)continue;
+                    if(e.reverse){
+                        if(pierwszyPrawy<0)pierwszyPrawy=i;
+                    }else{
+                        if(pierwszyLewy<0)pierwszyLewy=i;
+                    }
+                }
+            }
+
+            if(pierwszyLewy<0 || pierwszyPrawy<0)continue;
+
+            const target=Math.max(pierwszyLewy,pierwszyPrawy);
+            const przenoszone=[];
+
+            // Przenosimy wszystkie wpisy tego samego fizycznego słupka,
+            // nie tylko pojedynczy kurs krańcowy. Dzięki temu godziny
+            // i numer słupka pozostają razem.
+            for(let i=start;i<koniec;i++){
+                const zostaja=[];
+
+                for(const e of wynik[i].entries||[]){
+                    if(String(e?.nr||"").trim()===nr){
+                        przenoszone.push({...e});
+                    }else{
+                        zostaja.push(e);
+                    }
+                }
+
+                wynik[i].entries=zostaja;
+            }
+
+            const seen=new Set(
+                (wynik[target].entries||[]).map(e=>
+                    [e.linia,e.kierunek,e.sourceIndex,e.reverse?1:0].join("|")
+                )
+            );
+
+            for(const e of przenoszone){
+                const key=[e.linia,e.kierunek,e.sourceIndex,e.reverse?1:0].join("|");
+                if(!seen.has(key)){
+                    wynik[target].entries.push(e);
+                    seen.add(key);
+                }
+            }
+        }
+
+        // Po przeniesieniu wspólnych słupków nie pozostawiamy pustych
+        // sztucznych wierszy wewnątrz tej samej grupy nazw.
+        for(let i=koniec-1;i>=start;i--){
+            if(!wynik[i].entries || wynik[i].entries.length===0){
+                wynik.splice(i,1);
+                koniec--;
+            }
+        }
+
+        start=koniec;
+    }
+
+    return wynik;
+}
+
 function zbudujOsBrygadyLaczonej(kursy){
     const rzeczywiste=kursy.filter(k=>!czyPlaceholderKursu(k));
     const wzorce=zbudujWzorceTrasLaczonych(rzeczywiste);
@@ -4233,6 +4379,11 @@ function zbudujOsBrygadyLaczonej(kursy){
     // Dopiero po znalezieniu prawdziwego wspólnego punktu dwóch linii
     // rozdzielamy ewentualny inny słupek o tej samej nazwie (np. 71).
     najlepsze=rozdzielRozneSlupkiPrzyPolaczeniuLinii(najlepsze);
+
+    // v9 – gdy kilka kolejnych krańców ma tę samą nazwę,
+    // identyczne numery słupków po lewej i prawej stronie
+    // ustawiamy w jednym wierszu (np. 71 | METRO BEMOWO | 71).
+    najlepsze=wyrownajPowtarzajaceKrancePoNumerze(najlepsze);
 
     /*
      * v8 – nie wykonujemy już późniejszego przenoszenia wpisów między
