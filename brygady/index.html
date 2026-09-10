@@ -1855,11 +1855,17 @@ function ocenaDopasowaniaOsi(a,b,i,n,j,m){
     const nb=formatNrPrzystankuDoDopasowania(b.nr);
 
     /*
-     * Logika z krótszego, poprawnie działającego pliku:
-     * zgodny numer jest dużo ważniejszy niż sama zgodna nazwa.
-     * Dzięki temu przy kilku wystąpieniach tej samej nazwy wybierane
-     * jest właściwe wystąpienie, a nie pierwsze/leżące najbliżej.
+     * Jeżeli po obu stronach mamy konkretny numer przystanku,
+     * wolno połączyć wiersze TYLKO wtedy, gdy numery są takie same.
+     * Sama zgodna nazwa nie wystarcza.
+     *
+     * To rozdziela np. GROTY 01 od GROTY 02 i jednocześnie
+     * pozwala połączyć dwa wystąpienia METRO STADION NARODOWY 71.
      */
+    if(na && nb && na!==nb){
+        return 0;
+    }
+
     if(na && nb && na===nb){
         score+=1000;
     }
@@ -3897,12 +3903,31 @@ function vbaGetStopMatchScore(
         return 0;
     }
 
+    const primaryNr = vbaNr(primary?.nr);
+    const secondaryNr = vbaNr(secondary?.nr);
+
+    /*
+     * Najważniejsza zasada łączenia dwóch kierunków:
+     * ta sama nazwa + dwa różne, konkretne numery = DWA WIERSZE.
+     *
+     * Przykład GROTY:
+     *  - kraniec GROTY 01 ma zostać 01 | GROTY | 01,
+     *  - przejazd GROTY 02 ma dostać osobny wiersz.
+     */
+    if(
+        primaryNr &&
+        secondaryNr &&
+        !vbaTextEquals(primaryNr, secondaryNr)
+    ){
+        return 0;
+    }
+
     let score = 100;
 
     if(
-        vbaNr(primary?.nr) &&
-        vbaNr(secondary?.nr) &&
-        vbaTextEquals(primary?.nr, secondary?.nr)
+        primaryNr &&
+        secondaryNr &&
+        vbaTextEquals(primaryNr, secondaryNr)
     ){
         score += 1000;
     }
@@ -4663,47 +4688,72 @@ function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
         return 0;
     }
 
-    const firstCodes = [
-        vbaNr(firstStop?.code0),
-        vbaNr(firstStop?.code1)
-    ].filter(Boolean);
+    /*
+     * Porównujemy numery po tej stronie, po której faktycznie są
+     * wyświetlane w tabeli. Dzięki temu nie tworzymy jednego
+     * "hybrydowego" wiersza z lewym numerem z jednej linii i prawym
+     * numerem z innej linii.
+     */
+    const firstLeft = firstEntry.reverse
+        ? vbaNr(firstStop?.code1)
+        : vbaNr(firstStop?.code0);
 
-    const secondCodes = [
-        vbaNr(secondStop?.code0),
-        vbaNr(secondStop?.code1)
-    ].filter(Boolean);
+    const firstRight = firstEntry.reverse
+        ? vbaNr(firstStop?.code0)
+        : vbaNr(firstStop?.code1);
 
-    const wspolneKody =
-        firstCodes.filter(code =>
-            secondCodes.some(other =>
-                other && vbaTextEquals(code,other)
-            )
-        );
+    const secondLeft = secondEntry.reverse
+        ? vbaNr(secondStop?.code1)
+        : vbaNr(secondStop?.code0);
+
+    const secondRight = secondEntry.reverse
+        ? vbaNr(secondStop?.code0)
+        : vbaNr(secondStop?.code1);
 
     /*
-     * KLUCZOWA OCHRONA PRZED BŁĘDNYM PODMIENIANIEM NUMERÓW.
-     *
-     * Gdy dwa wiersze o tej samej nazwie mają po obu stronach
-     * konkretne numery, ale nie mają ANI JEDNEGO numeru wspólnego,
-     * traktujemy je jako dwa różne wystąpienia przystanku.
-     *
-     * Przykład: METRO STADION NARODOWY 07 nie może zostać połączony
-     * z innym METRO STADION NARODOWY 71 tylko dlatego, że nazwa jest
-     * identyczna. Algorytm może wtedy dojść dalej i dopasować 07 do
-     * właściwego 01/07 albo pozostawić pustą stronę wiersza.
+     * Jeżeli na tej samej stronie są dwa różne konkretne numery,
+     * są to dwa różne wystąpienia przystanku i muszą mieć osobne
+     * wiersze. To jest kluczowe m.in. dla GROTY 01 / GROTY 02.
      */
     if(
-        firstCodes.length>0 &&
-        secondCodes.length>0 &&
-        wspolneKody.length===0
+        firstLeft && secondLeft &&
+        !vbaTextEquals(firstLeft, secondLeft)
+    ){
+        return 0;
+    }
+
+    if(
+        firstRight && secondRight &&
+        !vbaTextEquals(firstRight, secondRight)
     ){
         return 0;
     }
 
     let score = 100;
 
-    /* zgodny numer ma zdecydowanie największy priorytet */
-    score += wspolneKody.length * 5000;
+    if(
+        firstLeft && secondLeft &&
+        vbaTextEquals(firstLeft, secondLeft)
+    ){
+        score += 5000;
+    }
+
+    if(
+        firstRight && secondRight &&
+        vbaTextEquals(firstRight, secondRight)
+    ){
+        score += 5000;
+    }
+
+    /* identyczna para numerów jest praktycznie pewnym dopasowaniem */
+    if(
+        firstLeft && firstRight &&
+        secondLeft && secondRight &&
+        vbaTextEquals(firstLeft, secondLeft) &&
+        vbaTextEquals(firstRight, secondRight)
+    ){
+        score += 10000;
+    }
 
     const firstLast = firstEntry.lineData.stopCount - 1;
     const secondLast = secondEntry.lineData.stopCount - 1;
