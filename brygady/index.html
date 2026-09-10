@@ -1849,27 +1849,60 @@ function ocenaDopasowaniaOsi(a,b,i,n,j,m){
         return 0;
     }
 
-    let score=100;
-
     const na=formatNrPrzystankuDoDopasowania(a.nr);
     const nb=formatNrPrzystankuDoDopasowania(b.nr);
 
+    const kraniecA=(i===0 || i===n-1);
+    const kraniecB=(j===0 || j===m-1);
+
     /*
-     * Logika z krótszego, poprawnie działającego pliku:
-     * zgodny numer jest dużo ważniejszy niż sama zgodna nazwa.
-     * Dzięki temu przy kilku wystąpieniach tej samej nazwy wybierane
-     * jest właściwe wystąpienie, a nie pierwsze/leżące najbliżej.
+     * KRAŃCE:
+     * jeżeli któryś punkt jest krańcem i oba numery są znane,
+     * różne numery oznaczają dwa osobne wiersze.
      */
+    if(
+        (kraniecA || kraniecB) &&
+        na &&
+        nb &&
+        na!==nb
+    ){
+        return 0;
+    }
+
+    /*
+     * POWTARZAJĄCA SIĘ NAZWA:
+     *
+     * Gdy np. METRO BEMOWO występuje kilka razy w jednym z
+     * kierunków, nie wolno scalać dwóch różnych numerów tylko
+     * na podstawie nazwy. Inaczej 03 może zostać pochłonięte
+     * przez 02 albo 71 i potem godzina dla 03 nie ma wiersza.
+     *
+     * Dla nazwy występującej po jednym razie nadal dozwolone
+     * jest np. 01 | NAZWA | 02.
+     */
+    const nazwaPowtarzana=
+        Number(a._liczbaTejNazwy||0)>1 ||
+        Number(b._liczbaTejNazwy||0)>1;
+
+    if(
+        nazwaPowtarzana &&
+        na &&
+        nb &&
+        na!==nb
+    ){
+        return 0;
+    }
+
+    let score=100;
+
     if(na && nb && na===nb){
         score+=1000;
     }
 
-    /* pierwszy wspólny kraniec */
     if(i===0 && j===0){
         score+=5000;
     }
 
-    /* ostatni wspólny kraniec */
     if(i===n-1 && j===m-1){
         score+=10000;
     }
@@ -1896,8 +1929,45 @@ function formatNrPrzystankuDoDopasowania(v){
 
 function scalDwaKierunkiPrzystankow(lista0,lista1){
 
-    const a=Array.isArray(lista0)?lista0:[];
-    const b=Array.isArray(lista1)?lista1:[];
+    const a=(Array.isArray(lista0)?lista0:[]).map(x=>({...x}));
+    const b=(Array.isArray(lista1)?lista1:[]).map(x=>({...x}));
+
+    /*
+     * Liczymy wystąpienia każdej nazwy po obu stronach.
+     * Jest to potrzebne przy miejscach takich jak:
+     *
+     *   METRO BEMOWO 02
+     *   METRO BEMOWO 03
+     *   METRO BEMOWO 71
+     *
+     * Sama zgodność nazwy nie może wtedy "zjeść" jednego
+     * z numerów. Każde rzeczywiste wystąpienie musi pozostać
+     * dostępne do późniejszego mapowania godziny.
+     */
+    const policzNazwy=lista=>{
+        const mapa=new Map();
+
+        lista.forEach(p=>{
+            const k=normalizuj(p?.nazwa);
+            if(!k)return;
+            mapa.set(k,(mapa.get(k)||0)+1);
+        });
+
+        return mapa;
+    };
+
+    const countA=policzNazwy(a);
+    const countB=policzNazwy(b);
+
+    a.forEach(p=>{
+        p._liczbaTejNazwy=
+            countA.get(normalizuj(p?.nazwa))||0;
+    });
+
+    b.forEach(p=>{
+        p._liczbaTejNazwy=
+            countB.get(normalizuj(p?.nazwa))||0;
+    });
 
     const n=a.length;
     const m=b.length;
@@ -3893,67 +3963,73 @@ function vbaGetStopMatchScore(
     secondaryIndex,
     secondaryCount
 ){
-    if(!vbaTextEquals(primary?.nazwa, secondary?.nazwa)){
+    if(!vbaTextEquals(primary?.nazwa,secondary?.nazwa)){
         return 0;
     }
 
-    const nrPrimary = vbaNr(primary?.nr);
-    const nrSecondary = vbaNr(secondary?.nr);
+    const nrPrimary=vbaNr(primary?.nr);
+    const nrSecondary=vbaNr(secondary?.nr);
 
-    const primaryJestKrancem =
-        primaryIndex === 0 ||
-        primaryIndex === primaryCount - 1;
+    const primaryEndpoint=
+        primaryIndex===0 ||
+        primaryIndex===primaryCount-1;
 
-    const secondaryJestKrancem =
-        secondaryIndex === 0 ||
-        secondaryIndex === secondaryCount - 1;
+    const secondaryEndpoint=
+        secondaryIndex===0 ||
+        secondaryIndex===secondaryCount-1;
 
     /*
-     * WAŻNE:
-     * różne numery tej samej nazwy są DOZWOLONE na zwykłej trasie.
-     *
-     * Przykład:
-     *   01 | GROTY | 02
-     * jest poprawny, jeżeli GROTY nie jest w tym miejscu krańcem.
-     *
-     * Jeżeli jednak choć jedno z dopasowywanych wystąpień jest
-     * krańcem danego kierunku, nie wolno połączyć dwóch różnych
-     * numerów w jeden wiersz. Wtedy algorytm tworzy osobny wiersz
-     * dla drugiego wystąpienia przystanku.
-     *
-     * Dzięki temu kraniec:
-     *   01 | GROTY | 01
-     * pozostaje krańcem 01, a przejazd przez GROTY 02 trafia
-     * do osobnego wiersza.
+     * Tylko na krańcach różne znane numery nie mogą
+     * zostać złączone w jeden wiersz.
      */
     if(
+        (primaryEndpoint || secondaryEndpoint) &&
         nrPrimary &&
         nrSecondary &&
-        !vbaTextEquals(nrPrimary, nrSecondary) &&
-        (primaryJestKrancem || secondaryJestKrancem)
+        !vbaTextEquals(nrPrimary,nrSecondary)
     ){
         return 0;
     }
 
-    let score = 100;
+    /*
+     * Jeżeli ta sama nazwa występuje kilka razy, wymagamy
+     * zgodnego numeru. To chroni m.in. METRO BEMOWO 03.
+     *
+     * Przy nazwie występującej tylko raz nadal może być
+     * 01 | NAZWA | 02.
+     */
+    const nazwaPowtarzana=
+        Number(primary?._liczbaTejNazwy||0)>1 ||
+        Number(secondary?._liczbaTejNazwy||0)>1;
+
+    if(
+        nazwaPowtarzana &&
+        nrPrimary &&
+        nrSecondary &&
+        !vbaTextEquals(nrPrimary,nrSecondary)
+    ){
+        return 0;
+    }
+
+    let score=100;
 
     if(
         nrPrimary &&
         nrSecondary &&
-        vbaTextEquals(nrPrimary, nrSecondary)
+        vbaTextEquals(nrPrimary,nrSecondary)
     ){
-        score += 1000;
+        score+=1000;
     }
 
-    if(primaryIndex === 0 && secondaryIndex === 0){
-        score += 5000;
+    if(primaryIndex===0 && secondaryIndex===0){
+        score+=5000;
     }
 
     if(
-        primaryIndex === primaryCount - 1 &&
-        secondaryIndex === secondaryCount - 1
+        primaryIndex===primaryCount-1 &&
+        secondaryIndex===secondaryCount-1
     ){
-        score += 10000;
+        score+=10000;
     }
 
     return score;
@@ -3961,49 +4037,70 @@ function vbaGetStopMatchScore(
 
 
 function vbaMergeStops(primaryRoute, secondaryRoute){
-    const primary = Array.isArray(primaryRoute) ? primaryRoute : [];
-    const secondarySource = Array.isArray(secondaryRoute)
-        ? secondaryRoute
-        : [];
+    const primary=(Array.isArray(primaryRoute)?primaryRoute:[])
+        .map(x=>({...x}));
 
-    /*
-     * Dokładnie jak VBA:
-     * drugi kierunek odwracamy, aby obie listy miały ten sam
-     * kierunek wyświetlania od góry do dołu.
-     */
-    const secondary = [...secondarySource].reverse();
+    const secondarySource=(Array.isArray(secondaryRoute)?secondaryRoute:[])
+        .map(x=>({...x}));
 
-    const n = primary.length;
-    const m = secondary.length;
+    const secondary=[...secondarySource].reverse();
+
+    const policzNazwy=lista=>{
+        const mapa=new Map();
+
+        lista.forEach(p=>{
+            const k=vbaNorm(p?.nazwa);
+            if(!k)return;
+            mapa.set(k,(mapa.get(k)||0)+1);
+        });
+
+        return mapa;
+    };
+
+    const primaryCounts=policzNazwy(primary);
+    const secondaryCounts=policzNazwy(secondary);
+
+    primary.forEach(p=>{
+        p._liczbaTejNazwy=
+            primaryCounts.get(vbaNorm(p?.nazwa))||0;
+    });
+
+    secondary.forEach(p=>{
+        p._liczbaTejNazwy=
+            secondaryCounts.get(vbaNorm(p?.nazwa))||0;
+    });
+
+    const n=primary.length;
+    const m=secondary.length;
 
     if(!n){
-        return secondary.map(s => ({
-            nazwa: s.nazwa,
-            code0: "",
-            code1: s.nr,
-            nz0: false,
-            nz1: s.nz
+        return secondary.map(s=>({
+            nazwa:s.nazwa,
+            code0:"",
+            code1:s.nr,
+            nz0:false,
+            nz1:s.nz
         }));
     }
 
     if(!m){
-        return primary.map(p => ({
-            nazwa: p.nazwa,
-            code0: p.nr,
-            code1: "",
-            nz0: p.nz,
-            nz1: false
+        return primary.map(p=>({
+            nazwa:p.nazwa,
+            code0:p.nr,
+            code1:"",
+            nz0:p.nz,
+            nz1:false
         }));
     }
 
-    const dp = Array.from(
-        {length: n + 1},
-        () => Array(m + 1).fill(0)
+    const dp=Array.from(
+        {length:n+1},
+        ()=>Array(m+1).fill(0)
     );
 
-    for(let i = n - 1; i >= 0; i--){
-        for(let j = m - 1; j >= 0; j--){
-            const matchScore = vbaGetStopMatchScore(
+    for(let i=n-1;i>=0;i--){
+        for(let j=m-1;j>=0;j--){
+            const matchScore=vbaGetStopMatchScore(
                 primary[i],
                 secondary[j],
                 i,
@@ -4012,14 +4109,14 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
                 m
             );
 
-            const matchTotal = matchScore > 0
-                ? matchScore + dp[i + 1][j + 1]
+            const matchTotal=matchScore>0
+                ? matchScore+dp[i+1][j+1]
                 : -1;
 
-            const skipPrimary = dp[i + 1][j];
-            const skipSecondary = dp[i][j + 1];
+            const skipPrimary=dp[i+1][j];
+            const skipSecondary=dp[i][j+1];
 
-            dp[i][j] = Math.max(
+            dp[i][j]=Math.max(
                 skipPrimary,
                 skipSecondary,
                 matchTotal
@@ -4027,12 +4124,12 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
         }
     }
 
-    const result = [];
-    let i = 0;
-    let j = 0;
+    const result=[];
+    let i=0;
+    let j=0;
 
-    while(i < n && j < m){
-        const matchScore = vbaGetStopMatchScore(
+    while(i<n && j<m){
+        const matchScore=vbaGetStopMatchScore(
             primary[i],
             secondary[j],
             i,
@@ -4041,73 +4138,70 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
             m
         );
 
-        const matchTotal = matchScore > 0
-            ? matchScore + dp[i + 1][j + 1]
+        const matchTotal=matchScore>0
+            ? matchScore+dp[i+1][j+1]
             : -1;
 
-        const skipPrimary = dp[i + 1][j];
-        const skipSecondary = dp[i][j + 1];
+        const skipPrimary=dp[i+1][j];
+        const skipSecondary=dp[i][j+1];
 
-        /*
-         * VBA przy remisie preferuje prawidłowe dopasowanie.
-         */
         if(
-            matchScore > 0 &&
-            matchTotal === dp[i][j]
+            matchScore>0 &&
+            matchTotal===dp[i][j]
         ){
             result.push({
-                nazwa: primary[i].nazwa,
-                code0: primary[i].nr,
-                code1: secondary[j].nr,
-                nz0: primary[i].nz,
-                nz1: secondary[j].nz
+                nazwa:primary[i].nazwa,
+                code0:primary[i].nr,
+                code1:secondary[j].nr,
+                nz0:primary[i].nz,
+                nz1:secondary[j].nz
             });
 
             i++;
             j++;
         }
-        else if(skipPrimary >= skipSecondary){
+        else if(skipPrimary>=skipSecondary){
             result.push({
-                nazwa: primary[i].nazwa,
-                code0: primary[i].nr,
-                code1: "",
-                nz0: primary[i].nz,
-                nz1: false
+                nazwa:primary[i].nazwa,
+                code0:primary[i].nr,
+                code1:"",
+                nz0:primary[i].nz,
+                nz1:false
             });
 
             i++;
         }
         else{
             result.push({
-                nazwa: secondary[j].nazwa,
-                code0: "",
-                code1: secondary[j].nr,
-                nz0: false,
-                nz1: secondary[j].nz
+                nazwa:secondary[j].nazwa,
+                code0:"",
+                code1:secondary[j].nr,
+                nz0:false,
+                nz1:secondary[j].nz
             });
 
             j++;
         }
     }
 
-    while(i < n){
+    while(i<n){
         result.push({
-            nazwa: primary[i].nazwa,
-            code0: primary[i].nr,
-            code1: "",
-            nz0: primary[i].nz,
-            nz1: false
+            nazwa:primary[i].nazwa,
+            code0:primary[i].nr,
+            code1:"",
+            nz0:primary[i].nz,
+            nz1:false
         });
         i++;
     }
 
-    while(j < m){
+    while(j<m){
         result.push({
-            nazwa: secondary[j].nazwa,
-            code0: "",
-            code1: secondary[j].nr,
-            nz0: false,
-            nz1: secondary[j].nz
+            nazwa:secondary[j].nazwa,
+            code0:"",
+            code1:secondary[j].nr,
+            nz0:false,
+            nz1:secondary[j].nz
         });
         j++;
     }
@@ -4686,10 +4780,10 @@ function vbaBuildPatterns(records){
    ========================================================= */
 
 function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
-    const firstStop =
+    const firstStop=
         firstEntry.lineData.stops[firstEntry.rowIndex];
 
-    const secondStop =
+    const secondStop=
         secondEntry.lineData.stops[secondEntry.rowIndex];
 
     if(
@@ -4701,74 +4795,77 @@ function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
         return 0;
     }
 
-    const firstCodes = [
+    const firstCodes=[
         vbaNr(firstStop?.code0),
         vbaNr(firstStop?.code1)
     ].filter(Boolean);
 
-    const secondCodes = [
+    const secondCodes=[
         vbaNr(secondStop?.code0),
         vbaNr(secondStop?.code1)
     ].filter(Boolean);
 
-    const wspolneKody =
-        firstCodes.filter(code =>
-            secondCodes.some(other =>
+    const wspolneKody=
+        firstCodes.filter(code=>
+            secondCodes.some(other=>
                 other && vbaTextEquals(code,other)
             )
         );
 
-    const firstLast =
-        firstEntry.lineData.stopCount - 1;
+    const firstLast=firstEntry.lineData.stopCount-1;
+    const secondLast=secondEntry.lineData.stopCount-1;
 
-    const secondLast =
-        secondEntry.lineData.stopCount - 1;
+    const firstEndpoint=
+        firstEntry.rowIndex===0 ||
+        firstEntry.rowIndex===firstLast;
 
-    const firstJestKrancem =
-        firstEntry.rowIndex === 0 ||
-        firstEntry.rowIndex === firstLast;
-
-    const secondJestKrancem =
-        secondEntry.rowIndex === 0 ||
-        secondEntry.rowIndex === secondLast;
+    const secondEndpoint=
+        secondEntry.rowIndex===0 ||
+        secondEntry.rowIndex===secondLast;
 
     /*
-     * RÓŻNE NUMERY BLOKUJEMY TYLKO PRZY KRAŃCACH.
-     *
-     * Na zwykłej trasie:
-     *   01 | NAZWA | 02
-     * jest prawidłowe i takie wiersze mogą być wspólne.
-     *
-     * Jeżeli jednak wiersz jest krańcem którejś z łączonych linii,
-     * dwa wystąpienia o tej samej nazwie, ale bez wspólnego numeru,
-     * muszą pozostać osobnymi wierszami.
-     *
-     * Przykład:
-     *   linia A kończy na GROTY 01,
-     *   linia B przejeżdża przez GROTY 02.
-     *
-     * Wtedy GROTY 02 nie zostanie dopisane do wiersza krańcowego
-     * GROTY 01, lecz dostanie osobny wiersz.
+     * Krańce z różnymi numerami pozostają osobnymi wierszami.
      */
     if(
-        firstCodes.length > 0 &&
-        secondCodes.length > 0 &&
-        wspolneKody.length === 0 &&
-        (firstJestKrancem || secondJestKrancem)
+        (firstEndpoint || secondEndpoint) &&
+        firstCodes.length>0 &&
+        secondCodes.length>0 &&
+        wspolneKody.length===0
     ){
         return 0;
     }
 
-    let score = 100;
-
     /*
-     * Zgodny numer nadal ma bardzo duży priorytet, dzięki czemu
-     * identyczne krańce, np. 71 + 71, łączą się w jeden wiersz.
+     * Jeżeli ta sama nazwa występuje więcej niż raz w osi
+     * którejkolwiek linii, różne numery nie mogą zostać
+     * połączone tylko dlatego, że nazwa jest taka sama.
      */
-    score += wspolneKody.length * 5000;
+    const nazwa=String(firstStop?.nazwa||"");
 
-    if(firstJestKrancem && secondJestKrancem){
-        score += 500;
+    const firstNameCount=
+        firstEntry.lineData.stops.filter(s=>
+            vbaTextEquals(s?.nazwa,nazwa)
+        ).length;
+
+    const secondNameCount=
+        secondEntry.lineData.stops.filter(s=>
+            vbaTextEquals(s?.nazwa,nazwa)
+        ).length;
+
+    if(
+        (firstNameCount>1 || secondNameCount>1) &&
+        firstCodes.length>0 &&
+        secondCodes.length>0 &&
+        wspolneKody.length===0
+    ){
+        return 0;
+    }
+
+    let score=100;
+    score+=wspolneKody.length*5000;
+
+    if(firstEndpoint && secondEndpoint){
+        score+=500;
     }
 
     return score;
