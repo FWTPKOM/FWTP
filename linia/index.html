@@ -1285,7 +1285,8 @@
 <script>
 
 /* =========================================================
-   FWTP v44
+   FWTP v45
+   - kierunki u góry: ostatni przystanek pasażerski, bez TECH/WS operacyjnych
    - DF/Df: kurs szkolny jest traktowany jako dzień powszedni i pokazuje F
    - Df: duża litera F przy minucie i w legendzie
    - nie pokazuje nieopisanych/wewnętrznych liter wariantów (np. 900 C)
@@ -5077,17 +5078,117 @@ function generujKierunki() {
                 );
 
 
-            const p =
-                kierunek.przystanki ||
-                [];
+            /*
+             * V45 — nazwa kierunku ma być nazwą końca trasy
+             * DLA PASAŻERA, a nie ostatniego wpisu operacyjnego
+             * w surowym JSON-ie.
+             *
+             * Przykład:
+             * linia 208 może mieć po właściwym końcu pasażerskim
+             * jeszcze przystanek techniczny / operacyjny
+             * "Szczęśliwice". Na przycisku ma wtedy zostać
+             * pokazane "Bitwy Warszawskiej 1920 r.".
+             *
+             * Najpierw bierzemy kierunek przefiltrowany dla
+             * wybranej daty. Dzięki temu:
+             * - odpada TECH,
+             * - odpadają przystanki bez kursów danego dnia,
+             * - zachowujemy dokładnie tę samą listę pasażerską,
+             *   którą później pokazuje strona.
+             *
+             * Jeżeli z jakiegoś powodu dla daty lista jest pusta,
+             * stosujemy filtr pasażerski bez filtrowania kursów.
+             */
+            const kierunekDlaDaty =
+                przygotujKierunekDlaDaty(
+                    kierunek,
+                    wybranaData
+                );
+
+
+            let p =
+                kierunekDlaDaty &&
+                Array.isArray(
+                    kierunekDlaDaty.przystanki
+                ) &&
+                kierunekDlaDaty.przystanki.length > 0
+                    ? kierunekDlaDaty.przystanki
+                    : filtrujPrzystankiSpecjalneFWTP(
+                        kierunek.przystanki ||
+                        []
+                      );
+
+
+            /*
+             * Dodatkowe zabezpieczenie:
+             * jeżeli na samym końcu pozostał przystanek WS,
+             * który nie jest miejscem docelowym dla pasażera,
+             * cofamy się do ostatniego zwykłego / WYS / NŻ.
+             */
+            let ostatniPasazerski =
+                null;
+
+
+            for (
+                let i = p.length - 1;
+                i >= 0;
+                i--
+            ) {
+
+                const kandydat =
+                    p[i];
+
+
+                const typKandydata =
+                    pobierzTypPrzystankuFWTP(
+                        kandydat
+                    );
+
+
+                if (
+                    typKandydata === "TECH"
+                ) {
+
+                    continue;
+                }
+
+
+                if (
+                    typKandydata === "WS"
+                ) {
+
+                    continue;
+                }
+
+
+                ostatniPasazerski =
+                    kandydat;
+
+                break;
+            }
+
+
+            /*
+             * Jeśli cały kierunek składałby się wyłącznie z WS,
+             * nie zostawiamy pustej nazwy — używamy po prostu
+             * ostatniego przefiltrowanego przystanku.
+             */
+            if (
+                !ostatniPasazerski &&
+                p.length > 0
+            ) {
+
+                ostatniPasazerski =
+                    p[
+                        p.length - 1
+                    ];
+            }
 
 
             btn.textContent =
-                p.length > 0
+                ostatniPasazerski
                     ? (
-                        p[
-                            p.length - 1
-                        ].nazwa ||
+                        ostatniPasazerski.nazwa ||
                         "Kierunek"
                     )
                     : "Kierunek " +
