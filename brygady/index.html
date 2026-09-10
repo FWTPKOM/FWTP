@@ -3584,6 +3584,8 @@ function vbaZbierzKursyLinii(dane, data){
                             kierunek: kierunekIndex,
 
                             rozkladIndex,
+                            rozklad,
+                            kierunekData: kierunek,
                             route: przystanki,
 
                             czasy: new Map(),
@@ -3760,75 +3762,40 @@ function vbaUsunKolejneDuplikaty(route){
    WYBÓR STRUKTURY KIERUNKU
    ========================================================= */
 
-function vbaOcenaRouteCandidate(route, kursyKierunku){
-    if(!Array.isArray(route) || !route.length){
-        return -1;
-    }
-
-    const keys = new Set(
-        route.map(p =>
-            vbaNorm(p?.nazwa) + "|" + vbaNr(p?.nr)
-        )
-    );
-
-    let covered = 0;
-    let missing = 0;
-
-    (kursyKierunku || []).forEach(kurs => {
-        for(const p of kurs.punkty.values()){
-            const key = vbaNorm(p?.nazwa) + "|" + vbaNr(p?.nr);
-
-            if(keys.has(key)){
-                covered++;
-            }else{
-                missing++;
-            }
-        }
-    });
-
-    /*
-     * Najważniejsze: żadnego brakującego rzeczywistego punktu.
-     * Potem liczba pokrytych punktów, a na końcu długość pełnej osi.
-     */
-    return (
-        covered * 100000 +
-        route.length * 10 -
-        missing * 10000000
+function vbaRouteZKierunku(kierunek){
+    return vbaUsunKolejneDuplikaty(
+        Array.isArray(kierunek?.przystanki)
+            ? kierunek.przystanki
+            : []
     );
 }
 
 
-function vbaWybierzRoute(kursyKierunku){
-    const candidates = [];
-    const seen = new Set();
+/*
+ * Odpowiednik GetCachedRouteStructure / ExtractStopsFromOrderedRows:
+ * bierzemy dokładnie dwa kierunki TEGO SAMEGO obiektu "rozkład".
+ *
+ * Eksporter JSON tworzy jeden obiekt rozkładu z każdych dwóch
+ * kolejnych nagłówków przystankowych, więc to jest bezpośredni
+ * odpowiednik primaryStopRow / secondaryStopRow z VBA.
+ */
+function vbaPelneTrasyZRozkladu(rozklad){
+    const kierunki =
+        Array.isArray(rozklad?.kierunki)
+            ? rozklad.kierunki
+            : [];
 
-    (kursyKierunku || []).forEach(kurs => {
-        const route = kurs?.route;
+    return {
+        route0:
+            kierunki.length >= 1
+                ? vbaRouteZKierunku(kierunki[0])
+                : [],
 
-        if(!Array.isArray(route) || !route.length){
-            return;
-        }
-
-        const signature = route.map(p =>
-            vbaNorm(p?.nazwa) + "|" + vbaNr(p?.nr)
-        ).join(">");
-
-        if(!seen.has(signature)){
-            seen.add(signature);
-            candidates.push(route);
-        }
-    });
-
-    if(!candidates.length){
-        return [];
-    }
-
-    candidates.sort((a, b) =>
-        vbaOcenaRouteCandidate(b, kursyKierunku) -
-        vbaOcenaRouteCandidate(a, kursyKierunku)
-    );
-
-    return vbaUsunKolejneDuplikaty(candidates[0]);
+        route1:
+            kierunki.length >= 2
+                ? vbaRouteZKierunku(kierunki[1])
+                : []
+    };
 }
 
 
@@ -4189,26 +4156,62 @@ function vbaMapujKursNaLineData(kurs, lineData){
 }
 
 
-function vbaBuildCombinedLineData(lineName, taskCourses){
-    const dir0 = (taskCourses || []).filter(k => Number(k.kierunek) === 0);
-    const dir1 = (taskCourses || []).filter(k => Number(k.kierunek) === 1);
+function vbaBuildCombinedLineData(
+    lineName,
+    rozkladIndex,
+    taskCourses
+){
+    const courses =
+        Array.isArray(taskCourses)
+            ? taskCourses
+            : [];
 
-    const route0 = vbaWybierzRoute(dir0);
-    const route1 = vbaWybierzRoute(dir1);
+    if(!courses.length){
+        return null;
+    }
+
+    /*
+     * Wszystkie kursy tego kontekstu pochodzą z tego samego
+     * obiektu rozkładu. Nie rekonstruujemy trasy na podstawie
+     * kursów — korzystamy z pełnych kierunków JSON.
+     */
+    const rozklad =
+        courses.find(k => k?.rozklad)?.rozklad ||
+        null;
+
+    if(!rozklad){
+        return null;
+    }
+
+    const {
+        route0,
+        route1
+    } = vbaPelneTrasyZRozkladu(rozklad);
 
     if(!route0.length && !route1.length){
         return null;
     }
 
-    const stops = vbaMergeStops(route0, route1);
+    const stops =
+        vbaMergeStops(
+            route0,
+            route1
+        );
 
     if(!stops.length){
         return null;
     }
 
     return {
-        id: "line|" + String(lineName),
+        id:
+            "line|" +
+            String(lineName) +
+            "|schedule|" +
+            String(rozkladIndex),
+
         lineName: String(lineName),
+        rozkladIndex: Number(rozkladIndex),
+        rozklad,
         stops,
         stopCount: stops.length
     };
@@ -4242,37 +4245,64 @@ function vbaCompareRecords(a, b){
 
 
 function vbaBuildRecords(allTaskCourses){
-    const byLine = new Map();
+    /*
+     * VBA ma osobny context dla konkretnej linii i konkretnego typu dnia.
+     * W JSON odpowiednikiem jest konkretny obiekt "rozkład".
+     */
+    const byContext = new Map();
 
     (allTaskCourses || []).forEach(kurs => {
-        const line = String(kurs?.linia || "");
+        const line =
+            String(kurs?.linia || "");
 
-        if(!byLine.has(line)){
-            byLine.set(line, []);
+        const rozkladIndex =
+            Number(kurs?.rozkladIndex ?? -1);
+
+        const key =
+            line + "|" + rozkladIndex;
+
+        if(!byContext.has(key)){
+            byContext.set(key, {
+                line,
+                rozkladIndex,
+                courses: []
+            });
         }
 
-        byLine.get(line).push(kurs);
+        byContext.get(key).courses.push(kurs);
     });
 
     const lineDataMap = new Map();
 
-    byLine.forEach((courses, line) => {
-        const ld = vbaBuildCombinedLineData(line, courses);
+    byContext.forEach((context, key) => {
+        const ld =
+            vbaBuildCombinedLineData(
+                context.line,
+                context.rozkladIndex,
+                context.courses
+            );
 
         if(ld){
-            lineDataMap.set(line, ld);
+            lineDataMap.set(key, ld);
         }
     });
 
     const records = [];
 
-    byLine.forEach((courses, line) => {
-        const ld = lineDataMap.get(line);
+    byContext.forEach((context, key) => {
+        const ld =
+            lineDataMap.get(key);
 
-        if(!ld) return;
+        if(!ld){
+            return;
+        }
 
-        courses.forEach(kurs => {
-            const record = vbaMapujKursNaLineData(kurs, ld);
+        context.courses.forEach(kurs => {
+            const record =
+                vbaMapujKursNaLineData(
+                    kurs,
+                    ld
+                );
 
             if(record){
                 records.push(record);
@@ -4296,33 +4326,64 @@ function vbaBuildRecords(allTaskCourses){
 function vbaBuildRecordEntries(record, coursePosition){
     const result = [];
 
-    const even = (coursePosition % 2 === 0);
+    const even =
+        (coursePosition % 2 === 0);
 
     /*
-     * VBA:
+     * Dokładne tłumaczenie VBA:
+     *
      * reverseOrder =
      * ((directionCode = 20) Xor (coursePosition Mod 2 = 0))
+     *
+     * JS:
+     * direction 0 = VBA 10
+     * direction 1 = VBA 20
      */
     const reverse =
         (record.direction === 1) !== even;
 
-    const rows = [...record.actualRows];
+    const stopCount =
+        record.lineData.stopCount;
 
     /*
-     * actualRows są zapisane w rzeczywistym kierunku jazdy.
-     * Potrzebujemy kolejności wyświetlanej wspólnej osi.
+     * To jest kluczowa poprawka v14:
+     * iterujemy PEŁNĄ WSPÓLNĄ OŚ lineData.stops,
+     * nie record.actualRows w kolejności jazdy.
      */
-    const ordered = reverse
-        ? [...rows].reverse()
-        : [...rows];
+    if(reverse){
+        for(
+            let rowIndex = stopCount - 1;
+            rowIndex >= 0;
+            rowIndex--
+        ){
+            if(!record.times.has(rowIndex)){
+                continue;
+            }
 
-    ordered.forEach(rowIndex => {
-        result.push({
-            lineData: record.lineData,
-            rowIndex,
-            reverse
-        });
-    });
+            result.push({
+                lineData: record.lineData,
+                rowIndex,
+                reverse
+            });
+        }
+    }
+    else{
+        for(
+            let rowIndex = 0;
+            rowIndex < stopCount;
+            rowIndex++
+        ){
+            if(!record.times.has(rowIndex)){
+                continue;
+            }
+
+            result.push({
+                lineData: record.lineData,
+                rowIndex,
+                reverse
+            });
+        }
+    }
 
     return result;
 }
@@ -5361,7 +5422,7 @@ function vbaDeduplicateCombinedCourses(courses){
             kurs.kierunek,
             kurs.numer,
             kurs.wariant,
-            kurs.rokladIndex,
+            kurs.rozkladIndex,
             times
         ].join("|");
 
