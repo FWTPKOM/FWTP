@@ -3666,6 +3666,7 @@ function zbudujWpisyWzorcaLaczonego(kurs,pozycja){
             nazwa:String(p.nazwa||""),
             nr:String(p.nr||""),
             nz:czyNZ(p),
+            typ:String(p.typ||"").trim().toUpperCase(),
             endpoint:
                 sourceIndex===indeksy[0] ||
                 sourceIndex===indeksy[indeksy.length-1],
@@ -3701,10 +3702,42 @@ function utworzWierszLaczony(entry){
 function scoreParyPrzystankowLaczonych(a,b){
     if(normalizuj(a?.nazwa)!==normalizuj(b?.nazwa))return 0;
 
-    let score=100;
-
     const nrA=String(a?.nr||"").trim();
     const nrB=String(b?.nr||"").trim();
+
+    const typA=String(a?.typ||"").trim().toUpperCase();
+    const typB=String(b?.typ||"").trim().toUpperCase();
+
+    const liniaA=String(a?.linia||"").trim();
+    const liniaB=String(b?.linia||"").trim();
+
+    /*
+     * v8 – przystanki techniczne muszą zachować własny wiersz.
+     *
+     * Przykład METRO STADION NARODOWY:
+     * - zwykła para kierunków 01 / 02 może być jednym wierszem,
+     * - techniczny 71 z linii 999 NIE może przykleić się do 01 / 02,
+     * - 71 może natomiast połączyć się z innym wpisem 71 (np. linii 521).
+     *
+     * Linia 999 jest techniczna także wtedy, gdy starszy JSON nie miałby
+     * pola typ="TECH", dlatego sprawdzamy zarówno typ, jak i numer linii.
+     */
+    const techniczny=
+        typA==="TECH" ||
+        typB==="TECH" ||
+        liniaA==="999" ||
+        liniaB==="999";
+
+    if(
+        techniczny &&
+        nrA &&
+        nrB &&
+        nrA!==nrB
+    ){
+        return 0;
+    }
+
+    let score=100;
 
     if(nrA && nrB && nrA===nrB)score+=5000;
     if(a?.endpoint && b?.endpoint)score+=500;
@@ -4202,18 +4235,11 @@ function zbudujOsBrygadyLaczonej(kursy){
     najlepsze=rozdzielRozneSlupkiPrzyPolaczeniuLinii(najlepsze);
 
     /*
-     * v7 – po utworzeniu wszystkich osobnych wierszy o tej samej nazwie
-     * przenosimy wpisy do wiersza z dokładnie tym samym numerem słupka.
-     *
-     * Przykład:
-     * - METRO STADION NARODOWY 02
-     * - METRO STADION NARODOWY 71
-     * - METRO STADION NARODOWY 07
-     *
-     * Jeżeli wpis linii 999 ma nr 71, nie może zostać w wierszu 02
-     * tylko dlatego, że wcześniej oba miały tę samą nazwę.
+     * v8 – nie wykonujemy już późniejszego przenoszenia wpisów między
+     * wierszami. Przystanek TECH/999 jest chroniony przed błędnym
+     * scaleniem już w scoreParyPrzystankowLaczonych(), więc 71 powstaje
+     * od początku jako osobny wiersz i zachowuje właściwą kolejność.
      */
-    najlepsze=realokujWpisyDoDokladnegoSlupka(najlepsze);
 
     return najlepsze.map(wiersz=>{
         const first=wiersz.entries[0]||{};
