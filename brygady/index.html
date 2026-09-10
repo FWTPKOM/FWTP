@@ -3639,7 +3639,13 @@ function zbudujWpisyWzorcaLaczonego(kurs,pozycja){
             nz:czyNZ(p),
             endpoint:
                 sourceIndex===indeksy[0] ||
-                sourceIndex===indeksy[indeksy.length-1]
+                sourceIndex===indeksy[indeksy.length-1],
+            endpointType:
+                sourceIndex===indeksy[0]
+                    ? "start"
+                    : sourceIndex===indeksy[indeksy.length-1]
+                        ? "end"
+                        : ""
         };
     });
 }
@@ -3666,18 +3672,10 @@ function utworzWierszLaczony(entry){
 function scoreParyPrzystankowLaczonych(a,b){
     if(normalizuj(a?.nazwa)!==normalizuj(b?.nazwa))return 0;
 
+    let score=100;
+
     const nrA=String(a?.nr||"").trim();
     const nrB=String(b?.nr||"").trim();
-
-    /*
-     * Ta sama nazwa zespołu nie wystarcza do scalenia.
-     * Przykład METRO STADION NARODOWY 71 i 07:
-     * są to dwa różne słupki i muszą pozostać w dwóch wierszach.
-     * Jeżeli oba wpisy mają numer i numery są różne, zabraniamy matchu.
-     */
-    if(nrA && nrB && nrA!==nrB)return 0;
-
-    let score=100;
 
     if(nrA && nrB && nrA===nrB)score+=5000;
     if(a?.endpoint && b?.endpoint)score+=500;
@@ -3940,6 +3938,119 @@ function scalWspolnePunktyPolaczeniaLinii(wiersze){
     return wynik;
 }
 
+
+/*
+ * Rozdziela wyłącznie konflikt numerów w rzeczywistym punkcie
+ * zmiany linii. Nie dotyka zwykłego łączenia dwóch kierunków.
+ *
+ * Przykład:
+ * - 102 kończy na METRO STADION NARODOWY 07,
+ * - 202 zaczyna na METRO STADION NARODOWY 07,
+ * - 521 zaczyna na METRO STADION NARODOWY 71.
+ *
+ * W takim przypadku 07 jest wspólnym punktem połączenia dwóch linii,
+ * natomiast 71 musi pozostać osobnym wierszem. Początek na innym
+ * słupku umieszczamy przed wspólnym wierszem, a koniec po nim.
+ */
+function rozdzielRozneSlupkiPrzyPolaczeniuLinii(wiersze){
+    const wynik=klonujWierszeLaczone(wiersze||[]);
+
+    for(let i=0;i<wynik.length;i++){
+        const wiersz=wynik[i];
+        const entries=Array.isArray(wiersz?.entries)?wiersz.entries:[];
+        if(entries.length<2)continue;
+
+        const endpointy=entries.filter(e=>
+            e?.endpoint===true && String(e?.nr||"").trim()
+        );
+        if(endpointy.length<2)continue;
+
+        // Szukamy numeru słupka będącego prawdziwym miejscem
+        // połączenia co najmniej dwóch różnych linii.
+        const linieDlaNumeru=new Map();
+        endpointy.forEach(e=>{
+            const nr=String(e.nr||"").trim();
+            const linia=String(e.linia||"").trim();
+            if(!linieDlaNumeru.has(nr))linieDlaNumeru.set(nr,new Set());
+            if(linia)linieDlaNumeru.get(nr).add(linia);
+        });
+
+        let wspolnyNumer="";
+        let maxLinii=1;
+        for(const [nr,linie] of linieDlaNumeru.entries()){
+            if(linie.size>maxLinii){
+                maxLinii=linie.size;
+                wspolnyNumer=nr;
+            }
+        }
+        if(!wspolnyNumer)continue;
+
+        const inneNumery=new Set(
+            endpointy
+                .map(e=>String(e.nr||"").trim())
+                .filter(nr=>nr && nr!==wspolnyNumer)
+        );
+        if(!inneNumery.size)continue;
+
+        const przed=[];
+        const po=[];
+        const zostaja=[];
+
+        entries.forEach(e=>{
+            const nr=String(e?.nr||"").trim();
+
+            // Rozdzielamy tylko wpis należący do innego numeru słupka,
+            // który sam jest krańcem kursu. Wpisy zwykłych kierunków
+            // pozostają w dotychczasowym wspólnym wierszu.
+            if(
+                e?.endpoint===true &&
+                nr &&
+                nr!==wspolnyNumer &&
+                inneNumery.has(nr)
+            ){
+                if(e.endpointType==="end")po.push({...e});
+                else przed.push({...e});
+            }else{
+                zostaja.push({...e});
+            }
+        });
+
+        if(!przed.length && !po.length)continue;
+
+        // Zachowujemy główny wspólny wiersz 07 w miejscu,
+        // a dodatkowe krańce (np. 71) dokładamy tuż obok.
+        wiersz.entries=zostaja;
+
+        const nowePrzed=[];
+        const grupyPrzed=new Map();
+        przed.forEach(e=>{
+            const key=normalizuj(e.nazwa)+"|"+String(e.nr||"").trim();
+            if(!grupyPrzed.has(key))grupyPrzed.set(key,{entries:[]});
+            grupyPrzed.get(key).entries.push(e);
+        });
+        grupyPrzed.forEach(x=>nowePrzed.push(x));
+
+        const nowePo=[];
+        const grupyPo=new Map();
+        po.forEach(e=>{
+            const key=normalizuj(e.nazwa)+"|"+String(e.nr||"").trim();
+            if(!grupyPo.has(key))grupyPo.set(key,{entries:[]});
+            grupyPo.get(key).entries.push(e);
+        });
+        grupyPo.forEach(x=>nowePo.push(x));
+
+        if(nowePrzed.length){
+            wynik.splice(i,0,...nowePrzed);
+            i+=nowePrzed.length;
+        }
+        if(nowePo.length){
+            wynik.splice(i+1,0,...nowePo);
+        }
+    }
+
+    return wynik;
+}
+
 function zbudujOsBrygadyLaczonej(kursy){
     const rzeczywiste=kursy.filter(k=>!czyPlaceholderKursu(k));
     const wzorce=zbudujWzorceTrasLaczonych(rzeczywiste);
@@ -3966,6 +4077,10 @@ function zbudujOsBrygadyLaczonej(kursy){
      * Taki punkt ma być jednym wierszem wspólnej osi.
      */
     najlepsze=scalWspolnePunktyPolaczeniaLinii(najlepsze);
+
+    // Dopiero po znalezieniu prawdziwego wspólnego punktu dwóch linii
+    // rozdzielamy ewentualny inny słupek o tej samej nazwie (np. 71).
+    najlepsze=rozdzielRozneSlupkiPrzyPolaczeniuLinii(najlepsze);
 
     return najlepsze.map(wiersz=>{
         const first=wiersz.entries[0]||{};
@@ -4098,9 +4213,7 @@ function numeryWierszaLaczonego(element){
     let lewy=null;
     let prawy=null;
 
-    const entries=Array.isArray(element?.entries)?element.entries:[];
-
-    for(const wpis of entries){
+    for(const wpis of element.entries||[]){
         const dane={nr:String(wpis.nr||""),nz:Boolean(wpis.nz)};
 
         if(wpis.reverse){
@@ -4110,41 +4223,8 @@ function numeryWierszaLaczonego(element){
         }
     }
 
-    /*
-     * Jeżeli jest to rzeczywisty punkt połączenia dwóch linii na tym samym
-     * słupku (np. 102 kończy na METRO STADION NARODOWY 07, a 202
-     * rozpoczyna z METRO STADION NARODOWY 07), numer słupka pokazujemy
-     * po obu stronach tabeli.
-     *
-     * Nie dotyczy to słupka 71, ponieważ po poprawce wyżej 71 i 07
-     * nie mogą już trafić do jednego wiersza.
-     */
-    const endpointy=entries.filter(e=>e?.endpoint===true);
-    const linieEndpointow=new Set(
-        endpointy.map(e=>String(e?.linia||"").trim()).filter(Boolean)
-    );
-    const numeryEndpointow=endpointy
-        .map(e=>String(e?.nr||"").trim())
-        .filter(Boolean);
-
-    const wspolnyNumer=
-        numeryEndpointow.length>=2 &&
-        numeryEndpointow.every(nr=>nr===numeryEndpointow[0])
-            ? numeryEndpointow[0]
-            : "";
-
-    if(wspolnyNumer && linieEndpointow.size>=2){
-        const nz=endpointy.some(e=>Boolean(e?.nz));
-
-        if(!lewy || !lewy.nr){
-            lewy={nr:wspolnyNumer,nz};
-        }
-
-        if(!prawy || !prawy.nr){
-            prawy={nr:wspolnyNumer,nz};
-        }
-    }
-
+    // Gdy jeden kierunek nie dostarczył numeru, wykorzystujemy dostępny numer
+    // tylko po właściwej stronie; druga pozostaje pusta jak w dotychczasowej tabeli.
     return{lewy,prawy};
 }
 
