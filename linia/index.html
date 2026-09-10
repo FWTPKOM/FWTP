@@ -1285,8 +1285,9 @@
 <script>
 
 /* =========================================================
-   FWTP v46
-   - Nxx: wariant A jest osią główną; przystanki tylko wariantowe idą na prawą odnogę
+   FWTP v47
+   - N14/N86 i podobne: lokalna oś główna wg liczby rzeczywistych kursów
+   - Nxx: wariant A nadal jest preferowaną osią główną, ale lokalny częstszy przejazd prosty ma pierwszeństwo
    - kierunki u góry: ostatni przystanek pasażerski, bez TECH/WS operacyjnych
    - DF/Df: kurs szkolny jest traktowany jako dzień powszedni i pokazuje F
    - Df: duża litera F przy minucie i w legendzie
@@ -10054,6 +10055,304 @@ const isOnMainAxisBazowa =
     }
 
 
+
+    /*
+     * =====================================================
+     * V47 — AUTOMATYCZNE ROZPOZNAWANIE PRAWEJ ODNOGI
+     *       WG RZECZYWISTEJ LICZBY KURSÓW
+     * =====================================================
+     *
+     * Problem N14 / N86:
+     *
+     *     A -------- D
+     *       \ B - C /
+     *
+     * Jeżeli większość kursów jedzie bezpośrednio A -> D,
+     * a tylko część kursów jedzie przez B/C, to B/C są
+     * PRZYSTANKAMI WARIANTOWYMI i powinny być po PRAWEJ.
+     *
+     * Nie wolno opierać tego wyłącznie na literze A,
+     * ponieważ w niektórych danych wariant A może być właśnie
+     * dłuższym przebiegiem przez dodatkowy przystanek.
+     *
+     * Dlatego dla każdej długiej krawędzi u -> v:
+     * - liczymy kursy jadące BEZPOŚREDNIO u -> v,
+     * - liczymy kursy jadące u -> ... -> v przez punkty pomiędzy,
+     * - jeżeli bezpośrednich jest WIĘCEJ, uznajemy u -> v
+     *   za lokalną oś główną,
+     * - punkty pośrednie należą wtedy do prawej odnogi.
+     *
+     * Jeżeli kursów przez punkty pośrednie jest tyle samo albo
+     * więcej, niczego nie wymuszamy — działa dotychczasowa logika
+     * pominięć po lewej stronie.
+     *
+     * Ta reguła jest topologiczna i działa globalnie, nie tylko
+     * dla konkretnego numeru linii.
+     * =====================================================
+     */
+
+    function statystykaPrzejsciaMiedzyPunktamiFWTP(
+        u,
+        v
+    ) {
+
+        let bezposrednio =
+            0;
+
+
+        let przezPosrednie =
+            0;
+
+
+        const posrednieUzyte =
+            new Set();
+
+
+        Object.values(
+            tripPaths
+        ).forEach(
+            path => {
+
+                if (
+                    !Array.isArray(path) ||
+                    path.length < 2
+                ) {
+                    return;
+                }
+
+
+                const indeksy =
+                    path
+                        .map(
+                            pt =>
+                                Number(
+                                    pt.index
+                                )
+                        )
+                        .filter(
+                            idx =>
+                                Number.isInteger(
+                                    idx
+                                )
+                        );
+
+
+                const pozycjaU =
+                    indeksy.indexOf(
+                        u
+                    );
+
+
+                if (
+                    pozycjaU < 0
+                ) {
+                    return;
+                }
+
+
+                const pozycjaV =
+                    indeksy.indexOf(
+                        v,
+                        pozycjaU + 1
+                    );
+
+
+                if (
+                    pozycjaV < 0
+                ) {
+                    return;
+                }
+
+
+                if (
+                    pozycjaV ===
+                    pozycjaU + 1
+                ) {
+
+                    bezposrednio++;
+
+                    return;
+                }
+
+
+                let maPunktPomiedzy =
+                    false;
+
+
+                for (
+                    let p =
+                        pozycjaU + 1;
+                    p < pozycjaV;
+                    p++
+                ) {
+
+                    const idx =
+                        indeksy[p];
+
+
+                    if (
+                        idx > u &&
+                        idx < v
+                    ) {
+
+                        maPunktPomiedzy =
+                            true;
+
+
+                        posrednieUzyte.add(
+                            idx
+                        );
+                    }
+                }
+
+
+                if (
+                    maPunktPomiedzy
+                ) {
+
+                    przezPosrednie++;
+                }
+            }
+        );
+
+
+        return {
+            bezposrednio:
+                bezposrednio,
+
+            przezPosrednie:
+                przezPosrednie,
+
+            posrednieUzyte:
+                posrednieUzyte
+        };
+    }
+
+
+    edges.forEach(
+        e => {
+
+            if (
+                e.v <=
+                e.u + 1
+            ) {
+                return;
+            }
+
+
+            if (
+                !istniejeAlternatywnaSciezkaFWTP(
+                    e.u,
+                    e.v
+                )
+            ) {
+                return;
+            }
+
+
+            const stat =
+                statystykaPrzejsciaMiedzyPunktamiFWTP(
+                    e.u,
+                    e.v
+                );
+
+
+            /*
+             * Bezpośrednia droga musi rzeczywiście występować,
+             * a wariant przez przystanki pośrednie również musi
+             * istnieć. Dopiero wtedy porównujemy liczby kursów.
+             */
+            if (
+                stat.bezposrednio <= 0 ||
+                stat.przezPosrednie <= 0 ||
+                stat.bezposrednio <=
+                    stat.przezPosrednie
+            ) {
+
+                return;
+            }
+
+
+            /*
+             * Większość kursów jedzie prosto:
+             * u i v są osią, a rzeczywiście używane punkty
+             * pośrednie stają się prawą odnogą.
+             */
+            isOnMainAxis[
+                e.u
+            ] = true;
+
+
+            isOnMainAxis[
+                e.v
+            ] = true;
+
+
+            isOnMainAxisBazowa[
+                e.u
+            ] = true;
+
+
+            isOnMainAxisBazowa[
+                e.v
+            ] = true;
+
+
+            stat.posrednieUzyte.forEach(
+                idx => {
+
+                    isOnMainAxis[
+                        idx
+                    ] = false;
+
+
+                    isOnMainAxisBazowa[
+                        idx
+                    ] = false;
+                }
+            );
+
+
+            /*
+             * Oznaczamy bezpośrednią krawędź jako lokalną
+             * oś główną. Późniejsze klasyfikowanie track nie może
+             * jej już wysłać na lewą stronę.
+             */
+            e.preferDirectMainFWTP =
+                true;
+
+
+            console.info(
+                "FWTP: V47 lokalna oś bezpośrednia",
+                {
+                    linia:
+                        numerLinii,
+
+                    kierunek:
+                        aktualnyKierunek,
+
+                    u:
+                        e.u,
+
+                    v:
+                        e.v,
+
+                    bezposrednio:
+                        stat.bezposrednio,
+
+                    przezPosrednie:
+                        stat.przezPosrednie,
+
+                    prawaOdnoga:
+                        Array.from(
+                            stat.posrednieUzyte
+                        )
+                }
+            );
+        }
+    );
+
+
     /*
      * Jeżeli długa krawędź przechodzi "nad" przystankami
      * wpisanymi pomiędzy indeksami, ale NIE istnieje droga
@@ -10233,6 +10532,20 @@ const isOnMainAxisBazowa =
 
 
             if (
+                e.preferDirectMainFWTP ===
+                    true
+            ) {
+
+                /*
+                 * V47:
+                 * rzeczywista większość kursów jedzie bezpośrednio
+                 * u -> v. Ta krawędź jest lokalną osią główną,
+                 * niezależnie od liter wariantów.
+                 */
+                e.track =
+                    0;
+
+            } else if (
                 podstawowaKrawedzZObjazdem
             ) {
 
