@@ -1564,6 +1564,13 @@ function zbierzKursy(dane,data){
                             wariant,
                             kierunek:indeksKierunku,
                             czasy:new Map(),
+                            /*
+                             * Dla brygad łączonych zapamiętujemy również
+                             * rzeczywisty przystanek przypisany do danej godziny.
+                             * Sam indeks nie wystarcza, bo przy różnych przebiegach
+                             * ten sam indeks może oznaczać inny słupek.
+                             */
+                            punkty:new Map(),
                             przystanki,
                             start:null,
                             koniec:null,
@@ -1572,7 +1579,24 @@ function zbierzKursy(dane,data){
                         });
                     }
 
-                    mapa.get(key).czasy.set(indeksPrzystanku,czas);
+                    const rekord=mapa.get(key);
+
+                    rekord.czasy.set(indeksPrzystanku,czas);
+
+                    /*
+                     * Zapisujemy metadane dokładnie z tego przystanku, przy
+                     * którym znaleziono tę konkretną godzinę w JSON-ie.
+                     */
+                    if(!rekord.punkty){
+                        rekord.punkty=new Map();
+                    }
+
+                    rekord.punkty.set(indeksPrzystanku,{
+                        nazwa:String(przystanek.nazwa||""),
+                        nr:String(przystanek.nr||""),
+                        nz:czyNZ(przystanek),
+                        typ:String(przystanek.typ||"")
+                    });
                 });
             });
         });
@@ -3627,7 +3651,12 @@ function zbudujWpisyWzorcaLaczonego(kurs,pozycja){
     const kolejnosc=odwroc?[...indeksy].reverse():indeksy;
 
     return kolejnosc.map((sourceIndex,displayIndex)=>{
-        const p=kurs.przystanki[sourceIndex]||{};
+        const p=(
+            kurs.punkty instanceof Map
+                ? kurs.punkty.get(sourceIndex)
+                : null
+        ) || kurs.przystanki[sourceIndex] || {};
+
         return{
             linia:String(kurs.linia||""),
             kierunek:Number(kurs.kierunek),
@@ -4105,93 +4134,74 @@ function znajdzWpisKursuNaWierszu(kurs,element){
     if(!kandydaci.length)return null;
 
     /*
-     * NAJWAŻNIEJSZA ZASADA DLA BRYGAD ŁĄCZONYCH:
-     * jeżeli przystanek ma numer słupka, numer jest nadrzędny
-     * nad samą nazwą zespołu przystankowego.
-     *
-     * Dzięki temu np.:
-     *   METRO STADION NARODOWY 02
-     *   METRO STADION NARODOWY 07
-     *   METRO STADION NARODOWY 71
-     * nie mogą dostać godzin między sobą tylko dlatego,
-     * że mają tę samą nazwę.
+     * v6 – źródłem prawdy jest przystanek zapisany razem z godziną.
+     * Nie odtwarzamy już numeru słupka wyłącznie z kurs.przystanki[index].
      */
+    const punkty=
+        kurs.punkty instanceof Map
+            ? kurs.punkty
+            : null;
 
-    // 1. Najpierw dokładny sourceIndex + nazwa + numer słupka.
+    // 1. Najpierw ścisłe dopasowanie: ten sam indeks + ta sama nazwa + nr.
     for(const entry of kandydaci){
-        const p=kurs.przystanki[entry.sourceIndex];
-        if(!p)continue;
+        if(!kurs.czasy.has(entry.sourceIndex))continue;
 
-        const nrP=String(p.nr||"").trim();
-        const nrE=String(entry.nr||"").trim();
+        const p=(punkty?.get(entry.sourceIndex)) ||
+                kurs.przystanki?.[entry.sourceIndex] || {};
 
         if(
             normalizuj(p.nazwa)===normalizuj(entry.nazwa) &&
-            nrP===nrE
+            String(p.nr||"").trim()===String(entry.nr||"").trim()
         ){
             return{...entry,index:entry.sourceIndex};
         }
     }
 
-    // 2. Wariant może mieć przesunięte indeksy. Szukamy dokładnie
-    //    po nazwie ORAZ numerze w całej liście przystanków kursu.
+    // 2. Następnie szukamy wśród RZECZYWISTYCH punktów kursu,
+    //    czyli wyłącznie indeksów, dla których kurs ma godzinę.
     for(const entry of kandydaci){
+        const nazwaE=normalizuj(entry.nazwa);
         const nrE=String(entry.nr||"").trim();
-        if(!nrE)continue;
 
-        for(let i=0;i<kurs.przystanki.length;i++){
-            const p=kurs.przystanki[i]||{};
-            const nrP=String(p.nr||"").trim();
+        for(const [index,czas] of kurs.czasy.entries()){
+            if(czasNaMinuty(czas)===null)continue;
+
+            const p=(punkty?.get(index)) ||
+                    kurs.przystanki?.[index] || {};
 
             if(
-                normalizuj(p.nazwa)===normalizuj(entry.nazwa) &&
-                nrP===nrE
+                normalizuj(p.nazwa)===nazwaE &&
+                String(p.nr||"").trim()===nrE
             ){
-                return{...entry,index:i};
+                return{...entry,index};
             }
         }
     }
 
-    /*
-     * 3. Dopasowanie tylko po nazwie wolno wykonać wyłącznie wtedy,
-     *    gdy po jednej ze stron nie ma numeru słupka.
-     *    Nie wolno już zamieniać 71 na 02/07 itd.
-     */
+    // 3. Po samej nazwie wolno dopasować tylko wtedy, gdy numeru
+    //    po jednej ze stron rzeczywiście nie ma i wynik jest jednoznaczny.
     for(const entry of kandydaci){
+        const nazwaE=normalizuj(entry.nazwa);
         const nrE=String(entry.nr||"").trim();
-        const p=kurs.przystanki[entry.sourceIndex];
+        const pasujace=[];
 
-        if(p && normalizuj(p.nazwa)===normalizuj(entry.nazwa)){
-            const nrP=String(p.nr||"").trim();
+        for(const [index,czas] of kurs.czasy.entries()){
+            if(czasNaMinuty(czas)===null)continue;
 
-            if(!nrE || !nrP){
-                return{...entry,index:entry.sourceIndex};
-            }
-        }
-    }
+            const p=(punkty?.get(index)) ||
+                    kurs.przystanki?.[index] || {};
 
-    // 4. Ostatnia rezerwa: po samej nazwie tylko dla wpisu bez numeru
-    //    albo przystanku źródłowego bez numeru.
-    for(const entry of kandydaci){
-        const nrE=String(entry.nr||"").trim();
-        let jedynyIndeks=null;
-        let liczbaPasujacych=0;
-
-        for(let i=0;i<kurs.przystanki.length;i++){
-            const p=kurs.przystanki[i]||{};
-            if(normalizuj(p.nazwa)!==normalizuj(entry.nazwa))continue;
+            if(normalizuj(p.nazwa)!==nazwaE)continue;
 
             const nrP=String(p.nr||"").trim();
 
             if(!nrE || !nrP){
-                jedynyIndeks=i;
-                liczbaPasujacych++;
+                pasujace.push(index);
             }
         }
 
-        // Tylko jedno jednoznaczne dopasowanie po nazwie.
-        if(liczbaPasujacych===1 && jedynyIndeks!==null){
-            return{...entry,index:jedynyIndeks};
+        if(pasujace.length===1){
+            return{...entry,index:pasujace[0]};
         }
     }
 
