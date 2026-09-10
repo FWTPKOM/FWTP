@@ -3733,6 +3733,70 @@ function vbaStopKey(stop){
 }
 
 
+
+/* =========================================================
+   v15 – DOKŁADNY ODPOWIEDNIK GetOrderedStopRowsByLp
+   ========================================================= */
+
+function vbaLpSortKey(value, fallbackOrder){
+    const MISSING_LP_BASE = 1_000_000_000;
+
+    if(
+        value === null ||
+        value === undefined
+    ){
+        return MISSING_LP_BASE + fallbackOrder;
+    }
+
+    let txt = String(value).trim()
+        .replace(/\u00A0/g, "")
+        .replace(",", ".");
+
+    if(txt.endsWith(".")){
+        txt = txt.slice(0, -1);
+    }
+
+    if(txt && Number.isFinite(Number(txt))){
+        return Number(txt);
+    }
+
+    return MISSING_LP_BASE + fallbackOrder;
+}
+
+
+function vbaSortStopsByLp(route){
+    const source =
+        Array.isArray(route)
+            ? route
+            : [];
+
+    return source
+        .map((p, index) => ({
+            p,
+            sourceOrder: index,
+            sortKey: vbaLpSortKey(
+                p?.lp,
+                index + 1
+            )
+        }))
+        .sort((a, b) => {
+            if(a.sortKey !== b.sortKey){
+                return a.sortKey - b.sortKey;
+            }
+
+            /*
+             * Stabilne sortowanie przy tym samym/brakującym L.p.
+             * dokładnie jak sourceOrder w VBA.
+             */
+            return a.sourceOrder - b.sourceOrder;
+        })
+        .map(x => ({
+            ...(x.p || {}),
+            _sourceOrder: x.sourceOrder
+        }));
+}
+
+
 function vbaUsunKolejneDuplikaty(route){
     const result = [];
     let lastKey = null;
@@ -3741,9 +3805,18 @@ function vbaUsunKolejneDuplikaty(route){
         const item = {
             nazwa: String(p?.nazwa || ""),
             nr: vbaNr(p?.nr),
+            lp: p?.lp,
             typ: String(p?.typ || "").trim().toUpperCase(),
             nz: czyNZ(p),
-            originalIndex
+
+            /*
+             * _sourceOrder pochodzi sprzed sortowania po L.p.
+             * Jeżeli go nie ma, zachowujemy indeks bieżący.
+             */
+            originalIndex:
+                Number.isInteger(p?._sourceOrder)
+                    ? p._sourceOrder
+                    : originalIndex
         };
 
         const key = vbaStopKey(item);
@@ -3763,10 +3836,22 @@ function vbaUsunKolejneDuplikaty(route){
    ========================================================= */
 
 function vbaRouteZKierunku(kierunek){
+    /*
+     * VBA:
+     * GetOrderedStopRowsByLp -> AddIfNotConsecutiveDuplicate.
+     *
+     * Najpierw stabilnie sortujemy po L.p., potem usuwamy
+     * wyłącznie kolejne duplikaty nazwa+numer.
+     */
+    const ordered =
+        vbaSortStopsByLp(
+            Array.isArray(kierunek?.przystanki)
+                ? kierunek.przystanki
+                : []
+        );
+
     return vbaUsunKolejneDuplikaty(
-        Array.isArray(kierunek?.przystanki)
-            ? kierunek.przystanki
-            : []
+        ordered
     );
 }
 
@@ -4053,55 +4138,103 @@ function vbaMapujKursNaLineData(kurs, lineData){
     const times = new Map();
     const actualRows = [];
 
-    const rawIndexes = Array.from(kurs.czasy.keys())
-        .filter(i => czasNaMinuty(kurs.czasy.get(i)) !== null)
-        .sort((a, b) => a - b);
+    /*
+     * VBA BuildSourceRowMaps nie przechodzi po surowej kolejności
+     * wierszy arkusza. Najpierw GetOrderedStopRowsByLp sortuje je po L.p.
+     *
+     * Dlatego również tutaj musimy mapować godziny według tej samej
+     * kolejności. Sam czas nadal pobieramy z pierwotnego indeksu JSON.
+     */
+    const orderedSource =
+        (Array.isArray(kurs?.route) ? kurs.route : [])
+            .map((p, rawIndex) => ({
+                p,
+                rawIndex,
+                sortKey: vbaLpSortKey(
+                    p?.lp,
+                    rawIndex + 1
+                )
+            }))
+            .sort((a, b) => {
+                if(a.sortKey !== b.sortKey){
+                    return a.sortKey - b.sortKey;
+                }
 
-    if(!rawIndexes.length){
+                return a.rawIndex - b.rawIndex;
+            })
+            .filter(item =>
+                kurs.czasy.has(item.rawIndex) &&
+                czasNaMinuty(
+                    kurs.czasy.get(item.rawIndex)
+                ) !== null
+            );
+
+    if(!orderedSource.length){
         return null;
     }
 
     if(kurs.kierunek === 0){
         let search = 0;
 
-        rawIndexes.forEach(rawIndex => {
-            const p = kurs.punkty.get(rawIndex) ||
-                kurs.route?.[rawIndex] ||
+        orderedSource.forEach(item => {
+            const rawIndex = item.rawIndex;
+
+            const p =
+                kurs.punkty.get(rawIndex) ||
+                item.p ||
                 {};
 
-            const rowIndex = vbaFindNextMergedStopIndex(
-                lineData.stops,
-                p.nazwa,
-                p.nr,
-                0,
-                search
-            );
+            const rowIndex =
+                vbaFindNextMergedStopIndex(
+                    lineData.stops,
+                    p.nazwa,
+                    p.nr,
+                    0,
+                    search
+                );
 
             if(rowIndex >= 0){
-                times.set(rowIndex, String(kurs.czasy.get(rawIndex)));
+                times.set(
+                    rowIndex,
+                    String(
+                        kurs.czasy.get(rawIndex)
+                    )
+                );
+
                 actualRows.push(rowIndex);
                 search = rowIndex + 1;
             }
         });
     }
     else{
-        let search = lineData.stops.length - 1;
+        let search =
+            lineData.stops.length - 1;
 
-        rawIndexes.forEach(rawIndex => {
-            const p = kurs.punkty.get(rawIndex) ||
-                kurs.route?.[rawIndex] ||
+        orderedSource.forEach(item => {
+            const rawIndex = item.rawIndex;
+
+            const p =
+                kurs.punkty.get(rawIndex) ||
+                item.p ||
                 {};
 
-            const rowIndex = vbaFindPreviousMergedStopIndex(
-                lineData.stops,
-                p.nazwa,
-                p.nr,
-                1,
-                search
-            );
+            const rowIndex =
+                vbaFindPreviousMergedStopIndex(
+                    lineData.stops,
+                    p.nazwa,
+                    p.nr,
+                    1,
+                    search
+                );
 
             if(rowIndex >= 0){
-                times.set(rowIndex, String(kurs.czasy.get(rawIndex)));
+                times.set(
+                    rowIndex,
+                    String(
+                        kurs.czasy.get(rawIndex)
+                    )
+                );
+
                 actualRows.push(rowIndex);
                 search = rowIndex - 1;
             }
@@ -4112,30 +4245,101 @@ function vbaMapujKursNaLineData(kurs, lineData){
         return null;
     }
 
-    const startRow = actualRows[0];
-    const endRow = actualRows[actualRows.length - 1];
+    /*
+     * GetLineCourseBoundaryMinutes z VBA:
+     *
+     * kierunek 10:
+     *   start = pierwszy niepusty od 1 -> N
+     *   koniec = pierwszy niepusty od N -> 1
+     *
+     * kierunek 20:
+     *   start = pierwszy niepusty od N -> 1
+     *   koniec = pierwszy niepusty od 1 -> N
+     *
+     * Nie opieramy się na kolejności actualRows.
+     */
+    let startRow = null;
+    let endRow = null;
 
-    const startText = times.get(startRow);
-    const endText = times.get(endRow);
+    if(kurs.kierunek === 0){
+        for(let i = 0; i < lineData.stopCount; i++){
+            if(times.has(i)){
+                startRow = i;
+                break;
+            }
+        }
 
-    let startMinutes = czasNaMinuty(startText);
-    let endMinutes = czasNaMinuty(endText);
+        for(let i = lineData.stopCount - 1; i >= 0; i--){
+            if(times.has(i)){
+                endRow = i;
+                break;
+            }
+        }
+    }
+    else{
+        for(let i = lineData.stopCount - 1; i >= 0; i--){
+            if(times.has(i)){
+                startRow = i;
+                break;
+            }
+        }
 
-    if(startMinutes === null || endMinutes === null){
+        for(let i = 0; i < lineData.stopCount; i++){
+            if(times.has(i)){
+                endRow = i;
+                break;
+            }
+        }
+    }
+
+    if(startRow === null || endRow === null){
         return null;
     }
 
-    let sortStart = startMinutes;
+    const startText =
+        times.get(startRow);
+
+    const endText =
+        times.get(endRow);
+
+    const startMinutes =
+        czasNaMinuty(startText);
+
+    const endMinutesRaw =
+        czasNaMinuty(endText);
+
+    if(
+        startMinutes === null ||
+        endMinutesRaw === null
+    ){
+        return null;
+    }
+
+    let sortStart =
+        startMinutes;
 
     if(sortStart < 180){
         sortStart += 1440;
     }
 
-    let sortEnd = endMinutes;
+    let sortEnd =
+        endMinutesRaw;
 
     while(sortEnd < sortStart){
         sortEnd += 1440;
     }
+
+    /*
+     * actualRows ma być w rzeczywistym kierunku jazdy,
+     * bo jest używane tylko pomocniczo przy formatowaniu.
+     */
+    const travelRows =
+        Array.from(times.keys())
+            .sort((a, b) =>
+                kurs.kierunek === 0
+                    ? a - b
+                    : b - a
+            );
 
     return {
         rawCourse: kurs,
@@ -4144,12 +4348,20 @@ function vbaMapujKursNaLineData(kurs, lineData){
         direction: Number(kurs.kierunek),
         courseNumber: String(kurs.numer || ""),
         times,
-        actualRows,
+
+        actualRows: travelRows,
+
         startRow,
         endRow,
-        endpoints: new Set([startRow, endRow]),
+
+        endpoints:
+            new Set([
+                startRow,
+                endRow
+            ]),
+
         startMinutes,
-        endMinutes,
+        endMinutes: endMinutesRaw,
         sortStart,
         sortEnd
     };
@@ -4949,7 +5161,9 @@ function vbaDisplayTime(kurs, element){
     }
 
     const record = kurs?._vbaRecord;
-    if(!record) return "";
+    if(!record){
+        return "";
+    }
 
     const entry =
         vbaFindRowEntryForRecord(
@@ -4957,49 +5171,121 @@ function vbaDisplayTime(kurs, element){
             record
         );
 
-    if(!entry) return "";
-
-    const text = String(
-        record.times.get(entry.rowIndex) || ""
-    );
-
-    if(!text) return "";
-
-    const current = rozbijCzas(text);
-
-    if(!current){
-        return text;
+    if(!entry){
+        return "";
     }
 
-    const position =
-        record.actualRows.indexOf(
+    const currentText =
+        String(
+            record.times.get(entry.rowIndex) ||
+            ""
+        );
+
+    if(!currentText){
+        return "";
+    }
+
+    const current =
+        rozbijCzas(currentText);
+
+    if(!current){
+        return currentText;
+    }
+
+    const isEndpoint =
+        record.endpoints.has(
             entry.rowIndex
         );
 
-    const isEndpoint =
-        record.endpoints.has(entry.rowIndex);
+    if(isEndpoint){
+        return current.pelny;
+    }
+
+    /*
+     * Dokładnie wg FormatCombinedCourseDeparture:
+     *
+     * readsTopToBottom =
+     *   directionCode = IIf(reverseOrder, 20, 10)
+     *
+     * direction JS 0 = VBA 10
+     * direction JS 1 = VBA 20
+     */
+    const readsTopToBottom =
+        record.direction ===
+        (entry.reverse ? 1 : 0);
 
     let previousText = "";
 
-    if(position > 0){
-        const previousRow =
-            record.actualRows[position - 1];
+    /*
+     * displayRow w VBA:
+     * reverse=false -> sourceIndex
+     * reverse=true  -> stopCount-sourceIndex+1
+     *
+     * Tutaj indeksy JS są 0-based.
+     */
+    const displayIndex =
+        entry.reverse
+            ? record.lineData.stopCount - 1 - entry.rowIndex
+            : entry.rowIndex;
 
-        previousText = String(
-            record.times.get(previousRow) || ""
-        );
+    if(readsTopToBottom){
+        for(
+            let candidateDisplay = displayIndex - 1;
+            candidateDisplay >= 0;
+            candidateDisplay--
+        ){
+            const candidateSource =
+                entry.reverse
+                    ? record.lineData.stopCount - 1 - candidateDisplay
+                    : candidateDisplay;
+
+            const txt =
+                String(
+                    record.times.get(candidateSource) ||
+                    ""
+                );
+
+            if(txt.trim()){
+                previousText = txt;
+                break;
+            }
+        }
+    }
+    else{
+        for(
+            let candidateDisplay = displayIndex + 1;
+            candidateDisplay < record.lineData.stopCount;
+            candidateDisplay++
+        ){
+            const candidateSource =
+                entry.reverse
+                    ? record.lineData.stopCount - 1 - candidateDisplay
+                    : candidateDisplay;
+
+            const txt =
+                String(
+                    record.times.get(candidateSource) ||
+                    ""
+                );
+
+            if(txt.trim()){
+                previousText = txt;
+                break;
+            }
+        }
     }
 
-    const previous =
-        rozbijCzas(previousText);
+    if(previousText){
+        const previous =
+            rozbijCzas(previousText);
 
-    const hourChanged =
-        previous &&
-        previous.godzinaRzeczywista !==
-        current.godzinaRzeczywista;
-
-    if(isEndpoint || hourChanged){
-        return current.pelny;
+        if(
+            previous &&
+            previous.godzinaRzeczywista !==
+            current.godzinaRzeczywista
+        ){
+            return current.pelny;
+        }
     }
 
     return current.minuta;
