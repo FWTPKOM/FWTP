@@ -1423,22 +1423,35 @@ function czyKursPasujeDoDaty(kurs,data){
 
     if(!uwagi)return false;
 
+    /*
+     * Kursy techniczne nadal należą do właściwego typu dnia.
+     * DTECH = kurs techniczny wykonywany w dzień powszedni.
+     * Pozostawiamy też analogiczną obsługę CTECH / 6TECH / 7TECH,
+     * gdyby takie oznaczenia pojawiły się później w danych.
+     */
+    const kodDnia=
+        uwagi==="DTECH" ? "D" :
+        uwagi==="CTECH" ? "C" :
+        uwagi==="6TECH" ? "6" :
+        uwagi==="7TECH" ? "7" :
+        uwagi;
+
     const dzien=data.getDay();
     const swieto=czySwieto(data);
 
-    if(uwagi==="D"){
+    if(kodDnia==="D"){
         return dzien>=1 && dzien<=5 && !swieto;
     }
 
-    if(uwagi==="C"){
+    if(kodDnia==="C"){
         return dzien===6 || dzien===0 || swieto;
     }
 
-    if(uwagi==="6"){
+    if(kodDnia==="6"){
         return dzien===6 && !swieto;
     }
 
-    if(uwagi==="7"){
+    if(kodDnia==="7"){
         return dzien===0 || swieto;
     }
 
@@ -3839,6 +3852,86 @@ function zbudujUkladOdWzorca(wzorce,seedIndex){
     return result;
 }
 
+/*
+ * Dwie linie mogą kończyć i rozpoczynać kurs dokładnie na tym samym
+ * słupku, np. METRO STADION NARODOWY 07. Po scalaniu wielu przebiegów
+ * algorytm LCS może pozostawić ten punkt w dwóch sąsiednich wierszach,
+ * mimo że fizycznie jest to jeden i ten sam przystanek.
+ *
+ * Łączymy takie sąsiednie wiersze tylko wtedy, gdy:
+ * - nazwa zespołu jest identyczna,
+ * - istnieje wspólny, niepusty numer słupka,
+ * - po obu stronach występuje kraniec rzeczywistego kursu,
+ * - wpisy pochodzą przynajmniej z dwóch różnych linii.
+ *
+ * Dzięki temu nie zlewamy przypadkowych powtórzeń tej samej nazwy
+ * występujących w środku trasy.
+ */
+function czyTenSamPunktPolaczeniaLinii(wierszA,wierszB){
+    const a=Array.isArray(wierszA?.entries)?wierszA.entries:[];
+    const b=Array.isArray(wierszB?.entries)?wierszB.entries:[];
+
+    if(!a.length || !b.length)return false;
+
+    const nazwaA=normalizuj(a[0]?.nazwa);
+    const nazwaB=normalizuj(b[0]?.nazwa);
+
+    if(!nazwaA || nazwaA!==nazwaB)return false;
+
+    const numeryA=new Set(
+        a.map(e=>String(e?.nr||"").trim()).filter(Boolean)
+    );
+    const numeryB=new Set(
+        b.map(e=>String(e?.nr||"").trim()).filter(Boolean)
+    );
+
+    const wspolnyNumer=Array.from(numeryA).some(nr=>numeryB.has(nr));
+    if(!wspolnyNumer)return false;
+
+    if(!a.some(e=>e?.endpoint===true))return false;
+    if(!b.some(e=>e?.endpoint===true))return false;
+
+    const linieA=new Set(a.map(e=>String(e?.linia||"").trim()).filter(Boolean));
+    const linieB=new Set(b.map(e=>String(e?.linia||"").trim()).filter(Boolean));
+
+    let rozneLinie=false;
+    for(const la of linieA){
+        for(const lb of linieB){
+            if(la!==lb){
+                rozneLinie=true;
+                break;
+            }
+        }
+        if(rozneLinie)break;
+    }
+
+    return rozneLinie;
+}
+
+function scalWspolnePunktyPolaczeniaLinii(wiersze){
+    const wynik=klonujWierszeLaczone(wiersze||[]);
+
+    let i=0;
+    while(i<wynik.length-1){
+        const obecny=wynik[i];
+        const nastepny=wynik[i+1];
+
+        if(czyTenSamPunktPolaczeniaLinii(obecny,nastepny)){
+            (nastepny.entries||[]).forEach(entry=>
+                dodajWpisJesliBrak(obecny,entry)
+            );
+            wynik.splice(i+1,1);
+
+            // po scaleniu sprawdzamy ponownie tę samą pozycję
+            continue;
+        }
+
+        i++;
+    }
+
+    return wynik;
+}
+
 function zbudujOsBrygadyLaczonej(kursy){
     const rzeczywiste=kursy.filter(k=>!czyPlaceholderKursu(k));
     const wzorce=zbudujWzorceTrasLaczonych(rzeczywiste);
@@ -3857,6 +3950,14 @@ function zbudujOsBrygadyLaczonej(kursy){
             najlepsze=candidate;
         }
     }
+
+    /*
+     * Ostatni krok odpowiada sytuacji zmiany linii na tym samym
+     * fizycznym słupku. Przykład: 102 kończy na METRO STADION
+     * NARODOWY 07, a 202 z tego samego 07 rozpoczyna następny kurs.
+     * Taki punkt ma być jednym wierszem wspólnej osi.
+     */
+    najlepsze=scalWspolnePunktyPolaczeniaLinii(najlepsze);
 
     return najlepsze.map(wiersz=>{
         const first=wiersz.entries[0]||{};
@@ -4010,7 +4111,16 @@ function nazwyLiniiBrygadyLaczonej(kursy){
 
     kursy.forEach(kurs=>{
         if(czyPlaceholderKursu(kurs))return;
+
         const linia=String(kurs.linia||"").trim();
+
+        /*
+         * Linia 999 jest linią techniczną.
+         * Jej kursy nadal biorą udział w brygadzie, trasie i obliczeniach,
+         * ale numer 999 nie jest pokazywany w nagłówku brygady.
+         */
+        if(linia==="999")return;
+
         if(linia && !seen.has(linia)){
             seen.add(linia);
             wynik.push(linia);
