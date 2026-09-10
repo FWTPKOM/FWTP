@@ -3737,6 +3737,27 @@ function scoreParyPrzystankowLaczonych(a,b){
         return 0;
     }
 
+    /*
+     * v10 – dwa RZECZYWISTE KRAŃCE o tej samej nazwie
+     * nie mogą zostać połączone tylko dlatego, że zgadza się nazwa.
+     *
+     * Przykłady:
+     * - METRO STADION NARODOWY 07 nie może zostać zastąpione przez 71,
+     * - METRO BEMOWO 71 nie może zostać zestawione z 03.
+     *
+     * Zwykłych przystanków pośrednich ta zasada nie dotyczy,
+     * więc nadal można mieć np. 01 po lewej i 02 po prawej.
+     */
+    if(
+        a?.endpoint===true &&
+        b?.endpoint===true &&
+        nrA &&
+        nrB &&
+        nrA!==nrB
+    ){
+        return 0;
+    }
+
     let score=100;
 
     if(nrA && nrB && nrA===nrB)score+=5000;
@@ -4349,6 +4370,202 @@ function wyrownajPowtarzajaceKrancePoNumerze(wiersze){
     return wynik;
 }
 
+
+/* =========================================================
+   v10 – ROZDZIELENIE KRAŃCA OD OBCEGO NUMERU SŁUPKA
+   =========================================================
+
+   Jeżeli gotowy wiersz zawiera wpis krańcowy o numerze X
+   oraz inne wpisy o tej samej nazwie, ale numerze Y,
+   nie pozwalamy, aby Y zastąpił X w kolumnie numeru.
+
+   Wpis krańcowy pozostaje w bieżącym wierszu.
+   Wpisy z innym numerem są przenoszone do osobnego wiersza
+   bezpośrednio pod nim.
+
+   Reguła działa tylko wtedy, gdy rzeczywiście istnieje kraniec,
+   więc nie rozbija zwykłych par 01 / 02 w środku trasy.
+*/
+function rozdzielKranceOdObcychNumerow(wiersze){
+    if(!Array.isArray(wiersze) || !wiersze.length){
+        return wiersze;
+    }
+
+    const wynik=[];
+
+    for(const sourceRow of wiersze){
+        const entries=Array.isArray(sourceRow?.entries)
+            ? sourceRow.entries.map(e=>({...e}))
+            : [];
+
+        if(entries.length<2){
+            wynik.push({entries});
+            continue;
+        }
+
+        const endpointEntries=entries.filter(e=>
+            e?.endpoint===true &&
+            String(e?.nr||"").trim()
+        );
+
+        if(!endpointEntries.length){
+            wynik.push({entries});
+            continue;
+        }
+
+        /*
+         * Numery krańcowe występujące w tym wierszu.
+         * Jeżeli jest ich kilka, każdy fizyczny słupek ma mieć
+         * możliwość utworzenia własnego wiersza.
+         */
+        const endpointNumbers=[];
+        const endpointSet=new Set();
+
+        for(const e of endpointEntries){
+            const nr=String(e.nr||"").trim();
+            if(nr && !endpointSet.has(nr)){
+                endpointSet.add(nr);
+                endpointNumbers.push(nr);
+            }
+        }
+
+        /*
+         * Gdy w wierszu jest tylko jeden numer krańcowy,
+         * oddzielamy od niego wpisy z innym numerem.
+         */
+        if(endpointNumbers.length===1){
+            const nrKrańcowy=endpointNumbers[0];
+
+            const glowne=[];
+            const pozostale=[];
+
+            for(const e of entries){
+                const nr=String(e?.nr||"").trim();
+
+                if(
+                    nr &&
+                    nr!==nrKrańcowy
+                ){
+                    pozostale.push(e);
+                }else{
+                    glowne.push(e);
+                }
+            }
+
+            if(glowne.length){
+                const row={entries:glowne};
+                row._preferowanyNumerKrańcowy=nrKrańcowy;
+                wynik.push(row);
+            }
+
+            if(pozostale.length){
+                wynik.push({entries:pozostale});
+            }
+
+            continue;
+        }
+
+        /*
+         * Kilka różnych numerów krańcowych w jednym wierszu:
+         * tworzymy osobny wiersz dla każdego numeru krańcowego.
+         */
+        const wykorzystane=new Set();
+
+        for(const nrKrańcowy of endpointNumbers){
+            const grupa=[];
+
+            entries.forEach((e,index)=>{
+                if(vykorzystane.has(index))return;
+
+                const nr=String(e?.nr||"").trim();
+
+                if(nr===nrKrańcowy){
+                    grupa.push(e);
+                    wykorzystane.add(index);
+                }
+            });
+
+            if(grupa.length){
+                const row={entries:grupa};
+                row._preferowanyNumerKrańcowy=nrKrańcowy;
+                wynik.push(row);
+            }
+        }
+
+        const reszta=entries.filter((_,index)=>!wykorzystane.has(index));
+        if(reszta.length){
+            wynik.push({entries:reszta});
+        }
+    }
+
+    return wynik;
+}
+
+
+/*
+ * Po rozdzieleniu krańców ponownie łączymy sąsiednie wiersze
+ * tego samego fizycznego słupka. To jest potrzebne np. wtedy,
+ * gdy 07 z końca linii 102 i 07 z początku 202 powstały
+ * chwilowo jako dwa osobne wiersze.
+ */
+function scalDokladnieTeSameKrance(wiersze){
+    if(!Array.isArray(wiersze) || wiersze.length<2){
+        return wiersze;
+    }
+
+    const wynik=[];
+
+    for(const sourceRow of wiersze){
+        const row={
+            ...sourceRow,
+            entries:Array.isArray(sourceRow?.entries)
+                ? sourceRow.entries.map(e=>({...e}))
+                : []
+        };
+
+        const endpointNumbers=new Set(
+            row.entries
+                .filter(e=>e?.endpoint===true)
+                .map(e=>String(e?.nr||"").trim())
+                .filter(Boolean)
+        );
+
+        const nazwa=normalizuj(row.entries?.[0]?.nazwa);
+
+        const poprzedni=wynik[wynik.length-1];
+
+        if(
+            poprzedni &&
+            nazwa &&
+            normalizuj(poprzedni.entries?.[0]?.nazwa)===nazwa &&
+            endpointNumbers.size===1
+        ){
+            const nr=[...endpointNumbers][0];
+
+            const poprzednieEndpointNumbers=new Set(
+                (poprzedni.entries||[])
+                    .filter(e=>e?.endpoint===true)
+                    .map(e=>String(e?.nr||"").trim())
+                    .filter(Boolean)
+            );
+
+            if(
+                poprzednieEndpointNumbers.size===1 &&
+                poprzednieEndpointNumbers.has(nr)
+            ){
+                row.entries.forEach(e=>dodajWpisJesliBrak(poprzedni,e));
+                poprzedni._preferowanyNumerKrańcowy=nr;
+                continue;
+            }
+        }
+
+        wynik.push(row);
+    }
+
+    return wynik;
+}
+
+
 function zbudujOsBrygadyLaczonej(kursy){
     const rzeczywiste=kursy.filter(k=>!czyPlaceholderKursu(k));
     const wzorce=zbudujWzorceTrasLaczonych(rzeczywiste);
@@ -4384,6 +4601,13 @@ function zbudujOsBrygadyLaczonej(kursy){
     // identyczne numery słupków po lewej i prawej stronie
     // ustawiamy w jednym wierszu (np. 71 | METRO BEMOWO | 71).
     najlepsze=wyrownajPowtarzajaceKrancePoNumerze(najlepsze);
+
+    /*
+     * v10 – krańce o konkretnym numerze słupka są nadrzędne
+     * wobec przypadkowych dopasowań tej samej nazwy.
+     */
+    najlepsze=rozdzielKranceOdObcychNumerow(najlepsze);
+    najlepsze=scalDokladnieTeSameKrance(najlepsze);
 
     /*
      * v8 – nie wykonujemy już późniejszego przenoszenia wpisów między
@@ -4555,22 +4779,67 @@ function renderKomorkiKursowLaczonych(kursy,element){
 }
 
 function numeryWierszaLaczonego(element){
-    let lewy=null;
-    let prawy=null;
+    const entries=Array.isArray(element?.entries)?element.entries:[];
 
-    for(const wpis of element.entries||[]){
-        const dane={nr:String(wpis.nr||""),nz:Boolean(wpis.nz)};
+    function wybierzDlaStrony(reverse){
+        const kandydaci=entries.filter(e=>Boolean(e?.reverse)===reverse);
 
-        if(wpis.reverse){
-            if(!prawy || (!prawy.nr && dane.nr))prawy=dane;
-        }else{
-            if(!lewy || (!lewy.nr && dane.nr))lewy=dane;
+        if(!kandydaci.length)return null;
+
+        const preferowany=String(
+            element?._preferowanyNumerKrańcowy||""
+        ).trim();
+
+        /*
+         * Jeżeli finalizer określił fizyczny numer krańca,
+         * ten numer ma pierwszeństwo.
+         */
+        if(preferowany){
+            const dokladny=kandydaci.find(e=>
+                String(e?.nr||"").trim()===preferowany
+            );
+
+            if(dokladny){
+                return{
+                    nr:String(dokladny.nr||""),
+                    nz:Boolean(dokladny.nz)
+                };
+            }
         }
+
+        /*
+         * Następnie preferujemy rzeczywisty kraniec kursu.
+         * To zapobiega sytuacji, w której zwykły wpis 01/02
+         * przykrywa końcowy 07 albo 71.
+         */
+        const endpoint=kandydaci.find(e=>
+            e?.endpoint===true &&
+            String(e?.nr||"").trim()
+        );
+
+        if(endpoint){
+            return{
+                nr:String(endpoint.nr||""),
+                nz:Boolean(endpoint.nz)
+            };
+        }
+
+        const zwykly=kandydaci.find(e=>
+            String(e?.nr||"").trim()
+        ) || kandydaci[0];
+
+        if(!zwykly)return null;
+
+        return{
+            nr:String(zwykly.nr||""),
+            nz:Boolean(zwykly.nz)
+        };
     }
 
-    // Gdy jeden kierunek nie dostarczył numeru, wykorzystujemy dostępny numer
-    // tylko po właściwej stronie; druga pozostaje pusta jak w dotychczasowej tabeli.
-    return{lewy,prawy};
+    return{
+        lewy:wybierzDlaStrony(false),
+        prawy:wybierzDlaStrony(true)
+    };
 }
 
 function nazwyLiniiBrygadyLaczonej(kursy){
