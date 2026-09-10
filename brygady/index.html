@@ -4102,43 +4102,97 @@ function znajdzWpisKursuNaWierszu(kurs,element){
         e.linia===linia && e.kierunek===kierunek
     );
 
+    if(!kandydaci.length)return null;
+
+    /*
+     * NAJWAŻNIEJSZA ZASADA DLA BRYGAD ŁĄCZONYCH:
+     * jeżeli przystanek ma numer słupka, numer jest nadrzędny
+     * nad samą nazwą zespołu przystankowego.
+     *
+     * Dzięki temu np.:
+     *   METRO STADION NARODOWY 02
+     *   METRO STADION NARODOWY 07
+     *   METRO STADION NARODOWY 71
+     * nie mogą dostać godzin między sobą tylko dlatego,
+     * że mają tę samą nazwę.
+     */
+
+    // 1. Najpierw dokładny sourceIndex + nazwa + numer słupka.
     for(const entry of kandydaci){
         const p=kurs.przystanki[entry.sourceIndex];
+        if(!p)continue;
+
+        const nrP=String(p.nr||"").trim();
+        const nrE=String(entry.nr||"").trim();
+
         if(
-            p &&
             normalizuj(p.nazwa)===normalizuj(entry.nazwa) &&
-            String(p.nr||"").trim()===String(entry.nr||"").trim()
+            nrP===nrE
         ){
             return{...entry,index:entry.sourceIndex};
         }
     }
 
+    // 2. Wariant może mieć przesunięte indeksy. Szukamy dokładnie
+    //    po nazwie ORAZ numerze w całej liście przystanków kursu.
     for(const entry of kandydaci){
-        const p=kurs.przystanki[entry.sourceIndex];
-        if(p && normalizuj(p.nazwa)===normalizuj(entry.nazwa)){
-            return{...entry,index:entry.sourceIndex};
+        const nrE=String(entry.nr||"").trim();
+        if(!nrE)continue;
+
+        for(let i=0;i<kurs.przystanki.length;i++){
+            const p=kurs.przystanki[i]||{};
+            const nrP=String(p.nr||"").trim();
+
+            if(
+                normalizuj(p.nazwa)===normalizuj(entry.nazwa) &&
+                nrP===nrE
+            ){
+                return{...entry,index:i};
+            }
         }
     }
 
-    // Wariant może mieć inną numerację indeksów. Szukamy wtedy po nazwie/słupku.
+    /*
+     * 3. Dopasowanie tylko po nazwie wolno wykonać wyłącznie wtedy,
+     *    gdy po jednej ze stron nie ma numeru słupka.
+     *    Nie wolno już zamieniać 71 na 02/07 itd.
+     */
     for(const entry of kandydaci){
-        let zapasowy=null;
+        const nrE=String(entry.nr||"").trim();
+        const p=kurs.przystanki[entry.sourceIndex];
+
+        if(p && normalizuj(p.nazwa)===normalizuj(entry.nazwa)){
+            const nrP=String(p.nr||"").trim();
+
+            if(!nrE || !nrP){
+                return{...entry,index:entry.sourceIndex};
+            }
+        }
+    }
+
+    // 4. Ostatnia rezerwa: po samej nazwie tylko dla wpisu bez numeru
+    //    albo przystanku źródłowego bez numeru.
+    for(const entry of kandydaci){
+        const nrE=String(entry.nr||"").trim();
+        let jedynyIndeks=null;
+        let liczbaPasujacych=0;
 
         for(let i=0;i<kurs.przystanki.length;i++){
             const p=kurs.przystanki[i]||{};
             if(normalizuj(p.nazwa)!==normalizuj(entry.nazwa))continue;
 
-            if(
-                String(p.nr||"").trim() &&
-                String(p.nr||"").trim()===String(entry.nr||"").trim()
-            ){
-                return{...entry,index:i};
-            }
+            const nrP=String(p.nr||"").trim();
 
-            if(zapasowy===null)zapasowy=i;
+            if(!nrE || !nrP){
+                jedynyIndeks=i;
+                liczbaPasujacych++;
+            }
         }
 
-        if(zapasowy!==null)return{...entry,index:zapasowy};
+        // Tylko jedno jednoznaczne dopasowanie po nazwie.
+        if(liczbaPasujacych===1 && jedynyIndeks!==null){
+            return{...entry,index:jedynyIndeks};
+        }
     }
 
     return null;
