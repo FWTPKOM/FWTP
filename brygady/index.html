@@ -1839,20 +1839,96 @@ function ulozKursyBrygady(kursy){
 }
 
 
-function lcsMerge(a,b){
+function ocenaDopasowaniaOsi(a,b,i,n,j,m){
+
+    if(
+        !a ||
+        !b ||
+        normalizuj(a.nazwa)!==normalizuj(b.nazwa)
+    ){
+        return 0;
+    }
+
+    let score=100;
+
+    const na=formatNrPrzystankuDoDopasowania(a.nr);
+    const nb=formatNrPrzystankuDoDopasowania(b.nr);
+
+    /*
+     * Logika z krótszego, poprawnie działającego pliku:
+     * zgodny numer jest dużo ważniejszy niż sama zgodna nazwa.
+     * Dzięki temu przy kilku wystąpieniach tej samej nazwy wybierane
+     * jest właściwe wystąpienie, a nie pierwsze/leżące najbliżej.
+     */
+    if(na && nb && na===nb){
+        score+=1000;
+    }
+
+    /* pierwszy wspólny kraniec */
+    if(i===0 && j===0){
+        score+=5000;
+    }
+
+    /* ostatni wspólny kraniec */
+    if(i===n-1 && j===m-1){
+        score+=10000;
+    }
+
+    return score;
+}
+
+
+function formatNrPrzystankuDoDopasowania(v){
+
+    const s=String(v??"").trim();
+
+    if(!s){
+        return "";
+    }
+
+    if(/^\d+$/.test(s)){
+        return String(Number(s)).padStart(2,"0");
+    }
+
+    return s;
+}
+
+
+function scalDwaKierunkiPrzystankow(lista0,lista1){
+
+    const a=Array.isArray(lista0)?lista0:[];
+    const b=Array.isArray(lista1)?lista1:[];
 
     const n=a.length;
     const m=b.length;
 
-    const dp=Array.from({length:n+1},()=>Array(m+1).fill(0));
+    const dp=Array.from(
+        {length:n+1},
+        ()=>new Float64Array(m+1)
+    );
 
     for(let i=n-1;i>=0;i--){
         for(let j=m-1;j>=0;j--){
-            if(a[i].klucz===b[j].klucz){
-                dp[i][j]=1+dp[i+1][j+1];
-            }else{
-                dp[i][j]=Math.max(dp[i+1][j],dp[i][j+1]);
-            }
+
+            const ms=ocenaDopasowaniaOsi(
+                a[i],
+                b[j],
+                i,
+                n,
+                j,
+                m
+            );
+
+            const match=
+                ms>0
+                    ? ms+dp[i+1][j+1]
+                    : -1;
+
+            dp[i][j]=Math.max(
+                dp[i+1][j],
+                dp[i][j+1],
+                match
+            );
         }
     }
 
@@ -1860,158 +1936,74 @@ function lcsMerge(a,b){
     let i=0;
     let j=0;
 
-    while(i<n || j<m){
+    while(i<n && j<m){
 
-        if(i<n && j<m && a[i].klucz===b[j].klucz){
+        const ms=ocenaDopasowaniaOsi(
+            a[i],
+            b[j],
+            i,
+            n,
+            j,
+            m
+        );
 
+        const match=
+            ms>0
+                ? ms+dp[i+1][j+1]
+                : -1;
+
+        if(
+            ms>0 &&
+            match===dp[i][j]
+        ){
             wynik.push({
-                nazwa:a[i].nazwa,
-                dir0:a[i].dir0,
-                dir1:b[j].dir1
+                nazwa:a[i].nazwa||b[j].nazwa||"",
+                dir0:a[i].dir0||null,
+                dir1:b[j].dir1||null
             });
 
             i++;
             j++;
-
-        }else if(
-            j>=m ||
-            (i<n && dp[i+1][j]>=dp[i][j+1])
-        ){
-
+        }
+        else if(dp[i+1][j]>=dp[i][j+1]){
             wynik.push({
-                nazwa:a[i].nazwa,
-                dir0:a[i].dir0,
+                nazwa:a[i].nazwa||"",
+                dir0:a[i].dir0||null,
                 dir1:null
             });
-
             i++;
-
-        }else{
-
+        }
+        else{
             wynik.push({
-                nazwa:b[j].nazwa,
+                nazwa:b[j].nazwa||"",
                 dir0:null,
-                dir1:b[j].dir1
+                dir1:b[j].dir1||null
             });
-
             j++;
         }
     }
 
-    return wynik;
-}
-
-
-
-function polaczTrasyZKoncami(
-    lista0,
-    lista1
-) {
-
-    if(
-        !lista0.length ||
-        !lista1.length
-    ){
-        return lcsMerge(
-            lista0,
-            lista1
-        );
-    }
-
-    const pierwszyWspolny=
-        lista0[0].klucz===
-        lista1[0].klucz;
-
-    const ostatniWspolny=
-        lista0[
-            lista0.length-1
-        ].klucz===
-        lista1[
-            lista1.length-1
-        ].klucz;
-
-    /*
-     * Krańce parujemy osobno.
-     *
-     * To jest ważne dla tras, na których ta sama nazwa
-     * pojawia się również gdzieś indziej. Zwykły LCS może
-     * wtedy dopasować np. ostatnie RONDO DASZYŃSKIEGO
-     * do niewłaściwego wystąpienia.
-     *
-     * Po tej zmianie:
-     * - pierwszy wspólny kraniec ma numery z obu kierunków,
-     * - ostatni wspólny kraniec ma numery z obu kierunków,
-     * - jeżeli ta sama nazwa jest krańcem po obu stronach,
-     *   nadal może wystąpić dwa razy: na początku i na końcu.
-     */
-
-    let start0=0;
-    let start1=0;
-
-    let end0=
-        lista0.length;
-
-    let end1=
-        lista1.length;
-
-    const wynik=[];
-
-    if(pierwszyWspolny){
-
+    while(i<n){
         wynik.push({
-            nazwa:lista0[0].nazwa,
-            dir0:lista0[0].dir0,
-            dir1:lista1[0].dir1
+            nazwa:a[i].nazwa||"",
+            dir0:a[i].dir0||null,
+            dir1:null
         });
-
-        start0=1;
-        start1=1;
+        i++;
     }
 
-    if(ostatniWspolny){
-        end0--;
-        end1--;
-    }
-
-    const srodek0=
-        lista0.slice(
-            start0,
-            end0
-        );
-
-    const srodek1=
-        lista1.slice(
-            start1,
-            end1
-        );
-
-    wynik.push(
-        ...lcsMerge(
-            srodek0,
-            srodek1
-        )
-    );
-
-    if(ostatniWspolny){
-
+    while(j<m){
         wynik.push({
-            nazwa:
-                lista0[
-                    lista0.length-1
-                ].nazwa,
-            dir0:
-                lista0[
-                    lista0.length-1
-                ].dir0,
-            dir1:
-                lista1[
-                    lista1.length-1
-                ].dir1
+            nazwa:b[j].nazwa||"",
+            dir0:null,
+            dir1:b[j].dir1||null
         });
+        j++;
     }
 
     return wynik;
 }
+
 
 function zbudujOsPrzystankow(kursy,startDirection){
 
@@ -2025,8 +2017,8 @@ function zbudujOsPrzystankow(kursy,startDirection){
     const p1=rzeczywiste.find(k=>k.kierunek===1);
 
     const lista0=(p0?.przystanki||[]).map((p,index)=>({
-        klucz:normalizuj(p.nazwa),
         nazwa:String(p.nazwa||""),
+        nr:String(p.nr||""),
         dir0:{
             index,
             nr:String(p.nr||""),
@@ -2034,9 +2026,13 @@ function zbudujOsPrzystankow(kursy,startDirection){
         }
     }));
 
+    /*
+     * Drugi kierunek odwracamy dokładnie tak jak w krótkim pliku,
+     * żeby obie listy szły od góry do dołu w tym samym układzie tabeli.
+     */
     const lista1=(p1?.przystanki||[]).map((p,index)=>({
-        klucz:normalizuj(p.nazwa),
         nazwa:String(p.nazwa||""),
+        nr:String(p.nr||""),
         dir1:{
             index,
             nr:String(p.nr||""),
@@ -2047,17 +2043,19 @@ function zbudujOsPrzystankow(kursy,startDirection){
     let os;
 
     if(lista0.length && lista1.length){
-        os=polaczTrasyZKoncami(
+        os=scalDwaKierunkiPrzystankow(
             lista0,
             lista1
         );
-    }else if(lista0.length){
+    }
+    else if(lista0.length){
         os=lista0.map(x=>({
             nazwa:x.nazwa,
             dir0:x.dir0,
             dir1:null
         }));
-    }else{
+    }
+    else{
         os=lista1.map(x=>({
             nazwa:x.nazwa,
             dir0:null,
@@ -2071,7 +2069,6 @@ function zbudujOsPrzystankow(kursy,startDirection){
 
     return os;
 }
-
 
 function escapeHtml(tekst){
     return String(tekst??"")
@@ -3603,7 +3600,7 @@ function vbaZbierzKursyLinii(dane, data){
                     record.czasy.set(stopIndex, czas);
                     record.punkty.set(stopIndex, {
                         nazwa: String(przystanek?.nazwa || ""),
-                        nr: vbaNr(przystanek?.nr),
+                        nr: String(przystanek?.nr || ""),
                         typ: String(przystanek?.typ || ""),
                         nz: czyNZ(przystanek)
                     });
@@ -3718,48 +3715,8 @@ function vbaNorm(text){
 }
 
 
-function vbaNr(value){
-    /*
-     * Dokładny odpowiednik VBA FormatStopNumber:
-     * ""   -> ""
-     * 2    -> "02"
-     * "2"  -> "02"
-     * "02" -> "02"
-     * 71   -> "71"
-     */
-    if(
-        value === null ||
-        value === undefined
-    ){
-        return "";
-    }
-
-    let txt = String(value).trim();
-
-    if(!txt){
-        return "";
-    }
-
-    const normalizedNumeric =
-        txt.replace(",", ".");
-
-    if(
-        /^[-+]?\d+(?:\.0+)?$/.test(normalizedNumeric)
-    ){
-        const number = Math.trunc(
-            Number(normalizedNumeric)
-        );
-
-        if(Number.isFinite(number)){
-            if(number >= 0 && number < 10){
-                return "0" + String(number);
-            }
-
-            return String(number);
-        }
-    }
-
-    return txt;
+function vbaNr(text){
+    return String(text || "").trim();
 }
 
 
@@ -3985,7 +3942,7 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
         return secondary.map(s => ({
             nazwa: s.nazwa,
             code0: "",
-            code1: vbaNr(s.nr),
+            code1: s.nr,
             nz0: false,
             nz1: s.nz
         }));
@@ -3994,7 +3951,7 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
     if(!m){
         return primary.map(p => ({
             nazwa: p.nazwa,
-            code0: vbaNr(p.nr),
+            code0: p.nr,
             code1: "",
             nz0: p.nz,
             nz1: false
@@ -4062,8 +4019,8 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
         ){
             result.push({
                 nazwa: primary[i].nazwa,
-                code0: vbaNr(primary[i].nr),
-                code1: vbaNr(secondary[j].nr),
+                code0: primary[i].nr,
+                code1: secondary[j].nr,
                 nz0: primary[i].nz,
                 nz1: secondary[j].nz
             });
@@ -4074,7 +4031,7 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
         else if(skipPrimary >= skipSecondary){
             result.push({
                 nazwa: primary[i].nazwa,
-                code0: vbaNr(primary[i].nr),
+                code0: primary[i].nr,
                 code1: "",
                 nz0: primary[i].nz,
                 nz1: false
@@ -4086,7 +4043,7 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
             result.push({
                 nazwa: secondary[j].nazwa,
                 code0: "",
-                code1: vbaNr(secondary[j].nr),
+                code1: secondary[j].nr,
                 nz0: false,
                 nz1: secondary[j].nz
             });
@@ -4098,7 +4055,7 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
     while(i < n){
         result.push({
             nazwa: primary[i].nazwa,
-            code0: vbaNr(primary[i].nr),
+            code0: primary[i].nr,
             code1: "",
             nz0: primary[i].nz,
             nz1: false
@@ -4110,7 +4067,7 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
         result.push({
             nazwa: secondary[j].nazwa,
             code0: "",
-            code1: vbaNr(secondary[j].nr),
+            code1: secondary[j].nr,
             nz0: false,
             nz1: secondary[j].nz
         });
@@ -4706,33 +4663,47 @@ function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
         return 0;
     }
 
-    let score = 100;
-
     const firstCodes = [
         vbaNr(firstStop?.code0),
         vbaNr(firstStop?.code1)
-    ];
+    ].filter(Boolean);
 
     const secondCodes = [
         vbaNr(secondStop?.code0),
         vbaNr(secondStop?.code1)
-    ];
+    ].filter(Boolean);
+
+    const wspolneKody =
+        firstCodes.filter(code =>
+            secondCodes.some(other =>
+                other && vbaTextEquals(code,other)
+            )
+        );
 
     /*
-     * Dokładnie jak pętla i=1..2 / j=1..2 w VBA:
-     * każdy niepusty kod pierwszego wiersza może dodać +5000,
-     * jeśli występuje po którejkolwiek stronie drugiego wiersza.
+     * KLUCZOWA OCHRONA PRZED BŁĘDNYM PODMIENIANIEM NUMERÓW.
+     *
+     * Gdy dwa wiersze o tej samej nazwie mają po obu stronach
+     * konkretne numery, ale nie mają ANI JEDNEGO numeru wspólnego,
+     * traktujemy je jako dwa różne wystąpienia przystanku.
+     *
+     * Przykład: METRO STADION NARODOWY 07 nie może zostać połączony
+     * z innym METRO STADION NARODOWY 71 tylko dlatego, że nazwa jest
+     * identyczna. Algorytm może wtedy dojść dalej i dopasować 07 do
+     * właściwego 01/07 albo pozostawić pustą stronę wiersza.
      */
-    firstCodes.forEach(code => {
-        if(
-            code &&
-            secondCodes.some(other =>
-                other && vbaTextEquals(code, other)
-            )
-        ){
-            score += 5000;
-        }
-    });
+    if(
+        firstCodes.length>0 &&
+        secondCodes.length>0 &&
+        wspolneKody.length===0
+    ){
+        return 0;
+    }
+
+    let score = 100;
+
+    /* zgodny numer ma zdecydowanie największy priorytet */
+    score += wspolneKody.length * 5000;
 
     const firstLast = firstEntry.lineData.stopCount - 1;
     const secondLast = secondEntry.lineData.stopCount - 1;
@@ -4748,7 +4719,6 @@ function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
 
     return score;
 }
-
 
 function vbaCombinedRowMatchScore(row, incomingEntry){
     let best = 0;
