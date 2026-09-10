@@ -4080,6 +4080,96 @@ function rozdzielRozneSlupkiPrzyPolaczeniuLinii(wiersze){
     return wynik;
 }
 
+
+function realokujWpisyDoDokladnegoSlupka(wiersze){
+    if(!Array.isArray(wiersze) || wiersze.length<2){
+        return wiersze;
+    }
+
+    const wynik=wiersze.map(wiersz=>({
+        ...wiersz,
+        entries:Array.isArray(wiersz?.entries)
+            ? wiersz.entries.map(entry=>({...entry}))
+            : []
+    }));
+
+    // Indeks wszystkich istniejących wierszy po: nazwa + numer słupka.
+    const indeksDokladny=new Map();
+
+    wynik.forEach((wiersz,index)=>{
+        (wiersz.entries||[]).forEach(entry=>{
+            const nazwa=normalizuj(entry?.nazwa);
+            const nr=String(entry?.nr||"").trim();
+            if(!nazwa || !nr)return;
+
+            const key=nazwa+"|"+nr;
+            if(!indeksDokladny.has(key)){
+                indeksDokladny.set(key,[]);
+            }
+            indeksDokladny.get(key).push(index);
+        });
+    });
+
+    // Dla każdej grupy wierszy o tej samej nazwie sprawdzamy,
+    // czy wpis znajduje się w złym wariancie numeru słupka.
+    for(let sourceRow=0;sourceRow<wynik.length;sourceRow++){
+        const source=wynik[sourceRow];
+        const pozostaja=[];
+
+        for(const entry of source.entries){
+            const nazwa=normalizuj(entry?.nazwa);
+            const nr=String(entry?.nr||"").trim();
+
+            if(!nazwa || !nr){
+                pozostaja.push(entry);
+                continue;
+            }
+
+            const key=nazwa+"|"+nr;
+            const kandydaci=indeksDokladny.get(key)||[];
+
+            // Jeśli ten sam dokładny słupek istnieje w innym wierszu,
+            // wybieramy najbliższy taki wiersz. Wpis nie zostaje już
+            // przypisany do 02, gdy faktycznie jest 71.
+            const inne=kandydaci.filter(i=>i!==sourceRow);
+
+            if(!inne.length){
+                pozostaja.push(entry);
+                continue;
+            }
+
+            let targetRow=inne[0];
+            let bestDistance=Math.abs(targetRow-sourceRow);
+
+            for(const i of inne.slice(1)){
+                const distance=Math.abs(i-sourceRow);
+                if(distance<bestDistance){
+                    bestDistance=distance;
+                    targetRow=i;
+                }
+            }
+
+            const target=wynik[targetRow];
+            const juzJest=target.entries.some(e=>
+                e.linia===entry.linia &&
+                Number(e.kierunek)===Number(entry.kierunek) &&
+                Number(e.sourceIndex)===Number(entry.sourceIndex)
+            );
+
+            if(!juzJest){
+                target.entries.push(entry);
+            }
+        }
+
+        source.entries=pozostaja;
+    }
+
+    // Nie usuwamy pustych wierszy automatycznie, jeżeli były częścią
+    // układu trasy; ale gdy po realokacji wiersz naprawdę nie zawiera
+    // żadnego wpisu, jest zbędny i może zostać usunięty.
+    return wynik.filter(wiersz=>Array.isArray(wiersz.entries) && wiersz.entries.length>0);
+}
+
 function zbudujOsBrygadyLaczonej(kursy){
     const rzeczywiste=kursy.filter(k=>!czyPlaceholderKursu(k));
     const wzorce=zbudujWzorceTrasLaczonych(rzeczywiste);
@@ -4110,6 +4200,20 @@ function zbudujOsBrygadyLaczonej(kursy){
     // Dopiero po znalezieniu prawdziwego wspólnego punktu dwóch linii
     // rozdzielamy ewentualny inny słupek o tej samej nazwie (np. 71).
     najlepsze=rozdzielRozneSlupkiPrzyPolaczeniuLinii(najlepsze);
+
+    /*
+     * v7 – po utworzeniu wszystkich osobnych wierszy o tej samej nazwie
+     * przenosimy wpisy do wiersza z dokładnie tym samym numerem słupka.
+     *
+     * Przykład:
+     * - METRO STADION NARODOWY 02
+     * - METRO STADION NARODOWY 71
+     * - METRO STADION NARODOWY 07
+     *
+     * Jeżeli wpis linii 999 ma nr 71, nie może zostać w wierszu 02
+     * tylko dlatego, że wcześniej oba miały tę samą nazwę.
+     */
+    najlepsze=realokujWpisyDoDokladnegoSlupka(najlepsze);
 
     return najlepsze.map(wiersz=>{
         const first=wiersz.entries[0]||{};
