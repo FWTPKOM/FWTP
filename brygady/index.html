@@ -3643,7 +3643,378 @@ function indeksyRzeczywistychPostojowKursu(kurs){
         .sort((a,b)=>a-b);
 }
 
-function zbudujWpisyWzorcaLaczonego(kurs,pozycja){
+
+/* =========================================================
+   v12 – OŚ POJEDYNCZEJ LINII JAK W VBA
+   =========================================================
+
+   VBA najpierw łączy oba kierunki JEDNEJ linii do wspólnej osi.
+   Każdy wiersz tej osi może mieć:
+       dir0 -> numer z pierwszego kierunku,
+       dir1 -> numer z drugiego kierunku.
+
+   Dopiero tak przygotowane wiersze są porównywane między liniami.
+*/
+
+function scoreParowaniaKierunkowLiniiVBA(
+    a,
+    b,
+    i,
+    n,
+    j,
+    m
+){
+    if(
+        normalizuj(a?.nazwa)!==
+        normalizuj(b?.nazwa)
+    ){
+        return 0;
+    }
+
+    let score=100;
+
+    const nrA=String(a?.nr||"").trim();
+    const nrB=String(b?.nr||"").trim();
+
+    // VBA GetStopMatchScore: zgodny numer +1000.
+    if(
+        nrA &&
+        nrB &&
+        nrA===nrB
+    ){
+        score+=1000;
+    }
+
+    // Wspólny początek listy.
+    if(i===0 && j===0){
+        score+=5000;
+    }
+
+    // Wspólny koniec listy.
+    if(i===n-1 && j===m-1){
+        score+=10000;
+    }
+
+    return score;
+}
+
+
+function polaczKierunkiJednejLiniiJakVBA(lista0,lista1){
+    const a=Array.isArray(lista0)?lista0:[];
+    const bRaw=Array.isArray(lista1)?lista1:[];
+
+    /*
+     * Tak samo jak w VBA drugi kierunek odwracamy,
+     * aby obie listy opisywały tę samą oś z góry na dół.
+     */
+    const b=[...bRaw].reverse();
+
+    const n=a.length;
+    const m=b.length;
+
+    if(!n){
+        return b.map(x=>({
+            nazwa:x.nazwa,
+            dir0:null,
+            dir1:x
+        }));
+    }
+
+    if(!m){
+        return a.map(x=>({
+            nazwa:x.nazwa,
+            dir0:x,
+            dir1:null
+        }));
+    }
+
+    const dp=Array.from(
+        {length:n+1},
+        ()=>Array(m+1).fill(0)
+    );
+
+    for(let i=n-1;i>=0;i--){
+        for(let j=m-1;j>=0;j--){
+            const match=
+                scoreParowaniaKierunkowLiniiVBA(
+                    a[i],b[j],i,n,j,m
+                );
+
+            const razem=
+                match>0
+                    ? match+dp[i+1][j+1]
+                    : -1;
+
+            dp[i][j]=Math.max(
+                dp[i+1][j],
+                dp[i][j+1],
+                razem
+            );
+        }
+    }
+
+    const wynik=[];
+    let i=0;
+    let j=0;
+
+    while(i<n && j<m){
+        const match=
+            scoreParowaniaKierunkowLiniiVBA(
+                a[i],b[j],i,n,j,m
+            );
+
+        const razem=
+            match>0
+                ? match+dp[i+1][j+1]
+                : -1;
+
+        /*
+         * Tak jak w VBA: przy remisie wybieramy dopasowanie.
+         */
+        if(
+            match>0 &&
+            razem===dp[i][j]
+        ){
+            wynik.push({
+                nazwa:a[i].nazwa,
+                dir0:a[i],
+                dir1:b[j]
+            });
+            i++;
+            j++;
+        }
+        else if(
+            dp[i+1][j]>=dp[i][j+1]
+        ){
+            wynik.push({
+                nazwa:a[i].nazwa,
+                dir0:a[i],
+                dir1:null
+            });
+            i++;
+        }
+        else{
+            wynik.push({
+                nazwa:b[j].nazwa,
+                dir0:null,
+                dir1:b[j]
+            });
+            j++;
+        }
+    }
+
+    while(i<n){
+        wynik.push({
+            nazwa:a[i].nazwa,
+            dir0:a[i],
+            dir1:null
+        });
+        i++;
+    }
+
+    while(j<m){
+        wynik.push({
+            nazwa:b[j].nazwa,
+            dir0:null,
+            dir1:b[j]
+        });
+        j++;
+    }
+
+    return wynik;
+}
+
+
+function wybierzNajpelniejszaTraseDlaKierunku(kursy,kierunek){
+    const kandydaci=(kursy||[])
+        .filter(k=>
+            !czyPlaceholderKursu(k) &&
+            Number(k.kierunek)===Number(kierunek) &&
+            Array.isArray(k.przystanki) &&
+            k.przystanki.length
+        );
+
+    if(!kandydaci.length){
+        return [];
+    }
+
+    /*
+     * Excel ma pełną strukturę linii niezależną od konkretnego kursu.
+     * W JSON-ie najbliższym odpowiednikiem jest najpełniejszy przebieg
+     * danego kierunku.
+     */
+    kandydaci.sort((a,b)=>
+        b.przystanki.length-a.przystanki.length
+    );
+
+    return kandydaci[0].przystanki;
+}
+
+
+function zbudujOsJednejLiniiDlaLaczonych(kursyLinii){
+    const p0=
+        wybierzNajpelniejszaTraseDlaKierunku(
+            kursyLinii,
+            0
+        );
+
+    const p1=
+        wybierzNajpelniejszaTraseDlaKierunku(
+            kursyLinii,
+            1
+        );
+
+    const lista0=p0.map((p,index)=>({
+        nazwa:String(p?.nazwa||""),
+        nr:String(p?.nr||""),
+        nz:czyNZ(p),
+        typ:String(p?.typ||"").trim().toUpperCase(),
+        index
+    }));
+
+    const lista1=p1.map((p,index)=>({
+        nazwa:String(p?.nazwa||""),
+        nr:String(p?.nr||""),
+        nz:czyNZ(p),
+        typ:String(p?.typ||"").trim().toUpperCase(),
+        index
+    }));
+
+    return polaczKierunkiJednejLiniiJakVBA(
+        lista0,
+        lista1
+    );
+}
+
+
+function zbudujMapeOsiLiniiDlaLaczonych(kursy){
+    const grupy=new Map();
+
+    (kursy||[]).forEach(kurs=>{
+        const linia=String(kurs?.linia||"");
+
+        if(!grupy.has(linia)){
+            /*
+             * Jeżeli podczas ładowania brygady zapisaliśmy pełny zestaw
+             * kursów tej linii, używamy go – tak jak Excel używa pełnej
+             * struktury przystanków arkusza linii.
+             */
+            const pelne=
+                Array.isArray(kurs?._allLineCourses)
+                    ? kurs._allLineCourses
+                    : null;
+
+            grupy.set(
+                linia,
+                pelne && pelne.length
+                    ? pelne
+                    : []
+            );
+        }
+
+        if(!grupy.get(linia).length){
+            grupy.get(linia).push(kurs);
+        }
+    });
+
+    /*
+     * Jeśli dla linii nie było _allLineCourses, dokładamy wszystkie
+     * kursy tej linii z bieżącego zadania.
+     */
+    (kursy||[]).forEach(kurs=>{
+        const linia=String(kurs?.linia||"");
+        const lista=grupy.get(linia);
+
+        if(
+            lista &&
+            !Array.isArray(kurs?._allLineCourses) &&
+            !lista.includes(kurs)
+        ){
+            lista.push(kurs);
+        }
+    });
+
+    const wynik=new Map();
+
+    grupy.forEach((lista,linia)=>{
+        wynik.set(
+            linia,
+            zbudujOsJednejLiniiDlaLaczonych(lista)
+        );
+    });
+
+    return wynik;
+}
+
+
+function znajdzWierszOsiLiniiDlaPunktu(
+    os,
+    kierunek,
+    punkt,
+    sourceIndex
+){
+    const side=
+        Number(kierunek)===1
+            ? "dir1"
+            : "dir0";
+
+    const nazwa=normalizuj(punkt?.nazwa);
+    const nr=String(punkt?.nr||"").trim();
+
+    const kandydaci=[];
+
+    (os||[]).forEach((row,rowIndex)=>{
+        const d=row?.[side];
+
+        if(!d)return;
+        if(normalizuj(d.nazwa)!==nazwa)return;
+
+        let score=0;
+
+        if(
+            nr &&
+            String(d.nr||"").trim()===nr
+        ){
+            score+=10000;
+        }
+
+        /*
+         * Jeśli indeks pochodzi z tego samego najpełniejszego przebiegu,
+         * dodatkowo preferujemy dokładnie ten indeks.
+         */
+        if(Number(d.index)===Number(sourceIndex)){
+            score+=1000;
+        }
+
+        kandydaci.push({
+            row,
+            rowIndex,
+            score
+        });
+    });
+
+    if(!kandydaci.length){
+        return null;
+    }
+
+    kandydaci.sort((a,b)=>{
+        if(b.score!==a.score){
+            return b.score-a.score;
+        }
+
+        return Math.abs(
+            Number(a.row?.[side]?.index)-Number(sourceIndex)
+        )-
+        Math.abs(
+            Number(b.row?.[side]?.index)-Number(sourceIndex)
+        );
+    });
+
+    return kandydaci[0].row;
+}
+
+
+function zbudujWpisyWzorcaLaczonego(kurs,pozycja,osLinii){
     const indeksy=indeksyRzeczywistychPostojowKursu(kurs);
     if(!indeksy.length)return [];
 
@@ -3657,6 +4028,17 @@ function zbudujWpisyWzorcaLaczonego(kurs,pozycja){
                 : null
         ) || kurs.przystanki[sourceIndex] || {};
 
+        const rowOsi=
+            znajdzWierszOsiLiniiDlaPunktu(
+                osLinii,
+                kurs.kierunek,
+                p,
+                sourceIndex
+            );
+
+        const dir0=rowOsi?.dir0||null;
+        const dir1=rowOsi?.dir1||null;
+
         return{
             linia:String(kurs.linia||""),
             kierunek:Number(kurs.kierunek),
@@ -3667,6 +4049,15 @@ function zbudujWpisyWzorcaLaczonego(kurs,pozycja){
             nr:String(p.nr||""),
             nz:czyNZ(p),
             typ:String(p.typ||"").trim().toUpperCase(),
+
+            /*
+             * Dokładny odpowiednik stopValue(1) i stopValue(2) z VBA.
+             */
+            nr0:String(dir0?.nr||""),
+            nr1:String(dir1?.nr||""),
+            nz0:Boolean(dir0?.nz),
+            nz1:Boolean(dir1?.nz),
+
             endpoint:
                 sourceIndex===indeksy[0] ||
                 sourceIndex===indeksy[indeksy.length-1],
@@ -3700,56 +4091,39 @@ function utworzWierszLaczony(entry){
 }
 
 function scoreParyPrzystankowLaczonych(a,b){
-    if(normalizuj(a?.nazwa)!==normalizuj(b?.nazwa))return 0;
-
-    const nrA=String(a?.nr||"").trim();
-    const nrB=String(b?.nr||"").trim();
-
-    const typA=String(a?.typ||"").trim().toUpperCase();
-    const typB=String(b?.typ||"").trim().toUpperCase();
-
-    const liniaA=String(a?.linia||"").trim();
-    const liniaB=String(b?.linia||"").trim();
-
-    /*
-     * v8 – przystanki techniczne muszą zachować własny wiersz.
-     *
-     * Przykład METRO STADION NARODOWY:
-     * - zwykła para kierunków 01 / 02 może być jednym wierszem,
-     * - techniczny 71 z linii 999 NIE może przykleić się do 01 / 02,
-     * - 71 może natomiast połączyć się z innym wpisem 71 (np. linii 521).
-     *
-     * Linia 999 jest techniczna także wtedy, gdy starszy JSON nie miałby
-     * pola typ="TECH", dlatego sprawdzamy zarówno typ, jak i numer linii.
-     */
-    const techniczny=
-        typA==="TECH" ||
-        typB==="TECH" ||
-        liniaA==="999" ||
-        liniaB==="999";
-
     if(
-        techniczny &&
-        nrA &&
-        nrB &&
-        nrA!==nrB
+        normalizuj(a?.nazwa)!==
+        normalizuj(b?.nazwa)
     ){
         return 0;
     }
 
-    /*
-     * v11 – scoring zgodny z VBA:
-     * - zgodna nazwa: 100,
-     * - identyczny numer słupka: +5000,
-     * - oba punkty są krańcami: +500.
-     */
     let score=100;
 
-    if(
-        nrA &&
-        nrB &&
-        nrA===nrB
-    ){
+    /*
+     * VBA CombinedStopPairMatchScore porównuje oba numery
+     * wiersza pierwszej linii z oboma numerami drugiej linii.
+     */
+    const kodyA=[
+        String(a?.nr0||"").trim(),
+        String(a?.nr1||"").trim()
+    ].filter(Boolean);
+
+    const kodyB=[
+        String(b?.nr0||"").trim(),
+        String(b?.nr1||"").trim()
+    ].filter(Boolean);
+
+    let zgodnyNumer=false;
+
+    for(const nrA of kodyA){
+        if(kodyB.includes(nrA)){
+            zgodnyNumer=true;
+            break;
+        }
+    }
+
+    if(zgodnyNumer){
         score+=5000;
     }
 
@@ -3837,10 +4211,22 @@ function zbudujWzorceTrasLaczonych(kursy){
     const mapa=new Map();
     const wynik=[];
 
+    const osieLinii=
+        zbudujMapeOsiLiniiDlaLaczonych(
+            kursy
+        );
+
     kursy.forEach((kurs,index)=>{
         if(czyPlaceholderKursu(kurs))return;
 
-        const wpisy=zbudujWpisyWzorcaLaczonego(kurs,index+1);
+        const wpisy=
+            zbudujWpisyWzorcaLaczonego(
+                kurs,
+                index+1,
+                osieLinii.get(
+                    String(kurs.linia||"")
+                ) || []
+            );
         if(!wpisy.length)return;
 
         const key=kluczWzorcaLaczonego(wpisy);
@@ -4583,25 +4969,9 @@ function zbudujOsBrygadyLaczonej(kursy){
     }
 
     /*
-     * Ostatni krok odpowiada sytuacji zmiany linii na tym samym
-     * fizycznym słupku. Przykład: 102 kończy na METRO STADION
-     * NARODOWY 07, a 202 z tego samego 07 rozpoczyna następny kurs.
-     * Taki punkt ma być jednym wierszem wspólnej osi.
-     */
-    najlepsze=scalWspolnePunktyPolaczeniaLinii(najlepsze);
-
-    // Dopiero po znalezieniu prawdziwego wspólnego punktu dwóch linii
-    // rozdzielamy ewentualny inny słupek o tej samej nazwie (np. 71).
-    najlepsze=rozdzielRozneSlupkiPrzyPolaczeniuLinii(najlepsze);
-
-    /*
-     * v11 – po ważonym scaleniu nie przekładamy już ręcznie krańców.
-     * Identyczny numer słupka ma bardzo dużą premię już podczas LCS,
-     * więc np. 71 zostanie dopasowane do 71, jeśli taki numer istnieje
-     * po obu stronach.
-     *
-     * Rozdzielanie TECH/999 pozostaje wcześniej, bo jest potrzebne
-     * dla technicznych słupków takich jak Metro Stadion Narodowy 71.
+     * v12 – bez późniejszego ręcznego przekładania wierszy.
+     * Tak samo jak w Excelu wynik jest rezultatem ważonego LCS,
+     * ale każdy wpis ma już pełną parę numerów swojej linii.
      */
 
     return najlepsze.map(wiersz=>{
@@ -4767,66 +5137,76 @@ function renderKomorkiKursowLaczonych(kursy,element){
 }
 
 function numeryWierszaLaczonego(element){
-    const entries=Array.isArray(element?.entries)?element.entries:[];
+    const entries=
+        Array.isArray(element?.entries)
+            ? element.entries
+            : [];
 
-    function wybierzDlaStrony(reverse){
-        const kandydaci=entries.filter(e=>Boolean(e?.reverse)===reverse);
+    let lewy=null;
+    let prawy=null;
 
-        if(!kandydaci.length)return null;
+    for(const entry of entries){
+        const reverse=
+            Boolean(entry?.reverse);
 
-        const preferowany=String(
-            element?._preferowanyNumerKrańcowy||""
-        ).trim();
+        const nrLewy=
+            reverse
+                ? String(entry?.nr1||"").trim()
+                : String(entry?.nr0||"").trim();
 
-        /*
-         * Jeżeli finalizer określił fizyczny numer krańca,
-         * ten numer ma pierwszeństwo.
-         */
-        if(preferowany){
-            const dokladny=kandydaci.find(e=>
-                String(e?.nr||"").trim()===preferowany
-            );
+        const nrPrawy=
+            reverse
+                ? String(entry?.nr0||"").trim()
+                : String(entry?.nr1||"").trim();
 
-            if(dokladny){
-                return{
-                    nr:String(dokladny.nr||""),
-                    nz:Boolean(dokladny.nz)
-                };
-            }
-        }
+        const nzLewy=
+            reverse
+                ? Boolean(entry?.nz1)
+                : Boolean(entry?.nz0);
 
-        /*
-         * Następnie preferujemy rzeczywisty kraniec kursu.
-         * To zapobiega sytuacji, w której zwykły wpis 01/02
-         * przykrywa końcowy 07 albo 71.
-         */
-        const endpoint=kandydaci.find(e=>
-            e?.endpoint===true &&
-            String(e?.nr||"").trim()
-        );
+        const nzPrawy=
+            reverse
+                ? Boolean(entry?.nz0)
+                : Boolean(entry?.nz1);
 
-        if(endpoint){
-            return{
-                nr:String(endpoint.nr||""),
-                nz:Boolean(endpoint.nz)
+        if(!lewy && nrLewy){
+            lewy={
+                nr:nrLewy,
+                nz:nzLewy
             };
         }
 
-        const zwykly=kandydaci.find(e=>
-            String(e?.nr||"").trim()
-        ) || kandydaci[0];
+        if(!prawy && nrPrawy){
+            prawy={
+                nr:nrPrawy,
+                nz:nzPrawy
+            };
+        }
+    }
 
-        if(!zwykly)return null;
+    /*
+     * Awaryjny fallback dla bardzo starych / niepełnych JSON-ów.
+     */
+    if(!lewy && !prawy){
+        const first=entries[0];
 
-        return{
-            nr:String(zwykly.nr||""),
-            nz:Boolean(zwykly.nz)
-        };
+        if(first){
+            const dane={
+                nr:String(first.nr||""),
+                nz:Boolean(first.nz)
+            };
+
+            if(first.reverse){
+                prawy=dane;
+            }else{
+                lewy=dane;
+            }
+        }
     }
 
     return{
-        lewy:wybierzDlaStrony(false),
-        prawy:wybierzDlaStrony(true)
+        lewy,
+        prawy
     };
 }
 
@@ -5047,8 +5427,36 @@ function pokazBrygadyZLaczeniami(
 
     const grupyDodatkowe=(dodatkoweZbiory||[]).map(zbior=>({
         dane:zbior.dane,
+        kursy:zbior.kursy||[],
         grupy:grupujKursyPoBrygadzie(zbior.kursy||[])
     }));
+
+    /*
+     * v12 – pełne kursy każdej linii są potrzebne do zbudowania
+     * jej własnej osi dwóch kierunków, tak jak robi to VBA.
+     */
+    const wszystkieKursyPoLinii=new Map();
+
+    wszystkieKursyPoLinii.set(
+        String(daneWybranejLinii.linia||aktualnaLinia),
+        kursyGlowne
+    );
+
+    grupyDodatkowe.forEach(zbior=>{
+        const linia=String(zbior.dane?.linia||"");
+        if(linia){
+            wszystkieKursyPoLinii.set(
+                linia,
+                zbior.kursy
+            );
+        }
+    });
+
+    wszystkieKursyPoLinii.forEach((lista,linia)=>{
+        lista.forEach(kurs=>{
+            kurs._allLineCourses=lista;
+        });
+    });
 
     info.textContent=
         `Linia ${daneWybranejLinii.linia||aktualnaLinia} • ${dataISO(data)} • `+
