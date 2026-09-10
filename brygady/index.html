@@ -3459,2097 +3459,2141 @@ function pokazBlad(tekst){
         '<div class="brak">'+escapeHtml(tekst)+'</div>';
 }
 /* =========================================================
-   BRYGADY ŁĄCZONE – odpowiednik logiki VBA
+   BRYGADY ŁĄCZONE – v13
+   PEŁNA NOWA LOGIKA NA PODSTAWIE VBA
    =========================================================
-   Ten blok jest celowo dopisany na końcu istniejącego skryptu.
-   Nie zmienia dotychczasowego renderowania zwykłych brygad.
 
-   Zasada:
-   - numer zadania > 99 może występować na więcej niż jednej linii,
-   - dla takich zadań wyszukujemy ten sam numer w innych plikach linii,
-   - kursy wszystkich znalezionych linii sortujemy chronologicznie,
-   - ich rzeczywiste przebiegi składamy w jedną wspólną oś przystanków,
-   - zwykłe brygady nadal korzystają z renderBrygada() bez zmian.
+   Zasada jest taka sama jak w VBA:
+
+   1. Zadanie > 99 może występować na kilku liniach.
+   2. Dla każdej linii najpierw budujemy wspólną oś obu kierunków
+      (odpowiednik MergeStops / BuildCombinedLineData).
+   3. Dopiero na tę oś mapujemy godziny każdego konkretnego kursu.
+   4. Kursy wszystkich linii sortujemy chronologicznie.
+   5. Każdy rzeczywisty przebieg kursu staje się wzorcem.
+   6. Wzorce są składane ważonym LCS do jednej osi zadania
+      (odpowiednik BuildMostCompactCombinedRouteLayout).
+   7. Numery przystanków są pobierane z obu stron osi danej linii,
+      dokładnie jak stopValue(1) / stopValue(2) w VBA.
+   8. Linia 999 bierze udział we wszystkim, ale nie jest pokazywana
+      w nagłówku brygady.
    ========================================================= */
 
-const cacheLiniiDoBrygadLaczonych=new Map();
+const vbaCombinedLineCache = new Map();
+
 
 function czyNumerZadaniaLaczonego(brygada){
-    const tekst=String(brygada||"").trim();
-    if(!/^\d+$/.test(tekst))return false;
-    return Number(tekst)>99;
+    const tekst = String(brygada || "").trim();
+    return /^\d+$/.test(tekst) && Number(tekst) > 99;
 }
 
-function kluczCacheLinii(linia,data){
-    return dataISO(data)+"|"+String(linia||"").trim();
+
+function vbaCombinedCacheKey(linia, data){
+    return dataISO(data) + "|" + String(linia || "").trim();
 }
 
-async function pobierzLinieDoLaczenia(linia,data){
-    const klucz=kluczCacheLinii(linia,data);
 
-    if(cacheLiniiDoBrygadLaczonych.has(klucz)){
-        return cacheLiniiDoBrygadLaczonych.get(klucz);
+async function vbaPobierzLinie(linia, data){
+    const key = vbaCombinedCacheKey(linia, data);
+
+    if(vbaCombinedLineCache.has(key)){
+        return vbaCombinedLineCache.get(key);
     }
 
-    const obietnica=pobierzLinie(linia,data)
-        .catch(()=>null);
+    const promise = pobierzLinie(linia, data).catch(() => null);
+    vbaCombinedLineCache.set(key, promise);
 
-    cacheLiniiDoBrygadLaczonych.set(klucz,obietnica);
-    return obietnica;
+    return promise;
 }
 
-function wszystkieLinieZManifestu(paczki){
-    const wynik=new Set();
 
-    (Array.isArray(paczki)?paczki:[]).forEach(paczka=>{
-        const linie=Array.isArray(paczka?.linie)?paczka.linie:[];
-        linie.forEach(linia=>{
-            const numer=String(linia||"").trim();
-            if(numer)wynik.add(numer);
+function vbaWszystkieLinieZManifestu(paczki){
+    const result = new Set();
+
+    (Array.isArray(paczki) ? paczki : []).forEach(paczka => {
+        (Array.isArray(paczka?.linie) ? paczka.linie : []).forEach(linia => {
+            const nr = String(linia || "").trim();
+            if(nr) result.add(nr);
         });
     });
 
-    return Array.from(wynik).sort(porownajBrygady);
+    return Array.from(result).sort(porownajBrygady);
 }
 
-async function pobierzDaneKandydatowDoLaczenia(
+
+/* =========================================================
+   ZBIERANIE KURSÓW – osobna wersja dla brygad łączonych
+   ========================================================= */
+
+function vbaZbierzKursyLinii(dane, data){
+    const mapa = new Map();
+    const rozklady = Array.isArray(dane?.rozkłady) ? dane.rozkłady : [];
+
+    rozklady.forEach((rozklad, rozkladIndex) => {
+        const kierunki = Array.isArray(rozklad?.kierunki)
+            ? rozklad.kierunki
+            : [];
+
+        kierunki.forEach((kierunek, kierunekIndex) => {
+            const przystanki = Array.isArray(kierunek?.przystanki)
+                ? kierunek.przystanki
+                : [];
+
+            przystanki.forEach((przystanek, stopIndex) => {
+                const kursy = Array.isArray(przystanek?.kursy)
+                    ? przystanek.kursy
+                    : [];
+
+                kursy.forEach(kurs => {
+                    if(!czyKursPasujeDoDaty(kurs, data)) return;
+
+                    const brygada = String(kurs?.brygada || "").trim();
+                    const numer = String(kurs?.numer || "").trim();
+                    const czas = String(kurs?.czas || "").trim();
+
+                    if(
+                        !brygada ||
+                        !numer ||
+                        czasNaMinuty(czas) === null
+                    ){
+                        return;
+                    }
+
+                    const wariant = String(kurs?.wariant || "").trim();
+
+                    /*
+                     * Rozkład jest częścią klucza.
+                     * Nie wolno łączyć dwóch różnych bloków rozkładowych
+                     * tylko dlatego, że mają ten sam numer kursu.
+                     */
+                    const key = [
+                        rozkladIndex,
+                        kierunekIndex,
+                        numer,
+                        wariant,
+                        brygada
+                    ].join("|");
+
+                    if(!mapa.has(key)){
+                        mapa.set(key, {
+                            key,
+                            linia: String(dane?.linia || ""),
+                            brygada,
+                            numer,
+                            wariant,
+                            kierunek: kierunekIndex,
+
+                            rozkladIndex,
+                            route: przystanki,
+
+                            czasy: new Map(),
+                            punkty: new Map(),
+
+                            start: null,
+                            koniec: null,
+                            startIndex: null,
+                            koniecIndex: null
+                        });
+                    }
+
+                    const record = mapa.get(key);
+
+                    record.czasy.set(stopIndex, czas);
+                    record.punkty.set(stopIndex, {
+                        nazwa: String(przystanek?.nazwa || ""),
+                        nr: String(przystanek?.nr || ""),
+                        typ: String(przystanek?.typ || ""),
+                        nz: czyNZ(przystanek)
+                    });
+                });
+            });
+        });
+    });
+
+    const wynik = Array.from(mapa.values());
+
+    wynik.forEach(record => {
+        const indexes = Array.from(record.czasy.keys())
+            .filter(i => czasNaMinuty(record.czasy.get(i)) !== null)
+            .sort((a, b) => a - b);
+
+        if(!indexes.length) return;
+
+        record.startIndex = indexes[0];
+        record.koniecIndex = indexes[indexes.length - 1];
+
+        record.start = czasNaMinuty(record.czasy.get(record.startIndex));
+        record.koniec = czasNaMinuty(record.czasy.get(record.koniecIndex));
+
+        if(
+            record.start !== null &&
+            record.koniec !== null
+        ){
+            while(record.koniec < record.start){
+                record.koniec += 1440;
+            }
+        }
+    });
+
+    return wynik.filter(k =>
+        k.start !== null &&
+        k.koniec !== null
+    );
+}
+
+
+function vbaGrupujPoBrygadzie(kursy){
+    const groups = new Map();
+
+    (kursy || []).forEach(kurs => {
+        const b = String(kurs?.brygada || "").trim();
+        if(!b) return;
+
+        if(!groups.has(b)){
+            groups.set(b, []);
+        }
+
+        groups.get(b).push(kurs);
+    });
+
+    return groups;
+}
+
+
+async function vbaPobierzDodatkoweLinie(
     wybranaLinia,
     data,
     potrzebneBrygady
 ){
-    const paczki=await pobierzManifestPaczek();
-    const kandydaci=wszystkieLinieZManifestu(paczki)
-        .filter(linia=>String(linia)!==String(wybranaLinia));
+    const paczki = await pobierzManifestPaczek();
+    const kandydaci = vbaWszystkieLinieZManifestu(paczki)
+        .filter(linia => String(linia) !== String(wybranaLinia));
 
     if(!kandydaci.length || !potrzebneBrygady.size){
         return [];
     }
 
-    const wynik=[];
-    const LIMIT=10;
+    const wynik = [];
+    const LIMIT = 10;
 
-    for(let od=0;od<kandydaci.length;od+=LIMIT){
-        const partia=kandydaci.slice(od,od+LIMIT);
-        const danePartii=await Promise.all(
-            partia.map(linia=>pobierzLinieDoLaczenia(linia,data))
+    for(let i = 0; i < kandydaci.length; i += LIMIT){
+        const partia = kandydaci.slice(i, i + LIMIT);
+
+        const danePartii = await Promise.all(
+            partia.map(linia => vbaPobierzLinie(linia, data))
         );
 
-        danePartii.forEach(dane=>{
-            if(!dane)return;
+        danePartii.forEach(dane => {
+            if(!dane) return;
 
-            const kursy=zbierzKursy(dane,data);
-            const maPotrzebneZadanie=kursy.some(
-                kurs=>potrzebneBrygady.has(String(kurs.brygada||"").trim())
+            const kursy = vbaZbierzKursyLinii(dane, data);
+
+            const potrzebna = kursy.some(kurs =>
+                potrzebneBrygady.has(
+                    String(kurs?.brygada || "").trim()
+                )
             );
 
-            if(maPotrzebneZadanie){
-                wynik.push({dane,kursy});
+            if(potrzebna){
+                wynik.push({
+                    dane,
+                    kursy
+                });
             }
         });
     }
 
     return wynik;
-}
-
-function startSortowaniaKursuLaczonego(kurs){
-    let start=Number(kurs?.start);
-    if(!Number.isFinite(start))return Number.MAX_SAFE_INTEGER;
-
-    // Tak jak w VBA: kursy po północy traktujemy jako koniec dnia przewozowego.
-    if(start<180)start+=1440;
-    return start;
-}
-
-function koniecSortowaniaKursuLaczonego(kurs){
-    const start=startSortowaniaKursuLaczonego(kurs);
-    let koniec=Number(kurs?.koniec);
-
-    if(!Number.isFinite(koniec))return start;
-    if(koniec<180 && start>=1440)koniec+=1440;
-    while(koniec<start)koniec+=1440;
-
-    return koniec;
-}
-
-function porownajKursyLaczone(a,b){
-    const sa=startSortowaniaKursuLaczonego(a);
-    const sb=startSortowaniaKursuLaczonego(b);
-
-    if(sa!==sb)return sa-sb;
-
-    const poNumerze=porownajKursyPoNumerze(a,b);
-    if(poNumerze!==0)return poNumerze;
-
-    return String(a.linia||"").localeCompare(
-        String(b.linia||""),
-        "pl",
-        {numeric:true}
-    );
-}
-
-function przygotujKursyLaczone(kursy,brygada){
-    const chronologiczne=[...kursy].sort(porownajKursyLaczone);
-
-    chronologiczne.forEach((kurs,index)=>{
-        kurs._combinedPosition=index+1;
-        kurs._combinedReverse=((index+1)%2===0);
-        kurs._combinedSortStart=startSortowaniaKursuLaczonego(kurs);
-        kurs._combinedSortEnd=koniecSortowaniaKursuLaczonego(kurs);
-        kurs.separatorPrzed=false;
-    });
-
-    if(!czyBrygadaZmianowa(brygada)){
-        return chronologiczne;
-    }
-
-    // Dla 700–799 zachowujemy istniejącą ideę pustego slotu zmiany.
-    // W brygadzie łączonej o potrzebie slotu decyduje strona zakończenia
-    // i rozpoczęcia kolejnego rzeczywistego kursu.
-    const wynik=[];
-    let poprzedni=null;
-
-    chronologiczne.forEach(kurs=>{
-        if(poprzedni){
-            const poprzedniKoniec=poprzedni._combinedSortEnd;
-            const aktualnyStart=kurs._combinedSortStart;
-            const przerwa=Math.max(0,aktualnyStart-poprzedniKoniec);
-
-            const poprzedniDol=(poprzedni._combinedPosition%2===1);
-            const aktualnyDol=(kurs._combinedPosition%2===0);
-
-            if(poprzedniDol!==aktualnyDol){
-                const placeholder=utworzPlaceholderKursu(
-                    kurs.kierunek===0?1:0,
-                    kurs.start,
-                    przerwa>90
-                );
-                placeholder._combinedPlaceholder=true;
-                wynik.push(placeholder);
-            }else if(przerwa>90){
-                kurs.separatorPrzed=true;
-            }
-        }
-
-        wynik.push(kurs);
-        poprzedni=kurs;
-    });
-
-    return wynik;
-}
-
-function indeksyRzeczywistychPostojowKursu(kurs){
-    return Array.from(kurs.czasy.keys())
-        .filter(indeks=>czasNaMinuty(kurs.czasy.get(indeks))!==null)
-        .sort((a,b)=>a-b);
 }
 
 
 /* =========================================================
-   v12 – OŚ POJEDYNCZEJ LINII JAK W VBA
-   =========================================================
+   POMOCNICZE – nazwy / numery
+   ========================================================= */
 
-   VBA najpierw łączy oba kierunki JEDNEJ linii do wspólnej osi.
-   Każdy wiersz tej osi może mieć:
-       dir0 -> numer z pierwszego kierunku,
-       dir1 -> numer z drugiego kierunku.
+function vbaNorm(text){
+    return normalizuj(text);
+}
 
-   Dopiero tak przygotowane wiersze są porównywane między liniami.
-*/
 
-function scoreParowaniaKierunkowLiniiVBA(
-    a,
-    b,
-    i,
-    n,
-    j,
-    m
+function vbaNr(text){
+    return String(text || "").trim();
+}
+
+
+function vbaTextEquals(a, b){
+    return vbaNorm(a) === vbaNorm(b);
+}
+
+
+function vbaStopKey(stop){
+    return vbaNorm(stop?.nazwa) + "|" + vbaNr(stop?.nr);
+}
+
+
+function vbaUsunKolejneDuplikaty(route){
+    const result = [];
+    let lastKey = null;
+
+    (Array.isArray(route) ? route : []).forEach((p, originalIndex) => {
+        const item = {
+            nazwa: String(p?.nazwa || ""),
+            nr: vbaNr(p?.nr),
+            typ: String(p?.typ || "").trim().toUpperCase(),
+            nz: czyNZ(p),
+            originalIndex
+        };
+
+        const key = vbaStopKey(item);
+
+        if(key !== lastKey){
+            result.push(item);
+            lastKey = key;
+        }
+    });
+
+    return result;
+}
+
+
+/* =========================================================
+   WYBÓR STRUKTURY KIERUNKU
+   ========================================================= */
+
+function vbaOcenaRouteCandidate(route, kursyKierunku){
+    if(!Array.isArray(route) || !route.length){
+        return -1;
+    }
+
+    const keys = new Set(
+        route.map(p =>
+            vbaNorm(p?.nazwa) + "|" + vbaNr(p?.nr)
+        )
+    );
+
+    let covered = 0;
+    let missing = 0;
+
+    (kursyKierunku || []).forEach(kurs => {
+        for(const p of kurs.punkty.values()){
+            const key = vbaNorm(p?.nazwa) + "|" + vbaNr(p?.nr);
+
+            if(keys.has(key)){
+                covered++;
+            }else{
+                missing++;
+            }
+        }
+    });
+
+    /*
+     * Najważniejsze: żadnego brakującego rzeczywistego punktu.
+     * Potem liczba pokrytych punktów, a na końcu długość pełnej osi.
+     */
+    return (
+        covered * 100000 +
+        route.length * 10 -
+        missing * 10000000
+    );
+}
+
+
+function vbaWybierzRoute(kursyKierunku){
+    const candidates = [];
+    const seen = new Set();
+
+    (kursyKierunku || []).forEach(kurs => {
+        const route = kurs?.route;
+
+        if(!Array.isArray(route) || !route.length){
+            return;
+        }
+
+        const signature = route.map(p =>
+            vbaNorm(p?.nazwa) + "|" + vbaNr(p?.nr)
+        ).join(">");
+
+        if(!seen.has(signature)){
+            seen.add(signature);
+            candidates.push(route);
+        }
+    });
+
+    if(!candidates.length){
+        return [];
+    }
+
+    candidates.sort((a, b) =>
+        vbaOcenaRouteCandidate(b, kursyKierunku) -
+        vbaOcenaRouteCandidate(a, kursyKierunku)
+    );
+
+    return vbaUsunKolejneDuplikaty(candidates[0]);
+}
+
+
+/* =========================================================
+   VBA: GetStopMatchScore + MergeStops
+   ========================================================= */
+
+function vbaGetStopMatchScore(
+    primary,
+    secondary,
+    primaryIndex,
+    primaryCount,
+    secondaryIndex,
+    secondaryCount
 ){
-    if(
-        normalizuj(a?.nazwa)!==
-        normalizuj(b?.nazwa)
-    ){
+    if(!vbaTextEquals(primary?.nazwa, secondary?.nazwa)){
         return 0;
     }
 
-    let score=100;
+    let score = 100;
 
-    const nrA=String(a?.nr||"").trim();
-    const nrB=String(b?.nr||"").trim();
-
-    // VBA GetStopMatchScore: zgodny numer +1000.
     if(
-        nrA &&
-        nrB &&
-        nrA===nrB
+        vbaNr(primary?.nr) &&
+        vbaNr(secondary?.nr) &&
+        vbaTextEquals(primary?.nr, secondary?.nr)
     ){
-        score+=1000;
+        score += 1000;
     }
 
-    // Wspólny początek listy.
-    if(i===0 && j===0){
-        score+=5000;
+    if(primaryIndex === 0 && secondaryIndex === 0){
+        score += 5000;
     }
 
-    // Wspólny koniec listy.
-    if(i===n-1 && j===m-1){
-        score+=10000;
+    if(
+        primaryIndex === primaryCount - 1 &&
+        secondaryIndex === secondaryCount - 1
+    ){
+        score += 10000;
     }
 
     return score;
 }
 
 
-function polaczKierunkiJednejLiniiJakVBA(lista0,lista1){
-    const a=Array.isArray(lista0)?lista0:[];
-    const bRaw=Array.isArray(lista1)?lista1:[];
+function vbaMergeStops(primaryRoute, secondaryRoute){
+    const primary = Array.isArray(primaryRoute) ? primaryRoute : [];
+    const secondarySource = Array.isArray(secondaryRoute)
+        ? secondaryRoute
+        : [];
 
     /*
-     * Tak samo jak w VBA drugi kierunek odwracamy,
-     * aby obie listy opisywały tę samą oś z góry na dół.
+     * Dokładnie jak VBA:
+     * drugi kierunek odwracamy, aby obie listy miały ten sam
+     * kierunek wyświetlania od góry do dołu.
      */
-    const b=[...bRaw].reverse();
+    const secondary = [...secondarySource].reverse();
 
-    const n=a.length;
-    const m=b.length;
+    const n = primary.length;
+    const m = secondary.length;
 
     if(!n){
-        return b.map(x=>({
-            nazwa:x.nazwa,
-            dir0:null,
-            dir1:x
+        return secondary.map(s => ({
+            nazwa: s.nazwa,
+            code0: "",
+            code1: s.nr,
+            nz0: false,
+            nz1: s.nz
         }));
     }
 
     if(!m){
-        return a.map(x=>({
-            nazwa:x.nazwa,
-            dir0:x,
-            dir1:null
+        return primary.map(p => ({
+            nazwa: p.nazwa,
+            code0: p.nr,
+            code1: "",
+            nz0: p.nz,
+            nz1: false
         }));
     }
 
-    const dp=Array.from(
-        {length:n+1},
-        ()=>Array(m+1).fill(0)
+    const dp = Array.from(
+        {length: n + 1},
+        () => Array(m + 1).fill(0)
     );
 
-    for(let i=n-1;i>=0;i--){
-        for(let j=m-1;j>=0;j--){
-            const match=
-                scoreParowaniaKierunkowLiniiVBA(
-                    a[i],b[j],i,n,j,m
-                );
+    for(let i = n - 1; i >= 0; i--){
+        for(let j = m - 1; j >= 0; j--){
+            const matchScore = vbaGetStopMatchScore(
+                primary[i],
+                secondary[j],
+                i,
+                n,
+                j,
+                m
+            );
 
-            const razem=
-                match>0
-                    ? match+dp[i+1][j+1]
-                    : -1;
+            const matchTotal = matchScore > 0
+                ? matchScore + dp[i + 1][j + 1]
+                : -1;
 
-            dp[i][j]=Math.max(
-                dp[i+1][j],
-                dp[i][j+1],
-                razem
+            const skipPrimary = dp[i + 1][j];
+            const skipSecondary = dp[i][j + 1];
+
+            dp[i][j] = Math.max(
+                skipPrimary,
+                skipSecondary,
+                matchTotal
             );
         }
     }
 
-    const wynik=[];
-    let i=0;
-    let j=0;
+    const result = [];
+    let i = 0;
+    let j = 0;
 
-    while(i<n && j<m){
-        const match=
-            scoreParowaniaKierunkowLiniiVBA(
-                a[i],b[j],i,n,j,m
-            );
+    while(i < n && j < m){
+        const matchScore = vbaGetStopMatchScore(
+            primary[i],
+            secondary[j],
+            i,
+            n,
+            j,
+            m
+        );
 
-        const razem=
-            match>0
-                ? match+dp[i+1][j+1]
-                : -1;
+        const matchTotal = matchScore > 0
+            ? matchScore + dp[i + 1][j + 1]
+            : -1;
+
+        const skipPrimary = dp[i + 1][j];
+        const skipSecondary = dp[i][j + 1];
 
         /*
-         * Tak jak w VBA: przy remisie wybieramy dopasowanie.
+         * VBA przy remisie preferuje prawidłowe dopasowanie.
          */
         if(
-            match>0 &&
-            razem===dp[i][j]
+            matchScore > 0 &&
+            matchTotal === dp[i][j]
         ){
-            wynik.push({
-                nazwa:a[i].nazwa,
-                dir0:a[i],
-                dir1:b[j]
+            result.push({
+                nazwa: primary[i].nazwa,
+                code0: primary[i].nr,
+                code1: secondary[j].nr,
+                nz0: primary[i].nz,
+                nz1: secondary[j].nz
             });
+
             i++;
             j++;
         }
-        else if(
-            dp[i+1][j]>=dp[i][j+1]
-        ){
-            wynik.push({
-                nazwa:a[i].nazwa,
-                dir0:a[i],
-                dir1:null
+        else if(skipPrimary >= skipSecondary){
+            result.push({
+                nazwa: primary[i].nazwa,
+                code0: primary[i].nr,
+                code1: "",
+                nz0: primary[i].nz,
+                nz1: false
             });
+
             i++;
         }
         else{
-            wynik.push({
-                nazwa:b[j].nazwa,
-                dir0:null,
-                dir1:b[j]
+            result.push({
+                nazwa: secondary[j].nazwa,
+                code0: "",
+                code1: secondary[j].nr,
+                nz0: false,
+                nz1: secondary[j].nz
             });
+
             j++;
         }
     }
 
-    while(i<n){
-        wynik.push({
-            nazwa:a[i].nazwa,
-            dir0:a[i],
-            dir1:null
+    while(i < n){
+        result.push({
+            nazwa: primary[i].nazwa,
+            code0: primary[i].nr,
+            code1: "",
+            nz0: primary[i].nz,
+            nz1: false
         });
         i++;
     }
 
-    while(j<m){
-        wynik.push({
-            nazwa:b[j].nazwa,
-            dir0:null,
-            dir1:b[j]
+    while(j < m){
+        result.push({
+            nazwa: secondary[j].nazwa,
+            code0: "",
+            code1: secondary[j].nr,
+            nz0: false,
+            nz1: secondary[j].nz
         });
         j++;
     }
 
-    return wynik;
+    return result;
 }
 
 
-function wybierzNajpelniejszaTraseDlaKierunku(kursy,kierunek){
-    const kandydaci=(kursy||[])
-        .filter(k=>
-            !czyPlaceholderKursu(k) &&
-            Number(k.kierunek)===Number(kierunek) &&
-            Array.isArray(k.przystanki) &&
-            k.przystanki.length
-        );
+/* =========================================================
+   MAPOWANIE KURSU NA OŚ LINII
+   odpowiednik BuildSourceRowMaps + BuildCombinedLineData
+   ========================================================= */
 
-    if(!kandydaci.length){
-        return [];
+function vbaFindNextMergedStopIndex(
+    stops,
+    stopName,
+    stopNumber,
+    direction,
+    startIndex
+){
+    const codeField = direction === 0 ? "code0" : "code1";
+
+    for(let i = Math.max(0, startIndex); i < stops.length; i++){
+        if(
+            vbaTextEquals(stops[i]?.nazwa, stopName) &&
+            vbaTextEquals(stops[i]?.[codeField], stopNumber)
+        ){
+            return i;
+        }
     }
 
-    /*
-     * Excel ma pełną strukturę linii niezależną od konkretnego kursu.
-     * W JSON-ie najbliższym odpowiednikiem jest najpełniejszy przebieg
-     * danego kierunku.
-     */
-    kandydaci.sort((a,b)=>
-        b.przystanki.length-a.przystanki.length
-    );
-
-    return kandydaci[0].przystanki;
+    return -1;
 }
 
 
-function zbudujOsJednejLiniiDlaLaczonych(kursyLinii){
-    const p0=
-        wybierzNajpelniejszaTraseDlaKierunku(
-            kursyLinii,
-            0
-        );
-
-    const p1=
-        wybierzNajpelniejszaTraseDlaKierunku(
-            kursyLinii,
-            1
-        );
-
-    const lista0=p0.map((p,index)=>({
-        nazwa:String(p?.nazwa||""),
-        nr:String(p?.nr||""),
-        nz:czyNZ(p),
-        typ:String(p?.typ||"").trim().toUpperCase(),
-        index
-    }));
-
-    const lista1=p1.map((p,index)=>({
-        nazwa:String(p?.nazwa||""),
-        nr:String(p?.nr||""),
-        nz:czyNZ(p),
-        typ:String(p?.typ||"").trim().toUpperCase(),
-        index
-    }));
-
-    return polaczKierunkiJednejLiniiJakVBA(
-        lista0,
-        lista1
-    );
-}
-
-
-function zbudujMapeOsiLiniiDlaLaczonych(kursy){
-    const grupy=new Map();
-
-    (kursy||[]).forEach(kurs=>{
-        const linia=String(kurs?.linia||"");
-
-        if(!grupy.has(linia)){
-            /*
-             * Jeżeli podczas ładowania brygady zapisaliśmy pełny zestaw
-             * kursów tej linii, używamy go – tak jak Excel używa pełnej
-             * struktury przystanków arkusza linii.
-             */
-            const pelne=
-                Array.isArray(kurs?._allLineCourses)
-                    ? kurs._allLineCourses
-                    : null;
-
-            grupy.set(
-                linia,
-                pelne && pelne.length
-                    ? pelne
-                    : []
-            );
-        }
-
-        if(!grupy.get(linia).length){
-            grupy.get(linia).push(kurs);
-        }
-    });
-
-    /*
-     * Jeśli dla linii nie było _allLineCourses, dokładamy wszystkie
-     * kursy tej linii z bieżącego zadania.
-     */
-    (kursy||[]).forEach(kurs=>{
-        const linia=String(kurs?.linia||"");
-        const lista=grupy.get(linia);
-
-        if(
-            lista &&
-            !Array.isArray(kurs?._allLineCourses) &&
-            !lista.includes(kurs)
-        ){
-            lista.push(kurs);
-        }
-    });
-
-    const wynik=new Map();
-
-    grupy.forEach((lista,linia)=>{
-        wynik.set(
-            linia,
-            zbudujOsJednejLiniiDlaLaczonych(lista)
-        );
-    });
-
-    return wynik;
-}
-
-
-function znajdzWierszOsiLiniiDlaPunktu(
-    os,
-    kierunek,
-    punkt,
-    sourceIndex
+function vbaFindPreviousMergedStopIndex(
+    stops,
+    stopName,
+    stopNumber,
+    direction,
+    startIndex
 ){
-    const side=
-        Number(kierunek)===1
-            ? "dir1"
-            : "dir0";
+    const codeField = direction === 0 ? "code0" : "code1";
 
-    const nazwa=normalizuj(punkt?.nazwa);
-    const nr=String(punkt?.nr||"").trim();
-
-    const kandydaci=[];
-
-    (os||[]).forEach((row,rowIndex)=>{
-        const d=row?.[side];
-
-        if(!d)return;
-        if(normalizuj(d.nazwa)!==nazwa)return;
-
-        let score=0;
-
+    for(
+        let i = Math.min(stops.length - 1, startIndex);
+        i >= 0;
+        i--
+    ){
         if(
-            nr &&
-            String(d.nr||"").trim()===nr
+            vbaTextEquals(stops[i]?.nazwa, stopName) &&
+            vbaTextEquals(stops[i]?.[codeField], stopNumber)
         ){
-            score+=10000;
+            return i;
         }
+    }
 
-        /*
-         * Jeśli indeks pochodzi z tego samego najpełniejszego przebiegu,
-         * dodatkowo preferujemy dokładnie ten indeks.
-         */
-        if(Number(d.index)===Number(sourceIndex)){
-            score+=1000;
-        }
+    return -1;
+}
 
-        kandydaci.push({
-            row,
-            rowIndex,
-            score
-        });
-    });
 
-    if(!kandydaci.length){
+function vbaMapujKursNaLineData(kurs, lineData){
+    const times = new Map();
+    const actualRows = [];
+
+    const rawIndexes = Array.from(kurs.czasy.keys())
+        .filter(i => czasNaMinuty(kurs.czasy.get(i)) !== null)
+        .sort((a, b) => a - b);
+
+    if(!rawIndexes.length){
         return null;
     }
 
-    kandydaci.sort((a,b)=>{
-        if(b.score!==a.score){
-            return b.score-a.score;
-        }
+    if(kurs.kierunek === 0){
+        let search = 0;
 
-        return Math.abs(
-            Number(a.row?.[side]?.index)-Number(sourceIndex)
-        )-
-        Math.abs(
-            Number(b.row?.[side]?.index)-Number(sourceIndex)
-        );
-    });
+        rawIndexes.forEach(rawIndex => {
+            const p = kurs.punkty.get(rawIndex) ||
+                kurs.route?.[rawIndex] ||
+                {};
 
-    return kandydaci[0].row;
-}
-
-
-function zbudujWpisyWzorcaLaczonego(kurs,pozycja,osLinii){
-    const indeksy=indeksyRzeczywistychPostojowKursu(kurs);
-    if(!indeksy.length)return [];
-
-    const odwroc=(pozycja%2===0);
-    const kolejnosc=odwroc?[...indeksy].reverse():indeksy;
-
-    return kolejnosc.map((sourceIndex,displayIndex)=>{
-        const p=(
-            kurs.punkty instanceof Map
-                ? kurs.punkty.get(sourceIndex)
-                : null
-        ) || kurs.przystanki[sourceIndex] || {};
-
-        const rowOsi=
-            znajdzWierszOsiLiniiDlaPunktu(
-                osLinii,
-                kurs.kierunek,
-                p,
-                sourceIndex
+            const rowIndex = vbaFindNextMergedStopIndex(
+                lineData.stops,
+                p.nazwa,
+                p.nr,
+                0,
+                search
             );
 
-        const dir0=rowOsi?.dir0||null;
-        const dir1=rowOsi?.dir1||null;
+            if(rowIndex >= 0){
+                times.set(rowIndex, String(kurs.czasy.get(rawIndex)));
+                actualRows.push(rowIndex);
+                search = rowIndex + 1;
+            }
+        });
+    }
+    else{
+        let search = lineData.stops.length - 1;
 
-        return{
-            linia:String(kurs.linia||""),
-            kierunek:Number(kurs.kierunek),
-            sourceIndex,
-            reverse:odwroc,
-            displayIndex,
-            nazwa:String(p.nazwa||""),
-            nr:String(p.nr||""),
-            nz:czyNZ(p),
-            typ:String(p.typ||"").trim().toUpperCase(),
+        rawIndexes.forEach(rawIndex => {
+            const p = kurs.punkty.get(rawIndex) ||
+                kurs.route?.[rawIndex] ||
+                {};
 
-            /*
-             * Dokładny odpowiednik stopValue(1) i stopValue(2) z VBA.
-             */
-            nr0:String(dir0?.nr||""),
-            nr1:String(dir1?.nr||""),
-            nz0:Boolean(dir0?.nz),
-            nz1:Boolean(dir1?.nz),
+            const rowIndex = vbaFindPreviousMergedStopIndex(
+                lineData.stops,
+                p.nazwa,
+                p.nr,
+                1,
+                search
+            );
 
-            endpoint:
-                sourceIndex===indeksy[0] ||
-                sourceIndex===indeksy[indeksy.length-1],
-            endpointType:
-                sourceIndex===indeksy[0]
-                    ? "start"
-                    : sourceIndex===indeksy[indeksy.length-1]
-                        ? "end"
-                        : ""
-        };
+            if(rowIndex >= 0){
+                times.set(rowIndex, String(kurs.czasy.get(rawIndex)));
+                actualRows.push(rowIndex);
+                search = rowIndex - 1;
+            }
+        });
+    }
+
+    if(!actualRows.length){
+        return null;
+    }
+
+    const startRow = actualRows[0];
+    const endRow = actualRows[actualRows.length - 1];
+
+    const startText = times.get(startRow);
+    const endText = times.get(endRow);
+
+    let startMinutes = czasNaMinuty(startText);
+    let endMinutes = czasNaMinuty(endText);
+
+    if(startMinutes === null || endMinutes === null){
+        return null;
+    }
+
+    let sortStart = startMinutes;
+
+    if(sortStart < 180){
+        sortStart += 1440;
+    }
+
+    let sortEnd = endMinutes;
+
+    while(sortEnd < sortStart){
+        sortEnd += 1440;
+    }
+
+    return {
+        rawCourse: kurs,
+        lineData,
+        lineName: String(kurs.linia || ""),
+        direction: Number(kurs.kierunek),
+        courseNumber: String(kurs.numer || ""),
+        times,
+        actualRows,
+        startRow,
+        endRow,
+        endpoints: new Set([startRow, endRow]),
+        startMinutes,
+        endMinutes,
+        sortStart,
+        sortEnd
+    };
+}
+
+
+function vbaBuildCombinedLineData(lineName, taskCourses){
+    const dir0 = (taskCourses || []).filter(k => Number(k.kierunek) === 0);
+    const dir1 = (taskCourses || []).filter(k => Number(k.kierunek) === 1);
+
+    const route0 = vbaWybierzRoute(dir0);
+    const route1 = vbaWybierzRoute(dir1);
+
+    if(!route0.length && !route1.length){
+        return null;
+    }
+
+    const stops = vbaMergeStops(route0, route1);
+
+    if(!stops.length){
+        return null;
+    }
+
+    return {
+        id: "line|" + String(lineName),
+        lineName: String(lineName),
+        stops,
+        stopCount: stops.length
+    };
+}
+
+
+/* =========================================================
+   REKORDY KURSÓW – odpowiednik AddCombinedLineCourseRecords
+   ========================================================= */
+
+function vbaCompareRecords(a, b){
+    if(a.sortStart !== b.sortStart){
+        return a.sortStart - b.sortStart;
+    }
+
+    const aa = a.rawCourse;
+    const bb = b.rawCourse;
+
+    const cmp = porownajKursyPoNumerze(aa, bb);
+
+    if(cmp !== 0){
+        return cmp;
+    }
+
+    return String(a.lineName).localeCompare(
+        String(b.lineName),
+        "pl",
+        {numeric: true}
+    );
+}
+
+
+function vbaBuildRecords(allTaskCourses){
+    const byLine = new Map();
+
+    (allTaskCourses || []).forEach(kurs => {
+        const line = String(kurs?.linia || "");
+
+        if(!byLine.has(line)){
+            byLine.set(line, []);
+        }
+
+        byLine.get(line).push(kurs);
     });
+
+    const lineDataMap = new Map();
+
+    byLine.forEach((courses, line) => {
+        const ld = vbaBuildCombinedLineData(line, courses);
+
+        if(ld){
+            lineDataMap.set(line, ld);
+        }
+    });
+
+    const records = [];
+
+    byLine.forEach((courses, line) => {
+        const ld = lineDataMap.get(line);
+
+        if(!ld) return;
+
+        courses.forEach(kurs => {
+            const record = vbaMapujKursNaLineData(kurs, ld);
+
+            if(record){
+                records.push(record);
+            }
+        });
+    });
+
+    records.sort(vbaCompareRecords);
+
+    return {
+        records,
+        lineDataMap
+    };
 }
 
-function kluczWzorcaLaczonego(wpisy){
-    return wpisy.map(wpis=>[
-        wpis.linia,
-        wpis.kierunek,
-        wpis.sourceIndex,
-        wpis.reverse?"R":"F"
-    ].join(":")).join("|");
+
+/* =========================================================
+   VBA: BuildCombinedRecordEntries
+   ========================================================= */
+
+function vbaBuildRecordEntries(record, coursePosition){
+    const result = [];
+
+    const even = (coursePosition % 2 === 0);
+
+    /*
+     * VBA:
+     * reverseOrder =
+     * ((directionCode = 20) Xor (coursePosition Mod 2 = 0))
+     */
+    const reverse =
+        (record.direction === 1) !== even;
+
+    const rows = [...record.actualRows];
+
+    /*
+     * actualRows są zapisane w rzeczywistym kierunku jazdy.
+     * Potrzebujemy kolejności wyświetlanej wspólnej osi.
+     */
+    const ordered = reverse
+        ? [...rows].reverse()
+        : [...rows];
+
+    ordered.forEach(rowIndex => {
+        result.push({
+            lineData: record.lineData,
+            rowIndex,
+            reverse
+        });
+    });
+
+    return result;
 }
 
-function klonujWierszeLaczone(wiersze){
-    return wiersze.map(wiersz=>({
-        entries:wiersz.entries.map(entry=>({...entry}))
-    }));
+
+function vbaPatternKey(entries){
+    return entries.map(entry =>
+        [
+            entry.lineData.id,
+            entry.rowIndex,
+            entry.reverse ? "R" : "F"
+        ].join(":")
+    ).join("|");
 }
 
-function utworzWierszLaczony(entry){
-    return{entries:[{...entry}]};
+
+function vbaBuildPatterns(records){
+    const map = new Map();
+    const result = [];
+
+    records.forEach((record, index) => {
+        const entries = vbaBuildRecordEntries(
+            record,
+            index + 1
+        );
+
+        if(!entries.length) return;
+
+        const key = vbaPatternKey(entries);
+
+        if(map.has(key)){
+            map.get(key).courseCount++;
+        }
+        else{
+            const pattern = {
+                key,
+                entries,
+                courseCount: 1,
+                firstCoursePosition: index + 1
+            };
+
+            map.set(key, pattern);
+            result.push(pattern);
+        }
+    });
+
+    return result;
 }
 
-function scoreParyPrzystankowLaczonych(a,b){
+
+/* =========================================================
+   VBA: CombinedStopPairMatchScore
+   ========================================================= */
+
+function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
+    const firstStop =
+        firstEntry.lineData.stops[firstEntry.rowIndex];
+
+    const secondStop =
+        secondEntry.lineData.stops[secondEntry.rowIndex];
+
     if(
-        normalizuj(a?.nazwa)!==
-        normalizuj(b?.nazwa)
+        !vbaTextEquals(
+            firstStop?.nazwa,
+            secondStop?.nazwa
+        )
     ){
         return 0;
     }
 
-    let score=100;
+    let score = 100;
+
+    const firstCodes = [
+        vbaNr(firstStop?.code0),
+        vbaNr(firstStop?.code1)
+    ];
+
+    const secondCodes = [
+        vbaNr(secondStop?.code0),
+        vbaNr(secondStop?.code1)
+    ];
 
     /*
-     * VBA CombinedStopPairMatchScore porównuje oba numery
-     * wiersza pierwszej linii z oboma numerami drugiej linii.
+     * Dokładnie jak pętla i=1..2 / j=1..2 w VBA:
+     * każdy niepusty kod pierwszego wiersza może dodać +5000,
+     * jeśli występuje po którejkolwiek stronie drugiego wiersza.
      */
-    const kodyA=[
-        String(a?.nr0||"").trim(),
-        String(a?.nr1||"").trim()
-    ].filter(Boolean);
-
-    const kodyB=[
-        String(b?.nr0||"").trim(),
-        String(b?.nr1||"").trim()
-    ].filter(Boolean);
-
-    let zgodnyNumer=false;
-
-    for(const nrA of kodyA){
-        if(kodyB.includes(nrA)){
-            zgodnyNumer=true;
-            break;
+    firstCodes.forEach(code => {
+        if(
+            code &&
+            secondCodes.some(other =>
+                other && vbaTextEquals(code, other)
+            )
+        ){
+            score += 5000;
         }
-    }
+    });
 
-    if(zgodnyNumer){
-        score+=5000;
-    }
+    const firstLast = firstEntry.lineData.stopCount - 1;
+    const secondLast = secondEntry.lineData.stopCount - 1;
 
     if(
-        a?.endpoint===true &&
-        b?.endpoint===true
+        (firstEntry.rowIndex === 0 ||
+         firstEntry.rowIndex === firstLast) &&
+        (secondEntry.rowIndex === 0 ||
+         secondEntry.rowIndex === secondLast)
     ){
-        score+=500;
+        score += 500;
     }
 
     return score;
 }
 
-function scoreWierszaZWpisem(wiersz,wpis){
-    let najlepszy=0;
 
-    (wiersz?.entries||[]).forEach(istniejacy=>{
-        najlepszy=Math.max(
-            najlepszy,
-            scoreParyPrzystankowLaczonych(istniejacy,wpis)
+function vbaCombinedRowMatchScore(row, incomingEntry){
+    let best = 0;
+
+    (row.entries || []).forEach(existing => {
+        const score = vbaCombinedStopPairMatchScore(
+            existing,
+            incomingEntry
         );
+
+        if(score > best){
+            best = score;
+        }
     });
 
-    return najlepszy;
+    return best;
 }
 
-function dodajWpisJesliBrak(wiersz,wpis){
-    const istnieje=wiersz.entries.some(e=>
-        e.linia===wpis.linia &&
-        e.kierunek===wpis.kierunek &&
-        e.sourceIndex===wpis.sourceIndex
+
+function vbaEntryIdentity(entry){
+    return entry.lineData.id + "|" + entry.rowIndex;
+}
+
+
+function vbaAddEntryIfMissing(row, incoming){
+    const key = vbaEntryIdentity(incoming);
+
+    if(
+        row.entries.some(e =>
+            vbaEntryIdentity(e) === key
+        )
+    ){
+        return;
+    }
+
+    row.entries.push({...incoming});
+}
+
+
+function vbaCloneRows(rows){
+    return (rows || []).map(row => ({
+        entries: (row.entries || []).map(e => ({...e}))
+    }));
+}
+
+
+/* =========================================================
+   VBA: MergeCombinedRowsWithEntries
+   ========================================================= */
+
+function vbaMergeRowsWithEntries(existingRows, incomingEntries){
+    const existing = vbaCloneRows(existingRows);
+    const incoming = (incomingEntries || []).map(e => ({...e}));
+
+    const n = existing.length;
+    const m = incoming.length;
+
+    if(!n){
+        return incoming.map(e => ({
+            entries: [{...e}]
+        }));
+    }
+
+    if(!m){
+        return existing;
+    }
+
+    const dp = Array.from(
+        {length: n + 1},
+        () => Array(m + 1).fill(0)
     );
 
-    if(!istnieje)wiersz.entries.push({...wpis});
-}
+    for(let i = n - 1; i >= 0; i--){
+        for(let j = m - 1; j >= 0; j--){
+            const matchScore =
+                vbaCombinedRowMatchScore(
+                    existing[i],
+                    incoming[j]
+                );
 
-function scalWierszeZWzorcem(existingRows,incomingEntries){
-    const istniejące=klonujWierszeLaczone(existingRows);
-    const incoming=incomingEntries.map(e=>({...e}));
-    const n=istniejące.length;
-    const m=incoming.length;
+            const matchTotal = matchScore > 0
+                ? matchScore + dp[i + 1][j + 1]
+                : -1;
 
-    if(!n)return incoming.map(utworzWierszLaczony);
-    if(!m)return istniejące;
+            const skipExisting = dp[i + 1][j];
+            const skipIncoming = dp[i][j + 1];
 
-    const dp=Array.from({length:n+1},()=>Array(m+1).fill(0));
-
-    for(let i=n-1;i>=0;i--){
-        for(let j=m-1;j>=0;j--){
-            const match=scoreWierszaZWpisem(istniejące[i],incoming[j]);
-            const razem=match>0?match+dp[i+1][j+1]:-1;
-            dp[i][j]=Math.max(dp[i+1][j],dp[i][j+1],razem);
-        }
-    }
-
-    const wynik=[];
-    let i=0;
-    let j=0;
-
-    while(i<n && j<m){
-        const match=scoreWierszaZWpisem(istniejące[i],incoming[j]);
-        const razem=match>0?match+dp[i+1][j+1]:-1;
-
-        if(match>0 && razem===dp[i][j]){
-            dodajWpisJesliBrak(istniejące[i],incoming[j]);
-            wynik.push(istniejące[i]);
-            i++;
-            j++;
-        }else if(dp[i+1][j]>=dp[i][j+1]){
-            wynik.push(istniejące[i]);
-            i++;
-        }else{
-            wynik.push(utworzWierszLaczony(incoming[j]));
-            j++;
-        }
-    }
-
-    while(i<n)wynik.push(istniejące[i++]);
-    while(j<m)wynik.push(utworzWierszLaczony(incoming[j++]));
-
-    return wynik;
-}
-
-function zbudujWzorceTrasLaczonych(kursy){
-    const mapa=new Map();
-    const wynik=[];
-
-    const osieLinii=
-        zbudujMapeOsiLiniiDlaLaczonych(
-            kursy
-        );
-
-    kursy.forEach((kurs,index)=>{
-        if(czyPlaceholderKursu(kurs))return;
-
-        const wpisy=
-            zbudujWpisyWzorcaLaczonego(
-                kurs,
-                index+1,
-                osieLinii.get(
-                    String(kurs.linia||"")
-                ) || []
+            dp[i][j] = Math.max(
+                skipExisting,
+                skipIncoming,
+                matchTotal
             );
-        if(!wpisy.length)return;
-
-        const key=kluczWzorcaLaczonego(wpisy);
-
-        if(mapa.has(key)){
-            mapa.get(key).courseCount++;
-        }else{
-            const wzorzec={
-                key,
-                entries:wpisy,
-                courseCount:1,
-                firstCoursePosition:index+1
-            };
-            mapa.set(key,wzorzec);
-            wynik.push(wzorzec);
         }
-    });
+    }
 
-    return wynik;
+    const result = [];
+    let i = 0;
+    let j = 0;
+
+    while(i < n && j < m){
+        const row = existing[i];
+        const incomingEntry = incoming[j];
+
+        const matchScore =
+            vbaCombinedRowMatchScore(
+                row,
+                incomingEntry
+            );
+
+        const matchTotal = matchScore > 0
+            ? matchScore + dp[i + 1][j + 1]
+            : -1;
+
+        const skipExisting = dp[i + 1][j];
+        const skipIncoming = dp[i][j + 1];
+
+        /*
+         * VBA: przy remisie wspólny przystanek zawsze trafia
+         * do jednego wiersza.
+         */
+        if(
+            matchScore > 0 &&
+            matchTotal === dp[i][j]
+        ){
+            vbaAddEntryIfMissing(row, incomingEntry);
+            result.push(row);
+
+            i++;
+            j++;
+        }
+        else if(skipExisting >= skipIncoming){
+            result.push(row);
+            i++;
+        }
+        else{
+            result.push({
+                entries: [{...incomingEntry}]
+            });
+            j++;
+        }
+    }
+
+    while(i < n){
+        result.push(existing[i]);
+        i++;
+    }
+
+    while(j < m){
+        result.push({
+            entries: [{...incoming[j]}]
+        });
+        j++;
+    }
+
+    return result;
 }
 
-function znajdzPozycjeWpisuLaczonego(wiersze,wpis){
-    for(let i=0;i<wiersze.length;i++){
-        const pasuje=wiersze[i].entries.some(e=>
-            e.linia===wpis.linia &&
-            e.kierunek===wpis.kierunek &&
-            e.sourceIndex===wpis.sourceIndex
-        );
-        if(pasuje)return i;
+
+/* =========================================================
+   VBA: ScoreCombinedRouteLayout
+   ========================================================= */
+
+function vbaFindEntryPosition(rows, searchedEntry){
+    const key = vbaEntryIdentity(searchedEntry);
+
+    for(let i = 0; i < rows.length; i++){
+        if(
+            rows[i].entries.some(e =>
+                vbaEntryIdentity(e) === key
+            )
+        ){
+            return i;
+        }
     }
+
     return -1;
 }
 
-function scoreUkladuLaczonego(wiersze,wzorce){
-    let maximumGap=0;
-    let weightedGap=0;
 
-    for(const wzorzec of wzorce){
-        let previous=-1;
+function vbaScoreRouteLayout(rows, patterns){
+    let maximumGap = 0;
+    let totalWeightedGap = 0;
 
-        for(const wpis of wzorzec.entries){
-            const current=znajdzPozycjeWpisuLaczonego(wiersze,wpis);
-            if(current<0)return Number.MAX_SAFE_INTEGER;
+    for(const pattern of patterns){
+        let previous = -1;
 
-            if(previous>=0){
-                const gap=current-previous-1;
-                if(gap<0)return Number.MAX_SAFE_INTEGER;
-                maximumGap=Math.max(maximumGap,gap);
-                weightedGap+=gap*wzorzec.courseCount;
+        for(const entry of pattern.entries){
+            const current =
+                vbaFindEntryPosition(rows, entry);
+
+            if(current < 0){
+                return Number.MAX_SAFE_INTEGER;
             }
 
-            previous=current;
+            if(previous >= 0){
+                const gap = current - previous - 1;
+
+                if(gap < 0){
+                    return Number.MAX_SAFE_INTEGER;
+                }
+
+                maximumGap = Math.max(
+                    maximumGap,
+                    gap
+                );
+
+                totalWeightedGap +=
+                    gap * pattern.courseCount;
+            }
+
+            previous = current;
         }
     }
 
-    return maximumGap*1e9+weightedGap*1e5+wiersze.length;
+    return (
+        maximumGap * 1_000_000_000 +
+        totalWeightedGap * 100_000 +
+        rows.length
+    );
 }
 
-function zbudujUkladOdWzorca(wzorce,seedIndex){
-    let result=scalWierszeZWzorcem([],wzorce[seedIndex].entries);
-    const included=[wzorce[seedIndex]];
-    const used=new Set([seedIndex]);
 
-    while(used.size<wzorce.length){
-        let bestIndex=-1;
-        let bestRows=null;
-        let bestScore=Infinity;
-        let bestPattern=null;
+function vbaBuildLayoutFromSeed(patterns, seedIndex){
+    let result = vbaMergeRowsWithEntries(
+        [],
+        patterns[seedIndex].entries
+    );
 
-        wzorce.forEach((candidate,index)=>{
-            if(used.has(index))return;
+    const included = [patterns[seedIndex]];
+    const used = new Set([seedIndex]);
 
-            const trialRows=scalWierszeZWzorcem(result,candidate.entries);
-            const trialPatterns=[...included,candidate];
-            const score=scoreUkladuLaczonego(trialRows,trialPatterns);
+    while(used.size < patterns.length){
+        let bestScore = Infinity;
+        let bestIndex = -1;
+        let bestRows = null;
+        let bestPattern = null;
 
-            if(
-                score<bestScore ||
-                (score===bestScore &&
-                 (!bestPattern || candidate.courseCount>bestPattern.courseCount))
+        patterns.forEach((candidate, index) => {
+            if(used.has(index)) return;
+
+            const trialRows = vbaMergeRowsWithEntries(
+                result,
+                candidate.entries
+            );
+
+            const trialPatterns = [
+                ...included,
+                candidate
+            ];
+
+            const score = vbaScoreRouteLayout(
+                trialRows,
+                trialPatterns
+            );
+
+            if(score < bestScore){
+                bestScore = score;
+                bestIndex = index;
+                bestRows = trialRows;
+                bestPattern = candidate;
+            }
+            else if(
+                score === bestScore &&
+                bestPattern &&
+                candidate.courseCount >
+                bestPattern.courseCount
             ){
-                bestScore=score;
-                bestIndex=index;
-                bestRows=trialRows;
-                bestPattern=candidate;
+                bestIndex = index;
+                bestRows = trialRows;
+                bestPattern = candidate;
             }
         });
 
-        if(bestIndex<0)break;
-        result=bestRows;
-        included.push(wzorce[bestIndex]);
+        if(bestIndex < 0){
+            break;
+        }
+
+        result = bestRows;
+        included.push(bestPattern);
         used.add(bestIndex);
     }
 
     return result;
 }
 
-/*
- * Dwie linie mogą kończyć i rozpoczynać kurs dokładnie na tym samym
- * słupku, np. METRO STADION NARODOWY 07. Po scalaniu wielu przebiegów
- * algorytm LCS może pozostawić ten punkt w dwóch sąsiednich wierszach,
- * mimo że fizycznie jest to jeden i ten sam przystanek.
- *
- * Łączymy takie sąsiednie wiersze tylko wtedy, gdy:
- * - nazwa zespołu jest identyczna,
- * - istnieje wspólny, niepusty numer słupka,
- * - po obu stronach występuje kraniec rzeczywistego kursu,
- * - wpisy pochodzą przynajmniej z dwóch różnych linii.
- *
- * Dzięki temu nie zlewamy przypadkowych powtórzeń tej samej nazwy
- * występujących w środku trasy.
- */
-function czyTenSamPunktPolaczeniaLinii(wierszA,wierszB){
-    const a=Array.isArray(wierszA?.entries)?wierszA.entries:[];
-    const b=Array.isArray(wierszB?.entries)?wierszB.entries:[];
 
-    if(!a.length || !b.length)return false;
-
-    const nazwaA=normalizuj(a[0]?.nazwa);
-    const nazwaB=normalizuj(b[0]?.nazwa);
-
-    if(!nazwaA || nazwaA!==nazwaB)return false;
-
-    const numeryA=new Set(
-        a.map(e=>String(e?.nr||"").trim()).filter(Boolean)
-    );
-    const numeryB=new Set(
-        b.map(e=>String(e?.nr||"").trim()).filter(Boolean)
-    );
-
-    const wspolnyNumer=Array.from(numeryA).some(nr=>numeryB.has(nr));
-    if(!wspolnyNumer)return false;
-
-    if(!a.some(e=>e?.endpoint===true))return false;
-    if(!b.some(e=>e?.endpoint===true))return false;
-
-    const linieA=new Set(a.map(e=>String(e?.linia||"").trim()).filter(Boolean));
-    const linieB=new Set(b.map(e=>String(e?.linia||"").trim()).filter(Boolean));
-
-    let rozneLinie=false;
-    for(const la of linieA){
-        for(const lb of linieB){
-            if(la!==lb){
-                rozneLinie=true;
-                break;
-            }
-        }
-        if(rozneLinie)break;
+function vbaBuildMostCompactLayout(patterns){
+    if(!patterns.length){
+        return [];
     }
 
-    return rozneLinie;
-}
+    let bestRows = [];
+    let bestScore = Infinity;
 
-function scalWspolnePunktyPolaczeniaLinii(wiersze){
-    const wynik=klonujWierszeLaczone(wiersze||[]);
+    for(let seed = 0; seed < patterns.length; seed++){
+        const candidateRows =
+            vbaBuildLayoutFromSeed(patterns, seed);
 
-    let i=0;
-    while(i<wynik.length-1){
-        const obecny=wynik[i];
-        const nastepny=wynik[i+1];
-
-        if(czyTenSamPunktPolaczeniaLinii(obecny,nastepny)){
-            (nastepny.entries||[]).forEach(entry=>
-                dodajWpisJesliBrak(obecny,entry)
-            );
-            wynik.splice(i+1,1);
-
-            // po scaleniu sprawdzamy ponownie tę samą pozycję
-            continue;
-        }
-
-        i++;
-    }
-
-    return wynik;
-}
-
-
-/*
- * Rozdziela wyłącznie konflikt numerów w rzeczywistym punkcie
- * zmiany linii. Nie dotyka zwykłego łączenia dwóch kierunków.
- *
- * Przykład:
- * - 102 kończy na METRO STADION NARODOWY 07,
- * - 202 zaczyna na METRO STADION NARODOWY 07,
- * - 521 zaczyna na METRO STADION NARODOWY 71.
- *
- * W takim przypadku 07 jest wspólnym punktem połączenia dwóch linii,
- * natomiast 71 musi pozostać osobnym wierszem. Początek na innym
- * słupku umieszczamy przed wspólnym wierszem, a koniec po nim.
- */
-function rozdzielRozneSlupkiPrzyPolaczeniuLinii(wiersze){
-    const wynik=klonujWierszeLaczone(wiersze||[]);
-
-    for(let i=0;i<wynik.length;i++){
-        const wiersz=wynik[i];
-        const entries=Array.isArray(wiersz?.entries)?wiersz.entries:[];
-        if(entries.length<2)continue;
-
-        const endpointy=entries.filter(e=>
-            e?.endpoint===true && String(e?.nr||"").trim()
-        );
-        if(endpointy.length<2)continue;
-
-        // Szukamy numeru słupka będącego prawdziwym miejscem
-        // połączenia co najmniej dwóch różnych linii.
-        const linieDlaNumeru=new Map();
-        endpointy.forEach(e=>{
-            const nr=String(e.nr||"").trim();
-            const linia=String(e.linia||"").trim();
-            if(!linieDlaNumeru.has(nr))linieDlaNumeru.set(nr,new Set());
-            if(linia)linieDlaNumeru.get(nr).add(linia);
-        });
-
-        let wspolnyNumer="";
-        let maxLinii=1;
-        for(const [nr,linie] of linieDlaNumeru.entries()){
-            if(linie.size>maxLinii){
-                maxLinii=linie.size;
-                wspolnyNumer=nr;
-            }
-        }
-        if(!wspolnyNumer)continue;
-
-        const inneNumery=new Set(
-            endpointy
-                .map(e=>String(e.nr||"").trim())
-                .filter(nr=>nr && nr!==wspolnyNumer)
-        );
-        if(!inneNumery.size)continue;
-
-        const przed=[];
-        const po=[];
-        const zostaja=[];
-
-        entries.forEach(e=>{
-            const nr=String(e?.nr||"").trim();
-
-            // Rozdzielamy tylko wpis należący do innego numeru słupka,
-            // który sam jest krańcem kursu. Wpisy zwykłych kierunków
-            // pozostają w dotychczasowym wspólnym wierszu.
-            if(
-                e?.endpoint===true &&
-                nr &&
-                nr!==wspolnyNumer &&
-                inneNumery.has(nr)
-            ){
-                if(e.endpointType==="end")po.push({...e});
-                else przed.push({...e});
-            }else{
-                zostaja.push({...e});
-            }
-        });
-
-        if(!przed.length && !po.length)continue;
-
-        // Zachowujemy główny wspólny wiersz 07 w miejscu,
-        // a dodatkowe krańce (np. 71) dokładamy tuż obok.
-        wiersz.entries=zostaja;
-
-        const nowePrzed=[];
-        const grupyPrzed=new Map();
-        przed.forEach(e=>{
-            const key=normalizuj(e.nazwa)+"|"+String(e.nr||"").trim();
-            if(!grupyPrzed.has(key))grupyPrzed.set(key,{entries:[]});
-            grupyPrzed.get(key).entries.push(e);
-        });
-        grupyPrzed.forEach(x=>nowePrzed.push(x));
-
-        const nowePo=[];
-        const grupyPo=new Map();
-        po.forEach(e=>{
-            const key=normalizuj(e.nazwa)+"|"+String(e.nr||"").trim();
-            if(!grupyPo.has(key))grupyPo.set(key,{entries:[]});
-            grupyPo.get(key).entries.push(e);
-        });
-        grupyPo.forEach(x=>nowePo.push(x));
-
-        if(nowePrzed.length){
-            wynik.splice(i,0,...nowePrzed);
-            i+=nowePrzed.length;
-        }
-        if(nowePo.length){
-            wynik.splice(i+1,0,...nowePo);
-        }
-    }
-
-    return wynik;
-}
-
-
-function realokujWpisyDoDokladnegoSlupka(wiersze){
-    if(!Array.isArray(wiersze) || wiersze.length<2){
-        return wiersze;
-    }
-
-    const wynik=wiersze.map(wiersz=>({
-        ...wiersz,
-        entries:Array.isArray(wiersz?.entries)
-            ? wiersz.entries.map(entry=>({...entry}))
-            : []
-    }));
-
-    // Indeks wszystkich istniejących wierszy po: nazwa + numer słupka.
-    const indeksDokladny=new Map();
-
-    wynik.forEach((wiersz,index)=>{
-        (wiersz.entries||[]).forEach(entry=>{
-            const nazwa=normalizuj(entry?.nazwa);
-            const nr=String(entry?.nr||"").trim();
-            if(!nazwa || !nr)return;
-
-            const key=nazwa+"|"+nr;
-            if(!indeksDokladny.has(key)){
-                indeksDokladny.set(key,[]);
-            }
-            indeksDokladny.get(key).push(index);
-        });
-    });
-
-    // Dla każdej grupy wierszy o tej samej nazwie sprawdzamy,
-    // czy wpis znajduje się w złym wariancie numeru słupka.
-    for(let sourceRow=0;sourceRow<wynik.length;sourceRow++){
-        const source=wynik[sourceRow];
-        const pozostaja=[];
-
-        for(const entry of source.entries){
-            const nazwa=normalizuj(entry?.nazwa);
-            const nr=String(entry?.nr||"").trim();
-
-            if(!nazwa || !nr){
-                pozostaja.push(entry);
-                continue;
-            }
-
-            const key=nazwa+"|"+nr;
-            const kandydaci=indeksDokladny.get(key)||[];
-
-            // Jeśli ten sam dokładny słupek istnieje w innym wierszu,
-            // wybieramy najbliższy taki wiersz. Wpis nie zostaje już
-            // przypisany do 02, gdy faktycznie jest 71.
-            const inne=kandydaci.filter(i=>i!==sourceRow);
-
-            if(!inne.length){
-                pozostaja.push(entry);
-                continue;
-            }
-
-            let targetRow=inne[0];
-            let bestDistance=Math.abs(targetRow-sourceRow);
-
-            for(const i of inne.slice(1)){
-                const distance=Math.abs(i-sourceRow);
-                if(distance<bestDistance){
-                    bestDistance=distance;
-                    targetRow=i;
-                }
-            }
-
-            const target=wynik[targetRow];
-            const juzJest=target.entries.some(e=>
-                e.linia===entry.linia &&
-                Number(e.kierunek)===Number(entry.kierunek) &&
-                Number(e.sourceIndex)===Number(entry.sourceIndex)
+        const score =
+            vbaScoreRouteLayout(
+                candidateRows,
+                patterns
             );
 
-            if(!juzJest){
-                target.entries.push(entry);
-            }
+        if(score < bestScore){
+            bestScore = score;
+            bestRows = candidateRows;
         }
-
-        source.entries=pozostaja;
     }
 
-    // Nie usuwamy pustych wierszy automatycznie, jeżeli były częścią
-    // układu trasy; ale gdy po realokacji wiersz naprawdę nie zawiera
-    // żadnego wpisu, jest zbędny i może zostać usunięty.
-    return wynik.filter(wiersz=>Array.isArray(wiersz.entries) && wiersz.entries.length>0);
+    return bestRows;
 }
-
 
 
 /* =========================================================
-   v9 – WYRÓWNANIE POWTARZAJĄCYCH SIĘ KRAŃCÓW PO NUMERZE SŁUPKA
-   =========================================================
+   DISPLAY RECORDS – placeholdery dla 0xx / 700–799
+   ========================================================= */
 
-   Jeżeli kilka kolejnych wierszy ma tę samą nazwę przystanku
-   (np. METRO BEMOWO), a po lewej i prawej stronie występuje
-   ten sam numer słupka, to ten sam fizyczny słupek powinien
-   znaleźć się w jednym wierszu.
+function vbaCzyDutyChangeBrigade(brygada){
+    const text = String(brygada || "").trim();
 
-   Reguła uruchamia się tylko w grupie powtarzającej się nazwy
-   i tylko wtedy, gdy wspólny numer występuje jako kraniec
-   rzeczywistego kursu po obu stronach. Dzięki temu zwykłe
-   przystanki w środku trasy nie są przebudowywane.
-*/
-function wyrownajPowtarzajaceKrancePoNumerze(wiersze){
-    if(!Array.isArray(wiersze) || wiersze.length<2){
-        return wiersze;
+    if(text.startsWith("0")){
+        return true;
     }
 
-    const wynik=wiersze.map(wiersz=>({
-        ...wiersz,
-        entries:Array.isArray(wiersz?.entries)
-            ? wiersz.entries.map(entry=>({...entry}))
-            : []
-    }));
+    const n = Number(text);
 
-    let start=0;
+    return Number.isFinite(n) &&
+           n >= 700 &&
+           n <= 799;
+}
 
-    while(start<wynik.length){
-        const nazwa=normalizuj(wynik[start]?.entries?.[0]?.nazwa);
-        let koniec=start+1;
 
-        while(
-            koniec<wynik.length &&
-            normalizuj(wynik[koniec]?.entries?.[0]?.nazwa)===nazwa
+function vbaCreatePlaceholder(direction, referenceStart){
+    return {
+        placeholder: true,
+        kierunek: direction,
+        direction,
+        start: referenceStart,
+        koniec: referenceStart,
+        _combinedSortStart: referenceStart,
+        _combinedSortEnd: referenceStart,
+        separatorPrzed: true
+    };
+}
+
+
+function vbaBuildDisplayRecords(records, brygada){
+    if(!vbaCzyDutyChangeBrigade(brygada)){
+        return records.map(record => ({
+            ...record.rawCourse,
+            _vbaRecord: record,
+            _combinedSortStart: record.sortStart,
+            _combinedSortEnd: record.sortEnd,
+            separatorPrzed: false
+        }));
+    }
+
+    const result = [];
+    let previousDirection = null;
+
+    records.forEach(record => {
+        if(
+            previousDirection !== null &&
+            previousDirection === record.direction
         ){
-            koniec++;
-        }
-
-        // Pojedynczego wystąpienia nie ruszamy.
-        if(!nazwa || koniec-start<2){
-            start=koniec;
-            continue;
-        }
-
-        const lewyEndpoint=new Set();
-        const prawyEndpoint=new Set();
-
-        for(let i=start;i<koniec;i++){
-            for(const e of wynik[i].entries||[]){
-                if(e?.endpoint!==true)continue;
-
-                const nr=String(e?.nr||"").trim();
-                if(!nr)continue;
-
-                if(e.reverse){
-                    prawyEndpoint.add(nr);
-                }else{
-                    lewyEndpoint.add(nr);
-                }
-            }
-        }
-
-        const wspolne=[...lewyEndpoint].filter(nr=>prawyEndpoint.has(nr));
-
-        if(!wspolne.length){
-            start=koniec;
-            continue;
-        }
-
-        /*
-         * Każdy wspólny numer ustawiamy w jednym wierszu.
-         * Docelowy wiersz wybieramy jako późniejsze z pierwszych
-         * wystąpień po lewej i prawej stronie. To nie przesuwa
-         * wspólnego krańca przed przystanek, który w danym
-         * przebiegu występuje wcześniej.
-         */
-        for(const nr of wspolne){
-            let pierwszyLewy=-1;
-            let pierwszyPrawy=-1;
-
-            for(let i=start;i<koniec;i++){
-                for(const e of wynik[i].entries||[]){
-                    if(String(e?.nr||"").trim()!==nr)continue;
-                    if(e.reverse){
-                        if(pierwszyPrawy<0)pierwszyPrawy=i;
-                    }else{
-                        if(pierwszyLewy<0)pierwszyLewy=i;
-                    }
-                }
-            }
-
-            if(pierwszyLewy<0 || pierwszyPrawy<0)continue;
-
-            const target=Math.max(pierwszyLewy,pierwszyPrawy);
-            const przenoszone=[];
-
-            // Przenosimy wszystkie wpisy tego samego fizycznego słupka,
-            // nie tylko pojedynczy kurs krańcowy. Dzięki temu godziny
-            // i numer słupka pozostają razem.
-            for(let i=start;i<koniec;i++){
-                const zostaja=[];
-
-                for(const e of wynik[i].entries||[]){
-                    if(String(e?.nr||"").trim()===nr){
-                        przenoszone.push({...e});
-                    }else{
-                        zostaja.push(e);
-                    }
-                }
-
-                wynik[i].entries=zostaja;
-            }
-
-            const seen=new Set(
-                (wynik[target].entries||[]).map(e=>
-                    [e.linia,e.kierunek,e.sourceIndex,e.reverse?1:0].join("|")
+            result.push(
+                vbaCreatePlaceholder(
+                    record.direction === 0 ? 1 : 0,
+                    record.sortStart
                 )
             );
-
-            for(const e of przenoszone){
-                const key=[e.linia,e.kierunek,e.sourceIndex,e.reverse?1:0].join("|");
-                if(!seen.has(key)){
-                    wynik[target].entries.push(e);
-                    seen.add(key);
-                }
-            }
         }
 
-        // Po przeniesieniu wspólnych słupków nie pozostawiamy pustych
-        // sztucznych wierszy wewnątrz tej samej grupy nazw.
-        for(let i=koniec-1;i>=start;i--){
-            if(!wynik[i].entries || wynik[i].entries.length===0){
-                wynik.splice(i,1);
-                koniec--;
-            }
-        }
+        result.push({
+            ...record.rawCourse,
+            _vbaRecord: record,
+            _combinedSortStart: record.sortStart,
+            _combinedSortEnd: record.sortEnd,
+            separatorPrzed: false
+        });
 
-        start=koniec;
-    }
+        previousDirection = record.direction;
+    });
 
-    return wynik;
+    return result;
 }
 
 
 /* =========================================================
-   v10 – ROZDZIELENIE KRAŃCA OD OBCEGO NUMERU SŁUPKA
-   =========================================================
+   ODCZYT WIERSZA / GODZINY
+   ========================================================= */
 
-   Jeżeli gotowy wiersz zawiera wpis krańcowy o numerze X
-   oraz inne wpisy o tej samej nazwie, ale numerze Y,
-   nie pozwalamy, aby Y zastąpił X w kolumnie numeru.
+function vbaFindRowEntryForRecord(element, record){
+    if(!record) return null;
 
-   Wpis krańcowy pozostaje w bieżącym wierszu.
-   Wpisy z innym numerem są przenoszone do osobnego wiersza
-   bezpośrednio pod nim.
+    return (element?.entries || []).find(entry =>
+        entry.lineData === record.lineData
+    ) || null;
+}
 
-   Reguła działa tylko wtedy, gdy rzeczywiście istnieje kraniec,
-   więc nie rozbija zwykłych par 01 / 02 w środku trasy.
-*/
-function rozdzielKranceOdObcychNumerow(wiersze){
-    if(!Array.isArray(wiersze) || !wiersze.length){
-        return wiersze;
+
+function vbaTimeForCell(kurs, element){
+    if(kurs?.placeholder === true){
+        return "";
     }
 
-    const wynik=[];
+    const record = kurs?._vbaRecord;
+    if(!record) return "";
 
-    for(const sourceRow of wiersze){
-        const entries=Array.isArray(sourceRow?.entries)
-            ? sourceRow.entries.map(e=>({...e}))
-            : [];
-
-        if(entries.length<2){
-            wynik.push({entries});
-            continue;
-        }
-
-        const endpointEntries=entries.filter(e=>
-            e?.endpoint===true &&
-            String(e?.nr||"").trim()
+    const entry =
+        vbaFindRowEntryForRecord(
+            element,
+            record
         );
 
-        if(!endpointEntries.length){
-            wynik.push({entries});
-            continue;
-        }
+    if(!entry) return "";
 
-        /*
-         * Numery krańcowe występujące w tym wierszu.
-         * Jeżeli jest ich kilka, każdy fizyczny słupek ma mieć
-         * możliwość utworzenia własnego wiersza.
-         */
-        const endpointNumbers=[];
-        const endpointSet=new Set();
-
-        for(const e of endpointEntries){
-            const nr=String(e.nr||"").trim();
-            if(nr && !endpointSet.has(nr)){
-                endpointSet.add(nr);
-                endpointNumbers.push(nr);
-            }
-        }
-
-        /*
-         * Gdy w wierszu jest tylko jeden numer krańcowy,
-         * oddzielamy od niego wpisy z innym numerem.
-         */
-        if(endpointNumbers.length===1){
-            const nrKrańcowy=endpointNumbers[0];
-
-            const glowne=[];
-            const pozostale=[];
-
-            for(const e of entries){
-                const nr=String(e?.nr||"").trim();
-
-                if(
-                    nr &&
-                    nr!==nrKrańcowy
-                ){
-                    pozostale.push(e);
-                }else{
-                    glowne.push(e);
-                }
-            }
-
-            if(glowne.length){
-                const row={entries:glowne};
-                row._preferowanyNumerKrańcowy=nrKrańcowy;
-                wynik.push(row);
-            }
-
-            if(pozostale.length){
-                wynik.push({entries:pozostale});
-            }
-
-            continue;
-        }
-
-        /*
-         * Kilka różnych numerów krańcowych w jednym wierszu:
-         * tworzymy osobny wiersz dla każdego numeru krańcowego.
-         */
-        const wykorzystane=new Set();
-
-        for(const nrKrańcowy of endpointNumbers){
-            const grupa=[];
-
-            entries.forEach((e,index)=>{
-                if(vykorzystane.has(index))return;
-
-                const nr=String(e?.nr||"").trim();
-
-                if(nr===nrKrańcowy){
-                    grupa.push(e);
-                    wykorzystane.add(index);
-                }
-            });
-
-            if(grupa.length){
-                const row={entries:grupa};
-                row._preferowanyNumerKrańcowy=nrKrańcowy;
-                wynik.push(row);
-            }
-        }
-
-        const reszta=entries.filter((_,index)=>!wykorzystane.has(index));
-        if(reszta.length){
-            wynik.push({entries:reszta});
-        }
-    }
-
-    return wynik;
+    return String(
+        record.times.get(entry.rowIndex) || ""
+    );
 }
 
 
-/*
- * Po rozdzieleniu krańców ponownie łączymy sąsiednie wiersze
- * tego samego fizycznego słupka. To jest potrzebne np. wtedy,
- * gdy 07 z końca linii 102 i 07 z początku 202 powstały
- * chwilowo jako dwa osobne wiersze.
- */
-function scalDokladnieTeSameKrance(wiersze){
-    if(!Array.isArray(wiersze) || wiersze.length<2){
-        return wiersze;
+function vbaIsEndpointCell(kurs, element){
+    if(kurs?.placeholder === true){
+        return false;
     }
 
-    const wynik=[];
+    const record = kurs?._vbaRecord;
+    if(!record) return false;
 
-    for(const sourceRow of wiersze){
-        const row={
-            ...sourceRow,
-            entries:Array.isArray(sourceRow?.entries)
-                ? sourceRow.entries.map(e=>({...e}))
-                : []
-        };
-
-        const endpointNumbers=new Set(
-            row.entries
-                .filter(e=>e?.endpoint===true)
-                .map(e=>String(e?.nr||"").trim())
-                .filter(Boolean)
+    const entry =
+        vbaFindRowEntryForRecord(
+            element,
+            record
         );
 
-        const nazwa=normalizuj(row.entries?.[0]?.nazwa);
+    if(!entry) return false;
 
-        const poprzedni=wynik[wynik.length-1];
-
-        if(
-            poprzedni &&
-            nazwa &&
-            normalizuj(poprzedni.entries?.[0]?.nazwa)===nazwa &&
-            endpointNumbers.size===1
-        ){
-            const nr=[...endpointNumbers][0];
-
-            const poprzednieEndpointNumbers=new Set(
-                (poprzedni.entries||[])
-                    .filter(e=>e?.endpoint===true)
-                    .map(e=>String(e?.nr||"").trim())
-                    .filter(Boolean)
-            );
-
-            if(
-                poprzednieEndpointNumbers.size===1 &&
-                poprzednieEndpointNumbers.has(nr)
-            ){
-                row.entries.forEach(e=>dodajWpisJesliBrak(poprzedni,e));
-                poprzedni._preferowanyNumerKrańcowy=nr;
-                continue;
-            }
-        }
-
-        wynik.push(row);
-    }
-
-    return wynik;
+    return record.endpoints.has(
+        entry.rowIndex
+    );
 }
 
 
-function zbudujOsBrygadyLaczonej(kursy){
-    const rzeczywiste=kursy.filter(k=>!czyPlaceholderKursu(k));
-    const wzorce=zbudujWzorceTrasLaczonych(rzeczywiste);
-
-    if(!wzorce.length)return [];
-
-    let najlepsze=[];
-    let najlepszyScore=Infinity;
-
-    for(let seed=0;seed<wzorce.length;seed++){
-        const candidate=zbudujUkladOdWzorca(wzorce,seed);
-        const score=scoreUkladuLaczonego(candidate,wzorce);
-
-        if(score<najlepszyScore){
-            najlepszyScore=score;
-            najlepsze=candidate;
-        }
+function vbaDisplayTime(kurs, element){
+    if(kurs?.placeholder === true){
+        return "";
     }
 
-    /*
-     * v12 – bez późniejszego ręcznego przekładania wierszy.
-     * Tak samo jak w Excelu wynik jest rezultatem ważonego LCS,
-     * ale każdy wpis ma już pełną parę numerów swojej linii.
-     */
+    const record = kurs?._vbaRecord;
+    if(!record) return "";
 
-    return najlepsze.map(wiersz=>{
-        const first=wiersz.entries[0]||{};
-        return{
-            nazwa:first.nazwa||"",
-            entries:wiersz.entries
-        };
-    });
-}
+    const entry =
+        vbaFindRowEntryForRecord(
+            element,
+            record
+        );
 
-function znajdzWpisKursuNaWierszu(kurs,element){
-    if(czyPlaceholderKursu(kurs))return null;
+    if(!entry) return "";
 
-    const linia=String(kurs.linia||"");
-    const kierunek=Number(kurs.kierunek);
-    const entries=Array.isArray(element?.entries)?element.entries:[];
-
-    const kandydaci=entries.filter(e=>
-        e.linia===linia && e.kierunek===kierunek
+    const text = String(
+        record.times.get(entry.rowIndex) || ""
     );
 
-    if(!kandydaci.length)return null;
+    if(!text) return "";
 
-    /*
-     * v6 – źródłem prawdy jest przystanek zapisany razem z godziną.
-     * Nie odtwarzamy już numeru słupka wyłącznie z kurs.przystanki[index].
-     */
-    const punkty=
-        kurs.punkty instanceof Map
-            ? kurs.punkty
-            : null;
+    const current = rozbijCzas(text);
 
-    // 1. Najpierw ścisłe dopasowanie: ten sam indeks + ta sama nazwa + nr.
-    for(const entry of kandydaci){
-        if(!kurs.czasy.has(entry.sourceIndex))continue;
-
-        const p=(punkty?.get(entry.sourceIndex)) ||
-                kurs.przystanki?.[entry.sourceIndex] || {};
-
-        if(
-            normalizuj(p.nazwa)===normalizuj(entry.nazwa) &&
-            String(p.nr||"").trim()===String(entry.nr||"").trim()
-        ){
-            return{...entry,index:entry.sourceIndex};
-        }
+    if(!current){
+        return text;
     }
 
-    // 2. Następnie szukamy wśród RZECZYWISTYCH punktów kursu,
-    //    czyli wyłącznie indeksów, dla których kurs ma godzinę.
-    for(const entry of kandydaci){
-        const nazwaE=normalizuj(entry.nazwa);
-        const nrE=String(entry.nr||"").trim();
+    const position =
+        record.actualRows.indexOf(
+            entry.rowIndex
+        );
 
-        for(const [index,czas] of kurs.czasy.entries()){
-            if(czasNaMinuty(czas)===null)continue;
+    const isEndpoint =
+        record.endpoints.has(entry.rowIndex);
 
-            const p=(punkty?.get(index)) ||
-                    kurs.przystanki?.[index] || {};
+    let previousText = "";
 
-            if(
-                normalizuj(p.nazwa)===nazwaE &&
-                String(p.nr||"").trim()===nrE
-            ){
-                return{...entry,index};
-            }
-        }
+    if(position > 0){
+        const previousRow =
+            record.actualRows[position - 1];
+
+        previousText = String(
+            record.times.get(previousRow) || ""
+        );
     }
 
-    // 3. Po samej nazwie wolno dopasować tylko wtedy, gdy numeru
-    //    po jednej ze stron rzeczywiście nie ma i wynik jest jednoznaczny.
-    for(const entry of kandydaci){
-        const nazwaE=normalizuj(entry.nazwa);
-        const nrE=String(entry.nr||"").trim();
-        const pasujace=[];
+    const previous =
+        rozbijCzas(previousText);
 
-        for(const [index,czas] of kurs.czasy.entries()){
-            if(czasNaMinuty(czas)===null)continue;
+    const hourChanged =
+        previous &&
+        previous.godzinaRzeczywista !==
+        current.godzinaRzeczywista;
 
-            const p=(punkty?.get(index)) ||
-                    kurs.przystanki?.[index] || {};
-
-            if(normalizuj(p.nazwa)!==nazwaE)continue;
-
-            const nrP=String(p.nr||"").trim();
-
-            if(!nrE || !nrP){
-                pasujace.push(index);
-            }
-        }
-
-        if(pasujace.length===1){
-            return{...entry,index:pasujace[0]};
-        }
+    if(isEndpoint || hourChanged){
+        return current.pelny;
     }
 
-    return null;
+    return current.minuta;
 }
 
-function czasKursuNaOsiLaczonej(kurs,element){
-    const wpis=znajdzWpisKursuNaWierszu(kurs,element);
-    if(!wpis)return "";
-    return String(kurs.czasy.get(wpis.index)||"");
-}
 
-function czyEndpointNaOsiLaczonej(kurs,element){
-    const wpis=znajdzWpisKursuNaWierszu(kurs,element);
-    if(!wpis)return false;
-    return wpis.index===kurs.startIndex || wpis.index===kurs.koniecIndex;
-}
+/* =========================================================
+   NUMERY WIERSZA – dokładnie jak VBA ProcessCombinedBrigade
+   ========================================================= */
 
-function tekstCzasuWTabeliLaczonej(kurs,element){
-    const wpis=znajdzWpisKursuNaWierszu(kurs,element);
-    if(!wpis)return "";
+function vbaNumeryWiersza(element){
+    let left = null;
+    let right = null;
 
-    const czas=String(kurs.czasy.get(wpis.index)||"");
-    if(!czas)return "";
+    for(const entry of (element?.entries || [])){
+        const stop =
+            entry.lineData.stops[entry.rowIndex];
 
-    const aktualny=rozbijCzas(czas);
-    if(!aktualny)return czas;
+        if(!stop) continue;
 
-    const pierwszy=wpis.index===kurs.startIndex;
-    const ostatni=wpis.index===kurs.koniecIndex;
-    const poprzedni=rozbijCzas(poprzedniCzasWKursie(kurs,wpis.index));
-    const zmianaGodziny=
-        poprzedni &&
-        poprzedni.godzinaRzeczywista!==aktualny.godzinaRzeczywista;
+        let leftNr;
+        let rightNr;
+        let leftNz;
+        let rightNz;
 
-    if(pierwszy || ostatni || zmianaGodziny){
-        return aktualny.pelny;
-    }
+        if(entry.reverse){
+            leftNr = vbaNr(stop.code1);
+            rightNr = vbaNr(stop.code0);
 
-    return aktualny.minuta;
-}
+            leftNz = Boolean(stop.nz1);
+            rightNz = Boolean(stop.nz0);
+        }
+        else{
+            leftNr = vbaNr(stop.code0);
+            rightNr = vbaNr(stop.code1);
 
-function renderKomorkiKursowLaczonych(kursy,element){
-    let rowEndpoint=false;
-
-    const html=kursy.map(kurs=>{
-        let wynik="";
-
-        if(maSeparatorPrzed(kurs)){
-            wynik+='<td class="separator-komorka"></td>';
+            leftNz = Boolean(stop.nz0);
+            rightNz = Boolean(stop.nz1);
         }
 
-        if(czyPlaceholderKursu(kurs)){
-            return wynik+'<td class="czas-kursu"></td>';
-        }
-
-        const czas=czasKursuNaOsiLaczonej(kurs,element);
-        const endpoint=Boolean(czas) && czyEndpointNaOsiLaczonej(kurs,element);
-        if(endpoint)rowEndpoint=true;
-
-        wynik+=
-            `<td class="czas-kursu${endpoint?" koniec-kursu":""}">`+
-            `${escapeHtml(tekstCzasuWTabeliLaczonej(kurs,element))}`+
-            `</td>`;
-
-        return wynik;
-    }).join("");
-
-    return{html,rowEndpoint};
-}
-
-function numeryWierszaLaczonego(element){
-    const entries=
-        Array.isArray(element?.entries)
-            ? element.entries
-            : [];
-
-    let lewy=null;
-    let prawy=null;
-
-    for(const entry of entries){
-        const reverse=
-            Boolean(entry?.reverse);
-
-        const nrLewy=
-            reverse
-                ? String(entry?.nr1||"").trim()
-                : String(entry?.nr0||"").trim();
-
-        const nrPrawy=
-            reverse
-                ? String(entry?.nr0||"").trim()
-                : String(entry?.nr1||"").trim();
-
-        const nzLewy=
-            reverse
-                ? Boolean(entry?.nz1)
-                : Boolean(entry?.nz0);
-
-        const nzPrawy=
-            reverse
-                ? Boolean(entry?.nz0)
-                : Boolean(entry?.nz1);
-
-        if(!lewy && nrLewy){
-            lewy={
-                nr:nrLewy,
-                nz:nzLewy
+        if(!left && leftNr){
+            left = {
+                nr: leftNr,
+                nz: leftNz
             };
         }
 
-        if(!prawy && nrPrawy){
-            prawy={
-                nr:nrPrawy,
-                nz:nzPrawy
+        if(!right && rightNr){
+            right = {
+                nr: rightNr,
+                nz: rightNz
             };
         }
     }
 
-    /*
-     * Awaryjny fallback dla bardzo starych / niepełnych JSON-ów.
-     */
-    if(!lewy && !prawy){
-        const first=entries[0];
-
-        if(first){
-            const dane={
-                nr:String(first.nr||""),
-                nz:Boolean(first.nz)
-            };
-
-            if(first.reverse){
-                prawy=dane;
-            }else{
-                lewy=dane;
-            }
-        }
-    }
-
-    return{
-        lewy,
-        prawy
+    return {
+        lewy: left,
+        prawy: right
     };
 }
 
-function nazwyLiniiBrygadyLaczonej(kursy){
-    const seen=new Set();
-    const wynik=[];
 
-    kursy.forEach(kurs=>{
-        if(czyPlaceholderKursu(kurs))return;
+function vbaNazwaWiersza(element){
+    const first = element?.entries?.[0];
 
-        const linia=String(kurs.linia||"").trim();
+    if(!first){
+        return "";
+    }
+
+    const stop =
+        first.lineData.stops[first.rowIndex];
+
+    return String(stop?.nazwa || "");
+}
+
+
+/* =========================================================
+   RENDEROWANIE GODZIN
+   ========================================================= */
+
+function vbaRenderCourseCells(displayRecords, element){
+    let rowEndpoint = false;
+
+    const html = displayRecords.map(kurs => {
+        let result = "";
+
+        if(maSeparatorPrzed(kurs)){
+            result += '<td class="separator-komorka"></td>';
+        }
+
+        if(kurs?.placeholder === true){
+            return result +
+                '<td class="czas-kursu"></td>';
+        }
+
+        const time = vbaTimeForCell(kurs, element);
+        const endpoint =
+            Boolean(time) &&
+            vbaIsEndpointCell(kurs, element);
+
+        if(endpoint){
+            rowEndpoint = true;
+        }
+
+        result +=
+            `<td class="czas-kursu${endpoint ? " koniec-kursu" : ""}">` +
+            `${escapeHtml(vbaDisplayTime(kurs, element))}` +
+            '</td>';
+
+        return result;
+    }).join("");
+
+    return {
+        html,
+        rowEndpoint
+    };
+}
+
+
+/* =========================================================
+   NAGŁÓWEK – 999 UKRYTA TYLKO TUTAJ
+   ========================================================= */
+
+function vbaCombinedLineLabel(records){
+    const seen = new Set();
+    const result = [];
+
+    records.forEach(record => {
+        const line = String(record?.lineName || "").trim();
 
         /*
-         * Linia 999 jest linią techniczną.
-         * Jej kursy nadal biorą udział w brygadzie, trasie i obliczeniach,
-         * ale numer 999 nie jest pokazywany w nagłówku brygady.
+         * Jedyny specjalny wyjątek pozostawiony zgodnie z prośbą:
+         * 999 działa w trasie, kursach i godzinach, lecz nie ma jej
+         * w nagłówku.
          */
-        if(linia==="999")return;
+        if(line === "999"){
+            return;
+        }
 
-        if(linia && !seen.has(linia)){
-            seen.add(linia);
-            wynik.push(linia);
+        if(line && !seen.has(line)){
+            seen.add(line);
+            result.push(line);
         }
     });
 
-    return wynik.join("+");
+    return result.join("+");
 }
 
-function postojeBrygadyLaczonej(kursy,brygada){
-    const wynik=[];
-    const zmianowa=czyBrygadaZmianowa(brygada);
 
-    for(let i=0;i<kursy.length-1;i++){
-        const obecny=kursy[i];
-        const nastepny=kursy[i+1];
+/* =========================================================
+   POSTOJE / PODSUMOWANIE
+   ========================================================= */
 
-        if(czyPlaceholderKursu(obecny) || czyPlaceholderKursu(nastepny)){
-            wynik.push(null);
+function vbaCombinedBreaks(displayRecords){
+    const result = [];
+
+    for(let i = 0; i < displayRecords.length - 1; i++){
+        const current = displayRecords[i];
+        const next = displayRecords[i + 1];
+
+        if(
+            current?.placeholder === true ||
+            next?.placeholder === true
+        ){
+            result.push(null);
             continue;
         }
 
-        const koniec=Number(obecny._combinedSortEnd ?? koniecSortowaniaKursuLaczonego(obecny));
-        const start=Number(nastepny._combinedSortStart ?? startSortowaniaKursuLaczonego(nastepny));
-        const przerwa=Math.max(0,start-koniec);
+        const currentRecord = current._vbaRecord;
+        const nextRecord = next._vbaRecord;
 
-        if(zmianowa && przerwa>90)wynik.push(null);
-        else wynik.push(przerwa);
+        if(!currentRecord || !nextRecord){
+            result.push(null);
+            continue;
+        }
+
+        let diff =
+            nextRecord.sortStart -
+            currentRecord.sortEnd;
+
+        while(diff < 0){
+            diff += 1440;
+        }
+
+        result.push(diff);
     }
 
-    return wynik;
+    return result;
 }
 
-function policzPodsumowanieLaczone(kursy,postoje){
-    let jazda=0;
-    let przerwy=0;
 
-    kursy.forEach(kurs=>{
-        if(czyPlaceholderKursu(kurs))return;
-        const start=Number(kurs._combinedSortStart ?? startSortowaniaKursuLaczonego(kurs));
-        const koniec=Number(kurs._combinedSortEnd ?? koniecSortowaniaKursuLaczonego(kurs));
-        if(Number.isFinite(start) && Number.isFinite(koniec) && koniec>=start){
-            jazda+=koniec-start;
+function vbaCombinedSummary(displayRecords, breaks){
+    let driving = 0;
+    let breakMinutes = 0;
+
+    displayRecords.forEach(kurs => {
+        if(kurs?.placeholder === true){
+            return;
+        }
+
+        const record = kurs?._vbaRecord;
+        if(!record) return;
+
+        driving += Math.max(
+            0,
+            record.sortEnd - record.sortStart
+        );
+    });
+
+    (breaks || []).forEach(value => {
+        if(
+            value !== null &&
+            value !== undefined &&
+            Number.isFinite(Number(value))
+        ){
+            breakMinutes += Math.max(
+                0,
+                Number(value)
+            );
         }
     });
 
-    postoje.forEach(p=>{
-        if(p!==null && p!==undefined && Number.isFinite(Number(p)) && Number(p)>=0){
-            przerwy+=Number(p);
-        }
-    });
-
-    return{
-        jazda,
-        przerwy,
-        razem:jazda+przerwy,
-        jazdaTekst:formatCzasTrwania(jazda),
-        przerwyTekst:formatCzasTrwania(przerwy),
-        razemTekst:formatCzasTrwania(jazda+przerwy),
-        lacznyCzasBrygadyTekst:"",
-        podzielone:false
+    return {
+        jazda: driving,
+        przerwy: breakMinutes,
+        razem: driving + breakMinutes,
+        jazdaTekst: formatCzasTrwania(driving),
+        przerwyTekst: formatCzasTrwania(breakMinutes),
+        razemTekst: formatCzasTrwania(
+            driving + breakMinutes
+        )
     };
 }
 
-function renderBrygadaLaczona(brygada,kursy){
-    const uporzadkowane=przygotujKursyLaczone(kursy,brygada);
-    if(!uporzadkowane.length)return "";
 
-    const rzeczywiste=uporzadkowane.filter(k=>!czyPlaceholderKursu(k));
-    if(!rzeczywiste.length)return "";
+/* =========================================================
+   PEŁNY MODEL BRYGADY ŁĄCZONEJ
+   ========================================================= */
 
-    // Oś budujemy z rekordów rzeczywistych, a placeholdery dotyczą wyłącznie kolumn.
-    const os=zbudujOsBrygadyLaczonej(rzeczywiste);
-    if(!os.length)return "";
+function vbaBuildCombinedModel(brygada, allCourses){
+    const courses = (allCourses || [])
+        .filter(k =>
+            String(k?.brygada || "").trim() ===
+            String(brygada || "").trim()
+        );
 
-    const postoje=postojeBrygadyLaczonej(uporzadkowane,brygada);
-    const podsumowanie=policzPodsumowanieLaczone(uporzadkowane,postoje);
-    const liniaLabel=nazwyLiniiBrygadyLaczonej(rzeczywiste);
+    const built = vbaBuildRecords(courses);
+    const records = built.records;
 
-    const szerokoscTabeli=
-        24+130+24+
-        (uporzadkowane.length*35)+
-        (liczbaSeparatorow(uporzadkowane)*6);
+    if(records.length === 0){
+        return null;
+    }
 
-    let html=
-        '<section class="brygada">'+
-        '<div class="brygada-scroll">'+
-        `<div class="tabela-brygady-inner" style="width:${szerokoscTabeli}px">`+
-        renderCiagleSeparatory(uporzadkowane)+
-        `<table class="tabela-brygady" style="width:${szerokoscTabeli}px!important;min-width:${szerokoscTabeli}px!important;max-width:${szerokoscTabeli}px!important">`+
-        '<colgroup>'+
-        '<col class="kol-nr">'+
-        '<col class="kol-nazwa">'+
-        '<col class="kol-nr">'+
-        renderColgroupKursow(uporzadkowane)+
-        '</colgroup>'+
-        '<thead><tr>'+
-        `<th class="naglowek-brygady" colspan="3">`+
-        `${escapeHtml(liniaLabel)} / ${escapeHtml(brygada)}`+
-        '</th>'+
-        renderNaglowkiKursow(uporzadkowane)+
-        '</tr>'+
-        renderPostojGora(uporzadkowane,postoje)+
+    const patterns =
+        vbaBuildPatterns(records);
+
+    if(!patterns.length){
+        return null;
+    }
+
+    const rows =
+        vbaBuildMostCompactLayout(patterns);
+
+    if(!rows.length){
+        return null;
+    }
+
+    const displayRecords =
+        vbaBuildDisplayRecords(
+            records,
+            brygada
+        );
+
+    return {
+        records,
+        rows,
+        displayRecords
+    };
+}
+
+
+/* =========================================================
+   RENDER BRYGADY ŁĄCZONEJ
+   ========================================================= */
+
+function vbaRenderCombinedBrigade(brygada, allCourses){
+    const model =
+        vbaBuildCombinedModel(
+            brygada,
+            allCourses
+        );
+
+    if(!model){
+        return "";
+    }
+
+    const {
+        records,
+        rows,
+        displayRecords
+    } = model;
+
+    const postoje =
+        vbaCombinedBreaks(
+            displayRecords
+        );
+
+    const summary =
+        vbaCombinedSummary(
+            displayRecords,
+            postoje
+        );
+
+    const lineLabel =
+        vbaCombinedLineLabel(records);
+
+    const szerokoscTabeli =
+        24 + 130 + 24 +
+        (displayRecords.length * 35) +
+        (liczbaSeparatorow(displayRecords) * 6);
+
+    let html =
+        '<section class="brygada">' +
+        '<div class="brygada-scroll">' +
+        `<div class="tabela-brygady-inner" style="width:${szerokoscTabeli}px">` +
+        renderCiagleSeparatory(displayRecords) +
+        `<table class="tabela-brygady" style="width:${szerokoscTabeli}px!important;min-width:${szerokoscTabeli}px!important;max-width:${szerokoscTabeli}px!important">` +
+        '<colgroup>' +
+        '<col class="kol-nr">' +
+        '<col class="kol-nazwa">' +
+        '<col class="kol-nr">' +
+        renderColgroupKursow(displayRecords) +
+        '</colgroup>' +
+        '<thead><tr>' +
+        '<th class="naglowek-brygady" colspan="3">' +
+        `${escapeHtml(lineLabel)} / ${escapeHtml(brygada)}` +
+        '</th>' +
+        renderNaglowkiKursow(displayRecords) +
+        '</tr>' +
+        renderPostojGora(displayRecords, postoje) +
         '</thead><tbody>';
 
-    os.forEach(element=>{
-        const wynikKomorek=renderKomorkiKursowLaczonych(uporzadkowane,element);
-        const numery=numeryWierszaLaczonego(element);
+    rows.forEach(element => {
+        const cells =
+            vbaRenderCourseCells(
+                displayRecords,
+                element
+            );
 
-        html+=
-            '<tr class="wiersz-przystanku">'+
-            `<td class="nr-lewy${wynikKomorek.rowEndpoint?" przystanek-koniec":""}">`+
-            pokazNumerPrzystanku(numery.lewy,true)+
-            '</td>'+
-            `<td class="nazwa-przystanku${wynikKomorek.rowEndpoint?" przystanek-koniec":""}">`+
-            `<div class="przystanek-scroll"><span>${escapeHtml(String(element.nazwa||"").toUpperCase())}</span></div>`+
-            '</td>'+
-            `<td class="nr-prawy${wynikKomorek.rowEndpoint?" przystanek-koniec":""}">`+
-            pokazNumerPrzystanku(numery.prawy,false)+
-            '</td>'+
-            wynikKomorek.html+
+        const numbers =
+            vbaNumeryWiersza(element);
+
+        const name =
+            vbaNazwaWiersza(element);
+
+        html +=
+            '<tr class="wiersz-przystanku">' +
+
+            `<td class="nr-lewy${cells.rowEndpoint ? " przystanek-koniec" : ""}">` +
+            pokazNumerPrzystanku(numbers.lewy, true) +
+            '</td>' +
+
+            `<td class="nazwa-przystanku${cells.rowEndpoint ? " przystanek-koniec" : ""}">` +
+            '<div class="przystanek-scroll">' +
+            `<span>${escapeHtml(name.toUpperCase())}</span>` +
+            '</div>' +
+            '</td>' +
+
+            `<td class="nr-prawy${cells.rowEndpoint ? " przystanek-koniec" : ""}">` +
+            pokazNumerPrzystanku(numbers.prawy, false) +
+            '</td>' +
+
+            cells.html +
             '</tr>';
     });
 
-    html+=
-        renderPostojDol(uporzadkowane,postoje)+
-        renderPustyWierszDol(uporzadkowane)+
-        '</tbody></table></div></div>'+
-        '<table class="podsumowanie">'+
-        '<colgroup>'+
-        '<col class="podsumowanie-opis">'+
-        '<col class="podsumowanie-wartosc">'+
-        '</colgroup><tbody>'+
-        '<tr><th>Czas jazdy:</th>'+
-        `<td>${escapeHtml(podsumowanie.jazdaTekst)}</td></tr>`+
-        '<tr><th>Czas przerw:</th>'+
-        `<td>${escapeHtml(podsumowanie.przerwyTekst)}</td></tr>`+
-        '<tr class="razem"><th>Łączny czas:</th>'+
-        `<td>${escapeHtml(podsumowanie.razemTekst)}</td></tr>`+
-        '</tbody></table></section>';
+    html +=
+        renderPostojDol(displayRecords, postoje) +
+        renderPustyWierszDol(displayRecords) +
+        '</tbody></table></div></div>' +
+
+        '<table class="podsumowanie">' +
+        '<colgroup>' +
+        '<col class="podsumowanie-opis">' +
+        '<col class="podsumowanie-wartosc">' +
+        '</colgroup><tbody>' +
+
+        '<tr><th>Czas jazdy:</th>' +
+        `<td>${escapeHtml(summary.jazdaTekst)}</td></tr>` +
+
+        '<tr><th>Czas przerw:</th>' +
+        `<td>${escapeHtml(summary.przerwyTekst)}</td></tr>` +
+
+        '<tr class="razem"><th>Łączny czas:</th>' +
+        `<td>${escapeHtml(summary.razemTekst)}</td></tr>` +
+
+        '</tbody></table>' +
+        '</section>';
 
     return html;
 }
 
-function grupujKursyPoBrygadzie(kursy){
-    const grupy=new Map();
 
-    kursy.forEach(kurs=>{
-        const b=String(kurs.brygada||"").trim();
-        if(!b)return;
-        if(!grupy.has(b))grupy.set(b,[]);
-        grupy.get(b).push(kurs);
-    });
+/* =========================================================
+   DEDUPLIKACJA
+   ========================================================= */
 
-    return grupy;
-}
+function vbaDeduplicateCombinedCourses(courses){
+    const map = new Map();
 
-function deduplikujKursyLaczone(kursy){
-    const mapa=new Map();
-
-    kursy.forEach(kurs=>{
-        const czasy=Array.from(kurs.czasy.entries())
-            .sort((a,b)=>a[0]-b[0])
-            .map(([i,t])=>i+"="+t)
+    (courses || []).forEach(kurs => {
+        const times = Array.from(kurs.czasy.entries())
+            .sort((a, b) => a[0] - b[0])
+            .map(([i, t]) => `${i}=${t}`)
             .join(";");
 
-        const key=[
+        const key = [
             kurs.linia,
             kurs.brygada,
             kurs.kierunek,
             kurs.numer,
             kurs.wariant,
-            czasy
+            kurs.rokladIndex,
+            times
         ].join("|");
 
-        if(!mapa.has(key))mapa.set(key,kurs);
+        if(!map.has(key)){
+            map.set(key, kurs);
+        }
     });
 
-    return Array.from(mapa.values());
+    return Array.from(map.values());
 }
 
-function pokazBrygadyZLaczeniami(
+
+/* =========================================================
+   WYŚWIETLANIE WSZYSTKICH BRYGAD
+   ========================================================= */
+
+function vbaPokazBrygadyZLaczeniami(
     daneWybranejLinii,
     data,
     dodatkoweZbiory
 ){
-    const wynik=document.getElementById("wynik");
-    const info=document.getElementById("brygadyInfo");
+    const wynik =
+        document.getElementById("wynik");
 
-    const kursyGlowne=zbierzKursy(daneWybranejLinii,data);
-    const grupyGlowne=grupujKursyPoBrygadzie(kursyGlowne);
-    const brygady=Array.from(grupyGlowne.keys()).sort(porownajBrygady);
+    const info =
+        document.getElementById("brygadyInfo");
+
+    /*
+     * Zwykłe brygady nadal korzystają z dotychczasowego zbierzKursy()
+     * i renderBrygada() – nic w ich logice nie zmieniamy.
+     */
+    const kursyGlowneNormal =
+        zbierzKursy(
+            daneWybranejLinii,
+            data
+        );
+
+    const grupyGlowneNormal =
+        vbaGrupujPoBrygadzie(
+            kursyGlowneNormal
+        );
+
+    /*
+     * Osobny zbiór dla algorytmu VBA.
+     */
+    const kursyGlowneVBA =
+        vbaZbierzKursyLinii(
+            daneWybranejLinii,
+            data
+        );
+
+    const grupyGlowneVBA =
+        vbaGrupujPoBrygadzie(
+            kursyGlowneVBA
+        );
+
+    const brygady =
+        Array.from(
+            grupyGlowneNormal.keys()
+        ).sort(porownajBrygady);
 
     if(!brygady.length){
-        info.textContent=`Linia ${daneWybranejLinii.linia||aktualnaLinia} • ${dataISO(data)}`;
-        wynik.innerHTML='<div class="brak">Brak brygad dla wybranego dnia.</div>';
+        info.textContent =
+            `Linia ${daneWybranejLinii.linia || aktualnaLinia} • ${dataISO(data)}`;
+
+        wynik.innerHTML =
+            '<div class="brak">Brak brygad dla wybranego dnia.</div>';
+
         return;
     }
 
-    const grupyDodatkowe=(dodatkoweZbiory||[]).map(zbior=>({
-        dane:zbior.dane,
-        kursy:zbior.kursy||[],
-        grupy:grupujKursyPoBrygadzie(zbior.kursy||[])
+    const extra = (dodatkoweZbiory || []).map(item => ({
+        dane: item.dane,
+        kursy: item.kursy ||
+            vbaZbierzKursyLinii(item.dane, data),
+        grupy: vbaGrupujPoBrygadzie(
+            item.kursy ||
+            vbaZbierzKursyLinii(item.dane, data)
+        )
     }));
 
-    /*
-     * v12 – pełne kursy każdej linii są potrzebne do zbudowania
-     * jej własnej osi dwóch kierunków, tak jak robi to VBA.
-     */
-    const wszystkieKursyPoLinii=new Map();
+    info.textContent =
+        `Linia ${daneWybranejLinii.linia || aktualnaLinia} • ` +
+        `${dataISO(data)} • ` +
+        `${brygady.length} ${brygady.length === 1 ? "brygada" : "brygad"}`;
 
-    wszystkieKursyPoLinii.set(
-        String(daneWybranejLinii.linia||aktualnaLinia),
-        kursyGlowne
-    );
+    wynik.innerHTML =
+        brygady.map(brygada => {
+            const normalCourses =
+                grupyGlowneNormal.get(brygada) || [];
 
-    grupyDodatkowe.forEach(zbior=>{
-        const linia=String(zbior.dane?.linia||"");
-        if(linia){
-            wszystkieKursyPoLinii.set(
-                linia,
-                zbior.kursy
+            if(!czyNumerZadaniaLaczonego(brygada)){
+                return renderBrygada(
+                    String(
+                        daneWybranejLinii.linia ||
+                        aktualnaLinia
+                    ),
+                    brygada,
+                    normalCourses
+                );
+            }
+
+            const all = [
+                ...(grupyGlowneVBA.get(brygada) || [])
+            ];
+
+            const lines = new Set(
+                all.map(k => String(k.linia || ""))
             );
-        }
-    });
 
-    wszystkieKursyPoLinii.forEach((lista,linia)=>{
-        lista.forEach(kurs=>{
-            kurs._allLineCourses=lista;
-        });
-    });
+            extra.forEach(item => {
+                const courses =
+                    item.grupy.get(brygada);
 
-    info.textContent=
-        `Linia ${daneWybranejLinii.linia||aktualnaLinia} • ${dataISO(data)} • `+
-        `${brygady.length} ${brygady.length===1?"brygada":"brygad"}`;
+                if(!courses?.length){
+                    return;
+                }
 
-    wynik.innerHTML=brygady.map(brygada=>{
-        const glowne=grupyGlowne.get(brygada)||[];
+                all.push(...courses);
 
-        if(!czyNumerZadaniaLaczonego(brygada)){
-            return renderBrygada(
-                String(daneWybranejLinii.linia||aktualnaLinia),
+                courses.forEach(k =>
+                    lines.add(
+                        String(k.linia || "")
+                    )
+                );
+            });
+
+            /*
+             * Numer >99 występujący tylko na jednej linii zachowuje
+             * starą obsługę, tak samo jak VBA.
+             */
+            if(lines.size < 2){
+                return renderBrygada(
+                    String(
+                        daneWybranejLinii.linia ||
+                        aktualnaLinia
+                    ),
+                    brygada,
+                    normalCourses
+                );
+            }
+
+            return vbaRenderCombinedBrigade(
                 brygada,
-                glowne
+                vbaDeduplicateCombinedCourses(all)
             );
-        }
+        }).join("");
 
-        const wszystkie=[...glowne];
-        const linie=new Set(glowne.map(k=>String(k.linia||"")));
-
-        grupyDodatkowe.forEach(zbior=>{
-            const kursy=zbior.grupy.get(brygada);
-            if(!kursy?.length)return;
-
-            wszystkie.push(...kursy);
-            kursy.forEach(k=>linie.add(String(k.linia||"")));
-        });
-
-        if(linie.size<2){
-            return renderBrygada(
-                String(daneWybranejLinii.linia||aktualnaLinia),
-                brygada,
-                glowne
-            );
-        }
-
-        return renderBrygadaLaczona(
-            brygada,
-            deduplikujKursyLaczone(wszystkie)
-        );
-    }).join("");
-
-    requestAnimationFrame(()=>{
+    requestAnimationFrame(() => {
         ustawPozycjeCiaglychSeparatorow();
     });
 
-    requestAnimationFrame(uruchomPrzesuwanieNazw);
+    requestAnimationFrame(
+        uruchomPrzesuwanieNazw
+    );
 }
 
-/*
- * Nadpisujemy wyłącznie funkcję uruchamiającą ładowanie.
- * Cały dotychczasowy HTML/CSS oraz renderowanie zwykłych brygad pozostaje bez zmian.
- */
-async function wczytajIBuduj(){
-    const wynik=document.getElementById("wynik");
-    const info=document.getElementById("brygadyInfo");
 
-    wynik.innerHTML='<div class="brak">Ładowanie brygad...</div>';
-    info.textContent=`Ładowanie linii ${aktualnaLinia}...`;
+/* =========================================================
+   GŁÓWNE WCZYTANIE
+   ========================================================= */
+
+async function wczytajIBuduj(){
+    const wynik =
+        document.getElementById("wynik");
+
+    const info =
+        document.getElementById("brygadyInfo");
+
+    wynik.innerHTML =
+        '<div class="brak">Ładowanie brygad...</div>';
+
+    info.textContent =
+        `Ładowanie linii ${aktualnaLinia}...`;
 
     try{
-        const dane=await pobierzLinie(aktualnaLinia,wybranaData);
-        const kursyGlowne=zbierzKursy(dane,wybranaData);
+        const dane =
+            await pobierzLinie(
+                aktualnaLinia,
+                wybranaData
+            );
 
-        const potrzebneBrygady=new Set(
-            kursyGlowne
-                .map(k=>String(k.brygada||"").trim())
-                .filter(czyNumerZadaniaLaczonego)
-        );
+        const kursyGlowne =
+            vbaZbierzKursyLinii(
+                dane,
+                wybranaData
+            );
+
+        const potrzebneBrygady =
+            new Set(
+                kursyGlowne
+                    .map(k =>
+                        String(k.brygada || "").trim()
+                    )
+                    .filter(czyNumerZadaniaLaczonego)
+            );
 
         if(!potrzebneBrygady.size){
-            // Dokładnie stara ścieżka – bez żadnej zmiany zachowania.
-            pokazBrygady(dane,wybranaData);
+            /*
+             * Brak zadań łączonych – uruchamiamy dokładnie starą ścieżkę.
+             */
+            pokazBrygady(
+                dane,
+                wybranaData
+            );
+
             return;
         }
 
-        info.textContent=
+        info.textContent =
             `Ładowanie linii ${aktualnaLinia} i zadań łączonych...`;
 
-        const dodatkowe=await pobierzDaneKandydatowDoLaczenia(
-            aktualnaLinia,
-            wybranaData,
-            potrzebneBrygady
-        );
+        const dodatkowe =
+            await vbaPobierzDodatkoweLinie(
+                aktualnaLinia,
+                wybranaData,
+                potrzebneBrygady
+            );
 
-        pokazBrygadyZLaczeniami(
+        vbaPokazBrygadyZLaczeniami(
             dane,
             wybranaData,
             dodatkowe
         );
-
-    }catch(error){
+    }
+    catch(error){
         console.error(error);
-        pokazBlad(error.message||"Nie udało się wczytać brygad.");
+
+        pokazBlad(
+            error?.message ||
+            "Nie udało się wczytać brygad."
+        );
     }
 }
 
