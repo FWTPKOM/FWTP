@@ -3421,6 +3421,895 @@ function pokazBlad(tekst){
     document.getElementById("wynik").innerHTML=
         '<div class="brak">'+escapeHtml(tekst)+'</div>';
 }
+/* =========================================================
+   BRYGADY ŁĄCZONE – odpowiednik logiki VBA
+   =========================================================
+   Ten blok jest celowo dopisany na końcu istniejącego skryptu.
+   Nie zmienia dotychczasowego renderowania zwykłych brygad.
+
+   Zasada:
+   - numer zadania > 99 może występować na więcej niż jednej linii,
+   - dla takich zadań wyszukujemy ten sam numer w innych plikach linii,
+   - kursy wszystkich znalezionych linii sortujemy chronologicznie,
+   - ich rzeczywiste przebiegi składamy w jedną wspólną oś przystanków,
+   - zwykłe brygady nadal korzystają z renderBrygada() bez zmian.
+   ========================================================= */
+
+const cacheLiniiDoBrygadLaczonych=new Map();
+
+function czyNumerZadaniaLaczonego(brygada){
+    const tekst=String(brygada||"").trim();
+    if(!/^\d+$/.test(tekst))return false;
+    return Number(tekst)>99;
+}
+
+function kluczCacheLinii(linia,data){
+    return dataISO(data)+"|"+String(linia||"").trim();
+}
+
+async function pobierzLinieDoLaczenia(linia,data){
+    const klucz=kluczCacheLinii(linia,data);
+
+    if(cacheLiniiDoBrygadLaczonych.has(klucz)){
+        return cacheLiniiDoBrygadLaczonych.get(klucz);
+    }
+
+    const obietnica=pobierzLinie(linia,data)
+        .catch(()=>null);
+
+    cacheLiniiDoBrygadLaczonych.set(klucz,obietnica);
+    return obietnica;
+}
+
+function wszystkieLinieZManifestu(paczki){
+    const wynik=new Set();
+
+    (Array.isArray(paczki)?paczki:[]).forEach(paczka=>{
+        const linie=Array.isArray(paczka?.linie)?paczka.linie:[];
+        linie.forEach(linia=>{
+            const numer=String(linia||"").trim();
+            if(numer)wynik.add(numer);
+        });
+    });
+
+    return Array.from(wynik).sort(porownajBrygady);
+}
+
+async function pobierzDaneKandydatowDoLaczenia(
+    wybranaLinia,
+    data,
+    potrzebneBrygady
+){
+    const paczki=await pobierzManifestPaczek();
+    const kandydaci=wszystkieLinieZManifestu(paczki)
+        .filter(linia=>String(linia)!==String(wybranaLinia));
+
+    if(!kandydaci.length || !potrzebneBrygady.size){
+        return [];
+    }
+
+    const wynik=[];
+    const LIMIT=10;
+
+    for(let od=0;od<kandydaci.length;od+=LIMIT){
+        const partia=kandydaci.slice(od,od+LIMIT);
+        const danePartii=await Promise.all(
+            partia.map(linia=>pobierzLinieDoLaczenia(linia,data))
+        );
+
+        danePartii.forEach(dane=>{
+            if(!dane)return;
+
+            const kursy=zbierzKursy(dane,data);
+            const maPotrzebneZadanie=kursy.some(
+                kurs=>potrzebneBrygady.has(String(kurs.brygada||"").trim())
+            );
+
+            if(maPotrzebneZadanie){
+                wynik.push({dane,kursy});
+            }
+        });
+    }
+
+    return wynik;
+}
+
+function startSortowaniaKursuLaczonego(kurs){
+    let start=Number(kurs?.start);
+    if(!Number.isFinite(start))return Number.MAX_SAFE_INTEGER;
+
+    // Tak jak w VBA: kursy po północy traktujemy jako koniec dnia przewozowego.
+    if(start<180)start+=1440;
+    return start;
+}
+
+function koniecSortowaniaKursuLaczonego(kurs){
+    const start=startSortowaniaKursuLaczonego(kurs);
+    let koniec=Number(kurs?.koniec);
+
+    if(!Number.isFinite(koniec))return start;
+    if(koniec<180 && start>=1440)koniec+=1440;
+    while(koniec<start)koniec+=1440;
+
+    return koniec;
+}
+
+function porownajKursyLaczone(a,b){
+    const sa=startSortowaniaKursuLaczonego(a);
+    const sb=startSortowaniaKursuLaczonego(b);
+
+    if(sa!==sb)return sa-sb;
+
+    const poNumerze=porownajKursyPoNumerze(a,b);
+    if(poNumerze!==0)return poNumerze;
+
+    return String(a.linia||"").localeCompare(
+        String(b.linia||""),
+        "pl",
+        {numeric:true}
+    );
+}
+
+function przygotujKursyLaczone(kursy,brygada){
+    const chronologiczne=[...kursy].sort(porownajKursyLaczone);
+
+    chronologiczne.forEach((kurs,index)=>{
+        kurs._combinedPosition=index+1;
+        kurs._combinedReverse=((index+1)%2===0);
+        kurs._combinedSortStart=startSortowaniaKursuLaczonego(kurs);
+        kurs._combinedSortEnd=koniecSortowaniaKursuLaczonego(kurs);
+        kurs.separatorPrzed=false;
+    });
+
+    if(!czyBrygadaZmianowa(brygada)){
+        return chronologiczne;
+    }
+
+    // Dla 700–799 zachowujemy istniejącą ideę pustego slotu zmiany.
+    // W brygadzie łączonej o potrzebie slotu decyduje strona zakończenia
+    // i rozpoczęcia kolejnego rzeczywistego kursu.
+    const wynik=[];
+    let poprzedni=null;
+
+    chronologiczne.forEach(kurs=>{
+        if(poprzedni){
+            const poprzedniKoniec=poprzedni._combinedSortEnd;
+            const aktualnyStart=kurs._combinedSortStart;
+            const przerwa=Math.max(0,aktualnyStart-poprzedniKoniec);
+
+            const poprzedniDol=(poprzedni._combinedPosition%2===1);
+            const aktualnyDol=(kurs._combinedPosition%2===0);
+
+            if(poprzedniDol!==aktualnyDol){
+                const placeholder=utworzPlaceholderKursu(
+                    kurs.kierunek===0?1:0,
+                    kurs.start,
+                    przerwa>90
+                );
+                placeholder._combinedPlaceholder=true;
+                wynik.push(placeholder);
+            }else if(przerwa>90){
+                kurs.separatorPrzed=true;
+            }
+        }
+
+        wynik.push(kurs);
+        poprzedni=kurs;
+    });
+
+    return wynik;
+}
+
+function indeksyRzeczywistychPostojowKursu(kurs){
+    return Array.from(kurs.czasy.keys())
+        .filter(indeks=>czasNaMinuty(kurs.czasy.get(indeks))!==null)
+        .sort((a,b)=>a-b);
+}
+
+function zbudujWpisyWzorcaLaczonego(kurs,pozycja){
+    const indeksy=indeksyRzeczywistychPostojowKursu(kurs);
+    if(!indeksy.length)return [];
+
+    const odwroc=(pozycja%2===0);
+    const kolejnosc=odwroc?[...indeksy].reverse():indeksy;
+
+    return kolejnosc.map((sourceIndex,displayIndex)=>{
+        const p=kurs.przystanki[sourceIndex]||{};
+        return{
+            linia:String(kurs.linia||""),
+            kierunek:Number(kurs.kierunek),
+            sourceIndex,
+            reverse:odwroc,
+            displayIndex,
+            nazwa:String(p.nazwa||""),
+            nr:String(p.nr||""),
+            nz:czyNZ(p),
+            endpoint:
+                sourceIndex===indeksy[0] ||
+                sourceIndex===indeksy[indeksy.length-1]
+        };
+    });
+}
+
+function kluczWzorcaLaczonego(wpisy){
+    return wpisy.map(wpis=>[
+        wpis.linia,
+        wpis.kierunek,
+        wpis.sourceIndex,
+        wpis.reverse?"R":"F"
+    ].join(":")).join("|");
+}
+
+function klonujWierszeLaczone(wiersze){
+    return wiersze.map(wiersz=>({
+        entries:wiersz.entries.map(entry=>({...entry}))
+    }));
+}
+
+function utworzWierszLaczony(entry){
+    return{entries:[{...entry}]};
+}
+
+function scoreParyPrzystankowLaczonych(a,b){
+    if(normalizuj(a?.nazwa)!==normalizuj(b?.nazwa))return 0;
+
+    let score=100;
+
+    const nrA=String(a?.nr||"").trim();
+    const nrB=String(b?.nr||"").trim();
+
+    if(nrA && nrB && nrA===nrB)score+=5000;
+    if(a?.endpoint && b?.endpoint)score+=500;
+
+    return score;
+}
+
+function scoreWierszaZWpisem(wiersz,wpis){
+    let najlepszy=0;
+
+    (wiersz?.entries||[]).forEach(istniejacy=>{
+        najlepszy=Math.max(
+            najlepszy,
+            scoreParyPrzystankowLaczonych(istniejacy,wpis)
+        );
+    });
+
+    return najlepszy;
+}
+
+function dodajWpisJesliBrak(wiersz,wpis){
+    const istnieje=wiersz.entries.some(e=>
+        e.linia===wpis.linia &&
+        e.kierunek===wpis.kierunek &&
+        e.sourceIndex===wpis.sourceIndex
+    );
+
+    if(!istnieje)wiersz.entries.push({...wpis});
+}
+
+function scalWierszeZWzorcem(existingRows,incomingEntries){
+    const istniejące=klonujWierszeLaczone(existingRows);
+    const incoming=incomingEntries.map(e=>({...e}));
+    const n=istniejące.length;
+    const m=incoming.length;
+
+    if(!n)return incoming.map(utworzWierszLaczony);
+    if(!m)return istniejące;
+
+    const dp=Array.from({length:n+1},()=>Array(m+1).fill(0));
+
+    for(let i=n-1;i>=0;i--){
+        for(let j=m-1;j>=0;j--){
+            const match=scoreWierszaZWpisem(istniejące[i],incoming[j]);
+            const razem=match>0?match+dp[i+1][j+1]:-1;
+            dp[i][j]=Math.max(dp[i+1][j],dp[i][j+1],razem);
+        }
+    }
+
+    const wynik=[];
+    let i=0;
+    let j=0;
+
+    while(i<n && j<m){
+        const match=scoreWierszaZWpisem(istniejące[i],incoming[j]);
+        const razem=match>0?match+dp[i+1][j+1]:-1;
+
+        if(match>0 && razem===dp[i][j]){
+            dodajWpisJesliBrak(istniejące[i],incoming[j]);
+            wynik.push(istniejące[i]);
+            i++;
+            j++;
+        }else if(dp[i+1][j]>=dp[i][j+1]){
+            wynik.push(istniejące[i]);
+            i++;
+        }else{
+            wynik.push(utworzWierszLaczony(incoming[j]));
+            j++;
+        }
+    }
+
+    while(i<n)wynik.push(istniejące[i++]);
+    while(j<m)wynik.push(utworzWierszLaczony(incoming[j++]));
+
+    return wynik;
+}
+
+function zbudujWzorceTrasLaczonych(kursy){
+    const mapa=new Map();
+    const wynik=[];
+
+    kursy.forEach((kurs,index)=>{
+        if(czyPlaceholderKursu(kurs))return;
+
+        const wpisy=zbudujWpisyWzorcaLaczonego(kurs,index+1);
+        if(!wpisy.length)return;
+
+        const key=kluczWzorcaLaczonego(wpisy);
+
+        if(mapa.has(key)){
+            mapa.get(key).courseCount++;
+        }else{
+            const wzorzec={
+                key,
+                entries:wpisy,
+                courseCount:1,
+                firstCoursePosition:index+1
+            };
+            mapa.set(key,wzorzec);
+            wynik.push(wzorzec);
+        }
+    });
+
+    return wynik;
+}
+
+function znajdzPozycjeWpisuLaczonego(wiersze,wpis){
+    for(let i=0;i<wiersze.length;i++){
+        const pasuje=wiersze[i].entries.some(e=>
+            e.linia===wpis.linia &&
+            e.kierunek===wpis.kierunek &&
+            e.sourceIndex===wpis.sourceIndex
+        );
+        if(pasuje)return i;
+    }
+    return -1;
+}
+
+function scoreUkladuLaczonego(wiersze,wzorce){
+    let maximumGap=0;
+    let weightedGap=0;
+
+    for(const wzorzec of wzorce){
+        let previous=-1;
+
+        for(const wpis of wzorzec.entries){
+            const current=znajdzPozycjeWpisuLaczonego(wiersze,wpis);
+            if(current<0)return Number.MAX_SAFE_INTEGER;
+
+            if(previous>=0){
+                const gap=current-previous-1;
+                if(gap<0)return Number.MAX_SAFE_INTEGER;
+                maximumGap=Math.max(maximumGap,gap);
+                weightedGap+=gap*wzorzec.courseCount;
+            }
+
+            previous=current;
+        }
+    }
+
+    return maximumGap*1e9+weightedGap*1e5+wiersze.length;
+}
+
+function zbudujUkladOdWzorca(wzorce,seedIndex){
+    let result=scalWierszeZWzorcem([],wzorce[seedIndex].entries);
+    const included=[wzorce[seedIndex]];
+    const used=new Set([seedIndex]);
+
+    while(used.size<wzorce.length){
+        let bestIndex=-1;
+        let bestRows=null;
+        let bestScore=Infinity;
+        let bestPattern=null;
+
+        wzorce.forEach((candidate,index)=>{
+            if(used.has(index))return;
+
+            const trialRows=scalWierszeZWzorcem(result,candidate.entries);
+            const trialPatterns=[...included,candidate];
+            const score=scoreUkladuLaczonego(trialRows,trialPatterns);
+
+            if(
+                score<bestScore ||
+                (score===bestScore &&
+                 (!bestPattern || candidate.courseCount>bestPattern.courseCount))
+            ){
+                bestScore=score;
+                bestIndex=index;
+                bestRows=trialRows;
+                bestPattern=candidate;
+            }
+        });
+
+        if(bestIndex<0)break;
+        result=bestRows;
+        included.push(wzorce[bestIndex]);
+        used.add(bestIndex);
+    }
+
+    return result;
+}
+
+function zbudujOsBrygadyLaczonej(kursy){
+    const rzeczywiste=kursy.filter(k=>!czyPlaceholderKursu(k));
+    const wzorce=zbudujWzorceTrasLaczonych(rzeczywiste);
+
+    if(!wzorce.length)return [];
+
+    let najlepsze=[];
+    let najlepszyScore=Infinity;
+
+    for(let seed=0;seed<wzorce.length;seed++){
+        const candidate=zbudujUkladOdWzorca(wzorce,seed);
+        const score=scoreUkladuLaczonego(candidate,wzorce);
+
+        if(score<najlepszyScore){
+            najlepszyScore=score;
+            najlepsze=candidate;
+        }
+    }
+
+    return najlepsze.map(wiersz=>{
+        const first=wiersz.entries[0]||{};
+        return{
+            nazwa:first.nazwa||"",
+            entries:wiersz.entries
+        };
+    });
+}
+
+function znajdzWpisKursuNaWierszu(kurs,element){
+    if(czyPlaceholderKursu(kurs))return null;
+
+    const linia=String(kurs.linia||"");
+    const kierunek=Number(kurs.kierunek);
+    const entries=Array.isArray(element?.entries)?element.entries:[];
+
+    const kandydaci=entries.filter(e=>
+        e.linia===linia && e.kierunek===kierunek
+    );
+
+    for(const entry of kandydaci){
+        const p=kurs.przystanki[entry.sourceIndex];
+        if(
+            p &&
+            normalizuj(p.nazwa)===normalizuj(entry.nazwa) &&
+            String(p.nr||"").trim()===String(entry.nr||"").trim()
+        ){
+            return{...entry,index:entry.sourceIndex};
+        }
+    }
+
+    for(const entry of kandydaci){
+        const p=kurs.przystanki[entry.sourceIndex];
+        if(p && normalizuj(p.nazwa)===normalizuj(entry.nazwa)){
+            return{...entry,index:entry.sourceIndex};
+        }
+    }
+
+    // Wariant może mieć inną numerację indeksów. Szukamy wtedy po nazwie/słupku.
+    for(const entry of kandydaci){
+        let zapasowy=null;
+
+        for(let i=0;i<kurs.przystanki.length;i++){
+            const p=kurs.przystanki[i]||{};
+            if(normalizuj(p.nazwa)!==normalizuj(entry.nazwa))continue;
+
+            if(
+                String(p.nr||"").trim() &&
+                String(p.nr||"").trim()===String(entry.nr||"").trim()
+            ){
+                return{...entry,index:i};
+            }
+
+            if(zapasowy===null)zapasowy=i;
+        }
+
+        if(zapasowy!==null)return{...entry,index:zapasowy};
+    }
+
+    return null;
+}
+
+function czasKursuNaOsiLaczonej(kurs,element){
+    const wpis=znajdzWpisKursuNaWierszu(kurs,element);
+    if(!wpis)return "";
+    return String(kurs.czasy.get(wpis.index)||"");
+}
+
+function czyEndpointNaOsiLaczonej(kurs,element){
+    const wpis=znajdzWpisKursuNaWierszu(kurs,element);
+    if(!wpis)return false;
+    return wpis.index===kurs.startIndex || wpis.index===kurs.koniecIndex;
+}
+
+function tekstCzasuWTabeliLaczonej(kurs,element){
+    const wpis=znajdzWpisKursuNaWierszu(kurs,element);
+    if(!wpis)return "";
+
+    const czas=String(kurs.czasy.get(wpis.index)||"");
+    if(!czas)return "";
+
+    const aktualny=rozbijCzas(czas);
+    if(!aktualny)return czas;
+
+    const pierwszy=wpis.index===kurs.startIndex;
+    const ostatni=wpis.index===kurs.koniecIndex;
+    const poprzedni=rozbijCzas(poprzedniCzasWKursie(kurs,wpis.index));
+    const zmianaGodziny=
+        poprzedni &&
+        poprzedni.godzinaRzeczywista!==aktualny.godzinaRzeczywista;
+
+    if(pierwszy || ostatni || zmianaGodziny){
+        return aktualny.pelny;
+    }
+
+    return aktualny.minuta;
+}
+
+function renderKomorkiKursowLaczonych(kursy,element){
+    let rowEndpoint=false;
+
+    const html=kursy.map(kurs=>{
+        let wynik="";
+
+        if(maSeparatorPrzed(kurs)){
+            wynik+='<td class="separator-komorka"></td>';
+        }
+
+        if(czyPlaceholderKursu(kurs)){
+            return wynik+'<td class="czas-kursu"></td>';
+        }
+
+        const czas=czasKursuNaOsiLaczonej(kurs,element);
+        const endpoint=Boolean(czas) && czyEndpointNaOsiLaczonej(kurs,element);
+        if(endpoint)rowEndpoint=true;
+
+        wynik+=
+            `<td class="czas-kursu${endpoint?" koniec-kursu":""}">`+
+            `${escapeHtml(tekstCzasuWTabeliLaczonej(kurs,element))}`+
+            `</td>`;
+
+        return wynik;
+    }).join("");
+
+    return{html,rowEndpoint};
+}
+
+function numeryWierszaLaczonego(element){
+    let lewy=null;
+    let prawy=null;
+
+    for(const wpis of element.entries||[]){
+        const dane={nr:String(wpis.nr||""),nz:Boolean(wpis.nz)};
+
+        if(wpis.reverse){
+            if(!prawy || (!prawy.nr && dane.nr))prawy=dane;
+        }else{
+            if(!lewy || (!lewy.nr && dane.nr))lewy=dane;
+        }
+    }
+
+    // Gdy jeden kierunek nie dostarczył numeru, wykorzystujemy dostępny numer
+    // tylko po właściwej stronie; druga pozostaje pusta jak w dotychczasowej tabeli.
+    return{lewy,prawy};
+}
+
+function nazwyLiniiBrygadyLaczonej(kursy){
+    const seen=new Set();
+    const wynik=[];
+
+    kursy.forEach(kurs=>{
+        if(czyPlaceholderKursu(kurs))return;
+        const linia=String(kurs.linia||"").trim();
+        if(linia && !seen.has(linia)){
+            seen.add(linia);
+            wynik.push(linia);
+        }
+    });
+
+    return wynik.join("+");
+}
+
+function postojeBrygadyLaczonej(kursy,brygada){
+    const wynik=[];
+    const zmianowa=czyBrygadaZmianowa(brygada);
+
+    for(let i=0;i<kursy.length-1;i++){
+        const obecny=kursy[i];
+        const nastepny=kursy[i+1];
+
+        if(czyPlaceholderKursu(obecny) || czyPlaceholderKursu(nastepny)){
+            wynik.push(null);
+            continue;
+        }
+
+        const koniec=Number(obecny._combinedSortEnd ?? koniecSortowaniaKursuLaczonego(obecny));
+        const start=Number(nastepny._combinedSortStart ?? startSortowaniaKursuLaczonego(nastepny));
+        const przerwa=Math.max(0,start-koniec);
+
+        if(zmianowa && przerwa>90)wynik.push(null);
+        else wynik.push(przerwa);
+    }
+
+    return wynik;
+}
+
+function policzPodsumowanieLaczone(kursy,postoje){
+    let jazda=0;
+    let przerwy=0;
+
+    kursy.forEach(kurs=>{
+        if(czyPlaceholderKursu(kurs))return;
+        const start=Number(kurs._combinedSortStart ?? startSortowaniaKursuLaczonego(kurs));
+        const koniec=Number(kurs._combinedSortEnd ?? koniecSortowaniaKursuLaczonego(kurs));
+        if(Number.isFinite(start) && Number.isFinite(koniec) && koniec>=start){
+            jazda+=koniec-start;
+        }
+    });
+
+    postoje.forEach(p=>{
+        if(p!==null && p!==undefined && Number.isFinite(Number(p)) && Number(p)>=0){
+            przerwy+=Number(p);
+        }
+    });
+
+    return{
+        jazda,
+        przerwy,
+        razem:jazda+przerwy,
+        jazdaTekst:formatCzasTrwania(jazda),
+        przerwyTekst:formatCzasTrwania(przerwy),
+        razemTekst:formatCzasTrwania(jazda+przerwy),
+        lacznyCzasBrygadyTekst:"",
+        podzielone:false
+    };
+}
+
+function renderBrygadaLaczona(brygada,kursy){
+    const uporzadkowane=przygotujKursyLaczone(kursy,brygada);
+    if(!uporzadkowane.length)return "";
+
+    const rzeczywiste=uporzadkowane.filter(k=>!czyPlaceholderKursu(k));
+    if(!rzeczywiste.length)return "";
+
+    // Oś budujemy z rekordów rzeczywistych, a placeholdery dotyczą wyłącznie kolumn.
+    const os=zbudujOsBrygadyLaczonej(rzeczywiste);
+    if(!os.length)return "";
+
+    const postoje=postojeBrygadyLaczonej(uporzadkowane,brygada);
+    const podsumowanie=policzPodsumowanieLaczone(uporzadkowane,postoje);
+    const liniaLabel=nazwyLiniiBrygadyLaczonej(rzeczywiste);
+
+    const szerokoscTabeli=
+        24+130+24+
+        (uporzadkowane.length*35)+
+        (liczbaSeparatorow(uporzadkowane)*6);
+
+    let html=
+        '<section class="brygada">'+
+        '<div class="brygada-scroll">'+
+        `<div class="tabela-brygady-inner" style="width:${szerokoscTabeli}px">`+
+        renderCiagleSeparatory(uporzadkowane)+
+        `<table class="tabela-brygady" style="width:${szerokoscTabeli}px!important;min-width:${szerokoscTabeli}px!important;max-width:${szerokoscTabeli}px!important">`+
+        '<colgroup>'+
+        '<col class="kol-nr">'+
+        '<col class="kol-nazwa">'+
+        '<col class="kol-nr">'+
+        renderColgroupKursow(uporzadkowane)+
+        '</colgroup>'+
+        '<thead><tr>'+
+        `<th class="naglowek-brygady" colspan="3">`+
+        `${escapeHtml(liniaLabel)} / ${escapeHtml(brygada)}`+
+        '</th>'+
+        renderNaglowkiKursow(uporzadkowane)+
+        '</tr>'+
+        renderPostojGora(uporzadkowane,postoje)+
+        '</thead><tbody>';
+
+    os.forEach(element=>{
+        const wynikKomorek=renderKomorkiKursowLaczonych(uporzadkowane,element);
+        const numery=numeryWierszaLaczonego(element);
+
+        html+=
+            '<tr class="wiersz-przystanku">'+
+            `<td class="nr-lewy${wynikKomorek.rowEndpoint?" przystanek-koniec":""}">`+
+            pokazNumerPrzystanku(numery.lewy,true)+
+            '</td>'+
+            `<td class="nazwa-przystanku${wynikKomorek.rowEndpoint?" przystanek-koniec":""}">`+
+            `<div class="przystanek-scroll"><span>${escapeHtml(String(element.nazwa||"").toUpperCase())}</span></div>`+
+            '</td>'+
+            `<td class="nr-prawy${wynikKomorek.rowEndpoint?" przystanek-koniec":""}">`+
+            pokazNumerPrzystanku(numery.prawy,false)+
+            '</td>'+
+            wynikKomorek.html+
+            '</tr>';
+    });
+
+    html+=
+        renderPostojDol(uporzadkowane,postoje)+
+        renderPustyWierszDol(uporzadkowane)+
+        '</tbody></table></div></div>'+
+        '<table class="podsumowanie">'+
+        '<colgroup>'+
+        '<col class="podsumowanie-opis">'+
+        '<col class="podsumowanie-wartosc">'+
+        '</colgroup><tbody>'+
+        '<tr><th>Czas jazdy:</th>'+
+        `<td>${escapeHtml(podsumowanie.jazdaTekst)}</td></tr>`+
+        '<tr><th>Czas przerw:</th>'+
+        `<td>${escapeHtml(podsumowanie.przerwyTekst)}</td></tr>`+
+        '<tr class="razem"><th>Łączny czas:</th>'+
+        `<td>${escapeHtml(podsumowanie.razemTekst)}</td></tr>`+
+        '</tbody></table></section>';
+
+    return html;
+}
+
+function grupujKursyPoBrygadzie(kursy){
+    const grupy=new Map();
+
+    kursy.forEach(kurs=>{
+        const b=String(kurs.brygada||"").trim();
+        if(!b)return;
+        if(!grupy.has(b))grupy.set(b,[]);
+        grupy.get(b).push(kurs);
+    });
+
+    return grupy;
+}
+
+function deduplikujKursyLaczone(kursy){
+    const mapa=new Map();
+
+    kursy.forEach(kurs=>{
+        const czasy=Array.from(kurs.czasy.entries())
+            .sort((a,b)=>a[0]-b[0])
+            .map(([i,t])=>i+"="+t)
+            .join(";");
+
+        const key=[
+            kurs.linia,
+            kurs.brygada,
+            kurs.kierunek,
+            kurs.numer,
+            kurs.wariant,
+            czasy
+        ].join("|");
+
+        if(!mapa.has(key))mapa.set(key,kurs);
+    });
+
+    return Array.from(mapa.values());
+}
+
+function pokazBrygadyZLaczeniami(
+    daneWybranejLinii,
+    data,
+    dodatkoweZbiory
+){
+    const wynik=document.getElementById("wynik");
+    const info=document.getElementById("brygadyInfo");
+
+    const kursyGlowne=zbierzKursy(daneWybranejLinii,data);
+    const grupyGlowne=grupujKursyPoBrygadzie(kursyGlowne);
+    const brygady=Array.from(grupyGlowne.keys()).sort(porownajBrygady);
+
+    if(!brygady.length){
+        info.textContent=`Linia ${daneWybranejLinii.linia||aktualnaLinia} • ${dataISO(data)}`;
+        wynik.innerHTML='<div class="brak">Brak brygad dla wybranego dnia.</div>';
+        return;
+    }
+
+    const grupyDodatkowe=(dodatkoweZbiory||[]).map(zbior=>({
+        dane:zbior.dane,
+        grupy:grupujKursyPoBrygadzie(zbior.kursy||[])
+    }));
+
+    info.textContent=
+        `Linia ${daneWybranejLinii.linia||aktualnaLinia} • ${dataISO(data)} • `+
+        `${brygady.length} ${brygady.length===1?"brygada":"brygad"}`;
+
+    wynik.innerHTML=brygady.map(brygada=>{
+        const glowne=grupyGlowne.get(brygada)||[];
+
+        if(!czyNumerZadaniaLaczonego(brygada)){
+            return renderBrygada(
+                String(daneWybranejLinii.linia||aktualnaLinia),
+                brygada,
+                glowne
+            );
+        }
+
+        const wszystkie=[...glowne];
+        const linie=new Set(glowne.map(k=>String(k.linia||"")));
+
+        grupyDodatkowe.forEach(zbior=>{
+            const kursy=zbior.grupy.get(brygada);
+            if(!kursy?.length)return;
+
+            wszystkie.push(...kursy);
+            kursy.forEach(k=>linie.add(String(k.linia||"")));
+        });
+
+        if(linie.size<2){
+            return renderBrygada(
+                String(daneWybranejLinii.linia||aktualnaLinia),
+                brygada,
+                glowne
+            );
+        }
+
+        return renderBrygadaLaczona(
+            brygada,
+            deduplikujKursyLaczone(wszystkie)
+        );
+    }).join("");
+
+    requestAnimationFrame(()=>{
+        ustawPozycjeCiaglychSeparatorow();
+    });
+
+    requestAnimationFrame(uruchomPrzesuwanieNazw);
+}
+
+/*
+ * Nadpisujemy wyłącznie funkcję uruchamiającą ładowanie.
+ * Cały dotychczasowy HTML/CSS oraz renderowanie zwykłych brygad pozostaje bez zmian.
+ */
+async function wczytajIBuduj(){
+    const wynik=document.getElementById("wynik");
+    const info=document.getElementById("brygadyInfo");
+
+    wynik.innerHTML='<div class="brak">Ładowanie brygad...</div>';
+    info.textContent=`Ładowanie linii ${aktualnaLinia}...`;
+
+    try{
+        const dane=await pobierzLinie(aktualnaLinia,wybranaData);
+        const kursyGlowne=zbierzKursy(dane,wybranaData);
+
+        const potrzebneBrygady=new Set(
+            kursyGlowne
+                .map(k=>String(k.brygada||"").trim())
+                .filter(czyNumerZadaniaLaczonego)
+        );
+
+        if(!potrzebneBrygady.size){
+            // Dokładnie stara ścieżka – bez żadnej zmiany zachowania.
+            pokazBrygady(dane,wybranaData);
+            return;
+        }
+
+        info.textContent=
+            `Ładowanie linii ${aktualnaLinia} i zadań łączonych...`;
+
+        const dodatkowe=await pobierzDaneKandydatowDoLaczenia(
+            aktualnaLinia,
+            wybranaData,
+            potrzebneBrygady
+        );
+
+        pokazBrygadyZLaczeniami(
+            dane,
+            wybranaData,
+            dodatkowe
+        );
+
+    }catch(error){
+        console.error(error);
+        pokazBlad(error.message||"Nie udało się wczytać brygad.");
+    }
+}
+
 </script>
 </body>
 </html>
