@@ -4666,19 +4666,11 @@ function vbaBuildRecords(allTaskCourses){
 
 function vbaBuildRecordEntries(record, coursePosition){
     const result = [];
-
-    const even =
-        (coursePosition % 2 === 0);
+    const even = (coursePosition % 2 === 0);
 
     /*
-     * Dokładne tłumaczenie VBA:
-     *
      * reverseOrder =
      * ((directionCode = 20) Xor (coursePosition Mod 2 = 0))
-     *
-     * JS:
-     * direction 0 = VBA 10
-     * direction 1 = VBA 20
      */
     const reverse =
         (record.direction === 1) !== even;
@@ -4687,9 +4679,12 @@ function vbaBuildRecordEntries(record, coursePosition){
         record.lineData.stopCount;
 
     /*
-     * To jest kluczowa poprawka v14:
-     * iterujemy PEŁNĄ WSPÓLNĄ OŚ lineData.stops,
-     * nie record.actualRows w kolejności jazdy.
+     * Nadal bierzemy tylko te wiersze, na których konkretny kurs
+     * rzeczywiście ma godzinę.
+     *
+     * DODATKOWO zapamiętujemy, czy ten konkretny punkt jest
+     * początkiem/końcem KONKRETNEGO KURSU. To jest ważniejsze
+     * niż pierwszy/ostatni wiersz pełnej trasy.
      */
     if(reverse){
         for(
@@ -4704,7 +4699,11 @@ function vbaBuildRecordEntries(record, coursePosition){
             result.push({
                 lineData: record.lineData,
                 rowIndex,
-                reverse
+                reverse,
+                endpoint:
+                    record.endpoints instanceof Set &&
+                    record.endpoints.has(rowIndex),
+                record
             });
         }
     }
@@ -4721,7 +4720,11 @@ function vbaBuildRecordEntries(record, coursePosition){
             result.push({
                 lineData: record.lineData,
                 rowIndex,
-                reverse
+                reverse,
+                endpoint:
+                    record.endpoints instanceof Set &&
+                    record.endpoints.has(rowIndex),
+                record
             });
         }
     }
@@ -4780,10 +4783,10 @@ function vbaBuildPatterns(records){
    ========================================================= */
 
 function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
-    const firstStop=
+    const firstStop =
         firstEntry.lineData.stops[firstEntry.rowIndex];
 
-    const secondStop=
+    const secondStop =
         secondEntry.lineData.stops[secondEntry.rowIndex];
 
     if(
@@ -4795,77 +4798,143 @@ function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
         return 0;
     }
 
-    const firstCodes=[
+    /*
+     * Numery w orientacji WYŚWIETLANEJ w tabeli.
+     * reverse zamienia strony.
+     */
+    const strony = (entry, stop) => {
+        if(entry.reverse){
+            return {
+                left: vbaNr(stop?.code1),
+                right: vbaNr(stop?.code0)
+            };
+        }
+
+        return {
+            left: vbaNr(stop?.code0),
+            right: vbaNr(stop?.code1)
+        };
+    };
+
+    const firstSide = strony(firstEntry, firstStop);
+    const secondSide = strony(secondEntry, secondStop);
+
+    const firstCodes = [
         vbaNr(firstStop?.code0),
         vbaNr(firstStop?.code1)
     ].filter(Boolean);
 
-    const secondCodes=[
+    const secondCodes = [
         vbaNr(secondStop?.code0),
         vbaNr(secondStop?.code1)
     ].filter(Boolean);
 
-    const wspolneKody=
-        firstCodes.filter(code=>
-            secondCodes.some(other=>
-                other && vbaTextEquals(code,other)
+    const wspolneKody =
+        firstCodes.filter(code =>
+            secondCodes.some(other =>
+                other && vbaTextEquals(code, other)
             )
         );
 
-    const firstLast=firstEntry.lineData.stopCount-1;
-    const secondLast=secondEntry.lineData.stopCount-1;
+    const firstEndpoint =
+        firstEntry?.endpoint === true;
 
-    const firstEndpoint=
-        firstEntry.rowIndex===0 ||
-        firstEntry.rowIndex===firstLast;
-
-    const secondEndpoint=
-        secondEntry.rowIndex===0 ||
-        secondEntry.rowIndex===secondLast;
+    const secondEndpoint =
+        secondEntry?.endpoint === true;
 
     /*
-     * Krańce z różnymi numerami pozostają osobnymi wierszami.
+     * =======================================================
+     * 1. KRAŃCE KONKRETNEGO KURSU
+     * =======================================================
+     *
+     * Jeżeli GROTY 01 jest krańcem kursu linii 149,
+     * nie wolno go sklejać z przejazdowym GROTY 02.
+     *
+     * Takie dwa punkty muszą dostać osobne wiersze.
+     *
+     * Jeśli jednak istnieje wspólny numer, np. 01 i 01,
+     * można je połączyć.
      */
     if(
         (firstEndpoint || secondEndpoint) &&
-        firstCodes.length>0 &&
-        secondCodes.length>0 &&
-        wspolneKody.length===0
+        firstCodes.length > 0 &&
+        secondCodes.length > 0 &&
+        wspolneKody.length === 0
     ){
         return 0;
     }
 
     /*
-     * Jeżeli ta sama nazwa występuje więcej niż raz w osi
-     * którejkolwiek linii, różne numery nie mogą zostać
-     * połączone tylko dlatego, że nazwa jest taka sama.
+     * =======================================================
+     * 2. UZUPEŁNIANIE PUSTEJ STRONY
+     * =======================================================
+     *
+     * Jeśli mamy np.:
+     *
+     *   01 | NAZWA | [pusto]
+     * [pusto] | NAZWA | 02
+     *
+     * to bardzo dobrze nadają się do jednego wiersza:
+     *
+     *   01 | NAZWA | 02
+     *
+     * O ile nie ma konfliktu na tej samej stronie.
      */
-    const nazwa=String(firstStop?.nazwa||"");
+    const konfliktLewa =
+        firstSide.left &&
+        secondSide.left &&
+        !vbaTextEquals(firstSide.left, secondSide.left);
 
-    const firstNameCount=
-        firstEntry.lineData.stops.filter(s=>
-            vbaTextEquals(s?.nazwa,nazwa)
-        ).length;
+    const konfliktPrawa =
+        firstSide.right &&
+        secondSide.right &&
+        !vbaTextEquals(firstSide.right, secondSide.right);
 
-    const secondNameCount=
-        secondEntry.lineData.stops.filter(s=>
-            vbaTextEquals(s?.nazwa,nazwa)
-        ).length;
-
-    if(
-        (firstNameCount>1 || secondNameCount>1) &&
-        firstCodes.length>0 &&
-        secondCodes.length>0 &&
-        wspolneKody.length===0
-    ){
+    if(konfliktLewa || konfliktPrawa){
+        /*
+         * Przy powtarzających się nazwach konflikt po tej samej
+         * stronie oznacza inne fizyczne wystąpienie przystanku.
+         */
         return 0;
     }
 
-    let score=100;
-    score+=wspolneKody.length*5000;
+    const uzupelniaPustaStrone =
+        (
+            !firstSide.left &&
+            Boolean(secondSide.left)
+        ) ||
+        (
+            !secondSide.left &&
+            Boolean(firstSide.left)
+        ) ||
+        (
+            !firstSide.right &&
+            Boolean(secondSide.right)
+        ) ||
+        (
+            !secondSide.right &&
+            Boolean(firstSide.right)
+        );
 
-    if(firstEndpoint && secondEndpoint){
-        score+=500;
+    let score = 100;
+
+    /*
+     * Identyczny numer nadal jest najpewniejszym dopasowaniem.
+     */
+    score += wspolneKody.length * 5000;
+
+    /*
+     * Mocny bonus, gdy dwa wiersze uzupełniają swoje puste strony.
+     */
+    if(uzupelniaPustaStrone){
+        score += 3000;
+    }
+
+    /*
+     * Dwa krańce z tym samym numerem mają dodatkowy priorytet.
+     */
+    if(firstEndpoint && secondEndpoint && wspolneKody.length > 0){
+        score += 1000;
     }
 
     return score;
@@ -4890,6 +4959,11 @@ function vbaCombinedRowMatchScore(row, incomingEntry){
 
 
 function vbaEntryIdentity(entry){
+    /*
+     * Tożsamość nadal opiera się na linii i wierszu.
+     * Endpoint/record są metadanymi do dopasowania i nie tworzą
+     * nowego fizycznego przystanku.
+     */
     return entry.lineData.id + "|" + entry.rowIndex;
 }
 
