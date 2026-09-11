@@ -4744,19 +4744,71 @@ function vbaPatternKey(entries){
 }
 
 
-function vbaBuildPatterns(records){
+function vbaBuildPatterns(records, brygada){
     const map = new Map();
     const result = [];
 
-    records.forEach((record, index) => {
-        const entries = vbaBuildRecordEntries(
-            record,
-            index + 1
+    /*
+     * KLUCZOWA POPRAWKA DLA DODATKÓW 0xx / 700-799
+     *
+     * Dotychczas coursePosition było po prostu index+1.
+     * To było błędne, bo vbaBuildDisplayRecords() wstawia pustą
+     * kolumnę, gdy dwa kolejne kursy jadą w tym samym kierunku.
+     *
+     * Po takiej pustej kolumnie wszystkie kolejne kursy powinny
+     * zmienić parzystość strony tabeli. Jeżeli tego nie zrobimy,
+     * część popołudniowa zostaje zorientowana odwrotnie i algorytm
+     * buduje drugi przebieg tej samej trasy.
+     *
+     * Dlatego tutaj liczymy DOKŁADNĄ pozycję wyświetlaną kursu,
+     * razem z placeholderami, dla CAŁEJ brygady od rana do końca.
+     */
+    const dutyChange =
+        vbaCzyDutyChangeBrigade(
+            brygada
         );
 
-        if(!entries.length) return;
+    let displayPosition = 0;
+    let previousDirection = null;
 
-        const key = vbaPatternKey(entries);
+    records.forEach((record, index) => {
+
+        if(
+            dutyChange &&
+            previousDirection !== null &&
+            previousDirection === record.direction
+        ){
+            /*
+             * Pusta kolumna przeciwnego kierunku zajmuje realne
+             * miejsce w tabeli i musi wpływać na parzystość.
+             */
+            displayPosition++;
+        }
+
+        displayPosition++;
+
+        const coursePosition =
+            dutyChange
+                ? displayPosition
+                : index + 1;
+
+        const entries =
+            vbaBuildRecordEntries(
+                record,
+                coursePosition
+            );
+
+        previousDirection =
+            record.direction;
+
+        if(!entries.length){
+            return;
+        }
+
+        const key =
+            vbaPatternKey(
+                entries
+            );
 
         if(map.has(key)){
             map.get(key).courseCount++;
@@ -4766,11 +4818,18 @@ function vbaBuildPatterns(records){
                 key,
                 entries,
                 courseCount: 1,
-                firstCoursePosition: index + 1
+                firstCoursePosition:
+                    coursePosition
             };
 
-            map.set(key, pattern);
-            result.push(pattern);
+            map.set(
+                key,
+                pattern
+            );
+
+            result.push(
+                pattern
+            );
         }
     });
 
@@ -5816,33 +5875,181 @@ function vbaMergeFinishedRows(firstRow,secondRow){
 }
 function vbaCompactFinishedRows(rows){
     const result=[];
+
+    const rowName = row =>
+        vbaNazwaWiersza(row);
+
+    const commonCodes = (a,b) => {
+        const aa=vbaRowAllCodes(a);
+        const bb=vbaRowAllCodes(b);
+
+        return aa.filter(code =>
+            bb.some(other =>
+                vbaTextEquals(
+                    code,
+                    other
+                )
+            )
+        );
+    };
+
+    const bothEndpoints = (a,b) =>
+        vbaRowHasCourseEndpoint(a) &&
+        vbaRowHasCourseEndpoint(b);
+
     (rows||[]).forEach(sourceRow=>{
-        const row={entries:(sourceRow?.entries||[]).map(e=>({...e}))};
+        let row={
+            entries:
+                (sourceRow?.entries||[])
+                    .map(e=>({...e}))
+        };
+
         let merged=false;
+
+        /*
+         * SPECJALNY PRZYPADEK WSPÓLNEGO KRAŃCA.
+         *
+         * Jeśli dwa wiersze są tym samym przystankiem o tym samym
+         * numerze i oba reprezentują krańce konkretnych kursów,
+         * zachowujemy DRUGIE (późniejsze) położenie w osi.
+         *
+         * Przykład:
+         * pierwszy LOTNISKO CHOPINA 71 pochodzi z końca 331,
+         * drugi LOTNISKO CHOPINA 71 jest już we właściwym miejscu
+         * przebiegu 175.
+         *
+         * Minuty z pierwszego wiersza są przenoszone do drugiego,
+         * a pierwszy wiersz znika. Dzięki temu kolejność przystanków
+         * i minut nie zostaje odwrócona.
+         */
         for(let i=result.length-1;i>=0;i--){
-            if(vbaCanMergeFinishedRows(result[i],row)){
-                result[i]=vbaMergeFinishedRows(result[i],row);
-                merged=true;break;
+            if(
+                rowName(result[i]) &&
+                rowName(row) &&
+                vbaTextEquals(
+                    rowName(result[i]),
+                    rowName(row)
+                ) &&
+                bothEndpoints(
+                    result[i],
+                    row
+                ) &&
+                commonCodes(
+                    result[i],
+                    row
+                ).length>0
+            ){
+                row =
+                    vbaMergeFinishedRows(
+                        result[i],
+                        row
+                    );
+
+                /*
+                 * Usuwamy wcześniejsze położenie.
+                 * Po pętli scalony wiersz zostanie dopisany TERAZ,
+                 * czyli zachowa późniejszą, prawidłową pozycję.
+                 */
+                result.splice(i,1);
+                break;
             }
         }
-        if(!merged)result.push(row);
+
+        /*
+         * Zwykłe scalanie kompatybilnych wierszy.
+         * Tutaj zachowujemy wcześniejszą pozycję tylko wtedy,
+         * gdy nie był to przypadek wspólnego krańca powyżej.
+         */
+        for(let i=result.length-1;i>=0;i--){
+            if(
+                vbaCanMergeFinishedRows(
+                    result[i],
+                    row
+                )
+            ){
+                result[i]=
+                    vbaMergeFinishedRows(
+                        result[i],
+                        row
+                    );
+
+                merged=true;
+                break;
+            }
+        }
+
+        if(!merged){
+            result.push(row);
+        }
     });
+
     return result;
 }
 
 function vbaBuildCombinedModel(brygada, allCourses){
-    const courses=(allCourses||[]).filter(k=>String(k?.brygada||'').trim()===String(brygada||'').trim());
-    const built=vbaBuildRecords(courses);
-    const records=built.records;
-    if(records.length===0)return null;
-    const patterns=vbaBuildPatterns(records);
-    if(!patterns.length)return null;
-    const rawRows=vbaBuildMostCompactLayout(patterns);
-    if(!rawRows.length)return null;
-    const rows=vbaCompactFinishedRows(rawRows);
-    if(!rows.length)return null;
-    const displayRecords=vbaBuildDisplayRecords(records,brygada);
-    return {records,rows,displayRecords};
+    const courses=(allCourses||[])
+        .filter(k =>
+            String(k?.brygada||"").trim() ===
+            String(brygada||"").trim()
+        );
+
+    const built =
+        vbaBuildRecords(
+            courses
+        );
+
+    const records =
+        built.records;
+
+    if(records.length===0){
+        return null;
+    }
+
+    /*
+     * WAŻNE:
+     * przekazujemy numer brygady, aby vbaBuildPatterns wiedziało,
+     * czy ma uwzględniać placeholdery dodatków przy liczeniu
+     * parzystości całej brygady.
+     */
+    const patterns =
+        vbaBuildPatterns(
+            records,
+            brygada
+        );
+
+    if(!patterns.length){
+        return null;
+    }
+
+    const rawRows =
+        vbaBuildMostCompactLayout(
+            patterns
+        );
+
+    if(!rawRows.length){
+        return null;
+    }
+
+    const rows =
+        vbaCompactFinishedRows(
+            rawRows
+        );
+
+    if(!rows.length){
+        return null;
+    }
+
+    const displayRecords =
+        vbaBuildDisplayRecords(
+            records,
+            brygada
+        );
+
+    return {
+        records,
+        rows,
+        displayRecords
+    };
 }
 
 
