@@ -5760,45 +5760,89 @@ function vbaCombinedSummary(displayRecords, breaks){
    PEŁNY MODEL BRYGADY ŁĄCZONEJ
    ========================================================= */
 
+/* =========================================================
+   KOŃCOWE SCALANIE WSPÓLNYCH WIERSZY
+   ========================================================= */
+function vbaEntryDisplayedSides(entry){
+    if(!entry || !entry.lineData)return {left:'',right:''};
+    const stop=entry.lineData.stops[entry.rowIndex];
+    if(!stop)return {left:'',right:''};
+    return entry.reverse
+        ? {left:vbaNr(stop.code1),right:vbaNr(stop.code0)}
+        : {left:vbaNr(stop.code0),right:vbaNr(stop.code1)};
+}
+function vbaRowDisplayedCodes(row){
+    const left=[],right=[];
+    (row?.entries||[]).forEach(entry=>{
+        const s=vbaEntryDisplayedSides(entry);
+        if(s.left&&!left.some(x=>vbaTextEquals(x,s.left)))left.push(s.left);
+        if(s.right&&!right.some(x=>vbaTextEquals(x,s.right)))right.push(s.right);
+    });
+    return {left,right};
+}
+function vbaRowHasCourseEndpoint(row){
+    return Boolean((row?.entries||[]).some(entry=>entry?.endpoint===true));
+}
+function vbaRowAllCodes(row){
+    const codes=[];
+    (row?.entries||[]).forEach(entry=>{
+        const stop=entry?.lineData?.stops?.[entry.rowIndex];
+        if(!stop)return;
+        [vbaNr(stop.code0),vbaNr(stop.code1)].filter(Boolean).forEach(code=>{
+            if(!codes.some(x=>vbaTextEquals(x,code)))codes.push(code);
+        });
+    });
+    return codes;
+}
+function vbaCanMergeFinishedRows(firstRow,secondRow){
+    const firstName=vbaNazwaWiersza(firstRow);
+    const secondName=vbaNazwaWiersza(secondRow);
+    if(!firstName||!secondName||!vbaTextEquals(firstName,secondName))return false;
+    const firstCodes=vbaRowAllCodes(firstRow),secondCodes=vbaRowAllCodes(secondRow);
+    const commonCodes=firstCodes.filter(code=>secondCodes.some(other=>vbaTextEquals(code,other)));
+    const endpoint=vbaRowHasCourseEndpoint(firstRow)||vbaRowHasCourseEndpoint(secondRow);
+    if(endpoint&&firstCodes.length&&secondCodes.length&&commonCodes.length===0)return false;
+    const first=vbaRowDisplayedCodes(firstRow),second=vbaRowDisplayedCodes(secondRow);
+    const leftConflict=first.left.length&&second.left.length&&!first.left.some(a=>second.left.some(b=>vbaTextEquals(a,b)));
+    const rightConflict=first.right.length&&second.right.length&&!first.right.some(a=>second.right.some(b=>vbaTextEquals(a,b)));
+    if(leftConflict||rightConflict)return false;
+    const complements=(!first.left.length&&second.left.length)||(!second.left.length&&first.left.length)||(!first.right.length&&second.right.length)||(!second.right.length&&first.right.length);
+    return commonCodes.length>0||complements;
+}
+function vbaMergeFinishedRows(firstRow,secondRow){
+    const result={entries:(firstRow?.entries||[]).map(e=>({...e}))};
+    (secondRow?.entries||[]).forEach(entry=>vbaAddEntryIfMissing(result,entry));
+    return result;
+}
+function vbaCompactFinishedRows(rows){
+    const result=[];
+    (rows||[]).forEach(sourceRow=>{
+        const row={entries:(sourceRow?.entries||[]).map(e=>({...e}))};
+        let merged=false;
+        for(let i=result.length-1;i>=0;i--){
+            if(vbaCanMergeFinishedRows(result[i],row)){
+                result[i]=vbaMergeFinishedRows(result[i],row);
+                merged=true;break;
+            }
+        }
+        if(!merged)result.push(row);
+    });
+    return result;
+}
+
 function vbaBuildCombinedModel(brygada, allCourses){
-    const courses = (allCourses || [])
-        .filter(k =>
-            String(k?.brygada || "").trim() ===
-            String(brygada || "").trim()
-        );
-
-    const built = vbaBuildRecords(courses);
-    const records = built.records;
-
-    if(records.length === 0){
-        return null;
-    }
-
-    const patterns =
-        vbaBuildPatterns(records);
-
-    if(!patterns.length){
-        return null;
-    }
-
-    const rows =
-        vbaBuildMostCompactLayout(patterns);
-
-    if(!rows.length){
-        return null;
-    }
-
-    const displayRecords =
-        vbaBuildDisplayRecords(
-            records,
-            brygada
-        );
-
-    return {
-        records,
-        rows,
-        displayRecords
-    };
+    const courses=(allCourses||[]).filter(k=>String(k?.brygada||'').trim()===String(brygada||'').trim());
+    const built=vbaBuildRecords(courses);
+    const records=built.records;
+    if(records.length===0)return null;
+    const patterns=vbaBuildPatterns(records);
+    if(!patterns.length)return null;
+    const rawRows=vbaBuildMostCompactLayout(patterns);
+    if(!rawRows.length)return null;
+    const rows=vbaCompactFinishedRows(rawRows);
+    if(!rows.length)return null;
+    const displayRecords=vbaBuildDisplayRecords(records,brygada);
+    return {records,rows,displayRecords};
 }
 
 
