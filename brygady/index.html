@@ -2208,7 +2208,191 @@ function scalDwaKierunkiPrzystankow(lista0,lista1){
         j++;
     }
 
-    return wynik;
+    /*
+     * Po standardowym LCS wykonujemy jeszcze bezpieczne scalanie
+     * identycznych numerów wewnątrz JEDNEGO, ciągłego bloku
+     * tej samej nazwy przystanku.
+     *
+     * Przykład:
+     *
+     * 12 | BITWY WARSZAWSKIEJ 1920 R. |
+     * 10 | BITWY WARSZAWSKIEJ 1920 R. | 10
+     *    | BITWY WARSZAWSKIEJ 1920 R. | 12
+     *
+     * =>
+     *
+     * 12 | BITWY WARSZAWSKIEJ 1920 R. | 12
+     * 10 | BITWY WARSZAWSKIEJ 1920 R. | 10
+     *
+     * Nie łączymy po samej nazwie. Numer musi być IDENTYCZNY,
+     * a oba wiersze muszą znajdować się w tym samym ciągłym
+     * bloku tej samej nazwy.
+     */
+    return scalIdentyczneNumeryWTymSamymBlokuNazwy(
+        wynik
+    );
+}
+
+
+/*
+ * =========================================================
+ * DODATKOWE SCALANIE POWTARZAJĄCYCH SIĘ PRZYSTANKÓW
+ * =========================================================
+ */
+function scalIdentyczneNumeryWTymSamymBlokuNazwy(os){
+
+    const source =
+        Array.isArray(os)
+            ? os.map(row=>({
+                ...row,
+                dir0:row?.dir0
+                    ? {...row.dir0}
+                    : null,
+                dir1:row?.dir1
+                    ? {...row.dir1}
+                    : null
+            }))
+            : [];
+
+    if(source.length<2){
+        return source;
+    }
+
+    const result=[];
+
+    let start=0;
+
+    while(start<source.length){
+
+        const nazwa=
+            normalizuj(
+                source[start]?.nazwa
+            );
+
+        let end=start+1;
+
+        /*
+         * Wyznaczamy TYLKO ciągły blok identycznej nazwy.
+         * Nie wolno scalać takich samych nazw rozrzuconych
+         * w różnych miejscach trasy.
+         */
+        while(
+            end<source.length &&
+            normalizuj(
+                source[end]?.nazwa
+            )===nazwa
+        ){
+            end++;
+        }
+
+        const block=
+            source
+                .slice(
+                    start,
+                    end
+                )
+                .map(row=>({
+                    ...row,
+                    dir0:row?.dir0
+                        ? {...row.dir0}
+                        : null,
+                    dir1:row?.dir1
+                        ? {...row.dir1}
+                        : null
+                }));
+
+        /*
+         * Najpierw zbieramy wiersze mające tylko lewą stronę
+         * oraz tylko prawą stronę.
+         */
+        for(let i=0;i<block.length;i++){
+
+            const leftRow=
+                block[i];
+
+            if(
+                !leftRow?.dir0 ||
+                leftRow?.dir1
+            ){
+                continue;
+            }
+
+            const leftNr=
+                formatNrPrzystankuDoDopasowania(
+                    leftRow.dir0.nr
+                );
+
+            if(!leftNr){
+                continue;
+            }
+
+            /*
+             * Szukamy dokładnie tego samego numeru po prawej
+             * w obrębie TEGO SAMEGO bloku nazwy.
+             */
+            let matchIndex=-1;
+
+            for(let j=0;j<block.length;j++){
+
+                if(i===j){
+                    continue;
+                }
+
+                const rightRow=
+                    block[j];
+
+                if(
+                    rightRow?.dir0 ||
+                    !rightRow?.dir1
+                ){
+                    continue;
+                }
+
+                const rightNr=
+                    formatNrPrzystankuDoDopasowania(
+                        rightRow.dir1.nr
+                    );
+
+                if(
+                    rightNr &&
+                    rightNr===leftNr
+                ){
+                    matchIndex=j;
+                    break;
+                }
+            }
+
+            if(matchIndex<0){
+                continue;
+            }
+
+            /*
+             * Wypełniamy pustą prawą stronę wiersza lewego.
+             * Zachowujemy indeks i wszystkie metadane dir1,
+             * więc godziny nadal przypisują się do właściwego
+             * przystanku/kursu.
+             */
+            leftRow.dir1={
+                ...block[matchIndex].dir1
+            };
+
+            /*
+             * Drugi, pusty z lewej wiersz nie jest już potrzebny.
+             */
+            block[matchIndex]._usun=true;
+        }
+
+        block.forEach(row=>{
+            if(!row._usun){
+                delete row._usun;
+                result.push(row);
+            }
+        });
+
+        start=end;
+    }
+
+    return result;
 }
 
 
