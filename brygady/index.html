@@ -5186,42 +5186,28 @@ function vbaScoreRouteLayout(rows, patterns){
     let maximumGap = 0;
     let totalWeightedGap = 0;
 
-    /*
-     * =========================================================
-     * 1. NAJWAŻNIEJSZE: KOLEJNOŚĆ KAŻDEGO KURSU
-     * =========================================================
-     *
-     * Tego nie wolno naruszyć. Jeżeli choć jeden kurs idzie
-     * "do góry", wraca albo ma przystanki w odwrotnej kolejności,
-     * cały układ jest nieważny.
-     */
     for(const pattern of patterns){
         let previous = -1;
 
         for(const entry of pattern.entries){
             const current =
-                vbaFindEntryPosition(
-                    rows,
-                    entry
-                );
+                vbaFindEntryPosition(rows, entry);
 
             if(current < 0){
                 return Number.MAX_SAFE_INTEGER;
             }
 
             if(previous >= 0){
-                const gap =
-                    current - previous - 1;
+                const gap = current - previous - 1;
 
                 if(gap < 0){
                     return Number.MAX_SAFE_INTEGER;
                 }
 
-                maximumGap =
-                    Math.max(
-                        maximumGap,
-                        gap
-                    );
+                maximumGap = Math.max(
+                    maximumGap,
+                    gap
+                );
 
                 totalWeightedGap +=
                     gap * pattern.courseCount;
@@ -5231,148 +5217,9 @@ function vbaScoreRouteLayout(rows, patterns){
         }
     }
 
-    /*
-     * =========================================================
-     * 2. KRANIEC BLISKO POZOSTAŁYCH PRZYSTANKÓW SWOJEJ LINII
-     * =========================================================
-     *
-     * To jest TYLKO kryterium pomocnicze.
-     * Nigdy nie może wygrać kosztem złej kolejności trasy.
-     *
-     * Przykład:
-     * KLONOWA 04 jest krańcem konkretnego kursu. Jeżeli istnieje
-     * kilka równie poprawnych układów, wybieramy ten, w którym
-     * KLONOWA 04 leży możliwie blisko innych przystanków tej samej
-     * linii/tego samego rozkładu.
-     */
-    let endpointDistancePenalty = 0;
-
-    const rowPositionsByLine = new Map();
-
-    rows.forEach((row, rowIndex)=>{
-        (row?.entries || []).forEach(entry=>{
-            const id =
-                String(
-                    entry?.lineData?.id || ""
-                );
-
-            if(!id){
-                return;
-            }
-
-            if(!rowPositionsByLine.has(id)){
-                rowPositionsByLine.set(
-                    id,
-                    new Set()
-                );
-            }
-
-            rowPositionsByLine
-                .get(id)
-                .add(rowIndex);
-        });
-    });
-
-    rows.forEach((row, rowIndex)=>{
-        (row?.entries || []).forEach(entry=>{
-            if(entry?.endpoint !== true){
-                return;
-            }
-
-            const id =
-                String(
-                    entry?.lineData?.id || ""
-                );
-
-            if(!id){
-                return;
-            }
-
-            const positions =
-                Array.from(
-                    rowPositionsByLine.get(id) || []
-                )
-                .filter(pos =>
-                    pos !== rowIndex
-                );
-
-            if(!positions.length){
-                return;
-            }
-
-            let nearest =
-                Number.MAX_SAFE_INTEGER;
-
-            positions.forEach(pos=>{
-                nearest =
-                    Math.min(
-                        nearest,
-                        Math.abs(
-                            pos - rowIndex
-                        )
-                    );
-            });
-
-            /*
-             * Sąsiedni wiersz = kara 0.
-             * Każdy dodatkowy obcy wiersz zwiększa karę.
-             */
-            endpointDistancePenalty +=
-                Math.max(
-                    0,
-                    nearest - 1
-                );
-        });
-    });
-
-    /*
-     * =========================================================
-     * 3. LEKKA KARA ZA ROZRYWANIE JEDNEJ LINII OBCYMI WIERSZAMI
-     * =========================================================
-     *
-     * To pomaga w sytuacjach, w których cały fragment jednej linii
-     * może być ułożony bardziej zwarto bez zmiany kolejności kursów.
-     */
-    let lineFragmentationPenalty = 0;
-
-    rowPositionsByLine.forEach(positionSet=>{
-        const positions =
-            Array.from(positionSet)
-                .sort((a,b)=>a-b);
-
-        if(positions.length < 2){
-            return;
-        }
-
-        const span =
-            positions[positions.length-1] -
-            positions[0] +
-            1;
-
-        lineFragmentationPenalty +=
-            Math.max(
-                0,
-                span - positions.length
-            );
-    });
-
-    /*
-     * PRIORYTETY:
-     *
-     * 1. maksymalna dziura w przebiegu,
-     * 2. wszystkie dziury ważone liczbą kursów,
-     * 3. odległość krańców od swojej linii,
-     * 4. zwartość linii,
-     * 5. liczba wierszy.
-     *
-     * Wagi 100 i 10 są celowo małe: poprawa wizualna nigdy nie
-     * może przebić gorszej kolejności / większej dziury w trasie.
-     */
     return (
         maximumGap * 1_000_000_000 +
         totalWeightedGap * 100_000 +
-        endpointDistancePenalty * 100 +
-        lineFragmentationPenalty * 10 +
         rows.length
     );
 }
@@ -6214,6 +6061,352 @@ function vbaCompactFinishedRows(rows, patterns){
     return current;
 }
 
+
+/* =========================================================
+   REALNE PRZESUWANIE KRAŃCÓW BLIŻEJ SWOJEJ LINII
+   ========================================================= */
+
+/*
+ * Zwraca identyfikatory linii/układów, dla których dany wiersz
+ * jest krańcem konkretnego kursu.
+ */
+function vbaEndpointLineIds(row){
+    const ids = [];
+
+    (row?.entries || []).forEach(entry => {
+        if(entry?.endpoint !== true){
+            return;
+        }
+
+        const id =
+            String(
+                entry?.lineData?.id || ""
+            );
+
+        if(
+            id &&
+            !ids.includes(id)
+        ){
+            ids.push(id);
+        }
+    });
+
+    return ids;
+}
+
+
+/*
+ * Pozycje pozostałych przystanków danej linii w aktualnym układzie.
+ */
+function vbaPositionsOfLine(rows, lineId, skipIndex){
+    const positions = [];
+
+    (rows || []).forEach((row, index) => {
+        if(index === skipIndex){
+            return;
+        }
+
+        const found =
+            (row?.entries || []).some(entry =>
+                String(
+                    entry?.lineData?.id || ""
+                ) ===
+                String(lineId)
+            );
+
+        if(found){
+            positions.push(index);
+        }
+    });
+
+    return positions;
+}
+
+
+/*
+ * Kara za odległość krańca od najbliższego przystanku
+ * tej samej linii.
+ */
+function vbaEndpointNeighbourPenalty(rows, rowIndex){
+    const row =
+        rows?.[rowIndex];
+
+    if(!row){
+        return 0;
+    }
+
+    const ids =
+        vbaEndpointLineIds(
+            row
+        );
+
+    if(!ids.length){
+        return 0;
+    }
+
+    let penalty = 0;
+
+    ids.forEach(lineId => {
+        const positions =
+            vbaPositionsOfLine(
+                rows,
+                lineId,
+                rowIndex
+            );
+
+        if(!positions.length){
+            return;
+        }
+
+        let nearest =
+            Number.MAX_SAFE_INTEGER;
+
+        positions.forEach(pos => {
+            nearest =
+                Math.min(
+                    nearest,
+                    Math.abs(
+                        pos - rowIndex
+                    )
+                );
+        });
+
+        penalty +=
+            Math.max(
+                0,
+                nearest - 1
+            );
+    });
+
+    return penalty;
+}
+
+
+/*
+ * Globalna kara za odległość wszystkich krańców.
+ */
+function vbaAllEndpointPenalty(rows){
+    let total = 0;
+
+    (rows || []).forEach((row, index) => {
+        total +=
+            vbaEndpointNeighbourPenalty(
+                rows,
+                index
+            );
+    });
+
+    return total;
+}
+
+
+/*
+ * Przenosi jeden wiersz z fromIndex do insertIndex.
+ */
+function vbaMoveRow(rows, fromIndex, insertIndex){
+    const result =
+        vbaCloneRows(
+            rows
+        );
+
+    const [row] =
+        result.splice(
+            fromIndex,
+            1
+        );
+
+    let target =
+        insertIndex;
+
+    /*
+     * Po usunięciu elementu indeksy po prawej przesuwają się o 1.
+     */
+    if(target > fromIndex){
+        target--;
+    }
+
+    target =
+        Math.max(
+            0,
+            Math.min(
+                target,
+                result.length
+            )
+        );
+
+    result.splice(
+        target,
+        0,
+        row
+    );
+
+    return result;
+}
+
+
+/*
+ * Próbuje REALNIE przesunąć krańce bliżej swoich linii.
+ *
+ * Bardzo ważne:
+ * - nie zmienia kolejności żadnego kursu,
+ * - nie gubi żadnego wiersza,
+ * - nie scala tutaj przystanków,
+ * - tylko przesuwa cały istniejący wiersz,
+ * - wybiera zmianę wyłącznie gdy faktycznie zmniejsza
+ *   odległość krańców.
+ */
+function vbaMoveEndpointsCloser(rows, patterns){
+    let current =
+        vbaCloneRows(
+            rows || []
+        );
+
+    const ps =
+        Array.isArray(patterns)
+            ? patterns
+            : [];
+
+    if(
+        current.length < 2 ||
+        !ps.length
+    ){
+        return current;
+    }
+
+    let changed = true;
+    let guard = 0;
+
+    while(
+        changed &&
+        guard < 20
+    ){
+        changed = false;
+        guard++;
+
+        let bestRows = null;
+        let bestPenalty =
+            vbaAllEndpointPenalty(
+                current
+            );
+
+        let bestRouteScore =
+            vbaScoreRouteLayout(
+                current,
+                ps
+            );
+
+        for(
+            let from=0;
+            from<current.length;
+            from++
+        ){
+            const row =
+                current[from];
+
+            /*
+             * Ruszamy wyłącznie wiersze będące krańcami
+             * konkretnego kursu.
+             */
+            if(
+                !vbaEndpointLineIds(
+                    row
+                ).length
+            ){
+                continue;
+            }
+
+            /*
+             * Sprawdzamy każdą możliwą pozycję.
+             */
+            for(
+                let target=0;
+                target<=current.length;
+                target++
+            ){
+                if(
+                    target===from ||
+                    target===from+1
+                ){
+                    continue;
+                }
+
+                const candidate =
+                    vbaMoveRow(
+                        current,
+                        from,
+                        target
+                    );
+
+                /*
+                 * BEZWZGLĘDNY WARUNEK:
+                 * po przesunięciu wszystkie kursy muszą nadal
+                 * przechodzić przez przystanki w prawidłowej
+                 * kolejności.
+                 */
+                const routeScore =
+                    vbaScoreRouteLayout(
+                        candidate,
+                        ps
+                    );
+
+                if(
+                    routeScore ===
+                    Number.MAX_SAFE_INTEGER
+                ){
+                    continue;
+                }
+
+                const penalty =
+                    vbaAllEndpointPenalty(
+                        candidate
+                    );
+
+                /*
+                 * Bierzemy wyłącznie REALNĄ poprawę bliskości krańców.
+                 */
+                if(
+                    penalty < bestPenalty
+                ){
+                    bestPenalty =
+                        penalty;
+
+                    bestRouteScore =
+                        routeScore;
+
+                    bestRows =
+                        candidate;
+                }
+                else if(
+                    penalty === bestPenalty &&
+                    bestRows &&
+                    routeScore < bestRouteScore
+                ){
+                    /*
+                     * Przy identycznej bliskości wybieramy układ
+                     * o mniejszych dziurach między przystankami.
+                     */
+                    bestRouteScore =
+                        routeScore;
+
+                    bestRows =
+                        candidate;
+                }
+            }
+        }
+
+        if(bestRows){
+            current =
+                bestRows;
+
+            changed =
+                true;
+        }
+    }
+
+    return current;
+}
+
+
 function vbaBuildCombinedModel(brygada, allCourses){
     const courses=(allCourses||[])
         .filter(k =>
@@ -6233,11 +6426,6 @@ function vbaBuildCombinedModel(brygada, allCourses){
         return null;
     }
 
-    /*
-     * Dla dodatków pozycja kursu jest liczona przez CAŁĄ brygadę,
-     * razem z pustymi slotami, więc rano i popołudnie tworzą jeden
-     * ciągły układ.
-     */
     const patterns =
         vbaBuildPatterns(
             records,
@@ -6258,32 +6446,53 @@ function vbaBuildCombinedModel(brygada, allCourses){
     }
 
     /*
-     * Końcowe łączenie może być wykonane WYŁĄCZNIE wtedy,
-     * gdy po nim wszystkie kursy nadal zachowują swoją kolejność
-     * przystanków.
+     * Najpierw zachowujemy działające końcowe scalanie,
+     * które kontroluje kolejność wszystkich tras.
      */
-    const rows =
+    const compactRows =
         vbaCompactFinishedRows(
             rawRows,
             patterns
         );
 
-    if(!rows.length){
+    if(!compactRows.length){
         return null;
     }
 
-    /*
-     * Ostatnia kontrola bezpieczeństwa:
-     * gotowa tabela nie może mieć odwróconego fragmentu żadnej trasy.
-     */
     if(
         vbaScoreRouteLayout(
-            rows,
+            compactRows,
             patterns
         ) === Number.MAX_SAFE_INTEGER
     ){
         return null;
     }
+
+    /*
+     * DOPIERO TERAZ przesuwamy krańce.
+     *
+     * To jest osobny etap, dzięki czemu nie zmieniamy mechanizmu,
+     * który już dobrze ustala godziny i kolejność przystanków.
+     */
+    const movedRows =
+        vbaMoveEndpointsCloser(
+            compactRows,
+            patterns
+        );
+
+    /*
+     * Ostateczna kontrola bezpieczeństwa.
+     */
+    const rows =
+        (
+            movedRows.length &&
+            vbaScoreRouteLayout(
+                movedRows,
+                patterns
+            ) !== Number.MAX_SAFE_INTEGER
+        )
+            ? movedRows
+            : compactRows;
 
     const displayRecords =
         vbaBuildDisplayRecords(
