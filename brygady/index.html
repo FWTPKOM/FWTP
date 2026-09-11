@@ -5873,117 +5873,192 @@ function vbaMergeFinishedRows(firstRow,secondRow){
     (secondRow?.entries||[]).forEach(entry=>vbaAddEntryIfMissing(result,entry));
     return result;
 }
-function vbaCompactFinishedRows(rows){
-    const result=[];
+function vbaCompactFinishedRows(rows, patterns){
+    /*
+     * =========================================================
+     * KOŃCOWE SCALANIE Z KONTROLĄ KOLEJNOŚCI CAŁEJ TRASY
+     * =========================================================
+     *
+     * Nie wystarczy, że dwa wiersze:
+     * - mają tę samą nazwę,
+     * - mają zgodne numery,
+     * - albo uzupełniają puste strony.
+     *
+     * Po KAŻDEJ próbie scalenia sprawdzamy wszystkie wzorce
+     * kursów przez vbaScoreRouteLayout().
+     *
+     * Jeżeli po scaleniu choć jeden kurs miałby przystanki
+     * w złej kolejności, kandydat jest odrzucany.
+     *
+     * To zabezpiecza m.in.:
+     *
+     * - TERMINAL AUTOKAROWY / BENNETTA nie mogą zostać włożone
+     *   w "pasującą dziurę", jeżeli późniejsze godziny znalazłyby
+     *   się nad wcześniejszymi,
+     *
+     * - 09:14 nie może pojawić się nad 09:15, jeśli rzeczywista
+     *   trasa wymaga odwrotnej kolejności,
+     *
+     * - wspólny kraniec LOTNISKO CHOPINA 71 może zostać złączony
+     *   tylko w tym położeniu, które zachowuje kolejność wszystkich
+     *   linii i kursów.
+     */
 
-    const rowName = row =>
-        vbaNazwaWiersza(row);
-
-    const commonCodes = (a,b) => {
-        const aa=vbaRowAllCodes(a);
-        const bb=vbaRowAllCodes(b);
-
-        return aa.filter(code =>
-            bb.some(other =>
-                vbaTextEquals(
-                    code,
-                    other
-                )
-            )
+    let current =
+        vbaCloneRows(
+            rows || []
         );
+
+    const ps =
+        Array.isArray(patterns)
+            ? patterns
+            : [];
+
+    if(
+        current.length < 2 ||
+        !ps.length
+    ){
+        return current;
+    }
+
+    const MAX =
+        Number.MAX_SAFE_INTEGER;
+
+    /*
+     * Tworzy wariant, w którym wiersze i oraz j są połączone,
+     * a wynik zostaje w miejscu keepIndex.
+     */
+    const makeCandidate = (
+        source,
+        i,
+        j,
+        keepIndex
+    ) => {
+        const candidate =
+            vbaCloneRows(
+                source
+            );
+
+        const merged =
+            vbaMergeFinishedRows(
+                candidate[i],
+                candidate[j]
+            );
+
+        if(keepIndex === i){
+            candidate[i] = merged;
+            candidate.splice(j,1);
+        }
+        else{
+            candidate[j] = merged;
+            candidate.splice(i,1);
+        }
+
+        return candidate;
     };
 
-    const bothEndpoints = (a,b) =>
-        vbaRowHasCourseEndpoint(a) &&
-        vbaRowHasCourseEndpoint(b);
+    /*
+     * Powtarzamy do chwili, gdy nie istnieje już żadne bezpieczne
+     * scalenie. W każdej iteracji wybieramy globalnie najlepszy
+     * wariant według tego samego miernika, który buduje trasę.
+     */
+    while(true){
+        let bestRows = null;
+        let bestScore = Infinity;
 
-    (rows||[]).forEach(sourceRow=>{
-        let row={
-            entries:
-                (sourceRow?.entries||[])
-                    .map(e=>({...e}))
-        };
+        for(let i=0; i<current.length-1; i++){
+            for(let j=i+1; j<current.length; j++){
 
-        let merged=false;
-
-        /*
-         * SPECJALNY PRZYPADEK WSPÓLNEGO KRAŃCA.
-         *
-         * Jeśli dwa wiersze są tym samym przystankiem o tym samym
-         * numerze i oba reprezentują krańce konkretnych kursów,
-         * zachowujemy DRUGIE (późniejsze) położenie w osi.
-         *
-         * Przykład:
-         * pierwszy LOTNISKO CHOPINA 71 pochodzi z końca 331,
-         * drugi LOTNISKO CHOPINA 71 jest już we właściwym miejscu
-         * przebiegu 175.
-         *
-         * Minuty z pierwszego wiersza są przenoszone do drugiego,
-         * a pierwszy wiersz znika. Dzięki temu kolejność przystanków
-         * i minut nie zostaje odwrócona.
-         */
-        for(let i=result.length-1;i>=0;i--){
-            if(
-                rowName(result[i]) &&
-                rowName(row) &&
-                vbaTextEquals(
-                    rowName(result[i]),
-                    rowName(row)
-                ) &&
-                bothEndpoints(
-                    result[i],
-                    row
-                ) &&
-                commonCodes(
-                    result[i],
-                    row
-                ).length>0
-            ){
-                row =
-                    vbaMergeFinishedRows(
-                        result[i],
-                        row
-                    );
+                if(
+                    !vbaCanMergeFinishedRows(
+                        current[i],
+                        current[j]
+                    )
+                ){
+                    continue;
+                }
 
                 /*
-                 * Usuwamy wcześniejsze położenie.
-                 * Po pętli scalony wiersz zostanie dopisany TERAZ,
-                 * czyli zachowa późniejszą, prawidłową pozycję.
+                 * Sprawdzamy OBA możliwe położenia scalenia.
+                 *
+                 * To ważne dla wspólnych krańców:
+                 * czasem prawidłowe jest pierwsze wystąpienie,
+                 * czasem drugie.
                  */
-                result.splice(i,1);
-                break;
+                const keepEarlier =
+                    makeCandidate(
+                        current,
+                        i,
+                        j,
+                        i
+                    );
+
+                const scoreEarlier =
+                    vbaScoreRouteLayout(
+                        keepEarlier,
+                        ps
+                    );
+
+                if(
+                    scoreEarlier !== MAX &&
+                    scoreEarlier < bestScore
+                ){
+                    bestScore =
+                        scoreEarlier;
+
+                    bestRows =
+                        keepEarlier;
+                }
+
+                const keepLater =
+                    makeCandidate(
+                        current,
+                        i,
+                        j,
+                        j
+                    );
+
+                const scoreLater =
+                    vbaScoreRouteLayout(
+                        keepLater,
+                        ps
+                    );
+
+                if(
+                    scoreLater !== MAX &&
+                    scoreLater < bestScore
+                ){
+                    bestScore =
+                        scoreLater;
+
+                    bestRows =
+                        keepLater;
+                }
             }
+        }
+
+        if(!bestRows){
+            break;
         }
 
         /*
-         * Zwykłe scalanie kompatybilnych wierszy.
-         * Tutaj zachowujemy wcześniejszą pozycję tylko wtedy,
-         * gdy nie był to przypadek wspólnego krańca powyżej.
+         * Dodatkowa asekuracja:
+         * po wybraniu wariantu jeszcze raz kontrolujemy całość.
          */
-        for(let i=result.length-1;i>=0;i--){
-            if(
-                vbaCanMergeFinishedRows(
-                    result[i],
-                    row
-                )
-            ){
-                result[i]=
-                    vbaMergeFinishedRows(
-                        result[i],
-                        row
-                    );
-
-                merged=true;
-                break;
-            }
+        if(
+            vbaScoreRouteLayout(
+                bestRows,
+                ps
+            ) === MAX
+        ){
+            break;
         }
 
-        if(!merged){
-            result.push(row);
-        }
-    });
+        current =
+            bestRows;
+    }
 
-    return result;
+    return current;
 }
 
 function vbaBuildCombinedModel(brygada, allCourses){
@@ -6006,10 +6081,9 @@ function vbaBuildCombinedModel(brygada, allCourses){
     }
 
     /*
-     * WAŻNE:
-     * przekazujemy numer brygady, aby vbaBuildPatterns wiedziało,
-     * czy ma uwzględniać placeholdery dodatków przy liczeniu
-     * parzystości całej brygady.
+     * Dla dodatków pozycja kursu jest liczona przez CAŁĄ brygadę,
+     * razem z pustymi slotami, więc rano i popołudnie tworzą jeden
+     * ciągły układ.
      */
     const patterns =
         vbaBuildPatterns(
@@ -6030,12 +6104,31 @@ function vbaBuildCombinedModel(brygada, allCourses){
         return null;
     }
 
+    /*
+     * Końcowe łączenie może być wykonane WYŁĄCZNIE wtedy,
+     * gdy po nim wszystkie kursy nadal zachowują swoją kolejność
+     * przystanków.
+     */
     const rows =
         vbaCompactFinishedRows(
-            rawRows
+            rawRows,
+            patterns
         );
 
     if(!rows.length){
+        return null;
+    }
+
+    /*
+     * Ostatnia kontrola bezpieczeństwa:
+     * gotowa tabela nie może mieć odwróconego fragmentu żadnej trasy.
+     */
+    if(
+        vbaScoreRouteLayout(
+            rows,
+            patterns
+        ) === Number.MAX_SAFE_INTEGER
+    ){
         return null;
     }
 
