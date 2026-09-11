@@ -6221,20 +6221,215 @@ function vbaRowAllCodes(row){
     });
     return codes;
 }
-function vbaCanMergeFinishedRows(firstRow,secondRow){
-    const firstName=vbaNazwaWiersza(firstRow);
-    const secondName=vbaNazwaWiersza(secondRow);
-    if(!firstName||!secondName||!vbaTextEquals(firstName,secondName))return false;
-    const firstCodes=vbaRowAllCodes(firstRow),secondCodes=vbaRowAllCodes(secondRow);
-    const commonCodes=firstCodes.filter(code=>secondCodes.some(other=>vbaTextEquals(code,other)));
-    const endpoint=vbaRowHasCourseEndpoint(firstRow)||vbaRowHasCourseEndpoint(secondRow);
-    if(endpoint&&firstCodes.length&&secondCodes.length&&commonCodes.length===0)return false;
-    const first=vbaRowDisplayedCodes(firstRow),second=vbaRowDisplayedCodes(secondRow);
-    const leftConflict=first.left.length&&second.left.length&&!first.left.some(a=>second.left.some(b=>vbaTextEquals(a,b)));
-    const rightConflict=first.right.length&&second.right.length&&!first.right.some(a=>second.right.some(b=>vbaTextEquals(a,b)));
-    if(leftConflict||rightConflict)return false;
-    const complements=(!first.left.length&&second.left.length)||(!second.left.length&&first.left.length)||(!first.right.length&&second.right.length)||(!second.right.length&&first.right.length);
-    return commonCodes.length>0||complements;
+function vbaCanMergeFinishedRows(firstRow, secondRow){
+    const firstName =
+        vbaNazwaWiersza(
+            firstRow
+        );
+
+    const secondName =
+        vbaNazwaWiersza(
+            secondRow
+        );
+
+    if(
+        !firstName ||
+        !secondName ||
+        !vbaTextEquals(
+            firstName,
+            secondName
+        )
+    ){
+        return false;
+    }
+
+    /*
+     * =========================================================
+     * PATRZYMY NA NUMERY RZECZYWIŚCIE WIDOCZNE W TABELI
+     * =========================================================
+     *
+     * To jest kluczowa zmiana.
+     *
+     * Wcześniej sprawdzaliśmy wszystkie wpisy wewnątrz row.entries,
+     * więc ukryty numer z innego kierunku mógł zablokować scalenie.
+     *
+     * Teraz używamy dokładnie tej samej funkcji, która renderuje
+     * lewy/prawy numer w tabeli.
+     */
+    const firstVisible =
+        vbaNumeryWiersza(
+            firstRow
+        );
+
+    const secondVisible =
+        vbaNumeryWiersza(
+            secondRow
+        );
+
+    const firstLeft =
+        vbaNr(
+            firstVisible?.lewy?.nr
+        );
+
+    const firstRight =
+        vbaNr(
+            firstVisible?.prawy?.nr
+        );
+
+    const secondLeft =
+        vbaNr(
+            secondVisible?.lewy?.nr
+        );
+
+    const secondRight =
+        vbaNr(
+            secondVisible?.prawy?.nr
+        );
+
+    /*
+     * Jeżeli po tej samej stronie są dwa różne widoczne numery,
+     * nie możemy ich połączyć.
+     */
+    if(
+        firstLeft &&
+        secondLeft &&
+        !vbaTextEquals(
+            firstLeft,
+            secondLeft
+        )
+    ){
+        return false;
+    }
+
+    if(
+        firstRight &&
+        secondRight &&
+        !vbaTextEquals(
+            firstRight,
+            secondRight
+        )
+    ){
+        return false;
+    }
+
+    /*
+     * Szczególnie ważny przypadek:
+     *
+     *   02 | METRO WILANOWSKA | [ ]
+     *   [ ]| METRO WILANOWSKA | 11
+     *
+     * => 02 | METRO WILANOWSKA | 11
+     */
+    const complementsVisible =
+        (
+            firstLeft &&
+            !firstRight &&
+            !secondLeft &&
+            secondRight
+        ) ||
+        (
+            !firstLeft &&
+            firstRight &&
+            secondLeft &&
+            !secondRight
+        );
+
+    if(complementsVisible){
+        /*
+         * Nadal chronimy prawdziwe różne krańce.
+         *
+         * Jeżeli któryś z tych wierszy jest krańcem konkretnego kursu,
+         * dwa różne numery nie mogą zostać połączone tylko dlatego,
+         * że uzupełniają puste strony.
+         */
+        const endpoint =
+            vbaRowHasCourseEndpoint(
+                firstRow
+            ) ||
+            vbaRowHasCourseEndpoint(
+                secondRow
+            );
+
+        if(endpoint){
+            const firstCodes =
+                vbaRowAllCodes(
+                    firstRow
+                );
+
+            const secondCodes =
+                vbaRowAllCodes(
+                    secondRow
+                );
+
+            const common =
+                firstCodes.some(a =>
+                    secondCodes.some(b =>
+                        vbaTextEquals(
+                            a,
+                            b
+                        )
+                    )
+                );
+
+            if(!common){
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /*
+     * Identyczny widoczny numer też może być scalony.
+     */
+    const sameLeft =
+        firstLeft &&
+        secondLeft &&
+        vbaTextEquals(
+            firstLeft,
+            secondLeft
+        );
+
+    const sameRight =
+        firstRight &&
+        secondRight &&
+        vbaTextEquals(
+            firstRight,
+            secondRight
+        );
+
+    if(
+        sameLeft ||
+        sameRight
+    ){
+        return true;
+    }
+
+    /*
+     * Pozostałe przypadki zostawiamy dotychczasowej logice
+     * zgodności fizycznych numerów.
+     */
+    const firstCodes =
+        vbaRowAllCodes(
+            firstRow
+        );
+
+    const secondCodes =
+        vbaRowAllCodes(
+            secondRow
+        );
+
+    const commonCodes =
+        firstCodes.filter(code =>
+            secondCodes.some(other =>
+                vbaTextEquals(
+                    code,
+                    other
+                )
+            )
+        );
+
+    return commonCodes.length > 0;
 }
 function vbaMergeFinishedRows(firstRow,secondRow){
     const result={entries:(firstRow?.entries||[]).map(e=>({...e}))};
