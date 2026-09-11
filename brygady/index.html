@@ -4834,27 +4834,6 @@ function vbaBuildRecordEntries(record, coursePosition){
     const stopCount =
         record.lineData.stopCount;
 
-    /*
-     * =========================================================
-     * WSZYSTKIE PRZYSTANKI, PRZEZ KTÓRE JEDZIE KURS
-     * =========================================================
-     *
-     * Poprzednio do wzorca trafiały tylko te wiersze, dla których:
-     *
-     *     record.times.has(rowIndex)
-     *
-     * To powodowało znikanie całego przystanku, jeśli godzina
-     * nie została poprawnie zmapowana. Tak ginęło m.in.
-     * METRO BEMOWO 03.
-     *
-     * Teraz bierzemy PEŁNY ODCINEK kursu od startRow do endRow.
-     * Każdy wiersz znajdujący się pomiędzy początkiem i końcem
-     * kursu musi pozostać na osi tabeli.
-     *
-     * Godzina nadal pojawia się tylko tam, gdzie istnieje
-     * record.times, ale brak godziny NIE usuwa już przystanku.
-     */
-
     let from =
         Number(record.startRow);
 
@@ -4886,9 +4865,6 @@ function vbaBuildRecordEntries(record, coursePosition){
             )
         );
 
-    /*
-     * Fizyczny zakres w osi lineData.
-     */
     const minRow =
         Math.min(
             from,
@@ -4902,40 +4878,96 @@ function vbaBuildRecordEntries(record, coursePosition){
         );
 
     /*
-     * Kolejność wyświetlana pozostaje dokładnie taka jak wcześniej.
-     * reverse mówi, czy dany kurs jest układany od dołu do góry.
+     * =========================================================
+     * TYLKO PRZYSTANKI TEGO KIERUNKU
+     * =========================================================
+     *
+     * Każdy wiersz wspólnej osi może należeć:
+     * - tylko do kierunku 0,
+     * - tylko do kierunku 1,
+     * - albo do obu kierunków.
+     *
+     * Nie wolno dodawać do kursu przystanku należącego wyłącznie
+     * do przeciwnego kierunku, bo wtedy np. METRO WILANOWSKA 02
+     * i METRO WILANOWSKA 11 stają się dwoma kolejnymi punktami
+     * tego samego kursu i nie można ich później połączyć w jeden
+     * wiersz.
+     *
+     * Jednocześnie:
+     * jeśli record.times zawiera godzinę dla danego wiersza,
+     * wiersz MUSI wejść do kursu niezależnie od strony. To chroni
+     * przypadki takie jak METRO BEMOWO 03, które wcześniej było
+     * zapisane po przeciwnej stronie wspólnej osi.
      */
+    const belongsToCourseDirection = rowIndex => {
+        const stop =
+            record.lineData.stops[
+                rowIndex
+            ];
+
+        if(!stop){
+            return false;
+        }
+
+        if(
+            record.times.has(
+                rowIndex
+            )
+        ){
+            return true;
+        }
+
+        const directionCode =
+            record.direction === 0
+                ? vbaNr(stop.code0)
+                : vbaNr(stop.code1);
+
+        return Boolean(
+            directionCode
+        );
+    };
+
+    const addEntry = rowIndex => {
+        if(
+            !belongsToCourseDirection(
+                rowIndex
+            )
+        ){
+            return;
+        }
+
+        result.push({
+            lineData:
+                record.lineData,
+
+            rowIndex,
+
+            reverse,
+
+            endpoint:
+                record.endpoints instanceof Set &&
+                record.endpoints.has(
+                    rowIndex
+                ),
+
+            record,
+
+            hasTime:
+                record.times.has(
+                    rowIndex
+                )
+        });
+    };
+
     if(reverse){
         for(
             let rowIndex = maxRow;
             rowIndex >= minRow;
             rowIndex--
         ){
-            result.push({
-                lineData:
-                    record.lineData,
-
-                rowIndex,
-
-                reverse,
-
-                endpoint:
-                    record.endpoints instanceof Set &&
-                    record.endpoints.has(
-                        rowIndex
-                    ),
-
-                record,
-
-                /*
-                 * Informacja pomocnicza:
-                 * czy ten konkretny kurs faktycznie ma tu godzinę.
-                 */
-                hasTime:
-                    record.times.has(
-                        rowIndex
-                    )
-            });
+            addEntry(
+                rowIndex
+            );
         }
     }
     else{
@@ -4944,27 +4976,9 @@ function vbaBuildRecordEntries(record, coursePosition){
             rowIndex <= maxRow;
             rowIndex++
         ){
-            result.push({
-                lineData:
-                    record.lineData,
-
-                rowIndex,
-
-                reverse,
-
-                endpoint:
-                    record.endpoints instanceof Set &&
-                    record.endpoints.has(
-                        rowIndex
-                    ),
-
-                record,
-
-                hasTime:
-                    record.times.has(
-                        rowIndex
-                    )
-            });
+            addEntry(
+                rowIndex
+            );
         }
     }
 
