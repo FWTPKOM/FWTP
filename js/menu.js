@@ -37,7 +37,7 @@ document.addEventListener("DOMContentLoaded", function () {
         <a href="/FWTP/brygady/">Rozkład brygad</a>
         <a href="/FWTP/brygady-laczone/">Brygady łączone</a>
     </div>
-
+</div>
 </div>
 
 
