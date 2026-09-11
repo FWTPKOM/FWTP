@@ -35,7 +35,7 @@ document.addEventListener("DOMContentLoaded", function () {
     </button>
     <div class="menu-dropdown-lista">
         <a href="/FWTP/brygady/">Rozkład brygad</a>
-        <a href="/FWTP/brygady-laczone/">Brygady łączone</a>
+      
     </div>
 </div>
 </div>
