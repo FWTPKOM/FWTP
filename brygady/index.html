@@ -5186,28 +5186,42 @@ function vbaScoreRouteLayout(rows, patterns){
     let maximumGap = 0;
     let totalWeightedGap = 0;
 
+    /*
+     * =========================================================
+     * 1. NAJWAŻNIEJSZE: KOLEJNOŚĆ KAŻDEGO KURSU
+     * =========================================================
+     *
+     * Tego nie wolno naruszyć. Jeżeli choć jeden kurs idzie
+     * "do góry", wraca albo ma przystanki w odwrotnej kolejności,
+     * cały układ jest nieważny.
+     */
     for(const pattern of patterns){
         let previous = -1;
 
         for(const entry of pattern.entries){
             const current =
-                vbaFindEntryPosition(rows, entry);
+                vbaFindEntryPosition(
+                    rows,
+                    entry
+                );
 
             if(current < 0){
                 return Number.MAX_SAFE_INTEGER;
             }
 
             if(previous >= 0){
-                const gap = current - previous - 1;
+                const gap =
+                    current - previous - 1;
 
                 if(gap < 0){
                     return Number.MAX_SAFE_INTEGER;
                 }
 
-                maximumGap = Math.max(
-                    maximumGap,
-                    gap
-                );
+                maximumGap =
+                    Math.max(
+                        maximumGap,
+                        gap
+                    );
 
                 totalWeightedGap +=
                     gap * pattern.courseCount;
@@ -5217,9 +5231,148 @@ function vbaScoreRouteLayout(rows, patterns){
         }
     }
 
+    /*
+     * =========================================================
+     * 2. KRANIEC BLISKO POZOSTAŁYCH PRZYSTANKÓW SWOJEJ LINII
+     * =========================================================
+     *
+     * To jest TYLKO kryterium pomocnicze.
+     * Nigdy nie może wygrać kosztem złej kolejności trasy.
+     *
+     * Przykład:
+     * KLONOWA 04 jest krańcem konkretnego kursu. Jeżeli istnieje
+     * kilka równie poprawnych układów, wybieramy ten, w którym
+     * KLONOWA 04 leży możliwie blisko innych przystanków tej samej
+     * linii/tego samego rozkładu.
+     */
+    let endpointDistancePenalty = 0;
+
+    const rowPositionsByLine = new Map();
+
+    rows.forEach((row, rowIndex)=>{
+        (row?.entries || []).forEach(entry=>{
+            const id =
+                String(
+                    entry?.lineData?.id || ""
+                );
+
+            if(!id){
+                return;
+            }
+
+            if(!rowPositionsByLine.has(id)){
+                rowPositionsByLine.set(
+                    id,
+                    new Set()
+                );
+            }
+
+            rowPositionsByLine
+                .get(id)
+                .add(rowIndex);
+        });
+    });
+
+    rows.forEach((row, rowIndex)=>{
+        (row?.entries || []).forEach(entry=>{
+            if(entry?.endpoint !== true){
+                return;
+            }
+
+            const id =
+                String(
+                    entry?.lineData?.id || ""
+                );
+
+            if(!id){
+                return;
+            }
+
+            const positions =
+                Array.from(
+                    rowPositionsByLine.get(id) || []
+                )
+                .filter(pos =>
+                    pos !== rowIndex
+                );
+
+            if(!positions.length){
+                return;
+            }
+
+            let nearest =
+                Number.MAX_SAFE_INTEGER;
+
+            positions.forEach(pos=>{
+                nearest =
+                    Math.min(
+                        nearest,
+                        Math.abs(
+                            pos - rowIndex
+                        )
+                    );
+            });
+
+            /*
+             * Sąsiedni wiersz = kara 0.
+             * Każdy dodatkowy obcy wiersz zwiększa karę.
+             */
+            endpointDistancePenalty +=
+                Math.max(
+                    0,
+                    nearest - 1
+                );
+        });
+    });
+
+    /*
+     * =========================================================
+     * 3. LEKKA KARA ZA ROZRYWANIE JEDNEJ LINII OBCYMI WIERSZAMI
+     * =========================================================
+     *
+     * To pomaga w sytuacjach, w których cały fragment jednej linii
+     * może być ułożony bardziej zwarto bez zmiany kolejności kursów.
+     */
+    let lineFragmentationPenalty = 0;
+
+    rowPositionsByLine.forEach(positionSet=>{
+        const positions =
+            Array.from(positionSet)
+                .sort((a,b)=>a-b);
+
+        if(positions.length < 2){
+            return;
+        }
+
+        const span =
+            positions[positions.length-1] -
+            positions[0] +
+            1;
+
+        lineFragmentationPenalty +=
+            Math.max(
+                0,
+                span - positions.length
+            );
+    });
+
+    /*
+     * PRIORYTETY:
+     *
+     * 1. maksymalna dziura w przebiegu,
+     * 2. wszystkie dziury ważone liczbą kursów,
+     * 3. odległość krańców od swojej linii,
+     * 4. zwartość linii,
+     * 5. liczba wierszy.
+     *
+     * Wagi 100 i 10 są celowo małe: poprawa wizualna nigdy nie
+     * może przebić gorszej kolejności / większej dziury w trasie.
+     */
     return (
         maximumGap * 1_000_000_000 +
         totalWeightedGap * 100_000 +
+        endpointDistancePenalty * 100 +
+        lineFragmentationPenalty * 10 +
         rows.length
     );
 }
