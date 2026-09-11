@@ -4,7 +4,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (!menu) return;
 
+
     menu.innerHTML = `
+
         <button
             class="menu-toggle"
             type="button"
@@ -16,11 +18,57 @@ document.addEventListener("DOMContentLoaded", function () {
             <span></span>
         </button>
 
+
         <div class="menu-links">
-            <a href="/FWTP/">Strona główna</a>
-            <a href="/FWTP/linie/">Rozkład jazdy</a>
-            <a href="/FWTP/przystanki/">Przystanki</a>
-            <a href="/FWTP/aktualnosci/">Aktualności</a>
+
+            <a href="/FWTP/">
+                Strona główna
+            </a>
+
+            <a href="/FWTP/linie/">
+                Rozkład jazdy
+            </a>
+
+            <a href="/FWTP/przystanki/">
+                Przystanki
+            </a>
+
+
+            <!-- ===============================
+                 BRYGADY - MENU ROZWIJANE
+                 =============================== -->
+
+            <div class="menu-dropdown">
+
+                <button
+                    class="menu-dropdown-przycisk"
+                    type="button"
+                    aria-expanded="false"
+                >
+                    Brygady
+                    <span class="menu-strzalka">▼</span>
+                </button>
+
+
+                <div class="menu-dropdown-lista">
+
+                    <a href="/FWTP/brygady/">
+                        Rozkład brygad
+                    </a>
+
+                    <a href="/FWTP/brygady-laczone/">
+                        Brygady łączone
+                    </a>
+
+                </div>
+
+            </div>
+
+
+            <a href="/FWTP/aktualnosci/">
+                Aktualności
+            </a>
+
         </div>
     `;
 
@@ -28,59 +76,151 @@ document.addEventListener("DOMContentLoaded", function () {
     const przycisk =
         menu.querySelector(".menu-toggle");
 
+
     const linki =
         menu.querySelector(".menu-links");
 
 
+    const dropdown =
+        menu.querySelector(".menu-dropdown");
+
+
+    const dropdownPrzycisk =
+        menu.querySelector(".menu-dropdown-przycisk");
+
+
+    /* =====================================================
+       MENU MOBILNE
+       ===================================================== */
+
     przycisk.addEventListener("click", function () {
 
         const otwarte =
-            menu.classList.toggle("menu-otwarte");
+            menu.classList.toggle(
+                "menu-otwarte"
+            );
+
 
         przycisk.setAttribute(
             "aria-expanded",
-            otwarte ? "true" : "false"
+            otwarte
+                ? "true"
+                : "false"
         );
 
     });
 
 
-    /*
-     * Po kliknięciu pozycji menu
-     * zamykamy menu mobilne.
-     */
-    linki.querySelectorAll("a").forEach(function (link) {
+    /* =====================================================
+       BRYGADY - KLIKNIĘCIE
+       
+       Na komputerze głównie działa hover.
+       Na telefonie kliknięcie otwiera podmenu.
+       ===================================================== */
 
-        link.addEventListener("click", function () {
+    dropdownPrzycisk.addEventListener(
+        "click",
+        function (event) {
 
-            menu.classList.remove("menu-otwarte");
+            event.preventDefault();
 
-            przycisk.setAttribute(
+            event.stopPropagation();
+
+
+            const otwarte =
+                dropdown.classList.toggle(
+                    "dropdown-otwarte"
+                );
+
+
+            dropdownPrzycisk.setAttribute(
                 "aria-expanded",
-                "false"
+                otwarte
+                    ? "true"
+                    : "false"
+            );
+
+        }
+    );
+
+
+    /* =====================================================
+       KLIKNIĘCIE LINKU
+       ===================================================== */
+
+    linki
+        .querySelectorAll("a")
+        .forEach(function (link) {
+
+            link.addEventListener(
+                "click",
+                function () {
+
+                    menu.classList.remove(
+                        "menu-otwarte"
+                    );
+
+
+                    dropdown.classList.remove(
+                        "dropdown-otwarte"
+                    );
+
+
+                    przycisk.setAttribute(
+                        "aria-expanded",
+                        "false"
+                    );
+
+
+                    dropdownPrzycisk.setAttribute(
+                        "aria-expanded",
+                        "false"
+                    );
+
+                }
             );
 
         });
 
-    });
+
+    /* =====================================================
+       KLIKNIĘCIE POZA MENU
+       ===================================================== */
+
+    document.addEventListener(
+        "click",
+        function (event) {
+
+            if (
+                !menu.contains(
+                    event.target
+                )
+            ) {
+
+                menu.classList.remove(
+                    "menu-otwarte"
+                );
 
 
-    /*
-     * Kliknięcie poza menu również je zamyka.
-     */
-    document.addEventListener("click", function (event) {
+                dropdown.classList.remove(
+                    "dropdown-otwarte"
+                );
 
-        if (!menu.contains(event.target)) {
 
-            menu.classList.remove("menu-otwarte");
+                przycisk.setAttribute(
+                    "aria-expanded",
+                    "false"
+                );
 
-            przycisk.setAttribute(
-                "aria-expanded",
-                "false"
-            );
+
+                dropdownPrzycisk.setAttribute(
+                    "aria-expanded",
+                    "false"
+                );
+
+            }
 
         }
-
-    });
+    );
 
 });
