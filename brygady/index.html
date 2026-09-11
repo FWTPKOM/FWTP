@@ -5791,11 +5791,70 @@ function vbaBuildDisplayRecords(records, brygada){
    ========================================================= */
 
 function vbaFindRowEntryForRecord(element, record){
-    if(!record) return null;
+    if(!record){
+        return null;
+    }
 
-    return (element?.entries || []).find(entry =>
-        entry.lineData === record.lineData
-    ) || null;
+    const matches =
+        (element?.entries || [])
+            .filter(entry =>
+                entry.lineData ===
+                record.lineData
+            );
+
+    if(!matches.length){
+        return null;
+    }
+
+    /*
+     * =========================================================
+     * NAJWAŻNIEJSZE:
+     * JEŻELI WIERSZ ZAWIERA KILKA WPISÓW TEJ SAMEJ LINII,
+     * WYBIERAMY TEN, PRZY KTÓRYM KONKRETNY KURS MA GODZINĘ.
+     * =========================================================
+     *
+     * Po scalaniu może powstać np. jeden wizualny wiersz
+     * zawierający kilka entry z tej samej lineData:
+     *
+     *   METRO WILANOWSKA 02
+     *   METRO WILANOWSKA 11
+     *
+     * Stara wersja brała pierwszy entry, nawet gdy record.times
+     * miał czas tylko przy drugim rowIndex. Efekt:
+     * numer przystanku był widoczny, ale godzina znikała.
+     */
+    const withTime =
+        matches.find(entry =>
+            record.times instanceof Map &&
+            record.times.has(
+                entry.rowIndex
+            )
+        );
+
+    if(withTime){
+        return withTime;
+    }
+
+    /*
+     * Jeżeli nie ma godziny, preferujemy rzeczywisty kraniec
+     * tego konkretnego kursu.
+     */
+    const endpoint =
+        matches.find(entry =>
+            record.endpoints instanceof Set &&
+            record.endpoints.has(
+                entry.rowIndex
+            )
+        );
+
+    if(endpoint){
+        return endpoint;
+    }
+
+    /*
+     * Ostateczny fallback – zachowanie zgodne z wcześniejszym kodem.
+     */
+    return matches[0] || null;
 }
 
 
