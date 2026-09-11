@@ -1856,9 +1856,7 @@ function ocenaDopasowaniaOsi(a,b,i,n,j,m){
     const kraniecB=(j===0 || j===m-1);
 
     /*
-     * KRAŃCE:
-     * jeżeli któryś punkt jest krańcem i oba numery są znane,
-     * różne numery oznaczają dwa osobne wiersze.
+     * Różne numery na krańcach nadal pozostają osobnymi wierszami.
      */
     if(
         (kraniecA || kraniecB) &&
@@ -1869,26 +1867,31 @@ function ocenaDopasowaniaOsi(a,b,i,n,j,m){
         return 0;
     }
 
-    /*
-     * POWTARZAJĄCA SIĘ NAZWA:
-     *
-     * Gdy np. METRO BEMOWO występuje kilka razy w jednym z
-     * kierunków, nie wolno scalać dwóch różnych numerów tylko
-     * na podstawie nazwy. Inaczej 03 może zostać pochłonięte
-     * przez 02 albo 71 i potem godzina dla 03 nie ma wiersza.
-     *
-     * Dla nazwy występującej po jednym razie nadal dozwolone
-     * jest np. 01 | NAZWA | 02.
-     */
     const nazwaPowtarzana=
         Number(a._liczbaTejNazwy||0)>1 ||
         Number(b._liczbaTejNazwy||0)>1;
 
+    /*
+     * Jeżeli nazwa występuje kilka razy i numery są różne:
+     *
+     * - NIE blokujemy już automatycznie takiej pary,
+     * - ale jeżeli któryś z tych punktów ma gdzieś po drugiej stronie
+     *   dokładny odpowiednik nazwa+numer, rezerwujemy go dla tej
+     *   dokładnej pary.
+     *
+     * Dzięki temu:
+     * - METRO WILANOWSKA 02 może połączyć się z 11,
+     * - ale 03 nie zostanie zabrane, jeśli istnieje prawdziwe 03.
+     */
     if(
         nazwaPowtarzana &&
         na &&
         nb &&
-        na!==nb
+        na!==nb &&
+        (
+            a._maDokladnyOdpowiednik===true ||
+            b._maDokladnyOdpowiednik===true
+        )
     ){
         return 0;
     }
@@ -1896,7 +1899,14 @@ function ocenaDopasowaniaOsi(a,b,i,n,j,m){
     let score=100;
 
     if(na && nb && na===nb){
-        score+=1000;
+        score+=10000;
+    }
+    else if(na && nb){
+        /*
+         * Różne numery tej samej nazwy są dozwolone,
+         * ale mają mniejszy priorytet niż identyczne.
+         */
+        score+=300;
     }
 
     if(i===0 && j===0){
@@ -1932,18 +1942,6 @@ function scalDwaKierunkiPrzystankow(lista0,lista1){
     const a=(Array.isArray(lista0)?lista0:[]).map(x=>({...x}));
     const b=(Array.isArray(lista1)?lista1:[]).map(x=>({...x}));
 
-    /*
-     * Liczymy wystąpienia każdej nazwy po obu stronach.
-     * Jest to potrzebne przy miejscach takich jak:
-     *
-     *   METRO BEMOWO 02
-     *   METRO BEMOWO 03
-     *   METRO BEMOWO 71
-     *
-     * Sama zgodność nazwy nie może wtedy "zjeść" jednego
-     * z numerów. Każde rzeczywiste wystąpienie musi pozostać
-     * dostępne do późniejszego mapowania godziny.
-     */
     const policzNazwy=lista=>{
         const mapa=new Map();
 
@@ -1959,14 +1957,42 @@ function scalDwaKierunkiPrzystankow(lista0,lista1){
     const countA=policzNazwy(a);
     const countB=policzNazwy(b);
 
+    /*
+     * Dla każdej pozycji zapisujemy także, czy po drugiej stronie
+     * istnieje DOKŁADNY odpowiednik nazwa+numer.
+     *
+     * To pozwala "zarezerwować" prawdziwe pary, ale nie blokuje
+     * łączenia np. METRO WILANOWSKA 02 + 11, gdy takie dokładne
+     * odpowiedniki nie istnieją.
+     */
+    const maDokladnyOdpowiednik = (item, drugaLista) => {
+        const nazwa=normalizuj(item?.nazwa);
+        const nr=formatNrPrzystankuDoDopasowania(item?.nr);
+
+        if(!nazwa || !nr){
+            return false;
+        }
+
+        return drugaLista.some(other =>
+            normalizuj(other?.nazwa)===nazwa &&
+            formatNrPrzystankuDoDopasowania(other?.nr)===nr
+        );
+    };
+
     a.forEach(p=>{
         p._liczbaTejNazwy=
             countA.get(normalizuj(p?.nazwa))||0;
+
+        p._maDokladnyOdpowiednik=
+            maDokladnyOdpowiednik(p,b);
     });
 
     b.forEach(p=>{
         p._liczbaTejNazwy=
             countB.get(normalizuj(p?.nazwa))||0;
+
+        p._maDokladnyOdpowiednik=
+            maDokladnyOdpowiednik(p,a);
     });
 
     const n=a.length;
