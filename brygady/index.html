@@ -4824,12 +4824,10 @@ function vbaBuildRecords(allTaskCourses){
 
 function vbaBuildRecordEntries(record, coursePosition){
     const result = [];
-    const even = (coursePosition % 2 === 0);
 
-    /*
-     * reverseOrder =
-     * ((directionCode = 20) Xor (coursePosition Mod 2 = 0))
-     */
+    const even =
+        (coursePosition % 2 === 0);
+
     const reverse =
         (record.direction === 1) !== even;
 
@@ -4837,52 +4835,135 @@ function vbaBuildRecordEntries(record, coursePosition){
         record.lineData.stopCount;
 
     /*
-     * Nadal bierzemy tylko te wiersze, na których konkretny kurs
-     * rzeczywiście ma godzinę.
+     * =========================================================
+     * WSZYSTKIE PRZYSTANKI, PRZEZ KTÓRE JEDZIE KURS
+     * =========================================================
      *
-     * DODATKOWO zapamiętujemy, czy ten konkretny punkt jest
-     * początkiem/końcem KONKRETNEGO KURSU. To jest ważniejsze
-     * niż pierwszy/ostatni wiersz pełnej trasy.
+     * Poprzednio do wzorca trafiały tylko te wiersze, dla których:
+     *
+     *     record.times.has(rowIndex)
+     *
+     * To powodowało znikanie całego przystanku, jeśli godzina
+     * nie została poprawnie zmapowana. Tak ginęło m.in.
+     * METRO BEMOWO 03.
+     *
+     * Teraz bierzemy PEŁNY ODCINEK kursu od startRow do endRow.
+     * Każdy wiersz znajdujący się pomiędzy początkiem i końcem
+     * kursu musi pozostać na osi tabeli.
+     *
+     * Godzina nadal pojawia się tylko tam, gdzie istnieje
+     * record.times, ale brak godziny NIE usuwa już przystanku.
+     */
+
+    let from =
+        Number(record.startRow);
+
+    let to =
+        Number(record.endRow);
+
+    if(
+        !Number.isInteger(from) ||
+        !Number.isInteger(to)
+    ){
+        return result;
+    }
+
+    from =
+        Math.max(
+            0,
+            Math.min(
+                from,
+                stopCount - 1
+            )
+        );
+
+    to =
+        Math.max(
+            0,
+            Math.min(
+                to,
+                stopCount - 1
+            )
+        );
+
+    /*
+     * Fizyczny zakres w osi lineData.
+     */
+    const minRow =
+        Math.min(
+            from,
+            to
+        );
+
+    const maxRow =
+        Math.max(
+            from,
+            to
+        );
+
+    /*
+     * Kolejność wyświetlana pozostaje dokładnie taka jak wcześniej.
+     * reverse mówi, czy dany kurs jest układany od dołu do góry.
      */
     if(reverse){
         for(
-            let rowIndex = stopCount - 1;
-            rowIndex >= 0;
+            let rowIndex = maxRow;
+            rowIndex >= minRow;
             rowIndex--
         ){
-            if(!record.times.has(rowIndex)){
-                continue;
-            }
-
             result.push({
-                lineData: record.lineData,
+                lineData:
+                    record.lineData,
+
                 rowIndex,
+
                 reverse,
+
                 endpoint:
                     record.endpoints instanceof Set &&
-                    record.endpoints.has(rowIndex),
-                record
+                    record.endpoints.has(
+                        rowIndex
+                    ),
+
+                record,
+
+                /*
+                 * Informacja pomocnicza:
+                 * czy ten konkretny kurs faktycznie ma tu godzinę.
+                 */
+                hasTime:
+                    record.times.has(
+                        rowIndex
+                    )
             });
         }
     }
     else{
         for(
-            let rowIndex = 0;
-            rowIndex < stopCount;
+            let rowIndex = minRow;
+            rowIndex <= maxRow;
             rowIndex++
         ){
-            if(!record.times.has(rowIndex)){
-                continue;
-            }
-
             result.push({
-                lineData: record.lineData,
+                lineData:
+                    record.lineData,
+
                 rowIndex,
+
                 reverse,
+
                 endpoint:
                     record.endpoints instanceof Set &&
-                    record.endpoints.has(rowIndex),
-                record
+                    record.endpoints.has(
+                        rowIndex
+                    ),
+
+                record,
+
+                hasTime:
+                    record.times.has(
+                        rowIndex
+                    )
             });
         }
     }
