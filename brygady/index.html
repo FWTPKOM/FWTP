@@ -4222,12 +4222,97 @@ function vbaFindNextMergedStopIndex(
     direction,
     startIndex
 ){
-    const codeField = direction === 0 ? "code0" : "code1";
+    const codeField =
+        direction === 0
+            ? "code0"
+            : "code1";
 
-    for(let i = Math.max(0, startIndex); i < stops.length; i++){
+    const wantedName =
+        vbaNorm(
+            stopName
+        );
+
+    const wantedNumber =
+        vbaNr(
+            stopNumber
+        );
+
+    const start =
+        Math.max(
+            0,
+            startIndex
+        );
+
+    /*
+     * 1. Najpierw dokładnie tak jak wcześniej:
+     *    właściwa strona dla danego kierunku.
+     */
+    for(
+        let i=start;
+        i<stops.length;
+        i++
+    ){
         if(
-            vbaTextEquals(stops[i]?.nazwa, stopName) &&
-            vbaTextEquals(stops[i]?.[codeField], stopNumber)
+            vbaNorm(stops[i]?.nazwa) === wantedName &&
+            vbaTextEquals(
+                stops[i]?.[codeField],
+                wantedNumber
+            )
+        ){
+            return i;
+        }
+    }
+
+    /*
+     * 2. FALLBACK:
+     *
+     * Po scaleniu obu kierunków zdarza się, że prawidłowy
+     * numer przystanku został zachowany po przeciwnej stronie
+     * wiersza. Przykład: METRO BEMOWO 03.
+     *
+     * Nie szukamy po samej nazwie. Muszą zgadzać się:
+     * - nazwa,
+     * - DOKŁADNY numer,
+     * - kolejność od aktualnego miejsca w dół.
+     *
+     * Dzięki temu nie podmieniamy 03 na 02 albo 71.
+     */
+    for(
+        let i=start;
+        i<stops.length;
+        i++
+    ){
+        const stop =
+            stops[i];
+
+        if(
+            vbaNorm(stop?.nazwa) !==
+            wantedName
+        ){
+            continue;
+        }
+
+        const code0 =
+            vbaNr(
+                stop?.code0
+            );
+
+        const code1 =
+            vbaNr(
+                stop?.code1
+            );
+
+        if(
+            (code0 &&
+             vbaTextEquals(
+                code0,
+                wantedNumber
+             )) ||
+            (code1 &&
+             vbaTextEquals(
+                code1,
+                wantedNumber
+             ))
         ){
             return i;
         }
@@ -4244,16 +4329,89 @@ function vbaFindPreviousMergedStopIndex(
     direction,
     startIndex
 ){
-    const codeField = direction === 0 ? "code0" : "code1";
+    const codeField =
+        direction === 0
+            ? "code0"
+            : "code1";
 
+    const wantedName =
+        vbaNorm(
+            stopName
+        );
+
+    const wantedNumber =
+        vbaNr(
+            stopNumber
+        );
+
+    const start =
+        Math.min(
+            stops.length - 1,
+            startIndex
+        );
+
+    /*
+     * 1. Standardowe dopasowanie po stronie kierunku.
+     */
     for(
-        let i = Math.min(stops.length - 1, startIndex);
-        i >= 0;
+        let i=start;
+        i>=0;
         i--
     ){
         if(
-            vbaTextEquals(stops[i]?.nazwa, stopName) &&
-            vbaTextEquals(stops[i]?.[codeField], stopNumber)
+            vbaNorm(stops[i]?.nazwa) === wantedName &&
+            vbaTextEquals(
+                stops[i]?.[codeField],
+                wantedNumber
+            )
+        ){
+            return i;
+        }
+    }
+
+    /*
+     * 2. Bezpieczny fallback po obu numerach wiersza.
+     *
+     * Nadal poruszamy się tylko w poprawnym kierunku osi,
+     * więc nie możemy przeskoczyć do wcześniejszego/późniejszego
+     * wystąpienia wbrew kolejności kursu.
+     */
+    for(
+        let i=start;
+        i>=0;
+        i--
+    ){
+        const stop =
+            stops[i];
+
+        if(
+            vbaNorm(stop?.nazwa) !==
+            wantedName
+        ){
+            continue;
+        }
+
+        const code0 =
+            vbaNr(
+                stop?.code0
+            );
+
+        const code1 =
+            vbaNr(
+                stop?.code1
+            );
+
+        if(
+            (code0 &&
+             vbaTextEquals(
+                code0,
+                wantedNumber
+             )) ||
+            (code1 &&
+             vbaTextEquals(
+                code1,
+                wantedNumber
+             ))
         ){
             return i;
         }
