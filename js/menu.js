@@ -21,48 +21,34 @@ document.addEventListener("DOMContentLoaded", function () {
 
         <div class="menu-links">
 
-            <a href="/FWTP/">
-                Strona główna
-            </a>
-
-            <a href="/FWTP/linie/">
-                Rozkład jazdy
-            </a>
-
-            <a href="/FWTP/przystanki/">
-                Przystanki
-            </a>
-
-
+            <a href="/FWTP/">Strona główna</a>
+            <a href="/FWTP/linie/">Rozkład jazdy</a>
+            <a href="/FWTP/przystanki/">Przystanki</a>
             <!-- ===============================
                  BRYGADY - MENU ROZWIJANE
                  =============================== -->
 
             <div class="menu-dropdown">
+              <div class="menu-dropdown">
+    <button class="menu-dropdown-przycisk"
+        type="button"
+        aria-expanded="false">
+        Brygady
+    </button>
 
-                <button
-                    class="menu-dropdown-przycisk"
-                    type="button"
-                    aria-expanded="false"
-                >
-                    Brygady
-                    <span class="menu-strzalka">▼</span>
-                </button>
+    <div class="menu-dropdown-lista">
 
+        <a href="/FWTP/brygady/">
+            Rozkład brygad
+        </a>
 
-                <div class="menu-dropdown-lista">
+        <a href="/FWTP/brygady-laczone/">
+            Brygady łączone
+        </a>
 
-                    <a href="/FWTP/brygady/">
-                        Rozkład brygad
-                    </a>
+    </div>
 
-                    <a href="/FWTP/brygady-laczone/">
-                        Brygady łączone
-                    </a>
-
-                </div>
-
-            </div>
+</div>
 
 
             <a href="/FWTP/aktualnosci/">
