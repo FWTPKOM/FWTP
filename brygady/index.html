@@ -5435,38 +5435,153 @@ function vbaFindEntryPosition(rows, searchedEntry){
 }
 
 
+
+/*
+ * Czy dwa kolejne wpisy wzorca mogą legalnie zajmować
+ * TEN SAM gotowy wiersz tabeli.
+ *
+ * Jest to potrzebne np. dla:
+ *
+ *   02 | METRO WILANOWSKA | [pusto]
+ *   [pusto] | METRO WILANOWSKA | 11
+ *
+ * po scaleniu:
+ *
+ *   02 | METRO WILANOWSKA | 11
+ *
+ * Sam fakt, że oba wpisy mają tę samą pozycję w rows,
+ * nie oznacza wtedy błędnej kolejności.
+ */
+function vbaCanShareSameFinishedRow(rows, rowIndex, firstEntry, secondEntry){
+    if(
+        rowIndex < 0 ||
+        rowIndex >= (rows?.length || 0) ||
+        !firstEntry ||
+        !secondEntry
+    ){
+        return false;
+    }
+
+    const row =
+        rows[rowIndex];
+
+    if(!row){
+        return false;
+    }
+
+    const firstKey =
+        vbaEntryIdentity(
+            firstEntry
+        );
+
+    const secondKey =
+        vbaEntryIdentity(
+            secondEntry
+        );
+
+    const hasFirst =
+        (row.entries || []).some(entry =>
+            vbaEntryIdentity(entry) === firstKey
+        );
+
+    const hasSecond =
+        (row.entries || []).some(entry =>
+            vbaEntryIdentity(entry) === secondKey
+        );
+
+    if(
+        !hasFirst ||
+        !hasSecond
+    ){
+        return false;
+    }
+
+    /*
+     * Muszą być rzeczywiście kompatybilne jako jeden wiersz.
+     * Używamy tej samej logiki co przy scalaniu przystanków.
+     */
+    return (
+        vbaCombinedStopPairMatchScore(
+            firstEntry,
+            secondEntry
+        ) > 0
+    );
+}
+
+
 function vbaScoreRouteLayout(rows, patterns){
     let maximumGap = 0;
     let totalWeightedGap = 0;
 
     for(const pattern of patterns){
         let previous = -1;
+        let previousEntry = null;
 
         for(const entry of pattern.entries){
             const current =
-                vbaFindEntryPosition(rows, entry);
+                vbaFindEntryPosition(
+                    rows,
+                    entry
+                );
 
             if(current < 0){
                 return Number.MAX_SAFE_INTEGER;
             }
 
             if(previous >= 0){
-                const gap = current - previous - 1;
+
+                /*
+                 * Normalnie kolejny przystanek musi być niżej.
+                 *
+                 * Wyjątek:
+                 * dwa logiczne wpisy zostały bezpiecznie scalone
+                 * w jeden fizyczny wiersz tabeli, np.
+                 * METRO WILANOWSKA 02 + 11.
+                 */
+                if(current === previous){
+
+                    if(
+                        !vbaCanShareSameFinishedRow(
+                            rows,
+                            current,
+                            previousEntry,
+                            entry
+                        )
+                    ){
+                        return Number.MAX_SAFE_INTEGER;
+                    }
+
+                    /*
+                     * Ten sam fizyczny przystanek nie tworzy dziury.
+                     */
+                    previousEntry =
+                        entry;
+
+                    continue;
+                }
+
+                const gap =
+                    current - previous - 1;
 
                 if(gap < 0){
                     return Number.MAX_SAFE_INTEGER;
                 }
 
-                maximumGap = Math.max(
-                    maximumGap,
-                    gap
-                );
+                maximumGap =
+                    Math.max(
+                        maximumGap,
+                        gap
+                    );
 
                 totalWeightedGap +=
                     gap * pattern.courseCount;
             }
 
-            previous = current;
+            previous =
+                current;
+
+            previousEntry =
+                entry;
         }
     }
 
