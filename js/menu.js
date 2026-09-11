@@ -30,30 +30,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
             <div class="menu-dropdown">
               <div class="menu-dropdown">
-    <button class="menu-dropdown-przycisk"
-        type="button"
-        aria-expanded="false">
+    <button class="menu-dropdown-przycisk" type="button" aria-expanded="false">
         Brygady
     </button>
-
     <div class="menu-dropdown-lista">
-
-        <a href="/FWTP/brygady/">
-            Rozkład brygad
-        </a>
-
-        <a href="/FWTP/brygady-laczone/">
-            Brygady łączone
-        </a>
-
+        <a href="/FWTP/brygady/">Rozkład brygad</a>
+        <a href="/FWTP/brygady-laczone/">Brygady łączone</a>
     </div>
 
 </div>
 
 
-            <a href="/FWTP/aktualnosci/">
-                Aktualności
-            </a>
+            <a href="/FWTP/aktualnosci/">Aktualności</a>
 
         </div>
     `;
