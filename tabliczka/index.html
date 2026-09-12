@@ -700,17 +700,64 @@
             white-space: normal;
         }
 
-        /* Aktywny przystanek dwuliniowy:
-           wysokość całego wiersza nadal 33 px, tak jak dla zwykłego
-           dwuliniowego przystanku. Zmniejszony line-height sprawia,
-           że po pionowym scaleY(1.30) obie linie mieszczą się w wierszu. */
+
+        /* =========================================================
+           AKTYWNY PRZYSTANEK DWULINIOWY
+           =========================================================
+           Nie rozciągamy całego dwuliniowego bloku, bo wtedy zwiększa
+           się również odległość pomiędzy liniami. Każda linia jest
+           rozciągana osobno i nadal zajmuje dokładnie 16.5 px.
+        */
+
         .trasa-stop.wybrany .trasa-nazwa.zawijaj {
-            line-height: 12.5px;
+            transform: none;
+            line-height: 16.5px;
         }
 
-        .trasa-stop.wybrany .trasa-nazwa.zawijaj .trasa-nazwa-aktywna,
+        .trasa-stop.wybrany .trasa-nazwa.zawijaj .trasa-nazwa-aktywna {
+            background: transparent;
+            box-shadow: none;
+            line-height: normal;
+        }
+
         .trasa-stop.wybrany .trasa-nazwa.zawijaj .trasa-nazwa-aktywna-tekst {
-            line-height: 12.5px;
+            display: block;
+            line-height: 16.5px;
+            letter-spacing: 0;
+        }
+
+        .trasa-aktywna-linia {
+            display: flex;
+            align-items: center;
+            height: 16.5px;
+            line-height: 16.5px;
+            white-space: nowrap;
+        }
+
+        .trasa-aktywna-linia-tlo {
+            display: inline-block;
+
+            /* 12.69 × 1.30 ≈ 16.5 px */
+            line-height: 12.69px;
+
+            transform: scaleY(1.30);
+            transform-origin: left center;
+
+            letter-spacing: 0.75px;
+            color: #fff;
+
+            /* Tak samo jak wcześniej: tło ma być niższe o ok. 2 px
+               od góry i od dołu już po rozciągnięciu. */
+            background:
+                linear-gradient(
+                    to bottom,
+                    transparent 0,
+                    transparent 1.54px,
+                    #111 1.54px,
+                    #111 calc(100% - 1.54px),
+                    transparent calc(100% - 1.54px),
+                    transparent 100%
+                );
         }
 
         .trasa-stop.wybrany .trasa-nazwa {
@@ -3965,11 +4012,6 @@ function ustawZawijanieNazwTrasy(columns){
         return;
     }
 
-    /*
-       Każda nazwa jest oceniana osobno:
-       - jeśli mieści się w jednej linii -> pozostaje bez zawijania,
-       - jeśli się nie mieści -> tylko ta nazwa dostaje zawijanie.
-    */
     const nazwy=
         Array.from(
             columns.querySelectorAll(
@@ -3977,13 +4019,33 @@ function ustawZawijanieNazwTrasy(columns){
             )
         );
 
+    /*
+       Najpierw przywracamy zwykły tekst aktywnego przystanku.
+       Funkcja może zostać wywołana więcej niż jeden raz podczas
+       dopasowywania liczby kolumn.
+    */
     nazwy.forEach(
         el=>{
+
             el.classList.remove(
                 "zawijaj"
             );
+
+            const tekstAktywny=
+                el.querySelector(
+                    ".trasa-nazwa-aktywna-tekst"
+                );
+
+            if(
+                tekstAktywny&&
+                tekstAktywny.dataset.oryginalnyTekst
+            ){
+                tekstAktywny.textContent=
+                    tekstAktywny.dataset.oryginalnyTekst;
+            }
         }
     );
+
 
     nazwy.forEach(
         el=>{
@@ -4000,6 +4062,180 @@ function ustawZawijanieNazwTrasy(columns){
                     "zawijaj"
                 );
             }
+        }
+    );
+
+
+    /*
+       Dla aktywnego przystanku wieloliniowego tworzymy osobny element
+       dla każdej linii. Dzięki temu scaleY(1.30) rozciąga litery,
+       ale NIE zwiększa odległości pomiędzy pierwszą i drugą linią.
+    */
+    nazwy.forEach(
+        el=>{
+
+            if(
+                !el.classList.contains(
+                    "zawijaj"
+                )
+            ){
+                return;
+            }
+
+            const stop=
+                el.closest(
+                    ".trasa-stop"
+                );
+
+            if(
+                !stop||
+                !stop.classList.contains(
+                    "wybrany"
+                )
+            ){
+                return;
+            }
+
+            const tekstAktywny=
+                el.querySelector(
+                    ".trasa-nazwa-aktywna-tekst"
+                );
+
+            if(!tekstAktywny){
+                return;
+            }
+
+            const tekst=
+                String(
+                    tekstAktywny.textContent||
+                    ""
+                )
+                .replace(/\s+/g," ")
+                .trim();
+
+            if(!tekst){
+                return;
+            }
+
+            tekstAktywny.dataset.oryginalnyTekst=
+                tekst;
+
+            const szerokosc=
+                Math.max(
+                    1,
+                    el.clientWidth
+                );
+
+            const styl=
+                getComputedStyle(el);
+
+            const miernik=
+                document.createElement(
+                    "span"
+                );
+
+            miernik.style.position=
+                "absolute";
+
+            miernik.style.left=
+                "-10000px";
+
+            miernik.style.top=
+                "-10000px";
+
+            miernik.style.visibility=
+                "hidden";
+
+            miernik.style.whiteSpace=
+                "nowrap";
+
+            miernik.style.fontFamily=
+                styl.fontFamily;
+
+            miernik.style.fontSize=
+                styl.fontSize;
+
+            miernik.style.fontWeight=
+                styl.fontWeight;
+
+            miernik.style.fontStyle=
+                styl.fontStyle;
+
+            miernik.style.letterSpacing=
+                styl.letterSpacing;
+
+            miernik.style.transform=
+                "none";
+
+            document.body.appendChild(
+                miernik
+            );
+
+            const slowa=
+                tekst.split(/\s+/);
+
+            const linie=[];
+            let aktualna="";
+
+            slowa.forEach(
+                slowo=>{
+
+                    const kandydat=
+                        aktualna
+                            ? aktualna+" "+slowo
+                            : slowo;
+
+                    miernik.textContent=
+                        kandydat;
+
+                    const miesciSie=
+                        miernik
+                            .getBoundingClientRect()
+                            .width<=
+                        szerokosc+0.5;
+
+                    if(
+                        miesciSie||
+                        !aktualna
+                    ){
+                        aktualna=
+                            kandydat;
+                    }
+                    else{
+                        linie.push(
+                            aktualna
+                        );
+
+                        aktualna=
+                            slowo;
+                    }
+                }
+            );
+
+            if(aktualna){
+                linie.push(
+                    aktualna
+                );
+            }
+
+            miernik.remove();
+
+            /*
+               Dla typowych nazw wychodzą dwie linie.
+               Gdyby nazwa była jeszcze dłuższa, mechanizm obsłuży
+               również kolejne linie.
+            */
+            tekstAktywny.innerHTML=
+                linie
+                    .map(
+                        linia=>
+                            '<span class="trasa-aktywna-linia">'+
+                                '<span class="trasa-aktywna-linia-tlo">'+
+                                    escapeHtml(linia)+
+                                '</span>'+
+                            '</span>'
+                    )
+                    .join("");
         }
     );
 }
