@@ -3022,139 +3022,65 @@ function listaTrasyDoWyswietlenia(){
     }
 
     /*
-       Dla każdego przystanku sprawdzamy, czy kursy obsługujące dany wpis
-       jadą dalej niż ten przystanek.
+       ZASADY WYŚWIETLANIA TRASY:
 
-       To pozwala odróżnić:
-       - zwykłe powtórzenie tej samej nazwy na trasie -> ZOSTAWIAMY,
-       - drugi numer stanowiska używany wyłącznie przez kursy skrócone
-         kończące się na tym przystanku -> USUWAMY.
+       1. TECH
+          - nigdy nie pokazujemy przystanku technicznego.
+
+       2. WYS + WS
+          - jeżeli po przystanku typu WYS znajduje się przystanek WS,
+            przystanku WS nie pokazujemy.
+          - TECH pomiędzy nimi jest ignorowany, bo TECH i tak nie jest
+            wyświetlany.
+
+       3. Pozostałe przystanki
+          - pokazujemy wszystkie, również wszystkie przystanki końcowe
+            i stanowiska o tej samej nazwie, ale innym numerze.
     */
-    const kursJedzieDalej=
-        (index,kurs)=>{
 
-            const numer=
-                String(
-                    kurs?.numer||
-                    ""
-                );
-
-            if(!numer){
-                return false;
-            }
-
-            for(
-                let j=index+1;
-                j<lista.length;
-                j++
-            ){
-                const dalej=
-                    (
-                        lista[j]?.kursy||
-                        []
-                    ).some(
-                        k=>
-                            String(
-                                k?.numer||
-                                ""
-                            )===numer
-                    );
-
-                if(dalej){
-                    return true;
-                }
-            }
-
-            return false;
-        };
-
-    const maKursPelny=
-        index=>
-            (
-                lista[index]?.kursy||
-                []
-            ).some(
-                kurs=>
-                    kursJedzieDalej(
-                        index,
-                        kurs
-                    )
-            );
+    const typPrzystanku=
+        p=>
+            String(
+                p?.typ||""
+            )
+            .trim()
+            .toUpperCase();
 
     const wynik=[];
 
-    let i=0;
+    let poprzedniWidocznyTyp="";
 
-    while(i<lista.length){
+    lista.forEach(
+        (p,index)=>{
 
-        const aktualna=
-            lista[i];
+            const typ=
+                typPrzystanku(p);
 
-        const nastepna=
-            lista[i+1];
+            /* TECH nigdy nie trafia na listę. */
+            if(typ==="TECH"){
+                return;
+            }
 
-        const taSamaNazwa=
-            nastepna&&
-            normalizuj(
-                aktualna?.nazwa
-            )===
-            normalizuj(
-                nastepna?.nazwa
-            );
-
-        if(!taSamaNazwa){
-
-            wynik.push({
-                p:aktualna,
-                index:i
-            });
-
-            i++;
-            continue;
-        }
-
-        /*
-           Mamy dwa KOLEJNE wpisy o tej samej nazwie.
-           Usuwamy jeden tylko wtedy, gdy jeden z nich jest wyraźnie
-           stanowiskiem dla kursów jadących dalej, a drugi nie ma żadnego
-           kursu jadącego dalej (czyli jest stanowiskiem końcowym wariantu).
-        */
-        const pierwszyPelny=
-            maKursPelny(i);
-
-        const drugiPelny=
-            maKursPelny(i+1);
-
-        if(
-            pierwszyPelny!==drugiPelny
-        ){
-
-            const zachowajIndex=
-                pierwszyPelny
-                    ? i
-                    : i+1;
+            /*
+               Jeżeli poprzednim rzeczywistym przystankiem był WYS,
+               a obecny jest WS, to WS pomijamy.
+            */
+            if(
+                typ==="WS"&&
+                poprzedniWidocznyTyp==="WYS"
+            ){
+                return;
+            }
 
             wynik.push({
-                p:lista[zachowajIndex],
-                index:zachowajIndex
+                p,
+                index
             });
 
-            i+=2;
-            continue;
+            poprzedniWidocznyTyp=
+                typ;
         }
-
-        /*
-           Jeśli oba wpisy są "pełne" albo oba są końcowe,
-           NIE zakładamy, że to wariant. Zostawiamy oba,
-           bo linia może rzeczywiście dwa razy odwiedzać ten sam przystanek.
-        */
-        wynik.push({
-            p:aktualna,
-            index:i
-        });
-
-        i++;
-    }
+    );
 
     return wynik;
 }
