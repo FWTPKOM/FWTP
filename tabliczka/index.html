@@ -4081,19 +4081,62 @@ function renderLegenda(){
     }
 
     /*
-       Jeżeli kilka wariantów ma identyczny opis,
-       pokazujemy tylko pierwszy z nich.
+       Legenda ma pokazywać WYŁĄCZNIE oznaczenia,
+       które faktycznie występują przy minutach
+       w aktualnym kierunku i na aktualnym przystanku.
 
-       Przykład:
-       B = "kurs przez ..."
-       C = "kurs przez ..."
+       Dzięki temu warianty istniejące tylko w drugim kierunku
+       nie pojawią się tutaj w legendzie.
+    */
+    const uzyteLitery=
+        new Set();
 
-       legenda:
-       b - kurs przez ...
+    const grupy=
+        dostepneGrupyDni()
+            .slice(
+                0,
+                3
+            );
 
-       Nie pokazujemy:
-       b/c - ...
-       ani drugiego osobnego wpisu z c.
+    grupy.forEach(
+        grupa=>{
+
+            const kursy=
+                pobierzKursyDlaSymbolu(
+                    grupa.symbol
+                );
+
+            kursy.forEach(
+                kurs=>{
+
+                    const litera=
+                        String(
+                            symbolWariantu(
+                                kurs,
+                                grupa.symbol
+                            )||""
+                        )
+                        .trim()
+                        .toLowerCase();
+
+                    if(litera){
+                        uzyteLitery.add(
+                            litera
+                        );
+                    }
+                }
+            );
+        }
+    );
+
+    if(!uzyteLitery.size){
+        return"";
+    }
+
+    /*
+       Identyczne opisy nadal łączymy do jednej litery,
+       ale tylko wtedy, gdy ta litera rzeczywiście występuje
+       przy minutach w aktualnie wyświetlanym rozkładzie.
     */
     const widzianeOpisy=
         new Set();
@@ -4119,6 +4162,25 @@ function renderLegenda(){
             continue;
         }
 
+        const literaDoPokazania=
+            kanonicznaLiteraWariantu(
+                litera
+            )
+            .toLowerCase();
+
+        /*
+           Najważniejsze:
+           nie ma litery przy żadnej minucie w tym kierunku
+           => nie ma jej również w legendzie.
+        */
+        if(
+            !uzyteLitery.has(
+                literaDoPokazania
+            )
+        ){
+            continue;
+        }
+
         const klucz=
             normalizujOpisWariantu(
                 tekst
@@ -4135,12 +4197,6 @@ function renderLegenda(){
         widzianeOpisy.add(
             klucz
         );
-
-        const literaDoPokazania=
-            kanonicznaLiteraWariantu(
-                litera
-            )
-            .toLowerCase();
 
         wiersze.push(
             '<div class="legenda-wiersz">'+
