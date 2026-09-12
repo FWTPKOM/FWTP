@@ -363,7 +363,7 @@
             height: 16px;
             align-items: stretch;
 
-            border-bottom: 1px solid #aaa;
+            border-bottom: 1px solid #d6d6d6;
             box-sizing: border-box;
         }
 
@@ -444,6 +444,43 @@
 
             font-size: 11px;
             text-align: center;
+        }
+
+
+        /*
+           Tabela dla typu dnia, w którym linia nie kursuje.
+           Zachowujemy dokładnie taką samą wysokość jak pozostałe
+           rozkłady, ale nie pokazujemy godzin ani minut.
+        */
+        .nie-kursuje-body {
+            position: relative;
+        }
+
+        .godzina-row-nie-kursuje {
+            border-bottom: 0;
+        }
+
+        .nie-kursuje-napis {
+            position: absolute;
+
+            left: 22px;
+            right: 0;
+            top: 0;
+            bottom: 0;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            padding: 0 4px;
+
+            font-size: 14px;
+            line-height: 1;
+            font-weight: 700;
+            text-align: center;
+
+            pointer-events: none;
+            box-sizing: border-box;
         }
 
 
@@ -2454,17 +2491,45 @@ function dostepneGrupyDni(){
 
     const wynik=[];
 
-    if(symbole.has("D")){
+    const maD=
+        symbole.has("D");
+
+    const maC=
+        symbole.has("C");
+
+    const ma6=
+        symbole.has("6");
+
+    const ma7=
+        symbole.has("7");
+
+    const maWeekendRozdzielony=
+        ma6||
+        ma7;
+
+    /*
+       DZIEŃ POWSZEDNI pokazujemy również wtedy,
+       gdy kursów D nie ma, ale są kursy weekendowe.
+       Wtedy tabela wyświetli "NIE KURSUJE".
+    */
+    if(
+        maD||
+        maC||
+        maWeekendRozdzielony
+    ){
         wynik.push({
             symbol:"D",
             tytul:"DZIEŃ POWSZEDNI"
         });
     }
 
-    if(
-        symbole.has("6")&&
-        symbole.has("7")
-    ){
+    /*
+       Jeżeli dane używają osobnych symboli 6 i 7,
+       zawsze pokazujemy obie kolumny.
+       Brakująca dostanie "NIE KURSUJE".
+    */
+    if(maWeekendRozdzielony){
+
         wynik.push({
             symbol:"6",
             tytul:"SOBOTA"
@@ -2475,35 +2540,26 @@ function dostepneGrupyDni(){
             tytul:"NIEDZIELA I ŚWIĘTO"
         });
     }
-    else if(
-        symbole.has("C")
-    ){
-        wynik.push({
-            symbol:"C",
-            tytul:"SOBOTA I ŚWIĘTO"
-        });
-    }
     else{
 
-        if(symbole.has("6")){
+        /*
+           Przy układzie D/C pokazujemy SOBOTA I ŚWIĘTO
+           nawet wtedy, gdy istnieją wyłącznie kursy D.
+        */
+        if(
+            maD||
+            maC
+        ){
             wynik.push({
-                symbol:"6",
-                tytul:"SOBOTA"
-            });
-        }
-
-        if(symbole.has("7")){
-            wynik.push({
-                symbol:"7",
-                tytul:"NIEDZIELA I ŚWIĘTO"
+                symbol:"C",
+                tytul:"SOBOTA I ŚWIĘTO"
             });
         }
     }
 
     /*
-     * Fallback: pokaż pozostałe symbole,
-     * jeżeli eksport używa innych oznaczeń.
-     */
+       Nietypowe symbole pozostają obsługiwane jak wcześniej.
+    */
     [
         ...symbole
     ]
@@ -2998,7 +3054,38 @@ function renderDzien(grupa,wspolneGodziny){
 
     let body="";
 
-    if(!godziny.length){
+    /*
+       Cały typ dnia bez żadnego kursu:
+       - tyle samo wierszy co pozostałe tabele,
+       - bez numerów godzin,
+       - bez minut,
+       - zostaje pionowy podział godziny/minuty,
+       - na środku części minutowej: NIE KURSUJE.
+    */
+    if(
+        kursy.length===0&&
+        godziny.length
+    ){
+
+        const pusteWiersze=
+            godziny
+                .map(
+                    ()=>(
+                        '<div class="godzina-row godzina-row-nie-kursuje">'+
+                        '<div class="godzina-cell"></div>'+
+                        '<div class="minuty-cell"></div>'+
+                        '</div>'
+                    )
+                )
+                .join("");
+
+        body=
+            '<div class="nie-kursuje-body">'+
+            pusteWiersze+
+            '<div class="nie-kursuje-napis">NIE KURSUJE</div>'+
+            '</div>';
+    }
+    else if(!godziny.length){
 
         body=
             '<div class="brak">Brak kursów</div>';
@@ -3011,9 +3098,9 @@ function renderDzien(grupa,wspolneGodziny){
                     h=>{
 
                         /*
-                           Jeżeli dany typ dnia nie ma kursu w tej godzinie,
-                           tworzymy normalny wiersz tabeli, ale całkowicie pusty:
-                           bez numeru godziny i bez minut.
+                           Brak kursu tylko w konkretnej godzinie:
+                           normalny pusty wiersz, żeby wszystkie
+                           tabele pozostały wyrównane.
                         */
                         if(!mapa.has(h)){
 
