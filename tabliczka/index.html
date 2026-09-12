@@ -851,7 +851,14 @@
             line-height: 16px;
             font-weight: 400;
             color: #111;
-            white-space: nowrap;
+
+            /*
+               Jeżeli lista liter nie mieści się w szerokości kolumny,
+               tekst przechodzi do następnego wiersza.
+            */
+            white-space: normal;
+            overflow-wrap: normal;
+            word-break: normal;
             text-align: center;
 
             transform: scaleY(1.08);
@@ -3548,27 +3555,30 @@ function czyWariantTrasyPrzez(litera){
         "";
 
     /*
-       Do wewnętrznych odcinków wariantowych zaliczamy warianty
-       opisujące jazdę przez dodatkowe przystanki / podjazd.
-       Kursy skrócone i wydłużone są obsługiwane osobno.
+       Do tej logiki NIE mieszamy:
+       - kursów skróconych,
+       - kursów wydłużonych,
+       - kursów do zajezdni,
+       - "tylko do ...".
+
+       Tu interesują nas wyłącznie warianty przebiegu typu:
+       "przez ...", "podjazd ...".
     */
     return(
-        /przez|podjazd/i
-            .test(
-                String(opis)
-            )&&
-        !/skrócon|wydłuż|zajezdni|tylko do/i
-            .test(
-                String(opis)
-            )
+        /przez|podjazd/i.test(
+            String(opis)
+        )&&
+        !/skrócon|wydłuż|zajezdni|tylko do/i.test(
+            String(opis)
+        )
     );
 }
 
 
-function literyTrasWariantowychAktualnegoRozkladu(){
+function kursyAktualnegoRozkladuDoTrasy(){
 
     const wynik=
-        new Set();
+        new Map();
 
     const grupy=
         dostepneGrupyDni()
@@ -3588,28 +3598,23 @@ function literyTrasWariantowychAktualnegoRozkladu(){
             kursy.forEach(
                 kurs=>{
 
-                    const oryginalna=
-                        String(
-                            kurs?.wariant||""
-                        ).trim();
+                    const key=
+                        kluczKursu(kurs);
 
                     if(
-                        !oryginalna||
-                        !czyWariantTrasyPrzez(
-                            oryginalna
-                        )
+                        !wynik.has(key)
                     ){
-                        return;
-                    }
-
-                    const litera=
-                        kanonicznaLiteraWariantu(
-                            oryginalna
-                        );
-
-                    if(litera){
-                        wynik.add(
-                            litera
+                        wynik.set(
+                            key,
+                            {
+                                numer:String(
+                                    kurs?.numer||""
+                                ),
+                                wariant:String(
+                                    kurs?.wariant||""
+                                ).trim(),
+                                symbol:grupa.symbol
+                            }
                         );
                     }
                 }
@@ -3617,133 +3622,311 @@ function literyTrasWariantowychAktualnegoRozkladu(){
         }
     );
 
-    return wynik;
+    return[
+        ...wynik.values()
+    ];
+}
+
+
+function kursMaPrzystanek(
+    kursRef,
+    element
+){
+
+    if(
+        !kursRef||
+        !element?.p
+    ){
+        return false;
+    }
+
+    for(
+        const rozklad of
+        (
+            daneLinii?.rozkłady||
+            []
+        )
+    ){
+
+        const p=
+            znajdzPrzystanekWRozkladzie(
+                rozklad,
+                aktualnyKierunek,
+                element.p
+            );
+
+        const jest=
+            (
+                p?.kursy||
+                []
+            ).some(
+                k=>
+                    String(
+                        k?.numer||""
+                    )===
+                        kursRef.numer&&
+                    String(
+                        k?.wariant||""
+                    ).trim()===
+                        kursRef.wariant&&
+                    symbolDnia(k)===
+                        kursRef.symbol&&
+                    czasNaMinuty(
+                        k?.czas
+                    )!==null
+            );
+
+        if(jest){
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+function reprezentatywneKursyTras(){
+
+    const wszystkie=
+        kursyAktualnegoRozkladuDoTrasy();
+
+    const warianty=
+        new Map();
+
+    const podstawowe=[];
+
+    wszystkie.forEach(
+        kurs=>{
+
+            const literaKanoniczna=
+                kanonicznaLiteraWariantu(
+                    kurs.wariant
+                );
+
+            if(
+                kurs.wariant&&
+                czyWariantTrasyPrzez(
+                    kurs.wariant
+                )
+            ){
+
+                if(
+                    !warianty.has(
+                        literaKanoniczna
+                    )
+                ){
+                    warianty.set(
+                        literaKanoniczna,
+                        []
+                    );
+                }
+
+                warianty
+                    .get(
+                        literaKanoniczna
+                    )
+                    .push(kurs);
+            }
+            else{
+
+                /*
+                   Kursy skrócone nie mogą definiować trasy podstawowej,
+                   bo wtedy np. kurs do BARTNICZEJ zniekształcałby
+                   oznaczenia późniejszych odcinków.
+                */
+                const opis=
+                    mapaWariantow()
+                        .get(
+                            kurs.wariant
+                        )||
+                    "";
+
+                if(
+                    !/skrócon|wydłuż|zajezdni|tylko do/i.test(
+                        String(opis)
+                    )
+                ){
+                    podstawowe.push(kurs);
+                }
+            }
+        }
+    );
+
+    return{
+        podstawowe,
+        warianty
+    };
+}
+
+
+function wybierzNajdluzszyKurs(
+    listaKursow
+){
+
+    const pelna=
+        listaTrasyDoWyswietlenia();
+
+    let najlepszy=null;
+    let max=-1;
+
+    (
+        listaKursow||
+        []
+    ).forEach(
+        kurs=>{
+
+            let licznik=0;
+
+            pelna.forEach(
+                element=>{
+                    if(
+                        kursMaPrzystanek(
+                            kurs,
+                            element
+                        )
+                    ){
+                        licznik++;
+                    }
+                }
+            );
+
+            if(licznik>max){
+                max=licznik;
+                najlepszy=kurs;
+            }
+        }
+    );
+
+    return najlepszy;
+}
+
+
+function danePrzebiegowWariantowych(){
+
+    const zestaw=
+        reprezentatywneKursyTras();
+
+    const baza=
+        wybierzNajdluzszyKurs(
+            zestaw.podstawowe
+        );
+
+    const warianty=
+        new Map();
+
+    for(
+        const [litera,kursy]
+        of zestaw.warianty.entries()
+    ){
+        const kurs=
+            wybierzNajdluzszyKurs(
+                kursy
+            );
+
+        if(kurs){
+            warianty.set(
+                litera,
+                kurs
+            );
+        }
+    }
+
+    return{
+        baza,
+        warianty
+    };
 }
 
 
 function stanTrasyNaPrzystanku(element){
 
-    const interesujace=
-        literyTrasWariantowychAktualnegoRozkladu();
+    const dane=
+        danePrzebiegowWariantowych();
 
-    if(!interesujace.size){
+    if(
+        !dane.baza&&
+        !dane.warianty.size
+    ){
         return{
             typ:"wszystkie",
             litery:[]
         };
     }
 
-    const znalezione=
-        new Set();
+    const bazaJedzie=
+        dane.baza
+            ? kursMaPrzystanek(
+                dane.baza,
+                element
+            )
+            : false;
 
-    let maPodstawowy=false;
+    const wariantyJadace=[];
 
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(
-        rozklad=>{
-
-            const p=
-                znajdzPrzystanekWRozkladzie(
-                    rozklad,
-                    aktualnyKierunek,
-                    element.p
-                );
-
-            (
-                p?.kursy||
-                []
-            ).forEach(
-                kurs=>{
-
-                    if(
-                        czasNaMinuty(
-                            kurs?.czas
-                        )===null
-                    ){
-                        return;
-                    }
-
-                    const oryginalna=
-                        String(
-                            kurs?.wariant||""
-                        ).trim();
-
-                    const kanoniczna=
-                        kanonicznaLiteraWariantu(
-                            oryginalna
-                        );
-
-                    if(
-                        kanoniczna&&
-                        interesujace.has(
-                            kanoniczna
-                        )
-                    ){
-                        znalezione.add(
-                            kanoniczna
-                        );
-                    }
-                    else{
-                        /*
-                           Kurs bez oznaczenia "przez..." traktujemy jako
-                           przejazd trasą podstawową. Dotyczy to również
-                           innych wariantów, np. kursów skróconych,
-                           które na tym odcinku jadą trasą podstawową.
-                        */
-                        maPodstawowy=true;
-                    }
-                }
+    for(
+        const [litera,kurs]
+        of dane.warianty.entries()
+    ){
+        if(
+            kursMaPrzystanek(
+                kurs,
+                element
+            )
+        ){
+            wariantyJadace.push(
+                litera
             );
         }
-    );
+    }
 
-    const wszystkieWarianty=
-        [
-            ...interesujace
-        ];
+    /*
+       Jeżeli przystanek jest częścią trasy podstawowej,
+       nie opisujemy go jako "Trasa w kursach ...".
+       Jest to zwykły wspólny fragment.
 
-    const maWszystkieWarianty=
-        wszystkieWarianty.every(
-            litera=>
-                znalezione.has(
-                    litera
-                )
-        );
+       Dzięki temu wariant "o - przez POLFĘ" nie pojawi się nad
+       KUPIECKĄ tylko dlatego, że jego kurs później przejeżdża
+       przez wspólny przystanek.
+    */
+    if(bazaJedzie){
 
-    if(
-        maPodstawowy&&
-        maWszystkieWarianty
-    ){
+        const wszystkieWariantyJada=
+            [
+                ...dane.warianty.keys()
+            ]
+            .every(
+                litera=>
+                    wariantyJadace.includes(
+                        litera
+                    )
+            );
+
         return{
-            typ:"wszystkie",
-            litery:wszystkieWarianty
+            typ:
+                wszystkieWariantyJada
+                    ? "wszystkie"
+                    : "podstawowa",
+            litery:wariantyJadace
         };
     }
 
     /*
-       Odcinek występujący wyłącznie w określonych kursach wariantowych.
-       To właśnie przed takim odcinkiem pokażemy:
-       "Trasa w kursach „x”"
+       Przystanku nie ma na trasie podstawowej.
+       Zatem jest to rzeczywisty odcinek wariantowy.
+       Pokazujemy WYŁĄCZNIE litery kursów, które faktycznie
+       obsługują ten przystanek.
     */
-    if(
-        !maPodstawowy&&
-        znalezione.size
-    ){
+    if(wariantyJadace.length){
+
         return{
             typ:"wariant",
-            litery:[
-                ...znalezione
-            ]
+            litery:wariantyJadace
         };
     }
 
     return{
         typ:"inne",
-        litery:[
-            ...znalezione
-        ]
+        litery:[]
     };
 }
 
@@ -3794,9 +3977,6 @@ function naglowekZmianyTrasy(
         return"";
     }
 
-    /*
-       Start odcinka wariantowego.
-    */
     if(
         aktualny.typ==="wariant"&&
         aktualny.litery.length
@@ -3826,8 +4006,9 @@ function naglowekZmianyTrasy(
     }
 
     /*
-       Po odcinku wariantowym wszystkie warianty wracają
-       na tę samą trasę podstawową.
+       Po odcinku wariantowym napis "Trasa we wszystkich kursach"
+       pojawia się dopiero wtedy, gdy faktycznie wszystkie przebiegi
+       wracają na wspólną trasę.
     */
     if(
         poprzedni&&
@@ -3844,6 +4025,148 @@ function naglowekZmianyTrasy(
     }
 
     return"";
+}
+
+
+function czasDowolnegoKursuNaPrzystanku(
+    element
+){
+
+    const listaStartowa=
+        kursyAktualnegoRozkladuDoTrasy();
+
+    const baza=
+        kierunekBazowy();
+
+    const startP=
+        baza?.przystanki?.[
+            aktualnyPrzystanek
+        ];
+
+    if(
+        !startP||
+        !element?.p
+    ){
+        return null;
+    }
+
+    const wyniki=[];
+
+    listaStartowa.forEach(
+        kursRef=>{
+
+            let start=null;
+            let koniec=null;
+
+            for(
+                const rozklad of
+                (
+                    daneLinii?.rozkłady||
+                    []
+                )
+            ){
+
+                const pStart=
+                    znajdzPrzystanekWRozkladzie(
+                        rozklad,
+                        aktualnyKierunek,
+                        startP
+                    );
+
+                const kStart=
+                    (
+                        pStart?.kursy||
+                        []
+                    ).find(
+                        k=>
+                            String(
+                                k?.numer||""
+                            )===
+                                kursRef.numer&&
+                            String(
+                                k?.wariant||""
+                            ).trim()===
+                                kursRef.wariant&&
+                            symbolDnia(k)===
+                                kursRef.symbol&&
+                            czasNaMinuty(
+                                k?.czas
+                            )!==null
+                    );
+
+                if(kStart){
+                    start=
+                        czasNaMinuty(
+                            kStart.czas
+                        );
+                }
+
+                const pKoniec=
+                    znajdzPrzystanekWRozkladzie(
+                        rozklad,
+                        aktualnyKierunek,
+                        element.p
+                    );
+
+                const kKoniec=
+                    (
+                        pKoniec?.kursy||
+                        []
+                    ).find(
+                        k=>
+                            String(
+                                k?.numer||""
+                            )===
+                                kursRef.numer&&
+                            String(
+                                k?.wariant||""
+                            ).trim()===
+                                kursRef.wariant&&
+                            symbolDnia(k)===
+                                kursRef.symbol&&
+                            czasNaMinuty(
+                                k?.czas
+                            )!==null
+                    );
+
+                if(kKoniec){
+                    koniec=
+                        czasNaMinuty(
+                            kKoniec.czas
+                        );
+                }
+            }
+
+            if(
+                start!==null&&
+                koniec!==null
+            ){
+
+                let roznica=
+                    koniec-start;
+
+                while(roznica<0){
+                    roznica+=1440;
+                }
+
+                wyniki.push(
+                    roznica
+                );
+            }
+        }
+    );
+
+    if(!wyniki.length){
+        return null;
+    }
+
+    /*
+       Jeżeli kilka kursów daje czas dla tego samego przystanku,
+       bierzemy najmniejszy poprawny czas przejazdu.
+    */
+    return Math.min(
+        ...wyniki
+    );
 }
 
 
@@ -4368,8 +4691,18 @@ function renderTrasaKolumna(
                         index===
                         aktualnyPrzystanek;
 
-                    const czas=
+                    let czas=
                         czasy[index];
+
+                    if(
+                        czas===null||
+                        typeof czas==="undefined"
+                    ){
+                        czas=
+                            czasDowolnegoKursuNaPrzystanku(
+                                element
+                            );
+                    }
 
                     return(
                         separator+
