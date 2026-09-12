@@ -2575,6 +2575,83 @@ function mapaWariantow(){
 }
 
 
+
+function normalizujOpisWariantu(opis){
+
+    return String(
+        opis||""
+    )
+    .trim()
+    .replace(
+        /\s+/g,
+        " "
+    )
+    .toLocaleLowerCase(
+        "pl"
+    );
+}
+
+
+function kanonicznaLiteraWariantu(litera){
+
+    const szukana=
+        String(
+            litera||""
+        ).trim();
+
+    if(!szukana){
+        return"";
+    }
+
+    const mapa=
+        mapaWariantow();
+
+    const opis=
+        mapa.get(
+            szukana
+        )||"";
+
+    if(!opis){
+        return szukana;
+    }
+
+    const klucz=
+        normalizujOpisWariantu(
+            opis
+        );
+
+    /*
+       Jeżeli kilka wariantów ma identyczny opis,
+       wybieramy tylko PIERWSZĄ literę występującą
+       w mapie wariantów.
+
+       Przykład:
+       B = "kurs przez ..."
+       C = "kurs przez ..."
+
+       wtedy wszędzie używamy tylko B:
+       - przy minutach,
+       - w legendzie.
+    */
+    for(
+        const [innaLitera,innyOpis]
+        of mapa.entries()
+    ){
+        if(
+            normalizujOpisWariantu(
+                innyOpis
+            )===klucz
+        ){
+            return String(
+                innaLitera||""
+            ).trim();
+        }
+    }
+
+    return szukana;
+}
+
+
 function czyOznaczacWariant(opis){
 
     /*
@@ -2753,18 +2830,25 @@ function symbolWariantu(kurs,symbol){
         litera&&
         czyOznaczacWariant(opis)
     ){
-        return litera.toLowerCase();
+        return kanonicznaLiteraWariantu(
+            litera
+        ).toLowerCase();
     }
 
     /*
-       Jeżeli np. w NIEDZIELĘ wszystkie kursy kończą się
-       na URSYNÓW PŁD. i w danych kurs nie ma jawnego pola wariant,
-       nadal pokazujemy właściwą literę wariantu skróconego.
+       Jeśli litera jest wyznaczana automatycznie po końcu kursu,
+       również przepuszczamy ją przez tę samą regułę,
+       aby identyczny opis nie dostał drugiej litery.
     */
-    return znajdzLitereSkroceniaPoKoncu(
-        kurs,
-        symbol
-    );
+    const literaSkrocenia=
+        znajdzLitereSkroceniaPoKoncu(
+            kurs,
+            symbol
+        );
+
+    return kanonicznaLiteraWariantu(
+        literaSkrocenia
+    ).toLowerCase();
 }
 
 
@@ -2836,34 +2920,57 @@ function wspolneGodzinyDlaGrup(grupy){
         }
     );
 
+    if(!godziny.size){
+        return[];
+    }
+
     /*
-       Kolejność godzin jak na rozkładzie komunikacji:
+       Godziny traktujemy w kolejności komunikacyjnej:
        4, 5, 6 ... 23, 0, 1, 2, 3.
 
-       Dzięki temu np.:
-       - jeśli D zaczyna się o 4,
-       - a C dopiero o 5,
-       to w C pierwszy wiersz (odpowiadający godzinie 4)
-       pozostaje całkowicie pusty.
+       Najważniejsza zmiana:
+       tworzymy PEŁNY zakres od pierwszej do ostatniej godziny,
+       a nie tylko godziny, w których faktycznie występują kursy.
+
+       Przykład:
+       kursy są o 6,7,8,9 oraz 14,15,...20
+       => tabela dostanie również puste wiersze:
+          10, 11, 12, 13.
     */
-    return[
-        ...godziny
-    ].sort(
-        (a,b)=>{
 
-            const aa=
-                a<4
-                    ? a+24
-                    : a;
+    const przesunieta=
+        [...godziny]
+            .map(
+                h=>
+                    h<4
+                        ? h+24
+                        : h
+            )
+            .sort(
+                (a,b)=>a-b
+            );
 
-            const bb=
-                b<4
-                    ? b+24
-                    : b;
+    const pierwsza=
+        przesunieta[0];
 
-            return aa-b;
-        }
-    );
+    const ostatnia=
+        przesunieta[
+            przesunieta.length-1
+        ];
+
+    const wynik=[];
+
+    for(
+        let h=pierwsza;
+        h<=ostatnia;
+        h++
+    ){
+        wynik.push(
+            h%24
+        );
+    }
+
+    return wynik;
 }
 
 
@@ -3879,93 +3986,101 @@ function renderTrasaKolumna(
 
 function renderLegenda(){
 
-    const grupy=
-        dostepneGrupyDni();
-
-    const opisy=
+    const mapa=
         mapaWariantow();
 
-    const uzyte=
-        new Set();
-
-    grupy.forEach(
-        grupa=>{
-
-            pobierzKursyDlaSymbolu(
-                grupa.symbol
-            ).forEach(
-                kurs=>{
-
-                    const symbol=
-                        symbolWariantu(
-                            kurs,
-                            grupa.symbol
-                        );
-
-                    const litera=
-                        String(
-                            symbol||
-                            ""
-                        )
-                            .trim()
-                            .toUpperCase();
-
-                    const opis=
-                        opisy.get(litera)||
-                        "";
-
-                    if(
-                        litera&&
-                        czyOznaczacWariant(
-                            opis
-                        )
-                    ){
-                        uzyte.add(litera);
-                    }
-                }
-            );
-        }
-    );
-
-    if(!uzyte.size){
+    if(!mapa.size){
         return"";
     }
 
-    return[
-        ...uzyte
-    ]
-        .sort(
-            (a,b)=>
-                a.localeCompare(
-                    b,
-                    "pl",
-                    {
-                        numeric:true
-                    }
-                )
-        )
-        .map(
-            litera=>{
+    /*
+       Jeżeli kilka wariantów ma identyczny opis,
+       pokazujemy tylko pierwszy z nich.
 
-                return(
-                    '<div class="legenda-wiersz">'+
-                    '<span class="legenda-litera">'+
-                    escapeHtml(
-                        litera.toLowerCase()
-                    )+
-                    '</span>'+
-                    '<span class="legenda-myslnik">-</span>'+
-                    '<span class="legenda-opis">'+
-                    escapeHtml(
-                        opisy.get(litera)||
-                        ""
-                    )+
-                    '</span>'+
-                    '</div>'
-                );
-            }
-        )
-        .join("");
+       Przykład:
+       B = "kurs przez ..."
+       C = "kurs przez ..."
+
+       legenda:
+       b - kurs przez ...
+
+       Nie pokazujemy:
+       b/c - ...
+       ani drugiego osobnego wpisu z c.
+    */
+    const widzianeOpisy=
+        new Set();
+
+    const wiersze=[];
+
+    for(
+        const [litera,opis]
+        of mapa.entries()
+    ){
+
+        const tekst=
+            String(
+                opis||""
+            ).trim();
+
+        if(
+            !tekst||
+            !czyOznaczacWariant(
+                tekst
+            )
+        ){
+            continue;
+        }
+
+        const klucz=
+            normalizujOpisWariantu(
+                tekst
+            );
+
+        if(
+            widzianeOpisy.has(
+                klucz
+            )
+        ){
+            continue;
+        }
+
+        widzianeOpisy.add(
+            klucz
+        );
+
+        const literaDoPokazania=
+            kanonicznaLiteraWariantu(
+                litera
+            )
+            .toLowerCase();
+
+        wiersze.push(
+            '<div class="legenda-wiersz">'+
+            '<span class="legenda-litera">'+
+            escapeHtml(
+                literaDoPokazania
+            )+
+            '</span>'+
+            '<span class="legenda-myslnik">-</span>'+
+            '<span class="legenda-opis">'+
+            escapeHtml(
+                tekst
+            )+
+            '</span>'+
+            '</div>'
+        );
+    }
+
+    if(!wiersze.length){
+        return"";
+    }
+
+    return(
+        '<div class="legenda">'+
+        wiersze.join("")+
+        '</div>'
+    );
 }
 
 
