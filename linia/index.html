@@ -1285,7 +1285,7 @@
 <script>
 
 /* =========================================================
-   FWTP v56
+   FWTP v57
    - trasa_zmieniona / TO: pomarańczowe przystanki i odcinki objazdowe
      - N14/N86 i podobne: lokalna oś główna wg liczby rzeczywistych kursów
    - Nxx: wariant A nadal jest preferowaną osią główną, ale lokalny częstszy przejazd prosty ma pierwszeństwo
@@ -11005,14 +11005,40 @@ const isOnMainAxisBazowa =
                  * Nie obejmuje 126 / 131 / 170 / 311 / 711, bo tam
                  * początek takiej lewej krawędzi leży na osi głównej.
                  */
+                /*
+                 * FWTP v57 — wariant -> lewe ominięcie -> trasa podstawowa
+                 *
+                 * Dotychczas rozpoznawaliśmy ten układ tylko wtedy,
+                 * gdy SAM punkt e.u leżał poza osią główną.
+                 *
+                 * Dla 131 w kierunku Wilanów -> ... punkt Wiertnicza
+                 * jest już punktem wspólnym na osi głównej, ale tuż
+                 * PRZED nim trasa wariantowa dochodzi z prawej odnogi.
+                 *
+                 * Dlatego traktujemy jako ten sam przypadek również
+                 * sytuację, gdy do e.u dochodzi krawędź track=1.
+                 */
+                const dochodziZPrawejDoPoczatkuOminiecia =
+                    edges.some(
+                        poprzednia =>
+                            poprzednia &&
+                            poprzednia !== e &&
+                            poprzednia.v === e.u &&
+                            poprzednia.track === 1
+                    );
+
+
                 const czyNajpierwWariantPotemPominiecie =
                     pomijaneBazowe.length >= 1 &&
                     isOnMainAxis[
-                        e.u
-                    ] !== true &&
-                    isOnMainAxis[
                         e.v
-                    ] === true;
+                    ] === true &&
+                    (
+                        isOnMainAxis[
+                            e.u
+                        ] !== true ||
+                        dochodziZPrawejDoPoczatkuOminiecia
+                    );
 
 
                 /*
@@ -11460,50 +11486,24 @@ const isOnMainAxisBazowa =
 
 
             /*
-             * FWTP v56 — dodatkowy odstęp tylko w konkretnym układzie:
+             * FWTP v57:
              *
-             *   PRAWA ODNOGA / WARIANT
-             *          \
-             *           \  (ominięcie przystanku)
-             *            |
-             *           /
-             *      TRASA PODSTAWOWA
+             * isExtraTopFirstSkippedVariant oznacza dokładnie przypadek,
+             * w którym dodatkowe 22 px mają być NAD pierwszym pomijanym
+             * przystankiem (np. Wiertnicza -> Sadyba 05 -> Sadyba 02).
              *
-             * Czyli:
-             * - krawędź jest lewym ominięciem (track === -1),
-             * - zaczyna się na punkcie spoza osi głównej (RIGHT_X),
-             * - kończy się na osi głównej (SPINE_X),
-             * - bieżący wiersz jest pierwszym pomijanym przystankiem.
+             * Taki wiersz powiększamy niezależnie od tego, że krawędź
+             * ostatecznie wraca na oś główną.
              *
-             * Wtedy dodajemy 22 px NAD pierwszym pomijanym przystankiem.
-             *
-             * Zwykłe ominięcie:
-             *   SPINE_X -> lewo -> SPINE_X
-             * pozostaje bez dodatkowego odstępu, np. 733 / Stara Wieś.
+             * Zwykłe ominięcie SPINE -> lewo -> SPINE, np. 733 /
+             * Stara Wieś, nie trafia do tego zbioru i pozostaje 44 px.
              */
-            const pierwszyPomijanyPoPrawejOdnodze =
-                Boolean(
-                    isSkippedMainIntermediate &&
-                    edges.some(
-                        e =>
-                            e &&
-                            e.track === -1 &&
-                            e.u === i - 1 &&
-                            isOnMainAxis[e.u] !== true &&
-                            isOnMainAxis[e.v] === true
-                    )
-                );
-
-
             const isPowiekszonyWiersz =
+                isExtraTopFirstSkippedVariant ||
                 (
-                    (
-                        isSkippedMainIntermediate ||
-                        isExtraTopFirstSkippedVariant
-                    ) &&
+                    isSkippedMainIntermediate &&
                     wymagaPowiekszeniaPrzezLewaKrawedz
-                ) ||
-                pierwszyPomijanyPoPrawejOdnodze;
+                );
 
 
             const rowHeight =
@@ -11553,10 +11553,7 @@ const isOnMainAxisBazowa =
                 !isPowiekszonyWiersz
                     ? ROW_HEIGHT / 2
                     : (
-                        (
-                            isExtraTopFirstSkippedVariant ||
-                            pierwszyPomijanyPoPrawejOdnodze
-                        )
+                        isExtraTopFirstSkippedVariant
                             ? ROW_HEIGHT
                             : (
                                 useLegacySingleSkipRowGeometry
