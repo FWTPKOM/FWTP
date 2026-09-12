@@ -1285,7 +1285,7 @@
 <script>
 
 /* =========================================================
-   FWTP v49
+   FWTP v48
    - trasa_zmieniona / TO: pomarańczowe przystanki i odcinki objazdowe
      - N14/N86 i podobne: lokalna oś główna wg liczby rzeczywistych kursów
    - Nxx: wariant A nadal jest preferowaną osią główną, ale lokalny częstszy przejazd prosty ma pierwszeństwo
@@ -10945,76 +10945,9 @@ const isOnMainAxisBazowa =
                  *   przy zwartej geometrii;
                  * - nie ma warunku zależnego od numeru linii.
                  */
-                /*
-                 * ZWARTE POWTARZAJĄCE SIĘ KRÓTKIE OMINIĘCIA
-                 *
-                 * Na niektórych liniach występuje kilka krótkich ominięć
-                 * bardzo blisko siebie (np. układ widoczny na 733).
-                 * Stara geometria 66 px dodawała wtedy sztuczne puste
-                 * miejsce pomiędzy kolejnymi fragmentami trasy.
-                 *
-                 * Jeżeli bieżące ominięcie pomija 1-2 przystanki osi
-                 * głównej i w odległości maksymalnie dwóch indeksów od
-                 * jego zakresu istnieje inne krótkie lewe ominięcie,
-                 * rysujemy oba w zwartej geometrii 44 px.
-                 *
-                 * Reguła jest topologiczna - nie zależy od numeru linii.
-                 */
-                const czySasiednieKrotkieOminiecie =
-                    pomijaneBazowe.length >= 1 &&
-                    pomijaneBazowe.length <= 2 &&
-                    edges.some(
-                        inna => {
-
-                            if (
-                                !inna ||
-                                inna === e ||
-                                inna.track !== -1
-                            ) {
-                                return false;
-                            }
-
-
-                            /*
-                             * V50:
-                             * Bieżące krótkie ominięcie ma być zwarte także
-                             * wtedy, gdy sąsiaduje z DŁUŻSZYM lewym ominięciem.
-                             *
-                             * Na 733 poprzedni lewy przebieg Młochów ->
-                             * Os. Belina jest długi, a chwilę później występuje
-                             * krótkie ominięcie Starej Wsi. V49 sprawdzał tylko,
-                             * czy DRUGIE ominięcie także ma 1-2 pomijane punkty,
-                             * więc nie rozpoznawał tego układu i zostawiał
-                             * sztuczne 22 px przerwy.
-                             *
-                             * Teraz długość sąsiedniego lewego ominięcia nie ma
-                             * znaczenia. Ważne jest tylko, że jego zakres leży
-                             * bezpośrednio obok bieżącego krótkiego ominięcia.
-                             */
-                            const przerwaMiedzyZakresami =
-                                inna.v < e.u
-                                    ? e.u - inna.v
-                                    : (
-                                        e.v < inna.u
-                                            ? inna.u - e.v
-                                            : 0
-                                    );
-
-
-                            return
-                                przerwaMiedzyZakresami <= 2;
-                        }
-                    );
-
-
-                e.compactRepeatedShortSkip =
-                    czySasiednieKrotkieOminiecie;
-
-
                 e.useLegacySingleSkipGeometry =
                     pomijaneBazowe.length >= 1 &&
                     pomijaneBazowe.length <= 2 &&
-                    !czySasiednieKrotkieOminiecie &&
                     isOnMainAxis[
                         e.v
                     ] === true;
@@ -11162,8 +11095,7 @@ const isOnMainAxisBazowa =
 
                 } else if (
                     ostatniPomijanyBazowy >= 0 &&
-                    !czyDlugiProstyPowrotNaOs &&
-                    !czySasiednieKrotkieOminiecie
+                    !czyDlugiProstyPowrotNaOs
                 ) {
 
                     leftSkipIntermediateMainIndexes.add(
@@ -11673,32 +11605,6 @@ const isOnMainAxisBazowa =
                     isActive
                 ) => {
 
-                    /*
-                     * GLOBALNE ŁĄCZENIE ODCINKÓW MIĘDZY WIERSZAMI
-                     *
-                     * Każdy segment dochodzący do górnej lub dolnej
-                     * granicy SVG jest wydłużany o 1.5 px. Dzięki temu
-                     * sąsiednie SVG zawsze lekko na siebie nachodzą i
-                     * przeglądarka nie może zostawić nawet 1 px szczeliny
-                     * przez antyaliasing / zaokrąglenia współrzędnych.
-                     */
-                    const JOIN_OVERLAP = 1.5;
-
-
-                    if (y1 === 0) {
-                        y1 = -JOIN_OVERLAP;
-                    } else if (y1 === rowHeight) {
-                        y1 = rowHeight + JOIN_OVERLAP;
-                    }
-
-
-                    if (y2 === 0) {
-                        y2 = -JOIN_OVERLAP;
-                    } else if (y2 === rowHeight) {
-                        y2 = rowHeight + JOIN_OVERLAP;
-                    }
-
-
                     const color =
                         isActive
                             ? (
@@ -12016,21 +11922,17 @@ const isOnMainAxisBazowa =
                              * każdą widoczną szczelinę na łączeniu.
                              */
                             const poczatekPionu =
-                                e.compactRepeatedShortSkip === true
-                                    ? 0
+                                (
+                                    e.extraTopAtStart === true &&
+                                    i === e.firstSkippedMainIndex
+                                )
+                                    ? ROW_HEIGHT / 2
                                     : (
-                                        (
-                                            e.extraTopAtStart === true &&
-                                            i === e.firstSkippedMainIndex
-                                        )
+                                        e.useLegacySingleSkipGeometry &&
+                                        isSkippedMainIntermediate &&
+                                        !nodeActive
                                             ? ROW_HEIGHT / 2
-                                            : (
-                                                e.useLegacySingleSkipGeometry &&
-                                                isSkippedMainIntermediate &&
-                                                !nodeActive
-                                                    ? ROW_HEIGHT / 2
-                                                    : 0
-                                            )
+                                            : 0
                                     );
 
 
