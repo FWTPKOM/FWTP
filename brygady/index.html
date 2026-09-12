@@ -7461,40 +7461,61 @@ function vbaBuildCombinedModel(brygada, allCourses){
         return null;
     }
 
-    if(
-        vbaScoreRouteLayout(
-            compactRows,
-            patterns
-        ) === Number.MAX_SAFE_INTEGER
-    ){
-        return null;
-    }
-
     /*
-     * DOPIERO TERAZ przesuwamy krańce.
+     * Nie odrzucamy całej brygady tylko dlatego, że kontrola
+     * vbaScoreRouteLayout() wykryje konflikt kolejności jednego
+     * z wariantów.
      *
-     * To jest osobny etap, dzięki czemu nie zmieniamy mechanizmu,
-     * który już dobrze ustala godziny i kolejność przystanków.
+     * Dla długich tras łączonych, takich jak 715+737, obecny algorytm
+     * potrafi utworzyć poprawny zestaw wierszy, ale jeden z wzorców
+     * ma ten sam fizyczny punkt w innej pozycji i kontrola zwraca
+     * Number.MAX_SAFE_INTEGER. Wcześniej powodowało to return null
+     * i komunikat "Pusty wynik brygady łączonej".
+     *
+     * Nie zmieniamy sposobu budowania tras ani dopasowania przystanków.
+     * Jeśli układ przejdzie kontrolę, nadal wykonujemy dotychczasowe
+     * przesuwanie krańców. Jeśli nie przejdzie, pokazujemy compactRows
+     * bez dodatkowego przesuwania zamiast kasować całą brygadę.
      */
-    const movedRows =
-        vbaMoveEndpointsCloser(
+    const compactScore =
+        vbaScoreRouteLayout(
             compactRows,
             patterns
         );
 
-    /*
-     * Ostateczna kontrola bezpieczeństwa.
-     */
-    const rows =
-        (
+    let rows =
+        compactRows;
+
+    if(
+        compactScore !==
+        Number.MAX_SAFE_INTEGER
+    ){
+        const movedRows =
+            vbaMoveEndpointsCloser(
+                compactRows,
+                patterns
+            );
+
+        if(
             movedRows.length &&
             vbaScoreRouteLayout(
                 movedRows,
                 patterns
             ) !== Number.MAX_SAFE_INTEGER
-        )
-            ? movedRows
-            : compactRows;
+        ){
+            rows =
+                movedRows;
+        }
+    }else{
+        console.warn(
+            "[FWTP] Układ brygady ma konflikt kolejności – używam compactRows bez przesuwania krańców",
+            {
+                brygada,
+                patterns:patterns.length,
+                rows:compactRows.length
+            }
+        );
+    }
 
     const displayRecords =
         vbaBuildDisplayRecords(
@@ -7738,26 +7759,14 @@ function vbaPokazBrygadyZLaczeniami(
         `${dataISO(data)} • ` +
         `${brygady.length} ${brygady.length === 1 ? "brygada" : "brygad"}`;
 
-    /*
-     * Każdą brygadę renderujemy osobno.
-     *
-     * Nie zmieniamy logiki wykrywania ani łączenia brygad.
-     * Zmiana dotyczy wyłącznie sposobu wpisywania gotowego HTML.
-     *
-     * Dzięki temu błąd jednej brygady nie przerywa renderowania
-     * wszystkich pozostałych i nie zostawia pustej strony.
-     */
     const htmlBrygad = [];
 
     for(const brygada of brygady){
-
         const normalCourses =
             grupyGlowneNormal.get(brygada) || [];
 
         try{
-
             if(!czyNumerZadaniaLaczonego(brygada)){
-
                 htmlBrygad.push(
                     renderBrygada(
                         String(
@@ -7781,7 +7790,6 @@ function vbaPokazBrygadyZLaczeniami(
             );
 
             extra.forEach(item => {
-
                 const courses =
                     item.grupy.get(brygada);
 
@@ -7798,12 +7806,7 @@ function vbaPokazBrygadyZLaczeniami(
                 );
             });
 
-            /*
-             * Numer >99 występujący tylko na jednej linii zachowuje
-             * dotychczasową obsługę.
-             */
             if(lines.size < 2){
-
                 htmlBrygad.push(
                     renderBrygada(
                         String(
@@ -7821,10 +7824,6 @@ function vbaPokazBrygadyZLaczeniami(
             const polaczoneKursy =
                 vbaDeduplicateCombinedCourses(all);
 
-            /*
-             * Informacja diagnostyczna.
-             * Nie wpływa na logikę brygady.
-             */
             console.log(
                 "[FWTP brygada łączona]",
                 {
@@ -7844,18 +7843,10 @@ function vbaPokazBrygadyZLaczeniami(
                 typeof htmlPolaczonej==="string" &&
                 htmlPolaczonej.trim()!==""
             ){
-
                 htmlBrygad.push(
                     htmlPolaczonej
                 );
-
             }else{
-
-                /*
-                 * Jeżeli z jakiegoś powodu renderer brygady łączonej
-                 * zwróci pusty tekst, nie zostawiamy całej strony pustej.
-                 * Pokazujemy tę brygadę zwykłym rendererem.
-                 */
                 console.warn(
                     "[FWTP] Pusty wynik brygady łączonej",
                     {
@@ -7875,46 +7866,24 @@ function vbaPokazBrygadyZLaczeniami(
                     )
                 );
             }
-
-        }catch(error){
-
-            /*
-             * Jeden błąd brygady nie może zatrzymać pozostałych.
-             */
+        }
+        catch(error){
             console.error(
                 "[FWTP] Błąd renderowania brygady",
                 brygada,
                 error
             );
 
-            try{
-
-                htmlBrygad.push(
-                    renderBrygada(
-                        String(
-                            daneWybranejLinii.linia ||
-                            aktualnaLinia
-                        ),
-                        brygada,
-                        normalCourses
-                    )
-                );
-
-            }catch(fallbackError){
-
-                console.error(
-                    "[FWTP] Błąd renderowania awaryjnego",
+            htmlBrygad.push(
+                renderBrygada(
+                    String(
+                        daneWybranejLinii.linia ||
+                        aktualnaLinia
+                    ),
                     brygada,
-                    fallbackError
-                );
-
-                htmlBrygad.push(
-                    '<div class="brak">' +
-                    'Nie udało się wyświetlić brygady ' +
-                    escapeHtml(String(brygada)) +
-                    '.</div>'
-                );
-            }
+                    normalCourses
+                )
+            );
         }
     }
 
