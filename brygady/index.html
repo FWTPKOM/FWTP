@@ -6109,31 +6109,90 @@ function vbaBuildDisplayRecords(records, brygada){
         }));
     }
 
+    /*
+     * Brygady dodatków 0xx / 700-799:
+     *
+     * separator ma działać tak samo jak w zwykłej logice
+     * ulozBrygadeZmianowa():
+     *
+     * - przerwa > 90 minut = podwójna pionowa linia,
+     * - jeżeli dwa kolejne kursy są w tym samym kierunku,
+     *   wstawiamy placeholder kierunku przeciwnego,
+     * - wtedy separator stoi PRZED placeholderem,
+     * - jeżeli kierunek się zmienia, separator stoi przed
+     *   następnym rzeczywistym kursem.
+     */
     const result = [];
+
+    let previousRecord = null;
     let previousDirection = null;
 
     records.forEach(record => {
+
+        let dlugaPrzerwa = false;
+
+        if(previousRecord){
+            let przerwa =
+                Number(record.sortStart) -
+                Number(previousRecord.sortEnd);
+
+            while(przerwa < 0){
+                przerwa += 1440;
+            }
+
+            dlugaPrzerwa =
+                Number.isFinite(przerwa) &&
+                przerwa > 90;
+        }
+
         if(
             previousDirection !== null &&
             previousDirection === record.direction
         ){
-            result.push(
+            const placeholder =
                 vbaCreatePlaceholder(
                     record.direction === 0 ? 1 : 0,
                     record.sortStart
-                )
+                );
+
+            /*
+             * Sam placeholder NIE dostaje separatora automatycznie.
+             * Separator pojawia się tylko przy długiej przerwie,
+             * dokładnie jak w zwykłych brygadach dodatków.
+             */
+            placeholder.separatorPrzed =
+                dlugaPrzerwa;
+
+            result.push(
+                placeholder
             );
+
+            result.push({
+                ...record.rawCourse,
+                _vbaRecord: record,
+                _combinedSortStart: record.sortStart,
+                _combinedSortEnd: record.sortEnd,
+                separatorPrzed: false
+            });
+        }
+        else{
+            result.push({
+                ...record.rawCourse,
+                _vbaRecord: record,
+                _combinedSortStart: record.sortStart,
+                _combinedSortEnd: record.sortEnd,
+                separatorPrzed:
+                    previousRecord
+                        ? dlugaPrzerwa
+                        : false
+            });
         }
 
-        result.push({
-            ...record.rawCourse,
-            _vbaRecord: record,
-            _combinedSortStart: record.sortStart,
-            _combinedSortEnd: record.sortEnd,
-            separatorPrzed: false
-        });
+        previousDirection =
+            record.direction;
 
-        previousDirection = record.direction;
+        previousRecord =
+            record;
     });
 
     return result;
