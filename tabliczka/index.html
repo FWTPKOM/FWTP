@@ -390,7 +390,7 @@
         .minuty-cell {
             display: grid;
             grid-auto-flow: column;
-            grid-auto-columns: 25px;
+            grid-auto-columns: 24px;
             align-items: center;
             justify-content: start;
             column-gap: 0;
@@ -412,8 +412,8 @@
             align-items: baseline;
             justify-content: flex-start;
 
-            width: 25px;
-            min-width: 25px;
+            width: 24px;
+            min-width: 24px;
             height: 16px;
             line-height: 16px;
 
@@ -461,7 +461,7 @@
         }
 
         .legenda-wiersz {
-            margin-top: 0;
+            margin-top: -3px;
 
             display: grid;
             grid-template-columns: 22px auto minmax(0, 1fr);
@@ -2804,7 +2804,70 @@ function grupujGodziny(kursy){
 }
 
 
-function renderDzien(grupa){
+
+function wspolneGodzinyDlaGrup(grupy){
+
+    const godziny=
+        new Set();
+
+    (
+        grupy||
+        []
+    ).forEach(
+        grupa=>{
+
+            const kursy=
+                pobierzKursyDlaSymbolu(
+                    grupa.symbol
+                );
+
+            const mapa=
+                grupujGodziny(
+                    kursy
+                );
+
+            mapa.forEach(
+                (wartosc,h)=>{
+                    godziny.add(
+                        Number(h)
+                    );
+                }
+            );
+        }
+    );
+
+    /*
+       Kolejność godzin jak na rozkładzie komunikacji:
+       4, 5, 6 ... 23, 0, 1, 2, 3.
+
+       Dzięki temu np.:
+       - jeśli D zaczyna się o 4,
+       - a C dopiero o 5,
+       to w C pierwszy wiersz (odpowiadający godzinie 4)
+       pozostaje całkowicie pusty.
+    */
+    return[
+        ...godziny
+    ].sort(
+        (a,b)=>{
+
+            const aa=
+                a<4
+                    ? a+24
+                    : a;
+
+            const bb=
+                b<4
+                    ? b+24
+                    : b;
+
+            return aa-b;
+        }
+    );
+}
+
+
+function renderDzien(grupa,wspolneGodziny){
 
     const kursy=
         pobierzKursyDlaSymbolu(
@@ -2816,9 +2879,19 @@ function renderDzien(grupa){
             kursy
         );
 
+    const godziny=
+        Array.isArray(
+            wspolneGodziny
+        )&&
+        wspolneGodziny.length
+            ? wspolneGodziny
+            : [
+                ...mapa.keys()
+            ];
+
     let body="";
 
-    if(!mapa.size){
+    if(!godziny.length){
 
         body=
             '<div class="brak">Brak kursów</div>';
@@ -2826,11 +2899,24 @@ function renderDzien(grupa){
     else{
 
         body=
-            [
-                ...mapa.keys()
-            ]
+            godziny
                 .map(
                     h=>{
+
+                        /*
+                           Jeżeli dany typ dnia nie ma kursu w tej godzinie,
+                           tworzymy normalny wiersz tabeli, ale całkowicie pusty:
+                           bez numeru godziny i bez minut.
+                        */
+                        if(!mapa.has(h)){
+
+                            return(
+                                '<div class="godzina-row godzina-row-pusta">'+
+                                '<div class="godzina-cell"></div>'+
+                                '<div class="minuty-cell"></div>'+
+                                '</div>'
+                            );
+                        }
 
                         const minuty=
                             mapa.get(h)
@@ -3964,11 +4050,25 @@ function renderuj(){
     const legenda=
         renderLegenda();
 
+    const grupyRozkladow=
+        grupy.slice(
+            0,
+            3
+        );
+
+    const wspolneGodziny=
+        wspolneGodzinyDlaGrup(
+            grupyRozkladow
+        );
+
     const rozklady=
-        grupy
-            .slice(0,3)
+        grupyRozkladow
             .map(
-                renderDzien
+                grupa=>
+                    renderDzien(
+                        grupa,
+                        wspolneGodziny
+                    )
             )
             .join("");
 
