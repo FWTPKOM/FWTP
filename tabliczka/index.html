@@ -3716,77 +3716,103 @@ function kursMaPrzystanek(
 }
 
 
-function reprezentatywneKursyTras(){
+function czyKursPomijanyPrzyTrasie(kurs){
+
+    const litera=
+        String(
+            kurs?.wariant||""
+        ).trim();
+
+    const opis=
+        mapaWariantow()
+            .get(litera)||
+        "";
+
+    /*
+       Przy analizie przebiegów trasy NIE LICZYMY:
+       - kursów skróconych,
+       - kursów wydłużonych,
+       - kursów do zajezdni,
+       - kursów typu "tylko do...".
+
+       One nie mogą wpływać na to, czy odcinek jest:
+       "w kursach..." albo "we wszystkich kursach".
+    */
+    return(
+        /skrócon|wydłuż|zajezdni|tylko do/i
+            .test(
+                String(opis)
+            )
+    );
+}
+
+
+function grupyPrzebiegowTrasy(){
 
     const wszystkie=
         kursyAktualnegoRozkladuDoTrasy();
 
-    const warianty=
-        new Map();
+    /*
+       Grupujemy kursy według litery wariantu.
+       WAŻNE:
+       "a - kurs bez podjazdów" też jest pełnoprawnym przebiegiem
+       przy porównywaniu odcinków. Nie traktujemy go jako "wariantu"
+       w sensie dodatkowego opisu, ale musi brać udział w ustalaniu:
+       - które kursy jadą przez konkretny przystanek,
+       - kiedy wszystkie przebiegi ponownie się łączą.
 
-    const podstawowe=[];
+       Dzięki temu np. PKP ŻERAŃ może poprawnie dostać:
+       "Trasa w kursach „a”, „o”".
+    */
+    const grupy=
+        new Map();
 
     wszystkie.forEach(
         kurs=>{
 
-            const literaKanoniczna=
-                kanonicznaLiteraWariantu(
-                    kurs.wariant
-                );
-
             if(
-                kurs.wariant&&
-                czyWariantTrasyPrzez(
-                    kurs.wariant
+                czyKursPomijanyPrzyTrasie(
+                    kurs
                 )
             ){
-
-                if(
-                    !warianty.has(
-                        literaKanoniczna
-                    )
-                ){
-                    warianty.set(
-                        literaKanoniczna,
-                        []
-                    );
-                }
-
-                warianty
-                    .get(
-                        literaKanoniczna
-                    )
-                    .push(kurs);
+                return;
             }
-            else{
 
-                /*
-                   Kursy skrócone nie mogą definiować trasy podstawowej,
-                   bo wtedy np. kurs do BARTNICZEJ zniekształcałby
-                   oznaczenia późniejszych odcinków.
-                */
-                const opis=
-                    mapaWariantow()
-                        .get(
-                            kurs.wariant
-                        )||
-                    "";
+            const oryginalnaLitera=
+                String(
+                    kurs?.wariant||""
+                ).trim();
 
-                if(
-                    !/skrócon|wydłuż|zajezdni|tylko do/i.test(
-                        String(opis)
+            const litera=
+                oryginalnaLitera
+                    ? kanonicznaLiteraWariantu(
+                        oryginalnaLitera
                     )
-                ){
-                    podstawowe.push(kurs);
-                }
+                    : "";
+
+            const key=
+                litera||"__PODSTAWOWY__";
+
+            if(
+                !grupy.has(key)
+            ){
+                grupy.set(
+                    key,
+                    {
+                        litera,
+                        kursy:[]
+                    }
+                );
             }
+
+            grupy
+                .get(key)
+                .kursy
+                .push(kurs);
         }
     );
 
-    return{
-        podstawowe,
-        warianty
-    };
+    return grupy;
 }
 
 
@@ -3834,124 +3860,106 @@ function wybierzNajdluzszyKurs(
 
 function danePrzebiegowWariantowych(){
 
-    const zestaw=
-        reprezentatywneKursyTras();
+    const grupy=
+        grupyPrzebiegowTrasy();
 
-    const baza=
-        wybierzNajdluzszyKurs(
-            zestaw.podstawowe
-        );
-
-    const warianty=
-        new Map();
+    const przebiegi=
+        [];
 
     for(
-        const [litera,kursy]
-        of zestaw.warianty.entries()
+        const grupa
+        of grupy.values()
     ){
+
         const kurs=
             wybierzNajdluzszyKurs(
-                kursy
+                grupa.kursy
             );
 
         if(kurs){
-            warianty.set(
-                litera,
+            przebiegi.push({
+                litera:grupa.litera,
                 kurs
-            );
+            });
         }
     }
 
-    return{
-        baza,
-        warianty
-    };
+    return przebiegi;
 }
 
 
 function stanTrasyNaPrzystanku(element){
 
-    const dane=
+    const przebiegi=
         danePrzebiegowWariantowych();
 
-    if(
-        !dane.baza&&
-        !dane.warianty.size
-    ){
+    if(!przebiegi.length){
         return{
             typ:"wszystkie",
             litery:[]
         };
     }
 
-    const bazaJedzie=
-        dane.baza
-            ? kursMaPrzystanek(
-                dane.baza,
-                element
-            )
-            : false;
-
-    const wariantyJadace=[];
-
-    for(
-        const [litera,kurs]
-        of dane.warianty.entries()
-    ){
-        if(
-            kursMaPrzystanek(
-                kurs,
-                element
-            )
-        ){
-            wariantyJadace.push(
-                litera
-            );
-        }
-    }
+    const jadace=
+        przebiegi.filter(
+            przebieg=>
+                kursMaPrzystanek(
+                    przebieg.kurs,
+                    element
+                )
+        );
 
     /*
-       Jeżeli przystanek jest częścią trasy podstawowej,
-       nie opisujemy go jako "Trasa w kursach ...".
-       Jest to zwykły wspólny fragment.
-
-       Dzięki temu wariant "o - przez POLFĘ" nie pojawi się nad
-       KUPIECKĄ tylko dlatego, że jego kurs później przejeżdża
-       przez wspólny przystanek.
+       Jeżeli przez dany przystanek jadą WSZYSTKIE pełne przebiegi,
+       jest to wspólna trasa.
     */
-    if(bazaJedzie){
-
-        const wszystkieWariantyJada=
-            [
-                ...dane.warianty.keys()
-            ]
-            .every(
-                litera=>
-                    wariantyJadace.includes(
-                        litera
-                    )
-            );
-
+    if(
+        jadace.length===
+        przebiegi.length
+    ){
         return{
-            typ:
-                wszystkieWariantyJada
-                    ? "wszystkie"
-                    : "podstawowa",
-            litery:wariantyJadace
+            typ:"wszystkie",
+            litery:
+                jadace
+                    .map(
+                        x=>x.litera
+                    )
+                    .filter(Boolean)
         };
     }
 
     /*
-       Przystanku nie ma na trasie podstawowej.
-       Zatem jest to rzeczywisty odcinek wariantowy.
-       Pokazujemy WYŁĄCZNIE litery kursów, które faktycznie
-       obsługują ten przystanek.
-    */
-    if(wariantyJadace.length){
+       Jeżeli przystanek obsługuje tylko część pełnych przebiegów,
+       pokazujemy dokładnie te litery.
 
+       Przykłady dla 126:
+       - PŁYTOWA / KUPIECKA -> np. „l”, „p”
+       - PKP ŻERAŃ -> „a”, „o”
+
+       Kurs skrócony "b" nie bierze tu udziału.
+    */
+    const litery=
+        jadace
+            .map(
+                x=>x.litera
+            )
+            .filter(Boolean);
+
+    if(litery.length){
         return{
             typ:"wariant",
-            litery:wariantyJadace
+            litery
+        };
+    }
+
+    /*
+       Jeżeli został tylko przebieg bez litery, nie tworzymy
+       pustego nagłówka "Trasa w kursach".
+    */
+    if(jadace.length){
+        return{
+            typ:"podstawowa",
+            litery:[]
         };
     }
 
@@ -4044,10 +4052,7 @@ function naglowekZmianyTrasy(
     if(
         poprzedni&&
         poprzedni.typ==="wariant"&&
-        (
-            aktualny.typ==="wszystkie"||
-            aktualny.typ==="podstawowa"
-        )
+        aktualny.typ==="wszystkie"
     ){
         return(
             '<li class="trasa-separator">'+
