@@ -766,6 +766,101 @@
         }
 
 
+
+        /* =========================================================
+           TRASY WYDŁUŻONE / WARIANTOWE
+           ========================================================= */
+
+        .trasa-extra {
+            margin-top: 14px;
+        }
+
+        .trasa-extra-title {
+            margin: 0 0 7px 41px;
+            font-size: 13.5px;
+            line-height: 16px;
+            font-weight: 400;
+            color: #111;
+            white-space: nowrap;
+            transform-origin: left center;
+        }
+
+        .trasa-extra-lista {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        .trasa-extra-stop {
+            display: grid;
+            grid-template-columns: 19px 12px minmax(0,1fr) 12px;
+            align-items: center;
+            min-height: 16.5px;
+            color: #111;
+            font-family: Calibri, "Segoe UI", Arial, sans-serif;
+            font-size: 13.5px;
+            line-height: 1;
+            transform: none;
+        }
+
+        .trasa-extra-stop .trasa-czas {
+            text-align: right;
+        }
+
+        .trasa-extra-stop .trasa-os {
+            position: relative;
+            align-self: stretch;
+            min-height: 16.5px;
+        }
+
+        .trasa-extra-stop .trasa-os::before {
+            content: "";
+            position: absolute;
+            left: 4.1px;
+            top: -17px;
+            bottom: 8px;
+            width: 2.25px;
+            background: #111;
+        }
+
+        .trasa-extra-stop .trasa-os::after {
+            content: "";
+            position: absolute;
+            left: 1px;
+            top: 4px;
+            width: 8.5px;
+            height: 8.5px;
+            border-radius: 50%;
+            background: #111;
+        }
+
+        .trasa-extra-stop .trasa-nazwa {
+            min-width: 0;
+            overflow: visible;
+            white-space: nowrap;
+            overflow-wrap: normal;
+            word-break: normal;
+            hyphens: none;
+            font-weight: 700;
+            line-height: 1;
+            transform: scaleY(1.30);
+            transform-origin: left center;
+            letter-spacing: 0.75px;
+        }
+
+        .trasa-extra-stop .trasa-nz {
+            transform: scaleY(1.30);
+            transform-origin: right center;
+        }
+
+        .trasa-extra-stop .trasa-nazwa.zawijaj {
+            white-space: normal;
+        }
+
+        .trasa-extra-stop:has(.trasa-nazwa.zawijaj) {
+            min-height: 33px;
+        }
+
         /* =========================================================
            DRUK
            ========================================================= */
@@ -3008,7 +3103,17 @@ function czyNZ(p){
 
 
 
-function listaTrasyDoWyswietlenia(){
+function typPrzystankuTrasy(p){
+
+    return String(
+        p?.typ||""
+    )
+    .trim()
+    .toUpperCase();
+}
+
+
+function listaPelnejTrasyDoWyswietlenia(){
 
     const baza=
         kierunekBazowy();
@@ -3021,42 +3126,13 @@ function listaTrasyDoWyswietlenia(){
         return[];
     }
 
-    /*
-       ZASADY WYŚWIETLANIA TRASY:
-
-       1. TECH
-          - nigdy nie pokazujemy przystanku technicznego.
-
-       2. WYS + ostatni przystanek
-          - jeżeli po przystanku WYS występuje jeszcze jakiś przystanek
-            i po pominięciu TECH jest on OSTATNIM przystankiem trasy,
-            tego ostatniego przystanku nie pokazujemy.
-          - jego typ nie ma znaczenia: może to być WS, STOP, NŻ itd.
-
-       3. Pozostałe przystanki
-          - pokazujemy wszystkie, również przystanki końcowe
-            i stanowiska o tej samej nazwie, ale innym numerze.
-    */
-
-    const typPrzystanku=
-        p=>
-            String(
-                p?.typ||""
-            )
-            .trim()
-            .toUpperCase();
-
-    /*
-       Najpierw usuwamy TECH, żeby reguła "WYS + ostatni"
-       działała na rzeczywiście wyświetlanej kolejności przystanków.
-    */
     const bezTech=
         lista
             .map(
                 (p,index)=>({
                     p,
                     index,
-                    typ:typPrzystanku(p)
+                    typ:typPrzystankuTrasy(p)
                 })
             )
             .filter(
@@ -3067,10 +3143,6 @@ function listaTrasyDoWyswietlenia(){
         return[];
     }
 
-    /*
-       Jeżeli przed ostatnim widocznym przystankiem jest WYS,
-       ostatniego przystanku nie pokazujemy.
-    */
     if(
         bezTech.length>=2&&
         bezTech[
@@ -3086,6 +3158,182 @@ function listaTrasyDoWyswietlenia(){
             index:x.index
         })
     );
+}
+
+
+function literyWydluzonychWariantow(){
+
+    const wynik=new Set();
+
+    for(
+        const [litera,opis]
+        of mapaWariantow().entries()
+    ){
+        if(
+            /wydłuż/i.test(
+                String(opis||"")
+            )
+        ){
+            wynik.add(
+                String(litera||"")
+                    .trim()
+            );
+        }
+    }
+
+    return wynik;
+}
+
+
+function wariantyNaPrzystanku(element){
+
+    const wynik=new Set();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const p=
+                znajdzPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    element.p
+                );
+
+            (
+                p?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    wynik.add(
+                        String(
+                            kurs?.wariant||""
+                        ).trim()
+                    );
+                }
+            );
+        }
+    );
+
+    return wynik;
+}
+
+
+function daneTrasWydluzonych(){
+
+    const pelna=
+        listaPelnejTrasyDoWyswietlenia();
+
+    if(!pelna.length){
+        return{
+            baza:[],
+            wydluzenia:[]
+        };
+    }
+
+    const wydluzone=
+        literyWydluzonychWariantow();
+
+    if(!wydluzone.size){
+        return{
+            baza:pelna,
+            wydluzenia:[]
+        };
+    }
+
+    let koniecBazy=
+        pelna.length-1;
+
+    let znalezionoKoniec=false;
+
+    for(
+        let i=pelna.length-1;
+        i>=0;
+        i--
+    ){
+        const warianty=
+            wariantyNaPrzystanku(
+                pelna[i]
+            );
+
+        const maKursPodstawowy=
+            [...warianty].some(
+                litera=>
+                    !wydluzone.has(
+                        String(litera||"")
+                            .trim()
+                    )
+            );
+
+        if(maKursPodstawowy){
+            koniecBazy=i;
+            znalezionoKoniec=true;
+            break;
+        }
+    }
+
+    if(!znalezionoKoniec){
+        return{
+            baza:pelna,
+            wydluzenia:[]
+        };
+    }
+
+    const baza=
+        pelna.slice(
+            0,
+            koniecBazy+1
+        );
+
+    const ogon=
+        pelna.slice(
+            koniecBazy+1
+        );
+
+    const wydluzenia=[];
+
+    wydluzone.forEach(
+        litera=>{
+
+            const przystanki=
+                ogon.filter(
+                    element=>
+                        wariantyNaPrzystanku(
+                            element
+                        ).has(litera)
+                );
+
+            if(przystanki.length){
+                wydluzenia.push({
+                    litera,
+                    przystanki
+                });
+            }
+        }
+    );
+
+    return{
+        baza,
+        wydluzenia
+    };
+}
+
+
+function listaTrasyDoWyswietlenia(){
+
+    return daneTrasWydluzonych()
+        .baza;
 }
 
 
@@ -3132,11 +3380,263 @@ function podzielTraseNaDwie(lista){
 }
 
 
+
+function znajdzKursWariantuDoTrasy(litera){
+
+    const pelna=
+        kierunekBazowy()?.przystanki||
+        [];
+
+    const start=
+        pelna[
+            aktualnyPrzystanek
+        ];
+
+    if(!start){
+        return null;
+    }
+
+    const kandydaci=
+        new Map();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const p=
+                znajdzPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    start
+                );
+
+            (
+                p?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        String(
+                            kurs?.wariant||""
+                        ).trim()!==litera
+                    ){
+                        return;
+                    }
+
+                    const czas=
+                        czasNaMinuty(
+                            kurs?.czas
+                        );
+
+                    if(czas===null){
+                        return;
+                    }
+
+                    const key=
+                        kluczKursu(kurs);
+
+                    if(!kandydaci.has(key)){
+                        kandydaci.set(
+                            key,
+                            {
+                                key,
+                                numer:String(
+                                    kurs?.numer||""
+                                ),
+                                wariant:litera,
+                                start:czas,
+                                count:0
+                            }
+                        );
+                    }
+                }
+            );
+        }
+    );
+
+    kandydaci.forEach(
+        kandydat=>{
+
+            pelna.forEach(
+                p=>{
+                    if(
+                        znajdzCzasKursuNaPrzystanku(
+                            kandydat,
+                            p
+                        )!==null
+                    ){
+                        kandydat.count++;
+                    }
+                }
+            );
+        }
+    );
+
+    return[
+        ...kandydaci.values()
+    ].sort(
+        (a,b)=>
+            b.count-a.count||
+            a.start-b.start
+    )[0]||null;
+}
+
+
+function czasWariantuNaPrzystanku(
+    litera,
+    element
+){
+
+    const kandydat=
+        znajdzKursWariantuDoTrasy(
+            litera
+        );
+
+    if(!kandydat){
+        return null;
+    }
+
+    const pelna=
+        kierunekBazowy()?.przystanki||
+        [];
+
+    const start=
+        pelna[
+            aktualnyPrzystanek
+        ];
+
+    if(!start){
+        return null;
+    }
+
+    const t0=
+        znajdzCzasKursuNaPrzystanku(
+            kandydat,
+            start
+        );
+
+    const t=
+        znajdzCzasKursuNaPrzystanku(
+            kandydat,
+            element.p
+        );
+
+    if(
+        t0===null||
+        t===null
+    ){
+        return null;
+    }
+
+    let wynik=t-t0;
+
+    while(wynik<0){
+        wynik+=1440;
+    }
+
+    return wynik;
+}
+
+
+function renderWydluzeniaTrasy(){
+
+    const dane=
+        daneTrasWydluzonych();
+
+    if(!dane.wydluzenia.length){
+        return"";
+    }
+
+    return dane.wydluzenia
+        .map(
+            wariant=>{
+
+                const litera=
+                    String(
+                        wariant.litera||""
+                    )
+                    .trim()
+                    .toLowerCase();
+
+                const wiersze=
+                    wariant.przystanki
+                        .map(
+                            element=>{
+
+                                const p=
+                                    element.p;
+
+                                const czas=
+                                    czasWariantuNaPrzystanku(
+                                        wariant.litera,
+                                        element
+                                    );
+
+                                return(
+                                    '<li class="trasa-extra-stop'+
+                                    (
+                                        czyNZ(p)
+                                            ? ' nz'
+                                            : ''
+                                    )+
+                                    '">'+
+                                    '<span class="trasa-czas">'+
+                                    (
+                                        czas===null
+                                            ? ''
+                                            : escapeHtml(
+                                                String(czas)
+                                            )
+                                    )+
+                                    '</span>'+
+                                    '<span class="trasa-os"></span>'+
+                                    '<span class="trasa-nazwa">'+
+                                    escapeHtml(
+                                        String(
+                                            p?.nazwa||""
+                                        ).toUpperCase()
+                                    )+
+                                    '</span>'+
+                                    '<span class="trasa-nz">'+
+                                    (
+                                        czyNZ(p)
+                                            ? 'ż'
+                                            : ''
+                                    )+
+                                    '</span>'+
+                                    '</li>'
+                                );
+                            }
+                        )
+                        .join("");
+
+                return(
+                    '<div class="trasa-extra">'+
+                    '<div class="trasa-extra-title">'+
+                    'Trasa w kursach „'+
+                    escapeHtml(litera)+
+                    '”'+
+                    '</div>'+
+                    '<ul class="trasa-extra-lista">'+
+                    wiersze+
+                    '</ul>'+
+                    '</div>'
+                );
+            }
+        )
+        .join("");
+}
+
+
 function renderTrasaKolumna(
     fragment,
     czasy,
     pierwszyIndexTrasy,
-    ostatniIndexTrasy
+    ostatniIndexTrasy,
+    pokazWydluzenia=false
 ){
 
     return(
@@ -3244,6 +3744,11 @@ function renderTrasaKolumna(
             )
             .join("")+
         '</ul>'+
+        (
+            pokazWydluzenia
+                ? renderWydluzeniaTrasy()
+                : ''
+        )+
         '</div>'
     );
 }
@@ -3725,7 +4230,8 @@ function dopasujKolumnyTrasy() {
         { start: 0, lista: lista },
         czasy,
         pierwszyIndexTrasy,
-        ostatniIndexTrasy
+        ostatniIndexTrasy,
+        true
     );
 
     ustawZawijanieNazwTrasy(columns);
@@ -3762,7 +4268,8 @@ function dopasujKolumnyTrasy() {
             { start: 0, lista: lista },
             czasy,
             pierwszyIndexTrasy,
-            ostatniIndexTrasy
+            ostatniIndexTrasy,
+            true
         ) +
         '<div class="trasa-kol trasa-kol-pusta"></div>';
 
@@ -3816,7 +4323,8 @@ function dopasujKolumnyTrasy() {
             },
             czasy,
             pierwszyIndexTrasy,
-            ostatniIndexTrasy
+            ostatniIndexTrasy,
+            false
         ) +
         renderTrasaKolumna(
             {
@@ -3825,7 +4333,8 @@ function dopasujKolumnyTrasy() {
             },
             czasy,
             pierwszyIndexTrasy,
-            ostatniIndexTrasy
+            ostatniIndexTrasy,
+            true
         );
 
     ustawZawijanieNazwTrasy(columns);
