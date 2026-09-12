@@ -3606,6 +3606,38 @@ function czyWariantTrasyPrzez(litera){
 }
 
 
+function czyKursZaczynaWSrodkuTrasy(kursRef){
+
+    const pelna=
+        listaPelnejTrasyDoWyswietlenia();
+
+    const pierwszy=
+        pelna[0];
+
+    if(
+        !pierwszy||
+        !kursRef
+    ){
+        return false;
+    }
+
+    /*
+       Kurs bierzemy do analizy przebiegu tylko wtedy,
+       gdy istnieje już na pierwszym widocznym przystanku trasy.
+
+       Jeżeli kurs pojawia się dopiero gdzieś w środku trasy,
+       jest to kurs rozpoczynający trasę po drodze i NIE może
+       wpływać na napisy:
+       - „Trasa w kursach ...”
+       - „Trasa we wszystkich kursach”.
+    */
+    return !kursMaPrzystanek(
+        kursRef,
+        pierwszy
+    );
+}
+
+
 function kursyAktualnegoRozkladuDoTrasy(){
 
     const wynik=
@@ -3632,20 +3664,34 @@ function kursyAktualnegoRozkladuDoTrasy(){
                     const key=
                         kluczKursu(kurs);
 
+                    const kursRef={
+                        numer:String(
+                            kurs?.numer||""
+                        ),
+                        wariant:String(
+                            kurs?.wariant||""
+                        ).trim(),
+                        symbol:grupa.symbol
+                    };
+
+                    /*
+                       Kurs rozpoczynający się dopiero w środku trasy
+                       pomijamy przy analizie wariantów.
+                    */
+                    if(
+                        czyKursZaczynaWSrodkuTrasy(
+                            kursRef
+                        )
+                    ){
+                        return;
+                    }
+
                     if(
                         !wynik.has(key)
                     ){
                         wynik.set(
                             key,
-                            {
-                                numer:String(
-                                    kurs?.numer||""
-                                ),
-                                wariant:String(
-                                    kurs?.wariant||""
-                                ).trim(),
-                                symbol:grupa.symbol
-                            }
+                            kursRef
                         );
                     }
                 }
@@ -4734,17 +4780,28 @@ function renderTrasaKolumna(
                         index===
                         aktualnyPrzystanek;
 
-                    let czas=
-                        czasy[index];
+                    let czas=null;
 
-                    if(
-                        czas===null||
-                        typeof czas==="undefined"
-                    ){
+                    /*
+                       Dla przystanków znajdujących się PRZED aktualnie
+                       wybranym przystankiem nie pokazujemy czasu przejazdu.
+                       Czas ma sens dopiero od miejsca, na którym znajduje
+                       się pasażer / tabliczka.
+                    */
+                    if(!przed){
+
                         czas=
-                            czasDowolnegoKursuNaPrzystanku(
-                                element
-                            );
+                            czasy[index];
+
+                        if(
+                            czas===null||
+                            typeof czas==="undefined"
+                        ){
+                            czas=
+                                czasDowolnegoKursuNaPrzystanku(
+                                    element
+                                );
+                        }
                     }
 
                     return(
