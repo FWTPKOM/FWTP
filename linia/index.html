@@ -1285,7 +1285,7 @@
 <script>
 
 /* =========================================================
-   FWTP v48
+   FWTP v49
    - trasa_zmieniona / TO: pomarańczowe przystanki i odcinki objazdowe
      - N14/N86 i podobne: lokalna oś główna wg liczby rzeczywistych kursów
    - Nxx: wariant A nadal jest preferowaną osią główną, ale lokalny częstszy przejazd prosty ma pierwszeństwo
@@ -10945,9 +10945,85 @@ const isOnMainAxisBazowa =
                  *   przy zwartej geometrii;
                  * - nie ma warunku zależnego od numeru linii.
                  */
+                /*
+                 * ZWARTE POWTARZAJĄCE SIĘ KRÓTKIE OMINIĘCIA
+                 *
+                 * Na niektórych liniach występuje kilka krótkich ominięć
+                 * bardzo blisko siebie (np. układ widoczny na 733).
+                 * Stara geometria 66 px dodawała wtedy sztuczne puste
+                 * miejsce pomiędzy kolejnymi fragmentami trasy.
+                 *
+                 * Jeżeli bieżące ominięcie pomija 1-2 przystanki osi
+                 * głównej i w odległości maksymalnie dwóch indeksów od
+                 * jego zakresu istnieje inne krótkie lewe ominięcie,
+                 * rysujemy oba w zwartej geometrii 44 px.
+                 *
+                 * Reguła jest topologiczna - nie zależy od numeru linii.
+                 */
+                const czySasiednieKrotkieOminiecie =
+                    pomijaneBazowe.length >= 1 &&
+                    pomijaneBazowe.length <= 2 &&
+                    edges.some(
+                        inna => {
+
+                            if (
+                                !inna ||
+                                inna === e ||
+                                inna.track !== -1
+                            ) {
+                                return false;
+                            }
+
+
+                            let liczbaPomijanychInnej = 0;
+
+
+                            for (
+                                let kk = inna.u + 1;
+                                kk < inna.v;
+                                kk++
+                            ) {
+
+                                if (
+                                    isOnMainAxisBazowa[kk]
+                                ) {
+                                    liczbaPomijanychInnej++;
+                                }
+                            }
+
+
+                            if (
+                                liczbaPomijanychInnej < 1 ||
+                                liczbaPomijanychInnej > 2
+                            ) {
+                                return false;
+                            }
+
+
+                            const przerwaMiedzyZakresami =
+                                inna.v < e.u
+                                    ? e.u - inna.v
+                                    : (
+                                        e.v < inna.u
+                                            ? inna.u - e.v
+                                            : 0
+                                    );
+
+
+                            return
+                                przerwaMiedzyZakresami <= 2;
+                        }
+                    );
+
+
+                e.compactRepeatedShortSkip =
+                    czySasiednieKrotkieOminiecie;
+
+
                 e.useLegacySingleSkipGeometry =
                     pomijaneBazowe.length >= 1 &&
                     pomijaneBazowe.length <= 2 &&
+                    !czySasiednieKrotkieOminiecie &&
                     isOnMainAxis[
                         e.v
                     ] === true;
@@ -11095,7 +11171,8 @@ const isOnMainAxisBazowa =
 
                 } else if (
                     ostatniPomijanyBazowy >= 0 &&
-                    !czyDlugiProstyPowrotNaOs
+                    !czyDlugiProstyPowrotNaOs &&
+                    !czySasiednieKrotkieOminiecie
                 ) {
 
                     leftSkipIntermediateMainIndexes.add(
@@ -11604,6 +11681,32 @@ const isOnMainAxisBazowa =
                     y2,
                     isActive
                 ) => {
+
+                    /*
+                     * GLOBALNE ŁĄCZENIE ODCINKÓW MIĘDZY WIERSZAMI
+                     *
+                     * Każdy segment dochodzący do górnej lub dolnej
+                     * granicy SVG jest wydłużany o 1.5 px. Dzięki temu
+                     * sąsiednie SVG zawsze lekko na siebie nachodzą i
+                     * przeglądarka nie może zostawić nawet 1 px szczeliny
+                     * przez antyaliasing / zaokrąglenia współrzędnych.
+                     */
+                    const JOIN_OVERLAP = 1.5;
+
+
+                    if (y1 === 0) {
+                        y1 = -JOIN_OVERLAP;
+                    } else if (y1 === rowHeight) {
+                        y1 = rowHeight + JOIN_OVERLAP;
+                    }
+
+
+                    if (y2 === 0) {
+                        y2 = -JOIN_OVERLAP;
+                    } else if (y2 === rowHeight) {
+                        y2 = rowHeight + JOIN_OVERLAP;
+                    }
+
 
                     const color =
                         isActive
