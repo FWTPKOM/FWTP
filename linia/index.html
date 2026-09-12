@@ -1285,7 +1285,9 @@
 <script>
 
 /* =========================================================
-   FWTP v48
+   FWTP v51
+   - GLOBALNIE: wszystkie odcinki SVG mają zawsze zachodzić na siebie
+     na granicach wierszy; nie dopuszczamy wizualnych przerw w trasie
    - trasa_zmieniona / TO: pomarańczowe przystanki i odcinki objazdowe
      - N14/N86 i podobne: lokalna oś główna wg liczby rzeczywistych kursów
    - Nxx: wariant A nadal jest preferowaną osią główną, ale lokalny częstszy przejazd prosty ma pierwszeństwo
@@ -11605,6 +11607,53 @@ const isOnMainAxisBazowa =
                     isActive
                 ) => {
 
+                    /*
+                     * FWTP v51 — ZASADA GLOBALNA:
+                     * segmenty dochodzące do górnej / dolnej granicy
+                     * wiersza są wydłużane o 2 px poza SVG.
+                     *
+                     * Dzięki overflow:visible sąsiednie wiersze zawsze
+                     * nachodzą na siebie i nie może powstać biała szczelina
+                     * wskutek antyaliasingu albo zaokrągleń pikseli.
+                     */
+                    const OVERLAP_FWTP =
+                        2;
+
+
+                    let yy1 =
+                        Number(y1);
+
+
+                    let yy2 =
+                        Number(y2);
+
+
+                    if (yy1 === 0) {
+                        yy1 =
+                            -OVERLAP_FWTP;
+                    }
+
+
+                    if (yy2 === 0) {
+                        yy2 =
+                            -OVERLAP_FWTP;
+                    }
+
+
+                    if (yy1 === rowHeight) {
+                        yy1 =
+                            rowHeight +
+                            OVERLAP_FWTP;
+                    }
+
+
+                    if (yy2 === rowHeight) {
+                        yy2 =
+                            rowHeight +
+                            OVERLAP_FWTP;
+                    }
+
+
                     const color =
                         isActive
                             ? (
@@ -11623,9 +11672,9 @@ const isOnMainAxisBazowa =
                     const str =
                         `<line
                             x1="${x1}"
-                            y1="${y1}"
+                            y1="${yy1}"
                             x2="${x2}"
-                            y2="${y2}"
+                            y2="${yy2}"
                             stroke="${color}"
                             stroke-width="${w}"
                             stroke-linecap="round"
@@ -11921,19 +11970,15 @@ const isOnMainAxisBazowa =
                              * Odcinki mogą się lekko nakładać, co usuwa
                              * każdą widoczną szczelinę na łączeniu.
                              */
+                            /*
+                             * FWTP v51:
+                             * pion lewego ominięcia ZAWSZE zaczyna się
+                             * od górnej granicy wiersza. Poprzednie reguły
+                             * potrafiły zaczynać go od 22 px i tworzyć
+                             * widoczną przerwę między przekątną a pionem.
+                             */
                             const poczatekPionu =
-                                (
-                                    e.extraTopAtStart === true &&
-                                    i === e.firstSkippedMainIndex
-                                )
-                                    ? ROW_HEIGHT / 2
-                                    : (
-                                        e.useLegacySingleSkipGeometry &&
-                                        isSkippedMainIntermediate &&
-                                        !nodeActive
-                                            ? ROW_HEIGHT / 2
-                                            : 0
-                                    );
+                                0;
 
 
                             /*
@@ -11953,35 +11998,17 @@ const isOnMainAxisBazowa =
                              * działa tak samo dla 110, 331 oraz innych
                              * identycznych układów.
                              */
-                            let koniecPionu =
-                                rowHeight;
-
-
                             /*
-                             * Jeżeli wariant wraca na oś główną,
-                             * lewy pion dochodzi do końca wiersza.
+                             * FWTP v51:
+                             * pion ZAWSZE dochodzi do dolnej granicy
+                             * bieżącego wiersza. Jeżeli przekątna powrotna
+                             * zaczyna się wcześniej, odcinki po prostu
+                             * nachodzą na siebie — to jest celowe.
                              *
-                             * Jeżeli po pominięciu przechodzi na prawą oś,
-                             * przekątna LEFT_X -> RIGHT_X zaczyna się
-                             * 22 px ponad następnym wierszem. Wtedy pion
-                             * trzeba zakończyć dokładnie 22 px wcześniej.
-                             *
-                             * Nie ma tu już wyjątków dla 131, 170 ani
-                             * żadnego konkretnego numeru linii.
+                             * Priorytet: NIGDY nie zostawiać przerwy.
                              */
-                            if (
-                                !e.useLegacySingleSkipGeometry &&
-                                e.lastSkippedMainIndex === i &&
-                                isSkippedMainIntermediate &&
-                                isOnMainAxis[
-                                    e.v
-                                ] !== true
-                            ) {
-
-                                koniecPionu =
-                                    rowHeight -
-                                    ROW_HEIGHT / 2;
-                            }
+                            const koniecPionu =
+                                rowHeight;
 
 
                             drawLine(
