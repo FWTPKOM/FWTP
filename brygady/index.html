@@ -44,7 +44,7 @@
 
 
 
-.brak{padding:24px;background:#fff;border:1px solid #ddd;border-radius:8px;color:#666}
+.brak{padding:24px;background:#fff;border:1px solid #ddd;border-radius:8px;color:black;font-weight:600;text-align:center;font-size:20px;}
 @media(max-width:700px){
  .brygady-page{margin:15px auto;padding:0 8px}
  .brygady-panel{padding:15px}
@@ -865,10 +865,121 @@
     bottom:0;
 }
 
+
+
+
+
+/* =========================================================
+   ŁADOWANIE BRYGAD – AUTOBUS NA PASKU
+   Pokazuje się tylko po kliknięciu "Pokaż brygady" / Enter
+   ========================================================= */
+
+.brygady-loader{
+    padding:28px 20px 30px;
+    background:#ffffff;
+    border:1px solid #dddddd;
+    border-radius:8px;
+    box-sizing:border-box;
+    text-align:center;
+}
+
+.brygady-loader-title{
+    margin:0 0 22px;
+    color:#222222;
+    font-size:16px;
+    font-weight:800;
+}
+
+.brygady-loader-road{
+    position:relative;
+    width:min(650px,100%);
+    height:62px;
+    margin:0 auto;
+    overflow:visible;
+}
+
+.brygady-loader-track{
+    position:absolute;
+    left:0;
+    right:0;
+    top:50%;
+    height:9px;
+    transform:translateY(-50%);
+    overflow:hidden;
+    background:#e4e4e4;
+    border:1px solid #c7c7c7;
+    border-radius:999px;
+    box-sizing:border-box;
+}
+
+.brygady-loader-progress{
+    width:0%;
+    height:100%;
+    background:#d61c12;
+    border-radius:999px;
+    transition:width .30s ease;
+}
+
+.brygady-loader-bus{
+    position:absolute;
+    left:0%;
+    top:50%;
+    width:125px;
+    height:auto;
+    max-height:54px;
+    object-fit:contain;
+    transform:translate(-50%,-50%);
+    z-index:3;
+    transition:left .30s ease;
+    filter:drop-shadow(0 2px 2px rgba(0,0,0,.18));
+    pointer-events:none;
+}
+
+.brygady-loader-percent{
+    margin-top:7px;
+    color:#d61c12;
+    font-size:18px;
+    font-weight:900;
+}
+
+.brygady-loader-stage{
+    margin-top:4px;
+    min-height:15px;
+    color:#666666;
+    font-size:12px;
+}
+
+@media(max-width:550px){
+    .brygady-loader{
+        padding:24px 10px 26px;
+    }
+
+    .brygady-loader-road{
+        width:86%;
+    }
+
+    .brygady-loader-bus{
+        width:96px;
+        height:auto;
+        max-height:46px;
+    }
+}
+
+
+
+.brygady-loader-progress.gotowe{
+    width:100%!important;
+}
+
+.brygady-loader-bus.gotowe{
+    left:100%!important;
+}
+
 </style>
 </head>
 
 <body>
+
 <header class="topbar">
     <div class="logo">FWTP</div>
     <nav class="menu" id="menu"></nav>
@@ -1839,20 +1950,192 @@ function ulozKursyBrygady(kursy){
 }
 
 
-function lcsMerge(a,b){
+function ocenaDopasowaniaOsi(a,b,i,n,j,m){
+
+    if(
+        !a ||
+        !b ||
+        normalizuj(a.nazwa)!==normalizuj(b.nazwa)
+    ){
+        return 0;
+    }
+
+    const na=formatNrPrzystankuDoDopasowania(a.nr);
+    const nb=formatNrPrzystankuDoDopasowania(b.nr);
+
+    const kraniecA=(i===0 || i===n-1);
+    const kraniecB=(j===0 || j===m-1);
+
+    /*
+     * Różne numery na krańcach nadal pozostają osobnymi wierszami.
+     */
+    if(
+        (kraniecA || kraniecB) &&
+        na &&
+        nb &&
+        na!==nb
+    ){
+        return 0;
+    }
+
+    const nazwaPowtarzana=
+        Number(a._liczbaTejNazwy||0)>1 ||
+        Number(b._liczbaTejNazwy||0)>1;
+
+    /*
+     * Jeżeli nazwa występuje kilka razy i numery są różne:
+     *
+     * - NIE blokujemy już automatycznie takiej pary,
+     * - ale jeżeli któryś z tych punktów ma gdzieś po drugiej stronie
+     *   dokładny odpowiednik nazwa+numer, rezerwujemy go dla tej
+     *   dokładnej pary.
+     *
+     * Dzięki temu:
+     * - METRO WILANOWSKA 02 może połączyć się z 11,
+     * - ale 03 nie zostanie zabrane, jeśli istnieje prawdziwe 03.
+     */
+    if(
+        nazwaPowtarzana &&
+        na &&
+        nb &&
+        na!==nb &&
+        (
+            a._maDokladnyOdpowiednik===true ||
+            b._maDokladnyOdpowiednik===true
+        )
+    ){
+        return 0;
+    }
+
+    let score=100;
+
+    if(na && nb && na===nb){
+        score+=10000;
+    }
+    else if(na && nb){
+        /*
+         * Różne numery tej samej nazwy są dozwolone,
+         * ale mają mniejszy priorytet niż identyczne.
+         */
+        score+=300;
+    }
+
+    if(i===0 && j===0){
+        score+=5000;
+    }
+
+    if(i===n-1 && j===m-1){
+        score+=10000;
+    }
+
+    return score;
+}
+
+
+function formatNrPrzystankuDoDopasowania(v){
+
+    const s=String(v??"").trim();
+
+    if(!s){
+        return "";
+    }
+
+    if(/^\d+$/.test(s)){
+        return String(Number(s)).padStart(2,"0");
+    }
+
+    return s;
+}
+
+
+function scalDwaKierunkiPrzystankow(lista0,lista1){
+
+    const a=(Array.isArray(lista0)?lista0:[]).map(x=>({...x}));
+    const b=(Array.isArray(lista1)?lista1:[]).map(x=>({...x}));
+
+    const policzNazwy=lista=>{
+        const mapa=new Map();
+
+        lista.forEach(p=>{
+            const k=normalizuj(p?.nazwa);
+            if(!k)return;
+            mapa.set(k,(mapa.get(k)||0)+1);
+        });
+
+        return mapa;
+    };
+
+    const countA=policzNazwy(a);
+    const countB=policzNazwy(b);
+
+    /*
+     * Dla każdej pozycji zapisujemy także, czy po drugiej stronie
+     * istnieje DOKŁADNY odpowiednik nazwa+numer.
+     *
+     * To pozwala "zarezerwować" prawdziwe pary, ale nie blokuje
+     * łączenia np. METRO WILANOWSKA 02 + 11, gdy takie dokładne
+     * odpowiedniki nie istnieją.
+     */
+    const maDokladnyOdpowiednik = (item, drugaLista) => {
+        const nazwa=normalizuj(item?.nazwa);
+        const nr=formatNrPrzystankuDoDopasowania(item?.nr);
+
+        if(!nazwa || !nr){
+            return false;
+        }
+
+        return drugaLista.some(other =>
+            normalizuj(other?.nazwa)===nazwa &&
+            formatNrPrzystankuDoDopasowania(other?.nr)===nr
+        );
+    };
+
+    a.forEach(p=>{
+        p._liczbaTejNazwy=
+            countA.get(normalizuj(p?.nazwa))||0;
+
+        p._maDokladnyOdpowiednik=
+            maDokladnyOdpowiednik(p,b);
+    });
+
+    b.forEach(p=>{
+        p._liczbaTejNazwy=
+            countB.get(normalizuj(p?.nazwa))||0;
+
+        p._maDokladnyOdpowiednik=
+            maDokladnyOdpowiednik(p,a);
+    });
 
     const n=a.length;
     const m=b.length;
 
-    const dp=Array.from({length:n+1},()=>Array(m+1).fill(0));
+    const dp=Array.from(
+        {length:n+1},
+        ()=>new Float64Array(m+1)
+    );
 
     for(let i=n-1;i>=0;i--){
         for(let j=m-1;j>=0;j--){
-            if(a[i].klucz===b[j].klucz){
-                dp[i][j]=1+dp[i+1][j+1];
-            }else{
-                dp[i][j]=Math.max(dp[i+1][j],dp[i][j+1]);
-            }
+
+            const ms=ocenaDopasowaniaOsi(
+                a[i],
+                b[j],
+                i,
+                n,
+                j,
+                m
+            );
+
+            const match=
+                ms>0
+                    ? ms+dp[i+1][j+1]
+                    : -1;
+
+            dp[i][j]=Math.max(
+                dp[i+1][j],
+                dp[i][j+1],
+                match
+            );
         }
     }
 
@@ -1860,158 +2143,258 @@ function lcsMerge(a,b){
     let i=0;
     let j=0;
 
-    while(i<n || j<m){
+    while(i<n && j<m){
 
-        if(i<n && j<m && a[i].klucz===b[j].klucz){
+        const ms=ocenaDopasowaniaOsi(
+            a[i],
+            b[j],
+            i,
+            n,
+            j,
+            m
+        );
 
+        const match=
+            ms>0
+                ? ms+dp[i+1][j+1]
+                : -1;
+
+        if(
+            ms>0 &&
+            match===dp[i][j]
+        ){
             wynik.push({
-                nazwa:a[i].nazwa,
-                dir0:a[i].dir0,
-                dir1:b[j].dir1
+                nazwa:a[i].nazwa||b[j].nazwa||"",
+                dir0:a[i].dir0||null,
+                dir1:b[j].dir1||null
             });
 
             i++;
             j++;
-
-        }else if(
-            j>=m ||
-            (i<n && dp[i+1][j]>=dp[i][j+1])
-        ){
-
+        }
+        else if(dp[i+1][j]>=dp[i][j+1]){
             wynik.push({
-                nazwa:a[i].nazwa,
-                dir0:a[i].dir0,
+                nazwa:a[i].nazwa||"",
+                dir0:a[i].dir0||null,
                 dir1:null
             });
-
             i++;
-
-        }else{
-
+        }
+        else{
             wynik.push({
-                nazwa:b[j].nazwa,
+                nazwa:b[j].nazwa||"",
                 dir0:null,
-                dir1:b[j].dir1
+                dir1:b[j].dir1||null
             });
-
             j++;
         }
     }
 
-    return wynik;
-}
-
-
-
-function polaczTrasyZKoncami(
-    lista0,
-    lista1
-) {
-
-    if(
-        !lista0.length ||
-        !lista1.length
-    ){
-        return lcsMerge(
-            lista0,
-            lista1
-        );
+    while(i<n){
+        wynik.push({
+            nazwa:a[i].nazwa||"",
+            dir0:a[i].dir0||null,
+            dir1:null
+        });
+        i++;
     }
 
-    const pierwszyWspolny=
-        lista0[0].klucz===
-        lista1[0].klucz;
-
-    const ostatniWspolny=
-        lista0[
-            lista0.length-1
-        ].klucz===
-        lista1[
-            lista1.length-1
-        ].klucz;
+    while(j<m){
+        wynik.push({
+            nazwa:b[j].nazwa||"",
+            dir0:null,
+            dir1:b[j].dir1||null
+        });
+        j++;
+    }
 
     /*
-     * Krańce parujemy osobno.
+     * Po standardowym LCS wykonujemy jeszcze bezpieczne scalanie
+     * identycznych numerów wewnątrz JEDNEGO, ciągłego bloku
+     * tej samej nazwy przystanku.
      *
-     * To jest ważne dla tras, na których ta sama nazwa
-     * pojawia się również gdzieś indziej. Zwykły LCS może
-     * wtedy dopasować np. ostatnie RONDO DASZYŃSKIEGO
-     * do niewłaściwego wystąpienia.
+     * Przykład:
      *
-     * Po tej zmianie:
-     * - pierwszy wspólny kraniec ma numery z obu kierunków,
-     * - ostatni wspólny kraniec ma numery z obu kierunków,
-     * - jeżeli ta sama nazwa jest krańcem po obu stronach,
-     *   nadal może wystąpić dwa razy: na początku i na końcu.
+     * 12 | BITWY WARSZAWSKIEJ 1920 R. |
+     * 10 | BITWY WARSZAWSKIEJ 1920 R. | 10
+     *    | BITWY WARSZAWSKIEJ 1920 R. | 12
+     *
+     * =>
+     *
+     * 12 | BITWY WARSZAWSKIEJ 1920 R. | 12
+     * 10 | BITWY WARSZAWSKIEJ 1920 R. | 10
+     *
+     * Nie łączymy po samej nazwie. Numer musi być IDENTYCZNY,
+     * a oba wiersze muszą znajdować się w tym samym ciągłym
+     * bloku tej samej nazwy.
      */
-
-    let start0=0;
-    let start1=0;
-
-    let end0=
-        lista0.length;
-
-    let end1=
-        lista1.length;
-
-    const wynik=[];
-
-    if(pierwszyWspolny){
-
-        wynik.push({
-            nazwa:lista0[0].nazwa,
-            dir0:lista0[0].dir0,
-            dir1:lista1[0].dir1
-        });
-
-        start0=1;
-        start1=1;
-    }
-
-    if(ostatniWspolny){
-        end0--;
-        end1--;
-    }
-
-    const srodek0=
-        lista0.slice(
-            start0,
-            end0
-        );
-
-    const srodek1=
-        lista1.slice(
-            start1,
-            end1
-        );
-
-    wynik.push(
-        ...lcsMerge(
-            srodek0,
-            srodek1
-        )
+    return scalIdentyczneNumeryWTymSamymBlokuNazwy(
+        wynik
     );
+}
 
-    if(ostatniWspolny){
 
-        wynik.push({
-            nazwa:
-                lista0[
-                    lista0.length-1
-                ].nazwa,
-            dir0:
-                lista0[
-                    lista0.length-1
-                ].dir0,
-            dir1:
-                lista1[
-                    lista1.length-1
-                ].dir1
-        });
+/*
+ * =========================================================
+ * DODATKOWE SCALANIE POWTARZAJĄCYCH SIĘ PRZYSTANKÓW
+ * =========================================================
+ */
+function scalIdentyczneNumeryWTymSamymBlokuNazwy(os){
+
+    const source =
+        Array.isArray(os)
+            ? os.map(row=>({
+                ...row,
+                dir0:row?.dir0
+                    ? {...row.dir0}
+                    : null,
+                dir1:row?.dir1
+                    ? {...row.dir1}
+                    : null
+            }))
+            : [];
+
+    if(source.length<2){
+        return source;
     }
 
-    return wynik;
+    const result=[];
+
+    let start=0;
+
+    while(start<source.length){
+
+        const nazwa=
+            normalizuj(
+                source[start]?.nazwa
+            );
+
+        let end=start+1;
+
+        /*
+         * Wyznaczamy TYLKO ciągły blok identycznej nazwy.
+         * Nie wolno scalać takich samych nazw rozrzuconych
+         * w różnych miejscach trasy.
+         */
+        while(
+            end<source.length &&
+            normalizuj(
+                source[end]?.nazwa
+            )===nazwa
+        ){
+            end++;
+        }
+
+        const block=
+            source
+                .slice(
+                    start,
+                    end
+                )
+                .map(row=>({
+                    ...row,
+                    dir0:row?.dir0
+                        ? {...row.dir0}
+                        : null,
+                    dir1:row?.dir1
+                        ? {...row.dir1}
+                        : null
+                }));
+
+        /*
+         * Najpierw zbieramy wiersze mające tylko lewą stronę
+         * oraz tylko prawą stronę.
+         */
+        for(let i=0;i<block.length;i++){
+
+            const leftRow=
+                block[i];
+
+            if(
+                !leftRow?.dir0 ||
+                leftRow?.dir1
+            ){
+                continue;
+            }
+
+            const leftNr=
+                formatNrPrzystankuDoDopasowania(
+                    leftRow.dir0.nr
+                );
+
+            if(!leftNr){
+                continue;
+            }
+
+            /*
+             * Szukamy dokładnie tego samego numeru po prawej
+             * w obrębie TEGO SAMEGO bloku nazwy.
+             */
+            let matchIndex=-1;
+
+            for(let j=0;j<block.length;j++){
+
+                if(i===j){
+                    continue;
+                }
+
+                const rightRow=
+                    block[j];
+
+                if(
+                    rightRow?.dir0 ||
+                    !rightRow?.dir1
+                ){
+                    continue;
+                }
+
+                const rightNr=
+                    formatNrPrzystankuDoDopasowania(
+                        rightRow.dir1.nr
+                    );
+
+                if(
+                    rightNr &&
+                    rightNr===leftNr
+                ){
+                    matchIndex=j;
+                    break;
+                }
+            }
+
+            if(matchIndex<0){
+                continue;
+            }
+
+            /*
+             * Wypełniamy pustą prawą stronę wiersza lewego.
+             * Zachowujemy indeks i wszystkie metadane dir1,
+             * więc godziny nadal przypisują się do właściwego
+             * przystanku/kursu.
+             */
+            leftRow.dir1={
+                ...block[matchIndex].dir1
+            };
+
+            /*
+             * Drugi, pusty z lewej wiersz nie jest już potrzebny.
+             */
+            block[matchIndex]._usun=true;
+        }
+
+        block.forEach(row=>{
+            if(!row._usun){
+                delete row._usun;
+                result.push(row);
+            }
+        });
+
+        start=end;
+    }
+
+    return result;
 }
+
 
 function zbudujOsPrzystankow(kursy,startDirection){
 
@@ -2025,8 +2408,8 @@ function zbudujOsPrzystankow(kursy,startDirection){
     const p1=rzeczywiste.find(k=>k.kierunek===1);
 
     const lista0=(p0?.przystanki||[]).map((p,index)=>({
-        klucz:normalizuj(p.nazwa),
         nazwa:String(p.nazwa||""),
+        nr:String(p.nr||""),
         dir0:{
             index,
             nr:String(p.nr||""),
@@ -2034,9 +2417,13 @@ function zbudujOsPrzystankow(kursy,startDirection){
         }
     }));
 
+    /*
+     * Drugi kierunek odwracamy dokładnie tak jak w krótkim pliku,
+     * żeby obie listy szły od góry do dołu w tym samym układzie tabeli.
+     */
     const lista1=(p1?.przystanki||[]).map((p,index)=>({
-        klucz:normalizuj(p.nazwa),
         nazwa:String(p.nazwa||""),
+        nr:String(p.nr||""),
         dir1:{
             index,
             nr:String(p.nr||""),
@@ -2047,17 +2434,19 @@ function zbudujOsPrzystankow(kursy,startDirection){
     let os;
 
     if(lista0.length && lista1.length){
-        os=polaczTrasyZKoncami(
+        os=scalDwaKierunkiPrzystankow(
             lista0,
             lista1
         );
-    }else if(lista0.length){
+    }
+    else if(lista0.length){
         os=lista0.map(x=>({
             nazwa:x.nazwa,
             dir0:x.dir0,
             dir1:null
         }));
-    }else{
+    }
+    else{
         os=lista1.map(x=>({
             nazwa:x.nazwa,
             dir0:null,
@@ -2071,7 +2460,6 @@ function zbudujOsPrzystankow(kursy,startDirection){
 
     return os;
 }
-
 
 function escapeHtml(tekst){
     return String(tekst??"")
@@ -2861,26 +3249,24 @@ function renderPustyWierszDol(kursy){
     let i=0;
 
     /*
-     * Ten wiersz ma kopiować UKŁAD SCALANIA
-     * z renderPostojDol(), tylko bez wartości.
+     * Ten wiersz ma być DOKŁADNYM PRZEDŁUŻENIEM
+     * pionowych linii z wiersza "Postoje na krańcu [min]"
+     * znajdującego się bezpośrednio nad nim.
      *
-     * Na początku:
-     * - od razu łączymy komórki parami.
-     *
-     * Po separatorze:
-     * - jeśli pierwszy slot jest zwykłym kursem,
-     *   pierwsza komórka jest pojedyncza,
-     *   a kolejne są parami;
-     * - jeśli pierwszy slot jest placeholderem,
-     *   od razu łączymy parami.
+     * Dlatego układ colspan / pojedynczych komórek / separatorów
+     * jest 1:1 taki sam jak w renderPostojDol().
      */
     let trybPoSeparatorze=false;
-    let pierwszyPoSeparatorzePlaceholder=false;
     let pierwszaKomorkaSekcji=true;
+    let koniecPrzedSeparatoremNaGorze=false;
 
     while(i<kursy.length){
 
-        if(maSeparatorPrzed(kursy[i])){
+        if(
+            maSeparatorPrzed(
+                kursy[i]
+            )
+        ){
 
             html+=
                 '<td class="separator-komorka"></td>';
@@ -2888,30 +3274,30 @@ function renderPustyWierszDol(kursy){
             trybPoSeparatorze=true;
             pierwszaKomorkaSekcji=true;
 
-            pierwszyPoSeparatorzePlaceholder=
-                czyPlaceholderKursu(
-                    kursy[i]
+            koniecPrzedSeparatoremNaGorze=
+                czyPrzedSeparatoremKoniecNaGorze(
+                    kursy,
+                    i
                 );
-        }
-
-        if(
-            trybPoSeparatorze &&
-            pierwszaKomorkaSekcji &&
-            !pierwszyPoSeparatorzePlaceholder
-        ){
-
-            html+=
-                '<td></td>';
-
-            pierwszaKomorkaSekcji=false;
-            i++;
-            continue;
         }
 
         if(
             trybPoSeparatorze &&
             pierwszaKomorkaSekcji
         ){
+
+            if(
+                !koniecPrzedSeparatoremNaGorze
+            ){
+
+                html+=
+                    '<td></td>';
+
+                pierwszaKomorkaSekcji=false;
+                i++;
+                continue;
+            }
+
             pierwszaKomorkaSekcji=false;
         }
 
@@ -3397,7 +3783,7 @@ function pokazBrygady(dane,data){
         info.textContent=`Linia ${dane.linia||aktualnaLinia} • ${dataISO(data)}`;
 
         wynik.innerHTML=
-            '<div class="brak">Brak brygad dla wybranego dnia.</div>';
+            '<div class="brak">LINIA NIE KURSUJE</div>';
 
         return;
     }
@@ -3603,7 +3989,7 @@ function vbaZbierzKursyLinii(dane, data){
                     record.czasy.set(stopIndex, czas);
                     record.punkty.set(stopIndex, {
                         nazwa: String(przystanek?.nazwa || ""),
-                        nr: vbaNr(przystanek?.nr),
+                        nr: String(przystanek?.nr || ""),
                         typ: String(przystanek?.typ || ""),
                         nz: czyNZ(przystanek)
                     });
@@ -3665,36 +4051,79 @@ function vbaGrupujPoBrygadzie(kursy){
 async function vbaPobierzDodatkoweLinie(
     wybranaLinia,
     data,
-    potrzebneBrygady
+    potrzebneBrygady,
+    progressCallback
 ){
     const paczki = await pobierzManifestPaczek();
-    const kandydaci = vbaWszystkieLinieZManifestu(paczki)
-        .filter(linia => String(linia) !== String(wybranaLinia));
 
-    if(!kandydaci.length || !potrzebneBrygady.size){
+    const kandydaci =
+        vbaWszystkieLinieZManifestu(
+            paczki
+        )
+        .filter(linia =>
+            String(linia) !==
+            String(wybranaLinia)
+        );
+
+    if(
+        !kandydaci.length ||
+        !potrzebneBrygady.size
+    ){
+        if(typeof progressCallback==="function"){
+            progressCallback(
+                1,
+                1
+            );
+        }
+
         return [];
     }
 
     const wynik = [];
     const LIMIT = 10;
 
-    for(let i = 0; i < kandydaci.length; i += LIMIT){
-        const partia = kandydaci.slice(i, i + LIMIT);
+    let sprawdzone = 0;
 
-        const danePartii = await Promise.all(
-            partia.map(linia => vbaPobierzLinie(linia, data))
-        );
+    for(
+        let i=0;
+        i<kandydaci.length;
+        i+=LIMIT
+    ){
+        const partia =
+            kandydaci.slice(
+                i,
+                i+LIMIT
+            );
 
-        danePartii.forEach(dane => {
-            if(!dane) return;
-
-            const kursy = vbaZbierzKursyLinii(dane, data);
-
-            const potrzebna = kursy.some(kurs =>
-                potrzebneBrygady.has(
-                    String(kurs?.brygada || "").trim()
+        const danePartii =
+            await Promise.all(
+                partia.map(linia =>
+                    vbaPobierzLinie(
+                        linia,
+                        data
+                    )
                 )
             );
+
+        danePartii.forEach(dane=>{
+            if(!dane){
+                return;
+            }
+
+            const kursy =
+                vbaZbierzKursyLinii(
+                    dane,
+                    data
+                );
+
+            const potrzebna =
+                kursy.some(kurs =>
+                    potrzebneBrygady.has(
+                        String(
+                            kurs?.brygada||""
+                        ).trim()
+                    )
+                );
 
             if(potrzebna){
                 wynik.push({
@@ -3703,6 +4132,24 @@ async function vbaPobierzDodatkoweLinie(
                 });
             }
         });
+
+        sprawdzone +=
+            partia.length;
+
+        if(
+            typeof progressCallback===
+            "function"
+        ){
+            progressCallback(
+                sprawdzone,
+                kandydaci.length
+            );
+        }
+
+        /*
+         * Pozwalamy przeglądarce narysować nową pozycję autobusu.
+         */
+        await czekajNaRender();
     }
 
     return wynik;
@@ -3718,48 +4165,8 @@ function vbaNorm(text){
 }
 
 
-function vbaNr(value){
-    /*
-     * Dokładny odpowiednik VBA FormatStopNumber:
-     * ""   -> ""
-     * 2    -> "02"
-     * "2"  -> "02"
-     * "02" -> "02"
-     * 71   -> "71"
-     */
-    if(
-        value === null ||
-        value === undefined
-    ){
-        return "";
-    }
-
-    let txt = String(value).trim();
-
-    if(!txt){
-        return "";
-    }
-
-    const normalizedNumeric =
-        txt.replace(",", ".");
-
-    if(
-        /^[-+]?\d+(?:\.0+)?$/.test(normalizedNumeric)
-    ){
-        const number = Math.trunc(
-            Number(normalizedNumeric)
-        );
-
-        if(Number.isFinite(number)){
-            if(number >= 0 && number < 10){
-                return "0" + String(number);
-            }
-
-            return String(number);
-        }
-    }
-
-    return txt;
+function vbaNr(text){
+    return String(text || "").trim();
 }
 
 
@@ -3936,29 +4343,73 @@ function vbaGetStopMatchScore(
     secondaryIndex,
     secondaryCount
 ){
-    if(!vbaTextEquals(primary?.nazwa, secondary?.nazwa)){
+    if(!vbaTextEquals(primary?.nazwa,secondary?.nazwa)){
         return 0;
     }
 
-    let score = 100;
+    const nrPrimary=vbaNr(primary?.nr);
+    const nrSecondary=vbaNr(secondary?.nr);
 
+    const primaryEndpoint=
+        primaryIndex===0 ||
+        primaryIndex===primaryCount-1;
+
+    const secondaryEndpoint=
+        secondaryIndex===0 ||
+        secondaryIndex===secondaryCount-1;
+
+    /*
+     * Tylko na krańcach różne znane numery nie mogą
+     * zostać złączone w jeden wiersz.
+     */
     if(
-        vbaNr(primary?.nr) &&
-        vbaNr(secondary?.nr) &&
-        vbaTextEquals(primary?.nr, secondary?.nr)
+        (primaryEndpoint || secondaryEndpoint) &&
+        nrPrimary &&
+        nrSecondary &&
+        !vbaTextEquals(nrPrimary,nrSecondary)
     ){
-        score += 1000;
+        return 0;
     }
 
-    if(primaryIndex === 0 && secondaryIndex === 0){
-        score += 5000;
+    /*
+     * Jeżeli ta sama nazwa występuje kilka razy, wymagamy
+     * zgodnego numeru. To chroni m.in. METRO BEMOWO 03.
+     *
+     * Przy nazwie występującej tylko raz nadal może być
+     * 01 | NAZWA | 02.
+     */
+    const nazwaPowtarzana=
+        Number(primary?._liczbaTejNazwy||0)>1 ||
+        Number(secondary?._liczbaTejNazwy||0)>1;
+
+    if(
+        nazwaPowtarzana &&
+        nrPrimary &&
+        nrSecondary &&
+        !vbaTextEquals(nrPrimary,nrSecondary)
+    ){
+        return 0;
+    }
+
+    let score=100;
+
+    if(
+        nrPrimary &&
+        nrSecondary &&
+        vbaTextEquals(nrPrimary,nrSecondary)
+    ){
+        score+=1000;
+    }
+
+    if(primaryIndex===0 && secondaryIndex===0){
+        score+=5000;
     }
 
     if(
-        primaryIndex === primaryCount - 1 &&
-        secondaryIndex === secondaryCount - 1
+        primaryIndex===primaryCount-1 &&
+        secondaryIndex===secondaryCount-1
     ){
-        score += 10000;
+        score+=10000;
     }
 
     return score;
@@ -3966,49 +4417,70 @@ function vbaGetStopMatchScore(
 
 
 function vbaMergeStops(primaryRoute, secondaryRoute){
-    const primary = Array.isArray(primaryRoute) ? primaryRoute : [];
-    const secondarySource = Array.isArray(secondaryRoute)
-        ? secondaryRoute
-        : [];
+    const primary=(Array.isArray(primaryRoute)?primaryRoute:[])
+        .map(x=>({...x}));
 
-    /*
-     * Dokładnie jak VBA:
-     * drugi kierunek odwracamy, aby obie listy miały ten sam
-     * kierunek wyświetlania od góry do dołu.
-     */
-    const secondary = [...secondarySource].reverse();
+    const secondarySource=(Array.isArray(secondaryRoute)?secondaryRoute:[])
+        .map(x=>({...x}));
 
-    const n = primary.length;
-    const m = secondary.length;
+    const secondary=[...secondarySource].reverse();
+
+    const policzNazwy=lista=>{
+        const mapa=new Map();
+
+        lista.forEach(p=>{
+            const k=vbaNorm(p?.nazwa);
+            if(!k)return;
+            mapa.set(k,(mapa.get(k)||0)+1);
+        });
+
+        return mapa;
+    };
+
+    const primaryCounts=policzNazwy(primary);
+    const secondaryCounts=policzNazwy(secondary);
+
+    primary.forEach(p=>{
+        p._liczbaTejNazwy=
+            primaryCounts.get(vbaNorm(p?.nazwa))||0;
+    });
+
+    secondary.forEach(p=>{
+        p._liczbaTejNazwy=
+            secondaryCounts.get(vbaNorm(p?.nazwa))||0;
+    });
+
+    const n=primary.length;
+    const m=secondary.length;
 
     if(!n){
-        return secondary.map(s => ({
-            nazwa: s.nazwa,
-            code0: "",
-            code1: vbaNr(s.nr),
-            nz0: false,
-            nz1: s.nz
+        return secondary.map(s=>({
+            nazwa:s.nazwa,
+            code0:"",
+            code1:s.nr,
+            nz0:false,
+            nz1:s.nz
         }));
     }
 
     if(!m){
-        return primary.map(p => ({
-            nazwa: p.nazwa,
-            code0: vbaNr(p.nr),
-            code1: "",
-            nz0: p.nz,
-            nz1: false
+        return primary.map(p=>({
+            nazwa:p.nazwa,
+            code0:p.nr,
+            code1:"",
+            nz0:p.nz,
+            nz1:false
         }));
     }
 
-    const dp = Array.from(
-        {length: n + 1},
-        () => Array(m + 1).fill(0)
+    const dp=Array.from(
+        {length:n+1},
+        ()=>Array(m+1).fill(0)
     );
 
-    for(let i = n - 1; i >= 0; i--){
-        for(let j = m - 1; j >= 0; j--){
-            const matchScore = vbaGetStopMatchScore(
+    for(let i=n-1;i>=0;i--){
+        for(let j=m-1;j>=0;j--){
+            const matchScore=vbaGetStopMatchScore(
                 primary[i],
                 secondary[j],
                 i,
@@ -4017,14 +4489,14 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
                 m
             );
 
-            const matchTotal = matchScore > 0
-                ? matchScore + dp[i + 1][j + 1]
+            const matchTotal=matchScore>0
+                ? matchScore+dp[i+1][j+1]
                 : -1;
 
-            const skipPrimary = dp[i + 1][j];
-            const skipSecondary = dp[i][j + 1];
+            const skipPrimary=dp[i+1][j];
+            const skipSecondary=dp[i][j+1];
 
-            dp[i][j] = Math.max(
+            dp[i][j]=Math.max(
                 skipPrimary,
                 skipSecondary,
                 matchTotal
@@ -4032,12 +4504,12 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
         }
     }
 
-    const result = [];
-    let i = 0;
-    let j = 0;
+    const result=[];
+    let i=0;
+    let j=0;
 
-    while(i < n && j < m){
-        const matchScore = vbaGetStopMatchScore(
+    while(i<n && j<m){
+        const matchScore=vbaGetStopMatchScore(
             primary[i],
             secondary[j],
             i,
@@ -4046,73 +4518,70 @@ function vbaMergeStops(primaryRoute, secondaryRoute){
             m
         );
 
-        const matchTotal = matchScore > 0
-            ? matchScore + dp[i + 1][j + 1]
+        const matchTotal=matchScore>0
+            ? matchScore+dp[i+1][j+1]
             : -1;
 
-        const skipPrimary = dp[i + 1][j];
-        const skipSecondary = dp[i][j + 1];
+        const skipPrimary=dp[i+1][j];
+        const skipSecondary=dp[i][j+1];
 
-        /*
-         * VBA przy remisie preferuje prawidłowe dopasowanie.
-         */
         if(
-            matchScore > 0 &&
-            matchTotal === dp[i][j]
+            matchScore>0 &&
+            matchTotal===dp[i][j]
         ){
             result.push({
-                nazwa: primary[i].nazwa,
-                code0: vbaNr(primary[i].nr),
-                code1: vbaNr(secondary[j].nr),
-                nz0: primary[i].nz,
-                nz1: secondary[j].nz
+                nazwa:primary[i].nazwa,
+                code0:primary[i].nr,
+                code1:secondary[j].nr,
+                nz0:primary[i].nz,
+                nz1:secondary[j].nz
             });
 
             i++;
             j++;
         }
-        else if(skipPrimary >= skipSecondary){
+        else if(skipPrimary>=skipSecondary){
             result.push({
-                nazwa: primary[i].nazwa,
-                code0: vbaNr(primary[i].nr),
-                code1: "",
-                nz0: primary[i].nz,
-                nz1: false
+                nazwa:primary[i].nazwa,
+                code0:primary[i].nr,
+                code1:"",
+                nz0:primary[i].nz,
+                nz1:false
             });
 
             i++;
         }
         else{
             result.push({
-                nazwa: secondary[j].nazwa,
-                code0: "",
-                code1: vbaNr(secondary[j].nr),
-                nz0: false,
-                nz1: secondary[j].nz
+                nazwa:secondary[j].nazwa,
+                code0:"",
+                code1:secondary[j].nr,
+                nz0:false,
+                nz1:secondary[j].nz
             });
 
             j++;
         }
     }
 
-    while(i < n){
+    while(i<n){
         result.push({
-            nazwa: primary[i].nazwa,
-            code0: vbaNr(primary[i].nr),
-            code1: "",
-            nz0: primary[i].nz,
-            nz1: false
+            nazwa:primary[i].nazwa,
+            code0:primary[i].nr,
+            code1:"",
+            nz0:primary[i].nz,
+            nz1:false
         });
         i++;
     }
 
-    while(j < m){
+    while(j<m){
         result.push({
-            nazwa: secondary[j].nazwa,
-            code0: "",
-            code1: vbaNr(secondary[j].nr),
-            nz0: false,
-            nz1: secondary[j].nz
+            nazwa:secondary[j].nazwa,
+            code0:"",
+            code1:secondary[j].nr,
+            nz0:false,
+            nz1:secondary[j].nz
         });
         j++;
     }
@@ -4133,12 +4602,97 @@ function vbaFindNextMergedStopIndex(
     direction,
     startIndex
 ){
-    const codeField = direction === 0 ? "code0" : "code1";
+    const codeField =
+        direction === 0
+            ? "code0"
+            : "code1";
 
-    for(let i = Math.max(0, startIndex); i < stops.length; i++){
+    const wantedName =
+        vbaNorm(
+            stopName
+        );
+
+    const wantedNumber =
+        vbaNr(
+            stopNumber
+        );
+
+    const start =
+        Math.max(
+            0,
+            startIndex
+        );
+
+    /*
+     * 1. Najpierw dokładnie tak jak wcześniej:
+     *    właściwa strona dla danego kierunku.
+     */
+    for(
+        let i=start;
+        i<stops.length;
+        i++
+    ){
         if(
-            vbaTextEquals(stops[i]?.nazwa, stopName) &&
-            vbaTextEquals(stops[i]?.[codeField], stopNumber)
+            vbaNorm(stops[i]?.nazwa) === wantedName &&
+            vbaTextEquals(
+                stops[i]?.[codeField],
+                wantedNumber
+            )
+        ){
+            return i;
+        }
+    }
+
+    /*
+     * 2. FALLBACK:
+     *
+     * Po scaleniu obu kierunków zdarza się, że prawidłowy
+     * numer przystanku został zachowany po przeciwnej stronie
+     * wiersza. Przykład: METRO BEMOWO 03.
+     *
+     * Nie szukamy po samej nazwie. Muszą zgadzać się:
+     * - nazwa,
+     * - DOKŁADNY numer,
+     * - kolejność od aktualnego miejsca w dół.
+     *
+     * Dzięki temu nie podmieniamy 03 na 02 albo 71.
+     */
+    for(
+        let i=start;
+        i<stops.length;
+        i++
+    ){
+        const stop =
+            stops[i];
+
+        if(
+            vbaNorm(stop?.nazwa) !==
+            wantedName
+        ){
+            continue;
+        }
+
+        const code0 =
+            vbaNr(
+                stop?.code0
+            );
+
+        const code1 =
+            vbaNr(
+                stop?.code1
+            );
+
+        if(
+            (code0 &&
+             vbaTextEquals(
+                code0,
+                wantedNumber
+             )) ||
+            (code1 &&
+             vbaTextEquals(
+                code1,
+                wantedNumber
+             ))
         ){
             return i;
         }
@@ -4155,16 +4709,89 @@ function vbaFindPreviousMergedStopIndex(
     direction,
     startIndex
 ){
-    const codeField = direction === 0 ? "code0" : "code1";
+    const codeField =
+        direction === 0
+            ? "code0"
+            : "code1";
 
+    const wantedName =
+        vbaNorm(
+            stopName
+        );
+
+    const wantedNumber =
+        vbaNr(
+            stopNumber
+        );
+
+    const start =
+        Math.min(
+            stops.length - 1,
+            startIndex
+        );
+
+    /*
+     * 1. Standardowe dopasowanie po stronie kierunku.
+     */
     for(
-        let i = Math.min(stops.length - 1, startIndex);
-        i >= 0;
+        let i=start;
+        i>=0;
         i--
     ){
         if(
-            vbaTextEquals(stops[i]?.nazwa, stopName) &&
-            vbaTextEquals(stops[i]?.[codeField], stopNumber)
+            vbaNorm(stops[i]?.nazwa) === wantedName &&
+            vbaTextEquals(
+                stops[i]?.[codeField],
+                wantedNumber
+            )
+        ){
+            return i;
+        }
+    }
+
+    /*
+     * 2. Bezpieczny fallback po obu numerach wiersza.
+     *
+     * Nadal poruszamy się tylko w poprawnym kierunku osi,
+     * więc nie możemy przeskoczyć do wcześniejszego/późniejszego
+     * wystąpienia wbrew kolejności kursu.
+     */
+    for(
+        let i=start;
+        i>=0;
+        i--
+    ){
+        const stop =
+            stops[i];
+
+        if(
+            vbaNorm(stop?.nazwa) !==
+            wantedName
+        ){
+            continue;
+        }
+
+        const code0 =
+            vbaNr(
+                stop?.code0
+            );
+
+        const code1 =
+            vbaNr(
+                stop?.code1
+            );
+
+        if(
+            (code0 &&
+             vbaTextEquals(
+                code0,
+                wantedNumber
+             )) ||
+            (code1 &&
+             vbaTextEquals(
+                code1,
+                wantedNumber
+             ))
         ){
             return i;
         }
@@ -4581,59 +5208,157 @@ function vbaBuildRecordEntries(record, coursePosition){
     const even =
         (coursePosition % 2 === 0);
 
-    /*
-     * Dokładne tłumaczenie VBA:
-     *
-     * reverseOrder =
-     * ((directionCode = 20) Xor (coursePosition Mod 2 = 0))
-     *
-     * JS:
-     * direction 0 = VBA 10
-     * direction 1 = VBA 20
-     */
     const reverse =
         (record.direction === 1) !== even;
 
     const stopCount =
         record.lineData.stopCount;
 
+    let from =
+        Number(record.startRow);
+
+    let to =
+        Number(record.endRow);
+
+    if(
+        !Number.isInteger(from) ||
+        !Number.isInteger(to)
+    ){
+        return result;
+    }
+
+    from =
+        Math.max(
+            0,
+            Math.min(
+                from,
+                stopCount - 1
+            )
+        );
+
+    to =
+        Math.max(
+            0,
+            Math.min(
+                to,
+                stopCount - 1
+            )
+        );
+
+    const minRow =
+        Math.min(
+            from,
+            to
+        );
+
+    const maxRow =
+        Math.max(
+            from,
+            to
+        );
+
     /*
-     * To jest kluczowa poprawka v14:
-     * iterujemy PEŁNĄ WSPÓLNĄ OŚ lineData.stops,
-     * nie record.actualRows w kolejności jazdy.
+     * =========================================================
+     * TYLKO PRZYSTANKI TEGO KIERUNKU
+     * =========================================================
+     *
+     * Każdy wiersz wspólnej osi może należeć:
+     * - tylko do kierunku 0,
+     * - tylko do kierunku 1,
+     * - albo do obu kierunków.
+     *
+     * Nie wolno dodawać do kursu przystanku należącego wyłącznie
+     * do przeciwnego kierunku, bo wtedy np. METRO WILANOWSKA 02
+     * i METRO WILANOWSKA 11 stają się dwoma kolejnymi punktami
+     * tego samego kursu i nie można ich później połączyć w jeden
+     * wiersz.
+     *
+     * Jednocześnie:
+     * jeśli record.times zawiera godzinę dla danego wiersza,
+     * wiersz MUSI wejść do kursu niezależnie od strony. To chroni
+     * przypadki takie jak METRO BEMOWO 03, które wcześniej było
+     * zapisane po przeciwnej stronie wspólnej osi.
      */
+    const belongsToCourseDirection = rowIndex => {
+        const stop =
+            record.lineData.stops[
+                rowIndex
+            ];
+
+        if(!stop){
+            return false;
+        }
+
+        if(
+            record.times.has(
+                rowIndex
+            )
+        ){
+            return true;
+        }
+
+        const directionCode =
+            record.direction === 0
+                ? vbaNr(stop.code0)
+                : vbaNr(stop.code1);
+
+        return Boolean(
+            directionCode
+        );
+    };
+
+    const addEntry = rowIndex => {
+        if(
+            !belongsToCourseDirection(
+                rowIndex
+            )
+        ){
+            return;
+        }
+
+        result.push({
+            lineData:
+                record.lineData,
+
+            rowIndex,
+
+            reverse,
+
+            endpoint:
+                record.endpoints instanceof Set &&
+                record.endpoints.has(
+                    rowIndex
+                ),
+
+            record,
+
+            hasTime:
+                record.times.has(
+                    rowIndex
+                )
+        });
+    };
+
     if(reverse){
         for(
-            let rowIndex = stopCount - 1;
-            rowIndex >= 0;
+            let rowIndex = maxRow;
+            rowIndex >= minRow;
             rowIndex--
         ){
-            if(!record.times.has(rowIndex)){
-                continue;
-            }
-
-            result.push({
-                lineData: record.lineData,
-                rowIndex,
-                reverse
-            });
+            addEntry(
+                rowIndex
+            );
         }
     }
     else{
         for(
-            let rowIndex = 0;
-            rowIndex < stopCount;
+            let rowIndex = minRow;
+            rowIndex <= maxRow;
             rowIndex++
         ){
-            if(!record.times.has(rowIndex)){
-                continue;
-            }
-
-            result.push({
-                lineData: record.lineData,
-                rowIndex,
-                reverse
-            });
+            addEntry(
+                rowIndex
+            );
         }
     }
 
@@ -4652,19 +5377,71 @@ function vbaPatternKey(entries){
 }
 
 
-function vbaBuildPatterns(records){
+function vbaBuildPatterns(records, brygada){
     const map = new Map();
     const result = [];
 
-    records.forEach((record, index) => {
-        const entries = vbaBuildRecordEntries(
-            record,
-            index + 1
+    /*
+     * KLUCZOWA POPRAWKA DLA DODATKÓW 0xx / 700-799
+     *
+     * Dotychczas coursePosition było po prostu index+1.
+     * To było błędne, bo vbaBuildDisplayRecords() wstawia pustą
+     * kolumnę, gdy dwa kolejne kursy jadą w tym samym kierunku.
+     *
+     * Po takiej pustej kolumnie wszystkie kolejne kursy powinny
+     * zmienić parzystość strony tabeli. Jeżeli tego nie zrobimy,
+     * część popołudniowa zostaje zorientowana odwrotnie i algorytm
+     * buduje drugi przebieg tej samej trasy.
+     *
+     * Dlatego tutaj liczymy DOKŁADNĄ pozycję wyświetlaną kursu,
+     * razem z placeholderami, dla CAŁEJ brygady od rana do końca.
+     */
+    const dutyChange =
+        vbaCzyDutyChangeBrigade(
+            brygada
         );
 
-        if(!entries.length) return;
+    let displayPosition = 0;
+    let previousDirection = null;
 
-        const key = vbaPatternKey(entries);
+    records.forEach((record, index) => {
+
+        if(
+            dutyChange &&
+            previousDirection !== null &&
+            previousDirection === record.direction
+        ){
+            /*
+             * Pusta kolumna przeciwnego kierunku zajmuje realne
+             * miejsce w tabeli i musi wpływać na parzystość.
+             */
+            displayPosition++;
+        }
+
+        displayPosition++;
+
+        const coursePosition =
+            dutyChange
+                ? displayPosition
+                : index + 1;
+
+        const entries =
+            vbaBuildRecordEntries(
+                record,
+                coursePosition
+            );
+
+        previousDirection =
+            record.direction;
+
+        if(!entries.length){
+            return;
+        }
+
+        const key =
+            vbaPatternKey(
+                entries
+            );
 
         if(map.has(key)){
             map.get(key).courseCount++;
@@ -4674,11 +5451,18 @@ function vbaBuildPatterns(records){
                 key,
                 entries,
                 courseCount: 1,
-                firstCoursePosition: index + 1
+                firstCoursePosition:
+                    coursePosition
             };
 
-            map.set(key, pattern);
-            result.push(pattern);
+            map.set(
+                key,
+                pattern
+            );
+
+            result.push(
+                pattern
+            );
         }
     });
 
@@ -4706,49 +5490,147 @@ function vbaCombinedStopPairMatchScore(firstEntry, secondEntry){
         return 0;
     }
 
-    let score = 100;
+    /*
+     * Numery w orientacji WYŚWIETLANEJ w tabeli.
+     * reverse zamienia strony.
+     */
+    const strony = (entry, stop) => {
+        if(entry.reverse){
+            return {
+                left: vbaNr(stop?.code1),
+                right: vbaNr(stop?.code0)
+            };
+        }
+
+        return {
+            left: vbaNr(stop?.code0),
+            right: vbaNr(stop?.code1)
+        };
+    };
+
+    const firstSide = strony(firstEntry, firstStop);
+    const secondSide = strony(secondEntry, secondStop);
 
     const firstCodes = [
         vbaNr(firstStop?.code0),
         vbaNr(firstStop?.code1)
-    ];
+    ].filter(Boolean);
 
     const secondCodes = [
         vbaNr(secondStop?.code0),
         vbaNr(secondStop?.code1)
-    ];
+    ].filter(Boolean);
 
-    /*
-     * Dokładnie jak pętla i=1..2 / j=1..2 w VBA:
-     * każdy niepusty kod pierwszego wiersza może dodać +5000,
-     * jeśli występuje po którejkolwiek stronie drugiego wiersza.
-     */
-    firstCodes.forEach(code => {
-        if(
-            code &&
+    const wspolneKody =
+        firstCodes.filter(code =>
             secondCodes.some(other =>
                 other && vbaTextEquals(code, other)
             )
-        ){
-            score += 5000;
-        }
-    });
+        );
 
-    const firstLast = firstEntry.lineData.stopCount - 1;
-    const secondLast = secondEntry.lineData.stopCount - 1;
+    const firstEndpoint =
+        firstEntry?.endpoint === true;
 
+    const secondEndpoint =
+        secondEntry?.endpoint === true;
+
+    /*
+     * =======================================================
+     * 1. KRAŃCE KONKRETNEGO KURSU
+     * =======================================================
+     *
+     * Jeżeli GROTY 01 jest krańcem kursu linii 149,
+     * nie wolno go sklejać z przejazdowym GROTY 02.
+     *
+     * Takie dwa punkty muszą dostać osobne wiersze.
+     *
+     * Jeśli jednak istnieje wspólny numer, np. 01 i 01,
+     * można je połączyć.
+     */
     if(
-        (firstEntry.rowIndex === 0 ||
-         firstEntry.rowIndex === firstLast) &&
-        (secondEntry.rowIndex === 0 ||
-         secondEntry.rowIndex === secondLast)
+        (firstEndpoint || secondEndpoint) &&
+        firstCodes.length > 0 &&
+        secondCodes.length > 0 &&
+        wspolneKody.length === 0
     ){
-        score += 500;
+        return 0;
+    }
+
+    /*
+     * =======================================================
+     * 2. UZUPEŁNIANIE PUSTEJ STRONY
+     * =======================================================
+     *
+     * Jeśli mamy np.:
+     *
+     *   01 | NAZWA | [pusto]
+     * [pusto] | NAZWA | 02
+     *
+     * to bardzo dobrze nadają się do jednego wiersza:
+     *
+     *   01 | NAZWA | 02
+     *
+     * O ile nie ma konfliktu na tej samej stronie.
+     */
+    const konfliktLewa =
+        firstSide.left &&
+        secondSide.left &&
+        !vbaTextEquals(firstSide.left, secondSide.left);
+
+    const konfliktPrawa =
+        firstSide.right &&
+        secondSide.right &&
+        !vbaTextEquals(firstSide.right, secondSide.right);
+
+    if(konfliktLewa || konfliktPrawa){
+        /*
+         * Przy powtarzających się nazwach konflikt po tej samej
+         * stronie oznacza inne fizyczne wystąpienie przystanku.
+         */
+        return 0;
+    }
+
+    const uzupelniaPustaStrone =
+        (
+            !firstSide.left &&
+            Boolean(secondSide.left)
+        ) ||
+        (
+            !secondSide.left &&
+            Boolean(firstSide.left)
+        ) ||
+        (
+            !firstSide.right &&
+            Boolean(secondSide.right)
+        ) ||
+        (
+            !secondSide.right &&
+            Boolean(firstSide.right)
+        );
+
+    let score = 100;
+
+    /*
+     * Identyczny numer nadal jest najpewniejszym dopasowaniem.
+     */
+    score += wspolneKody.length * 5000;
+
+    /*
+     * Mocny bonus, gdy dwa wiersze uzupełniają swoje puste strony.
+     */
+    if(uzupelniaPustaStrone){
+        score += 3000;
+    }
+
+    /*
+     * Dwa krańce z tym samym numerem mają dodatkowy priorytet.
+     */
+    if(firstEndpoint && secondEndpoint && wspolneKody.length > 0){
+        score += 1000;
     }
 
     return score;
 }
-
 
 function vbaCombinedRowMatchScore(row, incomingEntry){
     let best = 0;
@@ -4769,6 +5651,11 @@ function vbaCombinedRowMatchScore(row, incomingEntry){
 
 
 function vbaEntryIdentity(entry){
+    /*
+     * Tożsamość nadal opiera się na linii i wierszu.
+     * Endpoint/record są metadanymi do dopasowania i nie tworzą
+     * nowego fizycznego przystanku.
+     */
     return entry.lineData.id + "|" + entry.rowIndex;
 }
 
@@ -4928,38 +5815,153 @@ function vbaFindEntryPosition(rows, searchedEntry){
 }
 
 
+
+/*
+ * Czy dwa kolejne wpisy wzorca mogą legalnie zajmować
+ * TEN SAM gotowy wiersz tabeli.
+ *
+ * Jest to potrzebne np. dla:
+ *
+ *   02 | METRO WILANOWSKA | [pusto]
+ *   [pusto] | METRO WILANOWSKA | 11
+ *
+ * po scaleniu:
+ *
+ *   02 | METRO WILANOWSKA | 11
+ *
+ * Sam fakt, że oba wpisy mają tę samą pozycję w rows,
+ * nie oznacza wtedy błędnej kolejności.
+ */
+function vbaCanShareSameFinishedRow(rows, rowIndex, firstEntry, secondEntry){
+    if(
+        rowIndex < 0 ||
+        rowIndex >= (rows?.length || 0) ||
+        !firstEntry ||
+        !secondEntry
+    ){
+        return false;
+    }
+
+    const row =
+        rows[rowIndex];
+
+    if(!row){
+        return false;
+    }
+
+    const firstKey =
+        vbaEntryIdentity(
+            firstEntry
+        );
+
+    const secondKey =
+        vbaEntryIdentity(
+            secondEntry
+        );
+
+    const hasFirst =
+        (row.entries || []).some(entry =>
+            vbaEntryIdentity(entry) === firstKey
+        );
+
+    const hasSecond =
+        (row.entries || []).some(entry =>
+            vbaEntryIdentity(entry) === secondKey
+        );
+
+    if(
+        !hasFirst ||
+        !hasSecond
+    ){
+        return false;
+    }
+
+    /*
+     * Muszą być rzeczywiście kompatybilne jako jeden wiersz.
+     * Używamy tej samej logiki co przy scalaniu przystanków.
+     */
+    return (
+        vbaCombinedStopPairMatchScore(
+            firstEntry,
+            secondEntry
+        ) > 0
+    );
+}
+
+
 function vbaScoreRouteLayout(rows, patterns){
     let maximumGap = 0;
     let totalWeightedGap = 0;
 
     for(const pattern of patterns){
         let previous = -1;
+        let previousEntry = null;
 
         for(const entry of pattern.entries){
             const current =
-                vbaFindEntryPosition(rows, entry);
+                vbaFindEntryPosition(
+                    rows,
+                    entry
+                );
 
             if(current < 0){
                 return Number.MAX_SAFE_INTEGER;
             }
 
             if(previous >= 0){
-                const gap = current - previous - 1;
+
+                /*
+                 * Normalnie kolejny przystanek musi być niżej.
+                 *
+                 * Wyjątek:
+                 * dwa logiczne wpisy zostały bezpiecznie scalone
+                 * w jeden fizyczny wiersz tabeli, np.
+                 * METRO WILANOWSKA 02 + 11.
+                 */
+                if(current === previous){
+
+                    if(
+                        !vbaCanShareSameFinishedRow(
+                            rows,
+                            current,
+                            previousEntry,
+                            entry
+                        )
+                    ){
+                        return Number.MAX_SAFE_INTEGER;
+                    }
+
+                    /*
+                     * Ten sam fizyczny przystanek nie tworzy dziury.
+                     */
+                    previousEntry =
+                        entry;
+
+                    continue;
+                }
+
+                const gap =
+                    current - previous - 1;
 
                 if(gap < 0){
                     return Number.MAX_SAFE_INTEGER;
                 }
 
-                maximumGap = Math.max(
-                    maximumGap,
-                    gap
-                );
+                maximumGap =
+                    Math.max(
+                        maximumGap,
+                        gap
+                    );
 
                 totalWeightedGap +=
                     gap * pattern.courseCount;
             }
 
-            previous = current;
+            previous =
+                current;
+
+            previousEntry =
+                entry;
         }
     }
 
@@ -5143,11 +6145,70 @@ function vbaBuildDisplayRecords(records, brygada){
    ========================================================= */
 
 function vbaFindRowEntryForRecord(element, record){
-    if(!record) return null;
+    if(!record){
+        return null;
+    }
 
-    return (element?.entries || []).find(entry =>
-        entry.lineData === record.lineData
-    ) || null;
+    const matches =
+        (element?.entries || [])
+            .filter(entry =>
+                entry.lineData ===
+                record.lineData
+            );
+
+    if(!matches.length){
+        return null;
+    }
+
+    /*
+     * =========================================================
+     * NAJWAŻNIEJSZE:
+     * JEŻELI WIERSZ ZAWIERA KILKA WPISÓW TEJ SAMEJ LINII,
+     * WYBIERAMY TEN, PRZY KTÓRYM KONKRETNY KURS MA GODZINĘ.
+     * =========================================================
+     *
+     * Po scalaniu może powstać np. jeden wizualny wiersz
+     * zawierający kilka entry z tej samej lineData:
+     *
+     *   METRO WILANOWSKA 02
+     *   METRO WILANOWSKA 11
+     *
+     * Stara wersja brała pierwszy entry, nawet gdy record.times
+     * miał czas tylko przy drugim rowIndex. Efekt:
+     * numer przystanku był widoczny, ale godzina znikała.
+     */
+    const withTime =
+        matches.find(entry =>
+            record.times instanceof Map &&
+            record.times.has(
+                entry.rowIndex
+            )
+        );
+
+    if(withTime){
+        return withTime;
+    }
+
+    /*
+     * Jeżeli nie ma godziny, preferujemy rzeczywisty kraniec
+     * tego konkretnego kursu.
+     */
+    const endpoint =
+        matches.find(entry =>
+            record.endpoints instanceof Set &&
+            record.endpoints.has(
+                entry.rowIndex
+            )
+        );
+
+    if(endpoint){
+        return endpoint;
+    }
+
+    /*
+     * Ostateczny fallback – zachowanie zgodne z wcześniejszym kodem.
+     */
+    return matches[0] || null;
 }
 
 
@@ -5565,33 +6626,875 @@ function vbaCombinedSummary(displayRecords, breaks){
    PEŁNY MODEL BRYGADY ŁĄCZONEJ
    ========================================================= */
 
-function vbaBuildCombinedModel(brygada, allCourses){
-    const courses = (allCourses || [])
-        .filter(k =>
-            String(k?.brygada || "").trim() ===
-            String(brygada || "").trim()
+/* =========================================================
+   KOŃCOWE SCALANIE WSPÓLNYCH WIERSZY
+   ========================================================= */
+function vbaEntryDisplayedSides(entry){
+    if(!entry || !entry.lineData)return {left:'',right:''};
+    const stop=entry.lineData.stops[entry.rowIndex];
+    if(!stop)return {left:'',right:''};
+    return entry.reverse
+        ? {left:vbaNr(stop.code1),right:vbaNr(stop.code0)}
+        : {left:vbaNr(stop.code0),right:vbaNr(stop.code1)};
+}
+function vbaRowDisplayedCodes(row){
+    const left=[],right=[];
+    (row?.entries||[]).forEach(entry=>{
+        const s=vbaEntryDisplayedSides(entry);
+        if(s.left&&!left.some(x=>vbaTextEquals(x,s.left)))left.push(s.left);
+        if(s.right&&!right.some(x=>vbaTextEquals(x,s.right)))right.push(s.right);
+    });
+    return {left,right};
+}
+function vbaRowHasCourseEndpoint(row){
+    return Boolean((row?.entries||[]).some(entry=>entry?.endpoint===true));
+}
+function vbaRowAllCodes(row){
+    const codes=[];
+    (row?.entries||[]).forEach(entry=>{
+        const stop=entry?.lineData?.stops?.[entry.rowIndex];
+        if(!stop)return;
+        [vbaNr(stop.code0),vbaNr(stop.code1)].filter(Boolean).forEach(code=>{
+            if(!codes.some(x=>vbaTextEquals(x,code)))codes.push(code);
+        });
+    });
+    return codes;
+}
+function vbaCanMergeFinishedRows(firstRow, secondRow){
+    const firstName =
+        vbaNazwaWiersza(
+            firstRow
         );
 
-    const built = vbaBuildRecords(courses);
-    const records = built.records;
+    const secondName =
+        vbaNazwaWiersza(
+            secondRow
+        );
 
-    if(records.length === 0){
+    if(
+        !firstName ||
+        !secondName ||
+        !vbaTextEquals(
+            firstName,
+            secondName
+        )
+    ){
+        return false;
+    }
+
+    /*
+     * =========================================================
+     * PATRZYMY NA NUMERY RZECZYWIŚCIE WIDOCZNE W TABELI
+     * =========================================================
+     *
+     * To jest kluczowa zmiana.
+     *
+     * Wcześniej sprawdzaliśmy wszystkie wpisy wewnątrz row.entries,
+     * więc ukryty numer z innego kierunku mógł zablokować scalenie.
+     *
+     * Teraz używamy dokładnie tej samej funkcji, która renderuje
+     * lewy/prawy numer w tabeli.
+     */
+    const firstVisible =
+        vbaNumeryWiersza(
+            firstRow
+        );
+
+    const secondVisible =
+        vbaNumeryWiersza(
+            secondRow
+        );
+
+    const firstLeft =
+        vbaNr(
+            firstVisible?.lewy?.nr
+        );
+
+    const firstRight =
+        vbaNr(
+            firstVisible?.prawy?.nr
+        );
+
+    const secondLeft =
+        vbaNr(
+            secondVisible?.lewy?.nr
+        );
+
+    const secondRight =
+        vbaNr(
+            secondVisible?.prawy?.nr
+        );
+
+    /*
+     * Jeżeli po tej samej stronie są dwa różne widoczne numery,
+     * nie możemy ich połączyć.
+     */
+    if(
+        firstLeft &&
+        secondLeft &&
+        !vbaTextEquals(
+            firstLeft,
+            secondLeft
+        )
+    ){
+        return false;
+    }
+
+    if(
+        firstRight &&
+        secondRight &&
+        !vbaTextEquals(
+            firstRight,
+            secondRight
+        )
+    ){
+        return false;
+    }
+
+    /*
+     * Szczególnie ważny przypadek:
+     *
+     *   02 | METRO WILANOWSKA | [ ]
+     *   [ ]| METRO WILANOWSKA | 11
+     *
+     * => 02 | METRO WILANOWSKA | 11
+     */
+    const complementsVisible =
+        (
+            firstLeft &&
+            !firstRight &&
+            !secondLeft &&
+            secondRight
+        ) ||
+        (
+            !firstLeft &&
+            firstRight &&
+            secondLeft &&
+            !secondRight
+        );
+
+    if(complementsVisible){
+        /*
+         * Nadal chronimy prawdziwe różne krańce.
+         *
+         * Jeżeli któryś z tych wierszy jest krańcem konkretnego kursu,
+         * dwa różne numery nie mogą zostać połączone tylko dlatego,
+         * że uzupełniają puste strony.
+         */
+        const endpoint =
+            vbaRowHasCourseEndpoint(
+                firstRow
+            ) ||
+            vbaRowHasCourseEndpoint(
+                secondRow
+            );
+
+        if(endpoint){
+            const firstCodes =
+                vbaRowAllCodes(
+                    firstRow
+                );
+
+            const secondCodes =
+                vbaRowAllCodes(
+                    secondRow
+                );
+
+            const common =
+                firstCodes.some(a =>
+                    secondCodes.some(b =>
+                        vbaTextEquals(
+                            a,
+                            b
+                        )
+                    )
+                );
+
+            if(!common){
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /*
+     * Identyczny widoczny numer też może być scalony.
+     */
+    const sameLeft =
+        firstLeft &&
+        secondLeft &&
+        vbaTextEquals(
+            firstLeft,
+            secondLeft
+        );
+
+    const sameRight =
+        firstRight &&
+        secondRight &&
+        vbaTextEquals(
+            firstRight,
+            secondRight
+        );
+
+    if(
+        sameLeft ||
+        sameRight
+    ){
+        return true;
+    }
+
+    /*
+     * Pozostałe przypadki zostawiamy dotychczasowej logice
+     * zgodności fizycznych numerów.
+     */
+    const firstCodes =
+        vbaRowAllCodes(
+            firstRow
+        );
+
+    const secondCodes =
+        vbaRowAllCodes(
+            secondRow
+        );
+
+    const commonCodes =
+        firstCodes.filter(code =>
+            secondCodes.some(other =>
+                vbaTextEquals(
+                    code,
+                    other
+                )
+            )
+        );
+
+    return commonCodes.length > 0;
+}
+function vbaMergeFinishedRows(firstRow,secondRow){
+    const result={entries:(firstRow?.entries||[]).map(e=>({...e}))};
+    (secondRow?.entries||[]).forEach(entry=>vbaAddEntryIfMissing(result,entry));
+    return result;
+}
+function vbaCompactFinishedRows(rows, patterns){
+    /*
+     * =========================================================
+     * KOŃCOWE SCALANIE Z KONTROLĄ KOLEJNOŚCI CAŁEJ TRASY
+     * =========================================================
+     *
+     * Nie wystarczy, że dwa wiersze:
+     * - mają tę samą nazwę,
+     * - mają zgodne numery,
+     * - albo uzupełniają puste strony.
+     *
+     * Po KAŻDEJ próbie scalenia sprawdzamy wszystkie wzorce
+     * kursów przez vbaScoreRouteLayout().
+     *
+     * Jeżeli po scaleniu choć jeden kurs miałby przystanki
+     * w złej kolejności, kandydat jest odrzucany.
+     *
+     * To zabezpiecza m.in.:
+     *
+     * - TERMINAL AUTOKAROWY / BENNETTA nie mogą zostać włożone
+     *   w "pasującą dziurę", jeżeli późniejsze godziny znalazłyby
+     *   się nad wcześniejszymi,
+     *
+     * - 09:14 nie może pojawić się nad 09:15, jeśli rzeczywista
+     *   trasa wymaga odwrotnej kolejności,
+     *
+     * - wspólny kraniec LOTNISKO CHOPINA 71 może zostać złączony
+     *   tylko w tym położeniu, które zachowuje kolejność wszystkich
+     *   linii i kursów.
+     */
+
+    let current =
+        vbaCloneRows(
+            rows || []
+        );
+
+    const ps =
+        Array.isArray(patterns)
+            ? patterns
+            : [];
+
+    if(
+        current.length < 2 ||
+        !ps.length
+    ){
+        return current;
+    }
+
+    const MAX =
+        Number.MAX_SAFE_INTEGER;
+
+    /*
+     * Tworzy wariant, w którym wiersze i oraz j są połączone,
+     * a wynik zostaje w miejscu keepIndex.
+     */
+    const makeCandidate = (
+        source,
+        i,
+        j,
+        keepIndex
+    ) => {
+        const candidate =
+            vbaCloneRows(
+                source
+            );
+
+        const merged =
+            vbaMergeFinishedRows(
+                candidate[i],
+                candidate[j]
+            );
+
+        if(keepIndex === i){
+            candidate[i] = merged;
+            candidate.splice(j,1);
+        }
+        else{
+            candidate[j] = merged;
+            candidate.splice(i,1);
+        }
+
+        return candidate;
+    };
+
+    /*
+     * Powtarzamy do chwili, gdy nie istnieje już żadne bezpieczne
+     * scalenie. W każdej iteracji wybieramy globalnie najlepszy
+     * wariant według tego samego miernika, który buduje trasę.
+     */
+    while(true){
+        let bestRows = null;
+        let bestScore = Infinity;
+
+        for(let i=0; i<current.length-1; i++){
+            for(let j=i+1; j<current.length; j++){
+
+                if(
+                    !vbaCanMergeFinishedRows(
+                        current[i],
+                        current[j]
+                    )
+                ){
+                    continue;
+                }
+
+                /*
+                 * Sprawdzamy OBA możliwe położenia scalenia.
+                 *
+                 * To ważne dla wspólnych krańców:
+                 * czasem prawidłowe jest pierwsze wystąpienie,
+                 * czasem drugie.
+                 */
+                const keepEarlier =
+                    makeCandidate(
+                        current,
+                        i,
+                        j,
+                        i
+                    );
+
+                const scoreEarlier =
+                    vbaScoreRouteLayout(
+                        keepEarlier,
+                        ps
+                    );
+
+                if(
+                    scoreEarlier !== MAX &&
+                    scoreEarlier < bestScore
+                ){
+                    bestScore =
+                        scoreEarlier;
+
+                    bestRows =
+                        keepEarlier;
+                }
+
+                const keepLater =
+                    makeCandidate(
+                        current,
+                        i,
+                        j,
+                        j
+                    );
+
+                const scoreLater =
+                    vbaScoreRouteLayout(
+                        keepLater,
+                        ps
+                    );
+
+                if(
+                    scoreLater !== MAX &&
+                    scoreLater < bestScore
+                ){
+                    bestScore =
+                        scoreLater;
+
+                    bestRows =
+                        keepLater;
+                }
+            }
+        }
+
+        if(!bestRows){
+            break;
+        }
+
+        /*
+         * Dodatkowa asekuracja:
+         * po wybraniu wariantu jeszcze raz kontrolujemy całość.
+         */
+        if(
+            vbaScoreRouteLayout(
+                bestRows,
+                ps
+            ) === MAX
+        ){
+            break;
+        }
+
+        current =
+            bestRows;
+    }
+
+    return current;
+}
+
+
+/* =========================================================
+   REALNE PRZESUWANIE KRAŃCÓW BLIŻEJ SWOJEJ LINII
+   ========================================================= */
+
+/*
+ * Zwraca identyfikatory linii/układów, dla których dany wiersz
+ * jest krańcem konkretnego kursu.
+ */
+function vbaEndpointLineIds(row){
+    const ids = [];
+
+    (row?.entries || []).forEach(entry => {
+        if(entry?.endpoint !== true){
+            return;
+        }
+
+        const id =
+            String(
+                entry?.lineData?.id || ""
+            );
+
+        if(
+            id &&
+            !ids.includes(id)
+        ){
+            ids.push(id);
+        }
+    });
+
+    return ids;
+}
+
+
+/*
+ * Pozycje pozostałych przystanków danej linii w aktualnym układzie.
+ */
+function vbaPositionsOfLine(rows, lineId, skipIndex){
+    const positions = [];
+
+    (rows || []).forEach((row, index) => {
+        if(index === skipIndex){
+            return;
+        }
+
+        const found =
+            (row?.entries || []).some(entry =>
+                String(
+                    entry?.lineData?.id || ""
+                ) ===
+                String(lineId)
+            );
+
+        if(found){
+            positions.push(index);
+        }
+    });
+
+    return positions;
+}
+
+
+/*
+ * Kara za odległość krańca od najbliższego przystanku
+ * tej samej linii.
+ */
+function vbaEndpointNeighbourPenalty(rows, rowIndex){
+    const row =
+        rows?.[rowIndex];
+
+    if(!row){
+        return 0;
+    }
+
+    const ids =
+        vbaEndpointLineIds(
+            row
+        );
+
+    if(!ids.length){
+        return 0;
+    }
+
+    let penalty = 0;
+
+    ids.forEach(lineId => {
+        const positions =
+            vbaPositionsOfLine(
+                rows,
+                lineId,
+                rowIndex
+            );
+
+        if(!positions.length){
+            return;
+        }
+
+        let nearest =
+            Number.MAX_SAFE_INTEGER;
+
+        positions.forEach(pos => {
+            nearest =
+                Math.min(
+                    nearest,
+                    Math.abs(
+                        pos - rowIndex
+                    )
+                );
+        });
+
+        penalty +=
+            Math.max(
+                0,
+                nearest - 1
+            );
+    });
+
+    return penalty;
+}
+
+
+/*
+ * Globalna kara za odległość wszystkich krańców.
+ */
+function vbaAllEndpointPenalty(rows){
+    let total = 0;
+
+    (rows || []).forEach((row, index) => {
+        total +=
+            vbaEndpointNeighbourPenalty(
+                rows,
+                index
+            );
+    });
+
+    return total;
+}
+
+
+/*
+ * Przenosi jeden wiersz z fromIndex do insertIndex.
+ */
+function vbaMoveRow(rows, fromIndex, insertIndex){
+    const result =
+        vbaCloneRows(
+            rows
+        );
+
+    const [row] =
+        result.splice(
+            fromIndex,
+            1
+        );
+
+    let target =
+        insertIndex;
+
+    /*
+     * Po usunięciu elementu indeksy po prawej przesuwają się o 1.
+     */
+    if(target > fromIndex){
+        target--;
+    }
+
+    target =
+        Math.max(
+            0,
+            Math.min(
+                target,
+                result.length
+            )
+        );
+
+    result.splice(
+        target,
+        0,
+        row
+    );
+
+    return result;
+}
+
+
+/*
+ * Próbuje REALNIE przesunąć krańce bliżej swoich linii.
+ *
+ * Bardzo ważne:
+ * - nie zmienia kolejności żadnego kursu,
+ * - nie gubi żadnego wiersza,
+ * - nie scala tutaj przystanków,
+ * - tylko przesuwa cały istniejący wiersz,
+ * - wybiera zmianę wyłącznie gdy faktycznie zmniejsza
+ *   odległość krańców.
+ */
+function vbaMoveEndpointsCloser(rows, patterns){
+    let current =
+        vbaCloneRows(
+            rows || []
+        );
+
+    const ps =
+        Array.isArray(patterns)
+            ? patterns
+            : [];
+
+    if(
+        current.length < 2 ||
+        !ps.length
+    ){
+        return current;
+    }
+
+    let changed = true;
+    let guard = 0;
+
+    while(
+        changed &&
+        guard < 20
+    ){
+        changed = false;
+        guard++;
+
+        let bestRows = null;
+        let bestPenalty =
+            vbaAllEndpointPenalty(
+                current
+            );
+
+        let bestRouteScore =
+            vbaScoreRouteLayout(
+                current,
+                ps
+            );
+
+        for(
+            let from=0;
+            from<current.length;
+            from++
+        ){
+            const row =
+                current[from];
+
+            /*
+             * Ruszamy wyłącznie wiersze będące krańcami
+             * konkretnego kursu.
+             */
+            if(
+                !vbaEndpointLineIds(
+                    row
+                ).length
+            ){
+                continue;
+            }
+
+            /*
+             * Sprawdzamy każdą możliwą pozycję.
+             */
+            for(
+                let target=0;
+                target<=current.length;
+                target++
+            ){
+                if(
+                    target===from ||
+                    target===from+1
+                ){
+                    continue;
+                }
+
+                const candidate =
+                    vbaMoveRow(
+                        current,
+                        from,
+                        target
+                    );
+
+                /*
+                 * BEZWZGLĘDNY WARUNEK:
+                 * po przesunięciu wszystkie kursy muszą nadal
+                 * przechodzić przez przystanki w prawidłowej
+                 * kolejności.
+                 */
+                const routeScore =
+                    vbaScoreRouteLayout(
+                        candidate,
+                        ps
+                    );
+
+                if(
+                    routeScore ===
+                    Number.MAX_SAFE_INTEGER
+                ){
+                    continue;
+                }
+
+                const penalty =
+                    vbaAllEndpointPenalty(
+                        candidate
+                    );
+
+                /*
+                 * Bierzemy wyłącznie REALNĄ poprawę bliskości krańców.
+                 */
+                if(
+                    penalty < bestPenalty
+                ){
+                    bestPenalty =
+                        penalty;
+
+                    bestRouteScore =
+                        routeScore;
+
+                    bestRows =
+                        candidate;
+                }
+                else if(
+                    penalty === bestPenalty &&
+                    bestRows &&
+                    routeScore < bestRouteScore
+                ){
+                    /*
+                     * Przy identycznej bliskości wybieramy układ
+                     * o mniejszych dziurach między przystankami.
+                     */
+                    bestRouteScore =
+                        routeScore;
+
+                    bestRows =
+                        candidate;
+                }
+            }
+        }
+
+        if(bestRows){
+            current =
+                bestRows;
+
+            changed =
+                true;
+        }
+    }
+
+    return current;
+}
+
+
+function vbaBuildCombinedModel(brygada, allCourses){
+    const courses=(allCourses||[])
+        .filter(k =>
+            String(k?.brygada||"").trim() ===
+            String(brygada||"").trim()
+        );
+
+    const built =
+        vbaBuildRecords(
+            courses
+        );
+
+    const records =
+        built.records;
+
+    if(records.length===0){
         return null;
     }
 
     const patterns =
-        vbaBuildPatterns(records);
+        vbaBuildPatterns(
+            records,
+            brygada
+        );
 
     if(!patterns.length){
         return null;
     }
 
-    const rows =
-        vbaBuildMostCompactLayout(patterns);
+    const rawRows =
+        vbaBuildMostCompactLayout(
+            patterns
+        );
 
-    if(!rows.length){
+    if(!rawRows.length){
         return null;
     }
+
+    /*
+     * Najpierw zachowujemy działające końcowe scalanie,
+     * które kontroluje kolejność wszystkich tras.
+     */
+    const compactRows =
+        vbaCompactFinishedRows(
+            rawRows,
+            patterns
+        );
+
+    if(!compactRows.length){
+        return null;
+    }
+
+    if(
+        vbaScoreRouteLayout(
+            compactRows,
+            patterns
+        ) === Number.MAX_SAFE_INTEGER
+    ){
+        return null;
+    }
+
+    /*
+     * DOPIERO TERAZ przesuwamy krańce.
+     *
+     * To jest osobny etap, dzięki czemu nie zmieniamy mechanizmu,
+     * który już dobrze ustala godziny i kolejność przystanków.
+     */
+    const movedRows =
+        vbaMoveEndpointsCloser(
+            compactRows,
+            patterns
+        );
+
+    /*
+     * Ostateczna kontrola bezpieczeństwa.
+     */
+    const rows =
+        (
+            movedRows.length &&
+            vbaScoreRouteLayout(
+                movedRows,
+                patterns
+            ) !== Number.MAX_SAFE_INTEGER
+        )
+            ? movedRows
+            : compactRows;
 
     const displayRecords =
         vbaBuildDisplayRecords(
@@ -5836,24 +7739,25 @@ function vbaPokazBrygadyZLaczeniami(
         `${brygady.length} ${brygady.length === 1 ? "brygada" : "brygad"}`;
 
     /*
-     * v17
-     * Nie budujemy już całego HTML przez jedno map(...).join(...).
+     * Każdą brygadę renderujemy osobno.
      *
-     * W poprzedniej wersji jeden wyjątek podczas renderowania jednej
-     * brygady przerywał całe wyrażenie przed przypisaniem do innerHTML.
-     * Efekt był dokładnie taki jak na stronie 715:
-     * nagłówek "5 brygad" był widoczny, ale poniżej nie pojawiało się nic.
+     * Nie zmieniamy logiki wykrywania ani łączenia brygad.
+     * Zmiana dotyczy wyłącznie sposobu wpisywania gotowego HTML.
      *
-     * Teraz każda brygada jest renderowana niezależnie.
+     * Dzięki temu błąd jednej brygady nie przerywa renderowania
+     * wszystkich pozostałych i nie zostawia pustej strony.
      */
     const htmlBrygad = [];
 
     for(const brygada of brygady){
+
         const normalCourses =
             grupyGlowneNormal.get(brygada) || [];
 
         try{
+
             if(!czyNumerZadaniaLaczonego(brygada)){
+
                 htmlBrygad.push(
                     renderBrygada(
                         String(
@@ -5877,6 +7781,7 @@ function vbaPokazBrygadyZLaczeniami(
             );
 
             extra.forEach(item => {
+
                 const courses =
                     item.grupy.get(brygada);
 
@@ -5894,10 +7799,11 @@ function vbaPokazBrygadyZLaczeniami(
             });
 
             /*
-             * Jeśli zadanie występuje tylko na jednej linii,
-             * zachowujemy zwykłe renderowanie.
+             * Numer >99 występujący tylko na jednej linii zachowuje
+             * dotychczasową obsługę.
              */
             if(lines.size < 2){
+
                 htmlBrygad.push(
                     renderBrygada(
                         String(
@@ -5912,39 +7818,50 @@ function vbaPokazBrygadyZLaczeniami(
                 continue;
             }
 
-            const deduped =
+            const polaczoneKursy =
                 vbaDeduplicateCombinedCourses(all);
 
+            /*
+             * Informacja diagnostyczna.
+             * Nie wpływa na logikę brygady.
+             */
             console.log(
                 "[FWTP brygada łączona]",
                 {
                     brygada,
-                    linie: Array.from(lines),
-                    kursy: deduped.length
+                    linie:Array.from(lines),
+                    kursy:polaczoneKursy.length
                 }
             );
 
-            const combinedHtml =
+            const htmlPolaczonej =
                 vbaRenderCombinedBrigade(
                     brygada,
-                    deduped
+                    polaczoneKursy
                 );
 
-            /*
-             * Model łączony nie powinien zwracać pustego HTML.
-             * Gdyby jednak konkretne dane były nietypowe, zamiast
-             * pozostawić pustą stronę pokazujemy zwykłą brygadę.
-             */
             if(
-                typeof combinedHtml === "string" &&
-                combinedHtml.trim()
+                typeof htmlPolaczonej==="string" &&
+                htmlPolaczonej.trim()!==""
             ){
-                htmlBrygad.push(combinedHtml);
+
+                htmlBrygad.push(
+                    htmlPolaczonej
+                );
+
             }else{
+
+                /*
+                 * Jeżeli z jakiegoś powodu renderer brygady łączonej
+                 * zwróci pusty tekst, nie zostawiamy całej strony pustej.
+                 * Pokazujemy tę brygadę zwykłym rendererem.
+                 */
                 console.warn(
                     "[FWTP] Pusty wynik brygady łączonej",
-                    brygada,
-                    Array.from(lines)
+                    {
+                        brygada,
+                        linie:Array.from(lines)
+                    }
                 );
 
                 htmlBrygad.push(
@@ -5958,11 +7875,11 @@ function vbaPokazBrygadyZLaczeniami(
                     )
                 );
             }
-        }
-        catch(error){
+
+        }catch(error){
+
             /*
-             * Najważniejsza poprawka:
-             * jedna brygada nie może wyzerować całego widoku.
+             * Jeden błąd brygady nie może zatrzymać pozostałych.
              */
             console.error(
                 "[FWTP] Błąd renderowania brygady",
@@ -5971,6 +7888,7 @@ function vbaPokazBrygadyZLaczeniami(
             );
 
             try{
+
                 htmlBrygad.push(
                     renderBrygada(
                         String(
@@ -5981,8 +7899,9 @@ function vbaPokazBrygadyZLaczeniami(
                         normalCourses
                     )
                 );
-            }
-            catch(fallbackError){
+
+            }catch(fallbackError){
+
                 console.error(
                     "[FWTP] Błąd renderowania awaryjnego",
                     brygada,
@@ -5999,7 +7918,8 @@ function vbaPokazBrygadyZLaczeniami(
         }
     }
 
-    wynik.innerHTML = htmlBrygad.join("");
+    wynik.innerHTML =
+        htmlBrygad.join("");
 
     requestAnimationFrame(() => {
         ustawPozycjeCiaglychSeparatorow();
@@ -6015,6 +7935,133 @@ function vbaPokazBrygadyZLaczeniami(
    GŁÓWNE WCZYTANIE
    ========================================================= */
 
+
+/* =========================================================
+   LOADER BRYGAD – sterowany rzeczywistymi etapami ładowania
+   ========================================================= */
+
+function pokazLoaderBrygad(){
+    const wynik=document.getElementById("wynik");
+
+    if(!wynik){
+        return;
+    }
+
+    wynik.innerHTML=
+        '<div class="brygady-loader" id="brygadyLoader">' +
+            '<div class="brygady-loader-title">Ładowanie brygad...</div>' +
+            '<div class="brygady-loader-road">' +
+                '<div class="brygady-loader-track">' +
+                    '<div class="brygady-loader-progress" id="brygadyLoaderProgress"></div>' +
+                '</div>' +
+                '<img class="brygady-loader-bus" id="brygadyLoaderBus" src="autobus-loader.png" alt="" aria-hidden="true">' +
+            '</div>' +
+            '<div class="brygady-loader-percent" id="brygadyLoaderPercent">0%</div>' +
+            '<div class="brygady-loader-stage" id="brygadyLoaderStage">Rozpoczynanie...</div>' +
+        '</div>';
+
+    ustawLoaderBrygad(
+        2,
+        "Rozpoczynanie..."
+    );
+}
+
+
+function ustawLoaderBrygad(procent, etap){
+    const p=
+        Math.max(
+            0,
+            Math.min(
+                100,
+                Math.round(
+                    Number(procent)||0
+                )
+            )
+        );
+
+    const pasek=
+        document.getElementById(
+            "brygadyLoaderProgress"
+        );
+
+    const autobus=
+        document.getElementById(
+            "brygadyLoaderBus"
+        );
+
+    const liczba=
+        document.getElementById(
+            "brygadyLoaderPercent"
+        );
+
+    const opis=
+        document.getElementById(
+            "brygadyLoaderStage"
+        );
+
+    if(pasek){
+        pasek.style.width=
+            p+"%";
+
+        pasek.classList.toggle(
+            "gotowe",
+            p>=100
+        );
+    }
+
+    if(autobus){
+        autobus.style.left=
+            p+"%";
+
+        autobus.classList.toggle(
+            "gotowe",
+            p>=100
+        );
+    }
+
+    if(liczba){
+        liczba.textContent=
+            p+"%";
+    }
+
+    if(opis && etap){
+        opis.textContent=
+            etap;
+    }
+}
+
+
+function czekajNaRender(){
+    return new Promise(resolve=>{
+        requestAnimationFrame(()=>{
+            requestAnimationFrame(
+                resolve
+            );
+        });
+    });
+}
+
+
+async function zakonczLoaderBrygad(){
+    ustawLoaderBrygad(
+        100,
+        "Gotowe"
+    );
+
+    await czekajNaRender();
+
+    /*
+     * Krótka chwila na zobaczenie dojazdu autobusu do 100%.
+     */
+    await new Promise(resolve=>
+        setTimeout(
+            resolve,
+            320
+        )
+    );
+}
+
+
 async function wczytajIBuduj(){
     const wynik =
         document.getElementById("wynik");
@@ -6022,38 +8069,93 @@ async function wczytajIBuduj(){
     const info =
         document.getElementById("brygadyInfo");
 
-    wynik.innerHTML =
-        '<div class="brak">Ładowanie brygad...</div>';
+    /*
+     * Loader pojawia się dopiero po wywołaniu wczytajIBuduj(),
+     * czyli po "Pokaż brygady", Enterze albo zmianie dnia,
+     * gdy linia jest już wybrana.
+     */
+    pokazLoaderBrygad();
+
+    ustawLoaderBrygad(
+        5,
+        "Pobieranie danych linii "+aktualnaLinia+"..."
+    );
 
     info.textContent =
         `Ładowanie linii ${aktualnaLinia}...`;
 
+    await czekajNaRender();
+
     try{
+        /*
+         * 5–25% – główny JSON linii
+         */
         const dane =
             await pobierzLinie(
                 aktualnaLinia,
                 wybranaData
             );
 
+        ustawLoaderBrygad(
+            25,
+            "Dane linii pobrane"
+        );
+
+        await czekajNaRender();
+
+        /*
+         * 25–38% – odczyt kursów i brygad
+         */
         const kursyGlowne =
             vbaZbierzKursyLinii(
                 dane,
                 wybranaData
             );
 
+        ustawLoaderBrygad(
+            38,
+            "Analizowanie kursów i brygad..."
+        );
+
+        await czekajNaRender();
+
         const potrzebneBrygady =
             new Set(
                 kursyGlowne
                     .map(k =>
-                        String(k.brygada || "").trim()
+                        String(
+                            k.brygada||""
+                        ).trim()
                     )
-                    .filter(czyNumerZadaniaLaczonego)
+                    .filter(
+                        czyNumerZadaniaLaczonego
+                    )
             );
 
+        /*
+         * Zwykła linia bez zadań łączonych.
+         */
         if(!potrzebneBrygady.size){
+            ustawLoaderBrygad(
+                72,
+                "Budowanie układu przystanków..."
+            );
+
+            await czekajNaRender();
+
+            ustawLoaderBrygad(
+                92,
+                "Tworzenie tabel brygad..."
+            );
+
+            await czekajNaRender();
+
             /*
-             * Brak zadań łączonych – uruchamiamy dokładnie starą ścieżkę.
+             * Najpierw pokazujemy 100%, a dopiero potem zastępujemy
+             * loader gotowymi tabelami.
              */
+            await zakonczLoaderBrygad();
+
             pokazBrygady(
                 dane,
                 wybranaData
@@ -6062,15 +8164,58 @@ async function wczytajIBuduj(){
             return;
         }
 
+        /*
+         * Zadania łączone.
+         * 38–82% jest rzeczywistym postępem sprawdzania kolejnych
+         * linii z manifestu.
+         */
         info.textContent =
             `Ładowanie linii ${aktualnaLinia} i zadań łączonych...`;
+
+        ustawLoaderBrygad(
+            42,
+            "Szukanie pozostałych linii tej samej brygady..."
+        );
 
         const dodatkowe =
             await vbaPobierzDodatkoweLinie(
                 aktualnaLinia,
                 wybranaData,
-                potrzebneBrygady
+                potrzebneBrygady,
+                (gotowe, wszystkie)=>{
+                    const udzial =
+                        wszystkie>0
+                            ? gotowe/wszystkie
+                            : 1;
+
+                    const procent =
+                        42 +
+                        Math.round(
+                            udzial*40
+                        );
+
+                    ustawLoaderBrygad(
+                        procent,
+                        `Sprawdzanie dodatkowych linii...`
+                    );
+                }
             );
+
+        ustawLoaderBrygad(
+            86,
+            "Łączenie tras i przystanków..."
+        );
+
+        await czekajNaRender();
+
+        ustawLoaderBrygad(
+            94,
+            "Tworzenie tabel brygad..."
+        );
+
+        await czekajNaRender();
+
+        await zakonczLoaderBrygad();
 
         vbaPokazBrygadyZLaczeniami(
             dane,
@@ -6089,5 +8234,7 @@ async function wczytajIBuduj(){
 }
 
 </script>
+
+
 </body>
 </html>
