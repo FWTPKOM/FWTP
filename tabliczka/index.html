@@ -5092,6 +5092,114 @@ function opisWariantuDoKierunku(
 
 
 
+
+function normalizujBezPolskichZnakow(
+    tekst
+){
+
+    return String(
+        tekst||""
+    )
+    .normalize("NFD")
+    .replace(
+        /[\u0300-\u036f]/g,
+        ""
+    )
+    .toLocaleLowerCase(
+        "pl-PL"
+    )
+    .replace(
+        /\s+/g,
+        " "
+    )
+    .trim();
+}
+
+
+function czyRedundantneWydluzenieDoTegoSamegoKierunku(
+    wariant,
+    kierunek
+){
+
+    const litera=
+        String(
+            wariant||""
+        ).trim();
+
+    if(!litera){
+        return false;
+    }
+
+    let opis="";
+
+    for(
+        const [klucz,wartosc]
+        of mapaWariantow().entries()
+    ){
+        if(
+            String(
+                kanonicznaLiteraWariantu(
+                    klucz
+                )||""
+            )
+            .toLowerCase()===
+            String(
+                kanonicznaLiteraWariantu(
+                    litera
+                )||""
+            )
+            .toLowerCase()
+        ){
+            opis=
+                String(
+                    wartosc||""
+                );
+            break;
+        }
+    }
+
+    if(
+        !/wydłuż|wydluz/i.test(
+            opis
+        )
+    ){
+        return false;
+    }
+
+    const opisNorm=
+        normalizujBezPolskichZnakow(
+            opis
+        );
+
+    const kierunekNorm=
+        normalizujBezPolskichZnakow(
+            kierunek
+        );
+
+    if(!kierunekNorm){
+        return false;
+    }
+
+    /*
+       Jeśli opis mówi:
+       "wydłużony do krańca ELSNERÓW"
+       a sam kierunek już brzmi ELSNERÓW,
+       nie jest to dla pasażera osobny wariant kierunku.
+
+       Ma korzystać z tego samego symbolu i tego samego wpisu legendy
+       co zwykły kurs w kierunku ELSNERÓW.
+    */
+    return(
+        opisNorm.includes(
+            "do kranca "+kierunekNorm
+        )||
+        opisNorm.includes(
+            "do "+kierunekNorm
+        )
+    );
+}
+
+
 function opisPrezentacyjnyWariantuDwukierunkowego(
     wariant,
     kierunek
@@ -5101,40 +5209,30 @@ function opisPrezentacyjnyWariantuDwukierunkowego(
         return"";
     }
 
-    let fragment=
-        opisWariantuDoKierunku(
-            wariant,
-            0
-        );
-
-    if(!fragment){
-        return"";
-    }
-
-    const kierunekNorm=
-        normalizuj(
-            kierunek
-        );
-
-    const fragmentNorm=
-        normalizuj(
-            fragment
-        );
-
     /*
-       "wydłużony do krańca ELSNERÓW" przy kierunku ELSNERÓW
-       niczego nie wnosi i nie powinno być pokazywane.
+       Najpierw sprawdzamy przypadek redundantny:
+       "kurs w kierunku ELSNERÓW wydłużony do krańca ELSNERÓW"
+       ma być po prostu:
+       "kurs w kierunku ELSNERÓW".
     */
     if(
-        /wydłuż/i.test(fragment)&&
-        fragmentNorm.includes(
-            "do krańca "+kierunekNorm
+        czyRedundantneWydluzenieDoTegoSamegoKierunku(
+            wariant,
+            kierunek
         )
     ){
         return"";
     }
 
-    return fragment;
+    const fragment=
+        opisWariantuDoKierunku(
+            wariant,
+            0
+        );
+
+    return String(
+        fragment||""
+    ).trim();
 }
 
 
@@ -5223,7 +5321,7 @@ function __bezCache_mapaSymboliDwukierunkowych(){
                                 litera
                             );
 
-                        const wariant=
+                        let wariant=
                             pokazWariant
                                 ? String(litera).toLowerCase()
                                 : "";
@@ -5236,6 +5334,19 @@ function __bezCache_mapaSymboliDwukierunkowych(){
                                 )||
                                 ""
                             ).toUpperCase();
+
+                        /*
+                           Redundantne wydłużenie do tego samego krańca
+                           jest semantycznie kursem podstawowym.
+                        */
+                        if(
+                            czyRedundantneWydluzenieDoTegoSamegoKierunku(
+                                wariant,
+                                kierunek
+                            )
+                        ){
+                            wariant="";
+                        }
 
                         const semanticKey=
                             kluczPrezentacyjnyDwukierunkowy(
@@ -5434,7 +5545,7 @@ function symbolKursuDwukierunkowego(
             dir
         );
 
-    const wariant=
+    let wariant=
         (
             litera&&
             czyPokazacWariantJakLiniaHTML(
@@ -5443,6 +5554,26 @@ function symbolKursuDwukierunkowego(
         )
             ? String(litera).toLowerCase()
             : "";
+
+    const kierunek=
+        String(
+            kurs?._kierunekNazwa||
+            nazwaKierunku(
+                znajdzNajpelniejszyKierunek(
+                    dir
+                )
+            )||
+            ""
+        ).toUpperCase();
+
+    if(
+        czyRedundantneWydluzenieDoTegoSamegoKierunku(
+            wariant,
+            kierunek
+        )
+    ){
+        wariant="";
+    }
 
     const wpis=
         mapaSymboliDwukierunkowych()
@@ -6575,6 +6706,102 @@ function usunPowtorzeniaTylkoOdStartuKursow(
 }
 
 
+
+function usunKolejnePowtorzeniaNazwyNaTabliczce(
+    lista
+){
+
+    if(
+        !Array.isArray(lista)||
+        lista.length<2
+    ){
+        return lista||[];
+    }
+
+    const wynik=[];
+
+    let i=0;
+
+    while(i<lista.length){
+
+        const nazwa=
+            normalizuj(
+                lista[i]?.p?.nazwa
+            );
+
+        let j=i+1;
+
+        while(
+            j<lista.length&&
+            normalizuj(
+                lista[j]?.p?.nazwa
+            )===nazwa
+        ){
+            j++;
+        }
+
+        const grupa=
+            lista.slice(
+                i,
+                j
+            );
+
+        if(grupa.length===1){
+
+            wynik.push(
+                grupa[0]
+            );
+
+            i=j;
+            continue;
+        }
+
+        /*
+           Jeżeli jednym z powtórzeń jest dokładnie wybrany
+           przystanek, zachowujemy aktywny wpis.
+        */
+        const aktywny=
+            grupa.find(
+                element=>
+                    element?.index===
+                    aktualnyPrzystanek
+            );
+
+        if(aktywny){
+
+            wynik.push(
+                aktywny
+            );
+
+            i=j;
+            continue;
+        }
+
+        /*
+           W pozostałych przypadkach zachowujemy ostatni wpis.
+           W danych FWTP pierwszy z kolejnych identycznych wpisów
+           jest zwykle technicznym początkiem części kursów,
+           a kolejny należy do właściwego przebiegu.
+
+           Przykład 170:
+               PKP ZACISZE-WILNO
+               PKP ZACISZE-WILNO
+           =>
+               PKP ZACISZE-WILNO
+        */
+        wynik.push(
+            grupa[
+                grupa.length-1
+            ]
+        );
+
+        i=j;
+    }
+
+    return wynik;
+}
+
+
 function __bezCache_listaPelnejTrasyDoWyswietlenia(){
 
     const baza=
@@ -6635,8 +6862,17 @@ function __bezCache_listaPelnejTrasyDoWyswietlenia(){
        Następnie usuwamy sztuczne powtórzenia tworzone wyłącznie
        przez kursy rozpoczynające się w środku trasy.
     */
-    return usunPowtorzeniaTylkoOdStartuKursow(
-        bezDuplikatowSkroconych
+    const bezStartowychDuplikatow=
+        usunPowtorzeniaTylkoOdStartuKursow(
+            bezDuplikatowSkroconych
+        );
+
+    /*
+       Ostateczna warstwa zabezpieczająca widok tabliczki:
+       dwa kolejne wpisy tej samej nazwy pokazujemy jako jeden.
+    */
+    return usunKolejnePowtorzeniaNazwyNaTabliczce(
+        bezStartowychDuplikatow
     );
 }
 
@@ -9569,25 +9805,43 @@ function renderLegendaDwukierunkowa(){
                 opis+=" "+fragment;
             }
 
-            wiersze.push(
-                '<div class="legenda-wiersz">'+
-                '<span class="legenda-litera">'+
-                escapeHtml(
-                    item.znak
-                )+
-                '</span>'+
-                '<span class="legenda-myslnik">-</span>'+
-                '<span class="legenda-opis">'+
-                escapeHtml(
+            const kluczOpisu=
+                normalizujBezPolskichZnakow(
                     opis
-                )+
-                '</span>'+
-                '</div>'
-            );
+                );
+
+            if(
+                wiersze.some(
+                    w=>
+                        w.klucz===
+                        kluczOpisu
+                )
+            ){
+                return;
+            }
+
+            wiersze.push({
+                klucz:
+                    kluczOpisu,
+                html:
+                    '<div class="legenda-wiersz">'+
+                    '<span class="legenda-litera">'+
+                    escapeHtml(
+                        item.znak
+                    )+
+                    '</span>'+
+                    '<span class="legenda-myslnik">-</span>'+
+                    '<span class="legenda-opis">'+
+                    escapeHtml(
+                        opis
+                    )+
+                    '</span>'+
+                    '</div>'
+            });
         }
     );
 
-    return wiersze.join("");
+    return wiersze.map(x=>x.html).join("");
 }
 
 
