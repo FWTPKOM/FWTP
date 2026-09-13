@@ -5803,10 +5803,200 @@ function daneTrasWydluzonych(){
 }
 
 
+
+function kluczeKursowNaPrzystanku(
+    bazaP
+){
+
+    const wynik=
+        new Set();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const p=
+                znajdzPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    bazaP
+                );
+
+            (
+                p?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    wynik.add(
+                        [
+                            String(
+                                kurs?.numer||""
+                            ).trim(),
+                            String(
+                                kurs?.wariant||""
+                            ).trim(),
+                            symbolDnia(kurs),
+                            String(
+                                kurs?.brygada||""
+                            ).trim()
+                        ].join("|")
+                    );
+                }
+            );
+        }
+    );
+
+    return wynik;
+}
+
+
+function istniejeKursLaczacyPrzystanki(
+    pierwszy,
+    drugi
+){
+
+    const a=
+        kluczeKursowNaPrzystanku(
+            pierwszy
+        );
+
+    const b=
+        kluczeKursowNaPrzystanku(
+            drugi
+        );
+
+    if(
+        !a.size||
+        !b.size
+    ){
+        return false;
+    }
+
+    for(
+        const key
+        of a
+    ){
+        if(
+            b.has(key)
+        ){
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+function przeniesMinieteGaleziePrzedAktywny(
+    lista
+){
+
+    if(
+        !Array.isArray(lista)||
+        !lista.length
+    ){
+        return lista||[];
+    }
+
+    const pozycjaAktywnego=
+        lista.findIndex(
+            element=>
+                element.index===
+                aktualnyPrzystanek
+        );
+
+    if(
+        pozycjaAktywnego<0
+    ){
+        return lista;
+    }
+
+    const aktywny=
+        lista[
+            pozycjaAktywnego
+        ];
+
+    const przed=
+        lista.slice(
+            0,
+            pozycjaAktywnego
+        );
+
+    const po=
+        lista.slice(
+            pozycjaAktywnego+1
+        );
+
+    const przyszle=[];
+
+    po.forEach(
+        element=>{
+
+            /*
+               Jeżeli po aktualnym przystanku znajduje się punkt,
+               którego nie obsługuje żaden z kursów przejeżdżających
+               przez aktualny przystanek, to jest to alternatywna
+               gałąź, która została już minięta.
+
+               Dla 126 przy KUPIECKIEJ:
+               dodatkowy PKP ŻERAŃ należy do innego przebiegu
+               i nie może być pokazywany za KUPIECKĄ.
+            */
+            if(
+                !istniejeKursLaczacyPrzystanki(
+                    aktywny.p,
+                    element.p
+                )
+            ){
+                /*
+                   To jest przystanek z alternatywnej gałęzi, który
+                   w układzie wspólnym wypadł za aktualnym przystankiem,
+                   chociaż logicznie należy do części wcześniejszej.
+
+                   Nie pokazujemy go wcale.
+
+                   Przystanki naprawdę już przejechane w aktualnym
+                   przebiegu nadal znajdują się w tablicy "przed"
+                   i są renderowane na szaro.
+                */
+                return;
+            }
+            else{
+                przyszle.push(
+                    element
+                );
+            }
+        }
+    );
+
+    return[
+        ...przed,
+        aktywny,
+        ...przyszle
+    ];
+}
+
+
 function listaTrasyDoWyswietlenia(){
 
-    return daneTrasWydluzonych()
-        .baza;
+    const baza=
+        daneTrasWydluzonych()
+            .baza;
+
+    return przeniesMinieteGaleziePrzedAktywny(
+        baza
+    );
 }
 
 
