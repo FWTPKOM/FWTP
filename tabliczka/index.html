@@ -1810,6 +1810,9 @@ function kluczStanuCache(){
 }
 
 
+const cacheObliczenWToku=
+    new Set();
+
 function memoTabliczki(
     nazwa,
     klucz,
@@ -1835,21 +1838,54 @@ function memoTabliczki(
         );
     }
 
-    const wynik=
-        producent();
+    /*
+       Zabezpieczenie przed przypadkową rekurencją cykliczną.
+       Nie pozwalamy drugi raz rozpocząć obliczania dokładnie
+       tego samego wyniku, zanim pierwsze obliczenie się skończy.
+    */
+    if(
+        cacheObliczenWToku.has(
+            pelnyKlucz
+        )
+    ){
+        console.error(
+            "[FWTP] Wykryto cykliczne obliczenie:",
+            nazwa,
+            klucz
+        );
 
-    cacheObliczenTabliczki.set(
-        pelnyKlucz,
-        wynik
+        return null;
+    }
+
+    cacheObliczenWToku.add(
+        pelnyKlucz
     );
 
-    return wynik;
+    try{
+
+        const wynik=
+            producent();
+
+        cacheObliczenTabliczki.set(
+            pelnyKlucz,
+            wynik
+        );
+
+        return wynik;
+
+    }finally{
+
+        cacheObliczenWToku.delete(
+            pelnyKlucz
+        );
+    }
 }
 
 
 function wyczyscCacheTabliczki(){
 
     cacheObliczenTabliczki.clear();
+    cacheObliczenWToku.clear();
 
     if(
         typeof cacheNormalizacjiTekstu!=="undefined"&&
@@ -6930,8 +6966,29 @@ function wybierzNajdluzszyKurs(
     listaKursow
 ){
 
+    /*
+       WAŻNE:
+       tutaj używamy PEŁNEJ trasy kierunku, a nie finalnej listy
+       tabliczki.
+
+       Finalna lista sama zależy od stanTrasyNaPrzystanku(),
+       a stanTrasyNaPrzystanku() zależy od wyboru najdłuższego kursu.
+       Użycie listaTrasyDoWyswietlenia() tworzyło więc rekurencję:
+
+       listaTrasyDoWyswietlenia
+       -> stanTrasyNaPrzystanku
+       -> danePrzebiegowWariantowych
+       -> wybierzNajdluzszyKurs
+       -> listaTrasyDoWyswietlenia
+       -> ...
+
+       i kończyło się "Maximum call stack size exceeded".
+
+       Pełna lista jest właściwą podstawą do porównania długości
+       kursów i nie zmienia zasad wyboru przebiegu.
+    */
     const pelna=
-        listaTrasyDoWyswietlenia();
+        listaPelnejTrasyDoWyswietlenia();
 
     let najlepszy=null;
     let max=-1;
@@ -6946,6 +7003,7 @@ function wybierzNajdluzszyKurs(
 
             pelna.forEach(
                 element=>{
+
                     if(
                         kursMaPrzystanek(
                             kurs,
