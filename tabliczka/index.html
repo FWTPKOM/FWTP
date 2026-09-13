@@ -6939,14 +6939,251 @@ function przeniesMinieteGaleziePrzedAktywny(
 }
 
 
+
+function czyAktywnyPrzystanekJestPoczatkiemSwoichKursow(){
+
+    const kierunek=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    const przystanki=
+        kierunek?.przystanki||
+        [];
+
+    const aktywny=
+        przystanki[
+            aktualnyPrzystanek
+        ];
+
+    if(!aktywny){
+        return false;
+    }
+
+    /*
+       Bierzemy WYŁĄCZNIE kursy przypisane do dokładnie
+       wybranego słupka: nazwa + numer.
+    */
+    const kursyAktywnego=
+        new Map();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const p=
+                znajdzDokladnyPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    aktywny
+                );
+
+            (
+                p?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    const key=
+                        [
+                            String(
+                                kurs?.numer||""
+                            ).trim(),
+                            String(
+                                kurs?.wariant||""
+                            ).trim(),
+                            symbolDnia(kurs),
+                            String(
+                                kurs?.brygada||""
+                            ).trim()
+                        ].join("|");
+
+                    if(!kursyAktywnego.has(key)){
+                        kursyAktywnego.set(
+                            key,
+                            {
+                                numer:String(
+                                    kurs?.numer||""
+                                ).trim(),
+                                wariant:String(
+                                    kurs?.wariant||""
+                                ).trim(),
+                                symbol:
+                                    symbolDnia(kurs),
+                                brygada:String(
+                                    kurs?.brygada||""
+                                ).trim()
+                            }
+                        );
+                    }
+                }
+            );
+        }
+    );
+
+    if(!kursyAktywnego.size){
+        return false;
+    }
+
+    let znalezionoKurs=false;
+
+    for(
+        const ref
+        of kursyAktywnego.values()
+    ){
+
+        const indeksy=[];
+
+        przystanki.forEach(
+            (p,index)=>{
+
+                let maCzas=false;
+
+                (
+                    daneLinii?.rozkłady||
+                    []
+                ).some(
+                    rozklad=>{
+
+                        const pp=
+                            znajdzDokladnyPrzystanekWRozkladzie(
+                                rozklad,
+                                aktualnyKierunek,
+                                p
+                            );
+
+                        const pasuje=
+                            (
+                                pp?.kursy||
+                                []
+                            ).some(
+                                k=>
+                                    String(
+                                        k?.numer||""
+                                    ).trim()===
+                                        ref.numer&&
+                                    String(
+                                        k?.wariant||""
+                                    ).trim()===
+                                        ref.wariant&&
+                                    symbolDnia(k)===
+                                        ref.symbol&&
+                                    String(
+                                        k?.brygada||""
+                                    ).trim()===
+                                        ref.brygada&&
+                                    czasNaMinuty(
+                                        k?.czas
+                                    )!==null
+                            );
+
+                        if(pasuje){
+                            maCzas=true;
+                        }
+
+                        return maCzas;
+                    }
+                );
+
+                if(maCzas){
+                    indeksy.push(index);
+                }
+            }
+        );
+
+        if(!indeksy.length){
+            continue;
+        }
+
+        znalezionoKurs=true;
+
+        /*
+           Jeżeli choć jeden kurs przejeżdża przez jakiś
+           wcześniejszy przystanek, to wybrany słupek nie jest
+           początkiem wszystkich swoich kursów.
+        */
+        const pierwszy=
+            Math.min(
+                ...indeksy
+            );
+
+        if(
+            pierwszy<
+            aktualnyPrzystanek
+        ){
+            return false;
+        }
+    }
+
+    return znalezionoKurs;
+}
+
+
+function przytnijInneGaleziePrzedPoczatkiemWariantu(
+    lista
+){
+
+    if(
+        !Array.isArray(lista)||
+        !lista.length||
+        !czyAktywnyPrzystanekJestPoczatkiemSwoichKursow()
+    ){
+        return lista||[];
+    }
+
+    const pozycja=
+        lista.findIndex(
+            element=>
+                element.index===
+                aktualnyPrzystanek
+        );
+
+    if(pozycja<0){
+        return lista;
+    }
+
+    /*
+       Jeśli wybrany dokładny słupek jest początkiem swoich kursów,
+       nie pokazujemy przed nim przystanków należących do innego
+       wariantu / innej gałęzi.
+
+       Przykład:
+       SADYBA 05 — początek wariantu/kierunku:
+       nie pokazujemy wcześniej WILANÓW -> ... -> WIERTNICZA.
+
+       Gdy wybierzemy późniejszy przystanek, np. SADYBA 02,
+       ta reguła już nie działa i wcześniejsza trasa od WILANOWA
+       może być normalnie widoczna.
+    */
+    return lista.slice(
+        pozycja
+    );
+}
+
+
 function listaTrasyDoWyswietlenia(){
 
     const baza=
         daneTrasWydluzonych()
             .baza;
 
-    return przeniesMinieteGaleziePrzedAktywny(
-        baza
+    const oczyszczona=
+        przeniesMinieteGaleziePrzedAktywny(
+            baza
+        );
+
+    return przytnijInneGaleziePrzedPoczatkiemWariantu(
+        oczyszczona
     );
 }
 
