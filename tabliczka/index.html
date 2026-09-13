@@ -5091,6 +5091,80 @@ function opisWariantuDoKierunku(
 }
 
 
+
+function opisPrezentacyjnyWariantuDwukierunkowego(
+    wariant,
+    kierunek
+){
+
+    if(!wariant){
+        return"";
+    }
+
+    let fragment=
+        opisWariantuDoKierunku(
+            wariant,
+            0
+        );
+
+    if(!fragment){
+        return"";
+    }
+
+    const kierunekNorm=
+        normalizuj(
+            kierunek
+        );
+
+    const fragmentNorm=
+        normalizuj(
+            fragment
+        );
+
+    /*
+       "wydłużony do krańca ELSNERÓW" przy kierunku ELSNERÓW
+       niczego nie wnosi i nie powinno być pokazywane.
+    */
+    if(
+        /wydłuż/i.test(fragment)&&
+        fragmentNorm.includes(
+            "do krańca "+kierunekNorm
+        )
+    ){
+        return"";
+    }
+
+    return fragment;
+}
+
+
+function kluczPrezentacyjnyDwukierunkowy(
+    dir,
+    wariant,
+    kierunek
+){
+
+    const fragment=
+        opisPrezentacyjnyWariantuDwukierunkowego(
+            wariant,
+            kierunek
+        );
+
+    return[
+        String(dir),
+        normalizuj(
+            "kurs w kierunku "+
+            String(kierunek||"")+
+            (
+                fragment
+                    ? " "+fragment
+                    : ""
+            )
+        )
+    ].join("|");
+}
+
+
 function __bezCache_mapaSymboliDwukierunkowych(){
 
     if(
@@ -5099,7 +5173,22 @@ function __bezCache_mapaSymboliDwukierunkowych(){
         return new Map();
     }
 
-    const kombinacje=
+    /*
+       grupyPrezentacyjne:
+       kilka technicznych wariantów może dawać dokładnie ten sam
+       sens dla pasażera. Wtedy muszą dostać jeden symbol.
+
+       Przykład 170:
+       - kurs podstawowy do ELSNEROWA,
+       - wariant opisany "wydłużony do krańca ELSNERÓW".
+
+       Na tym przystanku oba znaczą po prostu:
+       "kurs w kierunku ELSNERÓW".
+    */
+    const grupyPrezentacyjne=
+        new Map();
+
+    const aliasy=
         new Map();
 
     dostepneGrupyDni()
@@ -5139,27 +5228,61 @@ function __bezCache_mapaSymboliDwukierunkowych(){
                                 ? String(litera).toLowerCase()
                                 : "";
 
-                        const key=
+                        const kierunek=
+                            String(
+                                kurs?._kierunekNazwa||
+                                nazwaKierunku(
+                                    znajdzNajpelniejszyKierunek(dir)
+                                )||
+                                ""
+                            ).toUpperCase();
+
+                        const semanticKey=
+                            kluczPrezentacyjnyDwukierunkowy(
+                                dir,
+                                wariant,
+                                kierunek
+                            );
+
+                        const aliasKey=
                             dir+"|"+wariant;
 
-                        if(!kombinacje.has(key)){
-                            kombinacje.set(
-                                key,
+                        aliasy.set(
+                            aliasKey,
+                            semanticKey
+                        );
+
+                        if(
+                            !grupyPrezentacyjne.has(
+                                semanticKey
+                            )
+                        ){
+                            grupyPrezentacyjne.set(
+                                semanticKey,
                                 {
-                                    key,
+                                    semanticKey,
                                     dir,
                                     wariant,
-                                    kierunek:
-                                        String(
-                                            kurs?._kierunekNazwa||
-                                            nazwaKierunku(
-                                                znajdzNajpelniejszyKierunek(dir)
-                                            )||
-                                            ""
-                                        ).toUpperCase()
+                                    kierunek,
+                                    fragment:
+                                        opisPrezentacyjnyWariantuDwukierunkowego(
+                                            wariant,
+                                            kierunek
+                                        ),
+                                    warianty:
+                                        new Set()
                                 }
                             );
                         }
+
+                        grupyPrezentacyjne
+                            .get(
+                                semanticKey
+                            )
+                            .warianty
+                            .add(
+                                wariant
+                            );
                     }
                 );
             }
@@ -5168,14 +5291,14 @@ function __bezCache_mapaSymboliDwukierunkowych(){
     const zajete=
         new Set();
 
-    const wynik=
+    const symboleSemantyczne=
         new Map();
 
     const alfabet=
         "abcdefghijklmnopqrstuvwxyz".split("");
 
     [
-        ...kombinacje.values()
+        ...grupyPrezentacyjne.values()
     ]
     .sort(
         (a,b)=>
@@ -5197,7 +5320,18 @@ function __bezCache_mapaSymboliDwukierunkowych(){
 
             const kandydaci=[];
 
-            if(item.wariant){
+            /*
+               Jeżeli grupa zawiera wariant podstawowy + dodatkowy
+               redundantny wariant, preferujemy znak wynikający
+               z kierunku, a nie literę redundantnego wariantu.
+            */
+            const maPodstawowy=
+                item.warianty.has("");
+
+            if(
+                !maPodstawowy&&
+                item.wariant
+            ){
                 kandydaci.push(
                     normalizujSymbolKandydata(
                         item.wariant
@@ -5227,10 +5361,12 @@ function __bezCache_mapaSymboliDwukierunkowych(){
                 )||
                 "x";
 
-            zajete.add(znak);
+            zajete.add(
+                znak
+            );
 
-            wynik.set(
-                item.key,
+            symboleSemantyczne.set(
+                item.semanticKey,
                 {
                     ...item,
                     znak
@@ -5238,6 +5374,31 @@ function __bezCache_mapaSymboliDwukierunkowych(){
             );
         }
     );
+
+    /*
+       Wynik jest nadal dostępny przez stary klucz dir|wariant,
+       dzięki czemu reszta kodu nie musi się zmieniać.
+       Kilka aliasów może jednak wskazywać TEN SAM obiekt/symbol.
+    */
+    const wynik=
+        new Map();
+
+    for(
+        const [aliasKey,semanticKey]
+        of aliasy.entries()
+    ){
+        const wpis=
+            symboleSemantyczne.get(
+                semanticKey
+            );
+
+        if(wpis){
+            wynik.set(
+                aliasKey,
+                wpis
+            );
+        }
+    }
 
     return wynik;
 }
@@ -6352,17 +6513,41 @@ function usunPowtorzeniaTylkoOdStartuKursow(
                     x.stat.przelotowe===0
             );
 
+        /*
+           Jeżeli PIERWSZY z dwóch kolejnych wpisów tej samej nazwy
+           jest miejscem rozpoczęcia choć części kursów, nie pokazujemy
+           go jako osobnego, dodatkowego przystanku.
+
+           To jest dokładnie przypadek:
+               PKP ZACISZE-WILNO
+               PKP ZACISZE-WILNO
+
+           gdzie pierwszy wpis służy tylko do zapisania kursów
+           rozpoczynających się w tym miejscu.
+
+           Zachowujemy ostatni logiczny wpis tej grupy — ten, który
+           należy do normalnego przebiegu trasy.
+
+           Numeru słupka celowo tutaj nie porównujemy.
+        */
+        if(
+            grupa.length>=2&&
+            opisane[0].stat.startowe>0
+        ){
+            wynik.push(
+                grupa[
+                    grupa.length-1
+                ]
+            );
+
+            i=j;
+            continue;
+        }
+
         if(
             przelotowe.length===1&&
             tylkoStart.length>=1
         ){
-            /*
-               Np. PKP ZACISZE-WILNO:
-               pierwszy wpis jest tylko punktem rozpoczęcia części
-               kursów, a drugi jest rzeczywistym elementem przebiegu.
-
-               Zostawiamy tylko wpis przelotowy.
-            */
             wynik.push(
                 przelotowe[0].element
             );
@@ -9344,7 +9529,22 @@ function renderLegendaDwukierunkowa(){
     const wiersze=[];
 
     [
-        ...mapa.values()
+        ...new Map(
+            [
+                ...mapa.values()
+            ]
+            .map(
+                item=>[
+                    item.semanticKey||
+                    (
+                        item.dir+
+                        "|"+
+                        item.wariant
+                    ),
+                    item
+                ]
+            )
+        ).values()
     ]
     .sort(
         (a,b)=>
@@ -9360,17 +9560,13 @@ function renderLegendaDwukierunkowa(){
                 "kurs w kierunku "+
                 item.kierunek;
 
-            if(item.wariant){
+            const fragment=
+                String(
+                    item.fragment||""
+                ).trim();
 
-                const fragment=
-                    opisWariantuDoKierunku(
-                        item.wariant,
-                        item.dir
-                    );
-
-                if(fragment){
-                    opis+=" "+fragment;
-                }
+            if(fragment){
+                opis+=" "+fragment;
             }
 
             wiersze.push(
