@@ -6741,6 +6741,31 @@ function czyKursPomijanyPrzyTrasie(kurs){
             ""
         );
 
+    /*
+       W specjalnym układzie dwóch kierunków analizujemy rzeczywiste
+       przebiegi WSZYSTKICH kursów wychodzących z bieżącego słupka.
+
+       To jest potrzebne np. dla 170:
+       - e kończy na PKP ZACISZE-WILNO,
+       - l jedzie dalej do ELSNEROWA.
+
+       Kursy zaczynające się dopiero w środku trasy są już wcześniej
+       odrzucane przez czyKursZaczynaWSrodkuTrasy(), więc nie tworzą
+       fałszywych gałęzi.
+    */
+    if(
+        czyBiezacyPrzystanekDwukierunkowy()
+    ){
+        return(
+            /zajezdni|tylko do/i
+                .test(opis)
+        );
+    }
+
+    /*
+       Zwykły układ pozostaje bez zmian — kursów skróconych
+       nie mieszamy do opisów wariantów trasy.
+    */
     if(
         /skrócon|zajezdni|tylko do/i
             .test(opis)
@@ -6760,10 +6785,6 @@ function czyKursPomijanyPrzyTrasie(kurs){
         const koniecBazowy=
             bazowyKoniecPelnychKursow();
 
-        /*
-           Pomijamy jako wydłużenie tylko wtedy,
-           gdy kurs naprawdę jedzie dalej niż zwykła trasa.
-        */
         return(
             koniecBazowy>=0&&
             koniecKursu>
@@ -8181,18 +8202,120 @@ function usunPrzyszlePrzystankiBezMinuty(
 }
 
 
+
+function usunSztuczneDuplikatyWTymSamymStanieTrasy(
+    lista
+){
+
+    if(
+        !Array.isArray(lista)||
+        lista.length<2
+    ){
+        return lista||[];
+    }
+
+    const wynik=[];
+
+    let i=0;
+
+    while(i<lista.length){
+
+        const pierwszy=
+            lista[i];
+
+        const nazwa=
+            normalizuj(
+                pierwszy?.p?.nazwa
+            );
+
+        const nr=
+            String(
+                pierwszy?.p?.nr||""
+            ).trim();
+
+        const stan=
+            kluczStanuTrasy(
+                stanTrasyNaPrzystanku(
+                    pierwszy
+                )
+            );
+
+        let j=i+1;
+
+        while(
+            j<lista.length
+        ){
+
+            const kolejny=
+                lista[j];
+
+            const tenSamPrzystanek=
+                normalizuj(
+                    kolejny?.p?.nazwa
+                )===
+                    nazwa&&
+                String(
+                    kolejny?.p?.nr||""
+                ).trim()===
+                    nr;
+
+            const tenSamStan=
+                kluczStanuTrasy(
+                    stanTrasyNaPrzystanku(
+                        kolejny
+                    )
+                )===
+                    stan;
+
+            if(
+                !tenSamPrzystanek||
+                !tenSamStan
+            ){
+                break;
+            }
+
+            j++;
+        }
+
+        const grupa=
+            lista.slice(
+                i,
+                j
+            );
+
+        if(grupa.length===1){
+
+            wynik.push(
+                grupa[0]
+            );
+
+            i=j;
+            continue;
+        }
+
+        const aktywny=
+            grupa.find(
+                element=>
+                    element?.index===
+                    aktualnyPrzystanek
+            );
+
+        wynik.push(
+            aktywny||
+            grupa[
+                grupa.length-1
+            ]
+        );
+
+        i=j;
+    }
+
+    return wynik;
+}
+
+
 function __bezCache_listaTrasyDoWyswietlenia(){
 
-    /*
-       W trybie dwóch kierunków musimy analizować CAŁĄ rzeczywistą
-       trasę kierunku. Nie wolno najpierw odcinać "wydłużenia",
-       ponieważ może ono w rzeczywistości być kolejną gałęzią
-       wariantu widoczną na tej samej tabliczce.
-
-       Przykład 170 / WIERNA 04:
-       wspólny odcinek e+l dochodzi do PKP ZACISZE-WILNO,
-       a później jeden przebieg jedzie dalej do ELSNEROWA.
-    */
     const baza=
         czyBiezacyPrzystanekDwukierunkowy()
             ? listaPelnejTrasyDoWyswietlenia()
@@ -8214,8 +8337,19 @@ function __bezCache_listaTrasyDoWyswietlenia(){
             poPoczatkuWariantu
         );
 
-    return usunPrzyszlePrzystankiBezMinuty(
-        bezPowtorzenia
+    const bezPustychPrzyszlych=
+        usunPrzyszlePrzystankiBezMinuty(
+            bezPowtorzenia
+        );
+
+    /*
+       Ostatecznie usuwamy wyłącznie sztuczne, KOLEJNE duplikaty
+       tego samego fizycznego przystanku w tym samym stanie wariantów.
+       Prawdziwy powrót do tego samego przystanku później na trasie
+       pozostaje bez zmian.
+    */
+    return usunSztuczneDuplikatyWTymSamymStanieTrasy(
+        bezPustychPrzyszlych
     );
 }
 
@@ -8560,9 +8694,86 @@ function kursReferencyjnyDrugiegoKierunku(
 }
 
 
+
+function znajdzPrzystanekDrugiegoKierunkuPoDokladnymIndeksie(
+    rozklad,
+    info,
+    element
+){
+
+    const k=
+        Array.isArray(
+            rozklad?.kierunki
+        )
+            ? rozklad.kierunki[
+                info.indexKierunku
+            ]
+            : null;
+
+    if(
+        !k||
+        !Array.isArray(
+            k.przystanki
+        )||
+        !element
+    ){
+        return null;
+    }
+
+    const index=
+        Number(
+            element.index
+        );
+
+    const bazaP=
+        element.p;
+
+    /*
+       Najpierw dokładny indeks z pełnego kierunku.
+       To rozróżnia dwa kolejne PKP ZACISZE-WILNO o tej samej
+       nazwie i tym samym numerze.
+    */
+    if(
+        Number.isInteger(index)&&
+        index>=0&&
+        index<k.przystanki.length
+    ){
+
+        const p=
+            k.przystanki[index];
+
+        if(
+            normalizuj(
+                p?.nazwa
+            )===
+                normalizuj(
+                    bazaP?.nazwa
+                )&&
+            String(
+                p?.nr||""
+            ).trim()===
+                String(
+                    bazaP?.nr||""
+                ).trim()
+        ){
+            return p;
+        }
+    }
+
+    /*
+       Fallback dla rozkładów o nieco innej strukturze.
+    */
+    return znajdzPrzystanekWRozkladzie(
+        rozklad,
+        info.indexKierunku,
+        bazaP
+    );
+}
+
+
 function czasDrugiegoKierunku(
     info,
-    p
+    element
 ){
 
     const ref=
@@ -8570,7 +8781,10 @@ function czasDrugiegoKierunku(
             info
         );
 
-    if(!ref){
+    if(
+        !ref||
+        !element?.p
+    ){
         return null;
     }
 
@@ -8591,10 +8805,10 @@ function czasDrugiegoKierunku(
                 );
 
             const pc=
-                znajdzPrzystanekWRozkladzie(
+                znajdzPrzystanekDrugiegoKierunkuPoDokladnymIndeksie(
                     rozklad,
-                    info.indexKierunku,
-                    p
+                    info,
+                    element
                 );
 
             const znajdz=
@@ -8666,7 +8880,7 @@ function listaDrugiegoKierunkuOdPrzystanku(){
         return[];
     }
 
-    const lista=
+    const surowa=
         (
             info.kierunek?.przystanki||
             []
@@ -8689,7 +8903,76 @@ function listaDrugiegoKierunkuOdPrzystanku(){
                 ).trim().toUpperCase()!=="TECH"
         );
 
-    return lista;
+    const zCzasem=
+        surowa.filter(
+            element=>
+                element.index===
+                    info.indexPrzystanku||
+                czasDrugiegoKierunku(
+                    info,
+                    element
+                )!==null
+        );
+
+    /*
+       Tak samo jak przy 131:
+       jeżeli kursy rozpoczynające się po drodze tworzą drugi,
+       sztuczny wpis tego samego przystanku, zostawiamy tylko
+       ten obsługiwany przez kurs jadący od bieżącego słupka.
+    */
+    const wynik=[];
+
+    for(
+        const element
+        of zCzasem
+    ){
+
+        const poprzedni=
+            wynik[
+                wynik.length-1
+            ];
+
+        if(
+            poprzedni&&
+            normalizuj(
+                poprzedni?.p?.nazwa
+            )===
+                normalizuj(
+                    element?.p?.nazwa
+                )&&
+            String(
+                poprzedni?.p?.nr||""
+            ).trim()===
+                String(
+                    element?.p?.nr||""
+                ).trim()
+        ){
+            /*
+               Jeżeli jeden z nich jest aktywny, aktywny ma pierwszeństwo.
+               W przeciwnym razie późniejszy wpis odpowiada dalszemu
+               rzeczywistemu przebiegowi.
+            */
+            if(
+                poprzedni.index===
+                info.indexPrzystanku
+            ){
+                continue;
+            }
+
+            wynik[
+                wynik.length-1
+            ]=
+                element;
+
+            continue;
+        }
+
+        wynik.push(
+            element
+        );
+    }
+
+    return wynik;
 }
 
 
@@ -8867,7 +9150,7 @@ function renderElementyDrugiegoKierunkuTrasy(){
                     const czas=
                         czasDrugiegoKierunku(
                             info,
-                            p
+                            element
                         );
 
                     const wybrany=
@@ -9337,21 +9620,26 @@ function renderTrasaKolumna(
 
                     let stanPoprzedni=null;
 
-                    if(index>0){
+                    const pozycjaWidoczna=
+                        pelnaLista.findIndex(
+                            x=>
+                                x.index===
+                                index
+                        );
+
+                    if(
+                        pozycjaWidoczna>0
+                    ){
 
                         const poprzedniElement=
-                            pelnaLista.find(
-                                x=>
-                                    x.index===
-                                    index-1
-                            );
+                            pelnaLista[
+                                pozycjaWidoczna-1
+                            ];
 
-                        if(poprzedniElement){
-                            stanPoprzedni=
-                                stanTrasyNaPrzystanku(
-                                    poprzedniElement
-                                );
-                        }
+                        stanPoprzedni=
+                            stanTrasyNaPrzystanku(
+                                poprzedniElement
+                            );
                     }
 
                     const przed=
@@ -10588,11 +10876,6 @@ function dopasujKolumnyTrasy() {
         czyBiezacyPrzystanekDwukierunkowy()
     ){
 
-        /*
-           W specjalnym trybie dwóch kierunków nie pokazujemy
-           przystanków, które zostały już minięte.
-           Normalny, jednokierunkowy układ pozostaje bez zmian.
-        */
         const listaDwukierunkowa=
             lista.filter(
                 element=>
@@ -10611,27 +10894,6 @@ function dopasujKolumnyTrasy() {
                     listaDwukierunkowa.length-1
                 ].index
                 : -1;
-
-        /*
-           Najpierw budujemy CAŁĄ treść w jednej kolumnie:
-           - bieżący kierunek,
-           - jego separatory wariantów,
-           - następnie "Trasa w kursach „x”",
-           - przystanki drugiego kierunku od bieżącego słupka dalej.
-
-           Potem dzielimy to WYŁĄCZNIE wg dostępnej wysokości:
-           najpierw do końca kolumny 1, potem kolumny 2,
-           a dopiero po jej zapełnieniu tworzymy kolumnę 3.
-        */
-        tabliczka.classList.remove(
-            "trasa-2-kol",
-            "trasa-3-kol"
-        );
-
-        columns.className=
-            "trasa-columns cols-1";
-
-        ustawNaglowekTrasy(1);
 
         const htmlPierwszego=
             renderTrasaKolumna(
@@ -10653,14 +10915,15 @@ function dopasujKolumnyTrasy() {
         parser.innerHTML=
             htmlPierwszego;
 
+        const elementyHtml=[];
+
         const listaPierwszego=
             parser.querySelector(
                 ".trasa-lista"
             );
 
-        let elementyHtml=[];
-
         if(listaPierwszego){
+
             Array.from(
                 listaPierwszego.children
             )
@@ -10676,6 +10939,7 @@ function dopasujKolumnyTrasy() {
             renderElementyDrugiegoKierunkuTrasy();
 
         if(drugiHtml){
+
             const p2=
                 document.createElement(
                     "ul"
@@ -10700,164 +10964,256 @@ function dopasujKolumnyTrasy() {
         }
 
         /*
-           Pomiar wykonujemy w szerokości docelowej 3 kolumn,
-           aby zawijanie nazw odpowiadało najciaśniejszemu układowi.
+           Pomiar i pakowanie dla konkretnej liczby kolumn.
+           Najpierw 2 kolumny. Jeśli naprawdę zabraknie wysokości,
+           dopiero wtedy 3 kolumny.
         */
-        tabliczka.classList.add(
-            "trasa-3-kol"
-        );
+        const zmierzIPodziel=
+            ileKolumn=>{
 
-        columns.className=
-            "trasa-columns cols-3";
+                tabliczka.classList.remove(
+                    "trasa-2-kol",
+                    "trasa-3-kol"
+                );
 
-        ustawNaglowekTrasy(3);
+                if(ileKolumn===2){
+                    tabliczka.classList.add(
+                        "trasa-2-kol"
+                    );
+                }
+                else if(ileKolumn===3){
+                    tabliczka.classList.add(
+                        "trasa-3-kol"
+                    );
+                }
 
-        columns.innerHTML=
-            '<div class="trasa-kol trasa-kol-pomiar">'+
-            '<ul class="trasa-lista">'+
-            elementyHtml.join("")+
-            '</ul>'+
-            '</div>'+
-            '<div class="trasa-kol trasa-kol-pusta"></div>'+
-            '<div class="trasa-kol trasa-kol-pusta"></div>';
+                columns.className=
+                    "trasa-columns cols-"+
+                    ileKolumn;
 
-        ustawZawijanieNazwTrasy(
-            columns
-        );
+                ustawNaglowekTrasy(
+                    ileKolumn
+                );
 
-        const pomiarKol=
-            columns.querySelector(
-                ".trasa-kol-pomiar"
+                columns.innerHTML=
+                    '<div class="trasa-kol trasa-kol-pomiar">'+
+                    '<ul class="trasa-lista">'+
+                    elementyHtml.join("")+
+                    '</ul>'+
+                    '</div>'+
+                    Array.from(
+                        {
+                            length:
+                                Math.max(
+                                    0,
+                                    ileKolumn-1
+                                )
+                        },
+                        ()=>(
+                            '<div class="trasa-kol trasa-kol-pusta"></div>'
+                        )
+                    ).join("");
+
+                ustawZawijanieNazwTrasy(
+                    columns
+                );
+
+                const pomiarKol=
+                    columns.querySelector(
+                        ".trasa-kol-pomiar"
+                    );
+
+                const elementy=
+                    Array.from(
+                        pomiarKol?.querySelector(
+                            ".trasa-lista"
+                        )?.children||
+                        []
+                    );
+
+                if(
+                    !pomiarKol||
+                    !elementy.length
+                ){
+                    return null;
+                }
+
+                const htmlZmierzony=
+                    elementy.map(
+                        el=>
+                            el.outerHTML
+                    );
+
+                const style=
+                    getComputedStyle(
+                        pomiarKol
+                    );
+
+                /*
+                   Bierzemy pełną wysokość prawego panelu.
+                   Dzięki temu pierwsza kolumna jest zapełniana
+                   aż do dołu, a nie tylko do wysokości chwilowo
+                   wyrenderowanej zawartości.
+                */
+                const panel=
+                    document.querySelector(
+                        ".panel-prawy"
+                    );
+
+                const head=
+                    document.querySelector(
+                        ".trasa-head"
+                    );
+
+                const maxWysokosc=
+                    Math.max(
+                        1,
+                        Math.floor(
+                            (
+                                panel?.clientHeight||
+                                columns.clientHeight
+                            )-
+                            (
+                                head?.offsetHeight||
+                                24
+                            )-
+                            parseFloat(
+                                style.paddingTop||0
+                            )-
+                            parseFloat(
+                                style.paddingBottom||0
+                            )
+                        )
+                    );
+
+                const wysokosci=
+                    elementy.map(
+                        el=>{
+
+                            const s=
+                                getComputedStyle(
+                                    el
+                                );
+
+                            return(
+                                el.getBoundingClientRect().height+
+                                parseFloat(
+                                    s.marginTop||0
+                                )+
+                                parseFloat(
+                                    s.marginBottom||0
+                                )
+                            );
+                        }
+                    );
+
+                const grupy=[
+                    []
+                ];
+
+                let uzyte=0;
+                let overflow=false;
+
+                for(
+                    let i=0;
+                    i<htmlZmierzony.length;
+                    i++
+                ){
+
+                    const h=
+                        wysokosci[i]||
+                        16.5;
+
+                    let wymagane=h;
+
+                    if(
+                        elementy[i]?.classList?.contains(
+                            "trasa-separator"
+                        )&&
+                        i+1<wysokosci.length
+                    ){
+                        wymagane+=
+                            wysokosci[i+1]||
+                            0;
+                    }
+
+                    if(
+                        grupy[
+                            grupy.length-1
+                        ].length>0&&
+                        uzyte+wymagane>
+                            maxWysokosc
+                    ){
+
+                        if(
+                            grupy.length<
+                            ileKolumn
+                        ){
+                            grupy.push(
+                                []
+                            );
+
+                            uzyte=0;
+                        }
+                        else{
+                            overflow=true;
+                        }
+                    }
+
+                    grupy[
+                        grupy.length-1
+                    ].push(
+                        htmlZmierzony[i]
+                    );
+
+                    uzyte+=h;
+                }
+
+                return{
+                    grupy,
+                    overflow
+                };
+            };
+
+        let wynik=
+            zmierzIPodziel(
+                2
             );
 
-        const elementy=
-            Array.from(
-                pomiarKol?.querySelector(
-                    ".trasa-lista"
-                )?.children||
-                []
-            );
+        let ileKolumn=2;
 
-        if(!pomiarKol||!elementy.length){
+        if(
+            !wynik||
+            wynik.overflow
+        ){
+            wynik=
+                zmierzIPodziel(
+                    3
+                );
+
+            ileKolumn=3;
+        }
+
+        if(!wynik){
             return;
         }
 
         /*
-           WAŻNE:
-           ustawZawijanieNazwTrasy() dodało już klasę .zawijaj
-           tym nazwom, które nie mieszczą się w jednej linii.
-           Musimy zapisać właśnie TEN zmierzony HTML, bo wcześniejsza
-           wersja później odtwarzała stare elementy bez klasy .zawijaj.
+           Jeżeli wszystko mieści się nawet w jednej kolumnie,
+           nie tworzymy pustej drugiej kolumny.
         */
-        elementyHtml=
-            elementy.map(
-                el=>
-                    el.outerHTML
+        const uzyteGrupy=
+            wynik.grupy.filter(
+                grupa=>
+                    grupa.length
             );
 
-        const style=
-            getComputedStyle(
-                pomiarKol
-            );
-
-        const maxWysokosc=
-            Math.max(
-                1,
-                Math.floor(
-                    columns.clientHeight-
-                    parseFloat(
-                        style.paddingTop||0
-                    )-
-                    parseFloat(
-                        style.paddingBottom||0
-                    )
-                )
-            );
-
-        const wysokosci=
-            elementy.map(
-                el=>{
-
-                    const s=
-                        getComputedStyle(
-                            el
-                        );
-
-                    return(
-                        el.getBoundingClientRect().height+
-                        parseFloat(
-                            s.marginTop||0
-                        )+
-                        parseFloat(
-                            s.marginBottom||0
-                        )
-                    );
-                }
-            );
-
-        const grupyKolumn=[
-            []
-        ];
-
-        let uzyte=0;
-
-        for(
-            let i=0;
-            i<elementyHtml.length;
-            i++
-        ){
-
-            const h=
-                wysokosci[i]||16.5;
-
-            /*
-               Separator "Trasa w kursach..." nie może zostać
-               samotnie na samym dole kolumny. Jeżeli razem
-               z pierwszym następnym przystankiem już się nie mieści,
-               przenosimy separator do kolejnej kolumny.
-            */
-            let wymagane=h;
-
-            if(
-                elementy[i]?.classList?.contains(
-                    "trasa-separator"
-                )&&
-                i+1<wysokosci.length
-            ){
-                wymagane+=
-                    wysokosci[i+1]||0;
-            }
-
-            if(
-                grupyKolumn[
-                    grupyKolumn.length-1
-                ].length>0&&
-                uzyte+wymagane>
-                    maxWysokosc&&
-                grupyKolumn.length<3
-            ){
-                grupyKolumn.push(
-                    []
-                );
-
-                uzyte=0;
-            }
-
-            grupyKolumn[
-                grupyKolumn.length-1
-            ].push(
-                elementyHtml[i]
-            );
-
-            uzyte+=h;
-        }
-
-        const ileKolumn=
+        ileKolumn=
             Math.max(
                 1,
                 Math.min(
-                    3,
-                    grupyKolumn.length
+                    ileKolumn,
+                    uzyteGrupy.length
                 )
             );
 
@@ -10886,7 +11242,7 @@ function dopasujKolumnyTrasy() {
         );
 
         columns.innerHTML=
-            grupyKolumn
+            uzyteGrupy
                 .slice(
                     0,
                     ileKolumn
