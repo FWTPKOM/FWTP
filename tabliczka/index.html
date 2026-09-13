@@ -8378,25 +8378,42 @@ function czyStanWariantuJestPodzbiorem(
 
     if(
         !mniejszy||
-        !wiekszy||
-        mniejszy.typ!=="wariant"||
-        wiekszy.typ!=="wariant"
+        !wiekszy
     ){
         return false;
     }
 
     const a=
         new Set(
-            mniejszy.litery||
-            []
+            (
+                mniejszy.litery||
+                []
+            )
+            .map(
+                x=>String(x).trim().toLowerCase()
+            )
+            .filter(Boolean)
         );
 
     const b=
         new Set(
-            wiekszy.litery||
-            []
+            (
+                wiekszy.litery||
+                []
+            )
+            .map(
+                x=>String(x).trim().toLowerCase()
+            )
+            .filter(Boolean)
         );
 
+    /*
+       Musi to być RZECZYWISTY, właściwy podzbiór.
+       Przykład 170:
+           wcześniejszy PKP = wszystkie przebiegi [e,l]
+           kolejny PKP      = tylko [e]
+       => drugi wpis jest wyłącznie granicą wariantu.
+    */
     if(
         !a.size||
         !b.size||
@@ -8410,7 +8427,9 @@ function czyStanWariantuJestPodzbiorem(
         of a
     ){
         if(
-            !b.has(litera)
+            !b.has(
+                litera
+            )
         ){
             return false;
         }
@@ -8470,7 +8489,7 @@ function usunPowtorzenieNaGranicyWariantow(
         }
 
         /*
-           Aktywnego przystanku nigdy nie usuwamy.
+           Aktywny wpis ma zawsze pierwszeństwo.
         */
         if(
             element?.index===
@@ -8495,16 +8514,32 @@ function usunPowtorzenieNaGranicyWariantow(
             );
 
         /*
-           Typowy przypadek 170:
-           poprzedni = e+l
-           aktualny  = e
+           170:
+           PKP nr 1 = wszystkie pełne przebiegi e+l
+           PKP nr 2 = tylko e
 
-           Drugi PKP ZACISZE-WILNO jest tylko granicą,
-           więc go nie dokładamy ponownie.
+           W rzeczywistej trasie do ELSNEROWA PKP występuje raz.
+           Drugi wpis jest jedynie punktem, w którym po tym
+           przystanku odpada e albo l i zaczyna się inny odcinek.
         */
         if(
             czyStanWariantuJestPodzbiorem(
                 stanAktualny,
+                stanPoprzedni
+            )
+        ){
+            continue;
+        }
+
+        /*
+           Jeżeli stany są identyczne, również nie pokazujemy
+           dwóch kolejnych identycznych nazw.
+        */
+        if(
+            kluczStanuTrasy(
+                stanAktualny
+            )===
+            kluczStanuTrasy(
                 stanPoprzedni
             )
         ){
@@ -11117,8 +11152,12 @@ function dopasujKolumnyTrasy() {
 
         /*
          * =====================================================
-         * AKTUALNY KIERUNEK
+         * 1. BUDUJEMY JEDEN CIĄG ELEMENTÓW
          * =====================================================
+         *
+         * Najpierw cała trasa aktualnego kierunku,
+         * potem elementy drugiego kierunku.
+         * Nie przypisujemy im z góry osobnych kolumn.
          */
         const listaAktualnego=
             lista.filter(
@@ -11151,17 +11190,17 @@ function dopasujKolumnyTrasy() {
                 false
             );
 
-        const parserAktualnego=
+        const parser1=
             document.createElement(
                 "div"
             );
 
-        parserAktualnego.innerHTML=
+        parser1.innerHTML=
             htmlAktualnego;
 
-        const elementyAktualnego=
+        const wszystkieHtml=
             Array.from(
-                parserAktualnego.querySelector(
+                parser1.querySelector(
                     ".trasa-lista"
                 )?.children||
                 []
@@ -11172,63 +11211,66 @@ function dopasujKolumnyTrasy() {
 
 
         /*
-         * =====================================================
-         * DRUGI KIERUNEK
-         * =====================================================
+         * Drugi kierunek DOKŁADAMY POD spodem.
+         * Jeśli pierwszy kierunek nie zapełni kolumny,
+         * drugi zacznie się jeszcze w tej samej kolumnie.
          */
         const htmlDrugiego=
             renderElementyDrugiegoKierunkuTrasy();
 
-        const parserDrugiego=
-            document.createElement(
-                "ul"
-            );
+        if(htmlDrugiego){
 
-        parserDrugiego.innerHTML=
-            htmlDrugiego||"";
+            const parser2=
+                document.createElement(
+                    "ul"
+                );
 
-        const elementyDrugiego=
+            parser2.innerHTML=
+                htmlDrugiego;
+
             Array.from(
-                parserDrugiego.children||
+                parser2.children||
                 []
             )
-            .map(
-                el=>el.outerHTML
+            .forEach(
+                el=>
+                    wszystkieHtml.push(
+                        el.outerHTML
+                    )
             );
+        }
 
-
-        if(
-            !elementyAktualnego.length&&
-            !elementyDrugiego.length
-        ){
+        if(!wszystkieHtml.length){
             return;
         }
 
 
         /*
          * =====================================================
-         * POMIAR AKTUALNEGO KIERUNKU
+         * 2. POMIAR I PODZIAŁ
          * =====================================================
          *
-         * Funkcja sprawdza ile elementów rzeczywiście mieści się
-         * w jednej kolumnie przy konkretnej szerokości układu.
+         * Próbujemy najpierw 2 kolumny.
+         * Elementy idą kolejno:
+         * 1. kolumna aż do dołu,
+         * potem 2. kolumna.
+         *
+         * Jeśli 2 nie wystarczą, próbujemy 3.
          */
-        const podzielAktualnyKierunek=
-            ileKolumnCalegoPanelu=>{
+        const podzielDlaKolumn=
+            ileKolumn=>{
 
                 tabliczka.classList.remove(
                     "trasa-2-kol",
                     "trasa-3-kol"
                 );
 
-                if(
-                    ileKolumnCalegoPanelu===2
-                ){
+                if(ileKolumn===2){
                     tabliczka.classList.add(
                         "trasa-2-kol"
                     );
                 }
-                else{
+                else if(ileKolumn===3){
                     tabliczka.classList.add(
                         "trasa-3-kol"
                     );
@@ -11236,21 +11278,21 @@ function dopasujKolumnyTrasy() {
 
                 columns.className=
                     "trasa-columns cols-"+
-                    ileKolumnCalegoPanelu;
+                    ileKolumn;
 
                 ustawNaglowekTrasy(
-                    ileKolumnCalegoPanelu
+                    ileKolumn
                 );
 
                 /*
-                 * Wszystkie elementy aktualnego kierunku wkładamy
-                 * chwilowo do pierwszej kolumny, żeby zmierzyć
-                 * prawdziwą wysokość po zawinięciu nazw.
-                 */
+                   Do pomiaru wszystko trafia do jednej kolumny
+                   o DOKŁADNIE takiej szerokości, jaką będzie miała
+                   finalna kolumna przy 2 albo 3 kolumnach.
+                */
                 columns.innerHTML=
                     '<div class="trasa-kol trasa-kol-pomiar">'+
                         '<ul class="trasa-lista">'+
-                            elementyAktualnego.join("")+
+                            wszystkieHtml.join("")+
                         '</ul>'+
                     '</div>'+
                     Array.from(
@@ -11258,7 +11300,7 @@ function dopasujKolumnyTrasy() {
                             length:
                                 Math.max(
                                     0,
-                                    ileKolumnCalegoPanelu-1
+                                    ileKolumn-1
                                 )
                         },
                         ()=>(
@@ -11270,182 +11312,173 @@ function dopasujKolumnyTrasy() {
                     columns
                 );
 
-                const kolumna=
+                const kolumnaPomiar=
                     columns.querySelector(
                         ".trasa-kol-pomiar"
                     );
 
-                const listaPomiarowa=
-                    kolumna?.querySelector(
+                const listaPomiar=
+                    kolumnaPomiar?.querySelector(
                         ".trasa-lista"
                     );
 
                 const elementy=
                     Array.from(
-                        listaPomiarowa?.children||
+                        listaPomiar?.children||
                         []
                     );
 
                 if(
-                    !kolumna||
+                    !kolumnaPomiar||
                     !elementy.length
                 ){
-                    return{
-                        pierwsza:[],
-                        druga:[],
-                        miesciSie:true
-                    };
+                    return null;
                 }
 
                 /*
-                 * .trasa-columns ma już stałą wysokość:
-                 * height: calc(100% - 24px).
-                 * Używamy więc JEJ clientHeight, a nie wysokości
-                 * panelu zależnej od zawartości.
-                 */
-                const styl=
+                   Rzeczywista dostępna wysokość kolumny.
+                   Bierzemy wysokość .trasa-columns, która jest
+                   ograniczona wysokością całej tabliczki.
+                */
+                const stylKol=
                     getComputedStyle(
-                        kolumna
+                        kolumnaPomiar
                     );
 
-                const maxDol=
-                    kolumna.getBoundingClientRect().top+
-                    columns.clientHeight-
-                    parseFloat(
-                        styl.paddingBottom||0
-                    )-
-                    3;
-
-                let ileSieMiesci=0;
-
-                for(
-                    const el
-                    of elementy
-                ){
-
-                    const rect=
-                        el.getBoundingClientRect();
-
-                    if(
-                        rect.bottom<=
-                        maxDol+0.5
-                    ){
-                        ileSieMiesci++;
-                    }
-                    else{
-                        break;
-                    }
-                }
-
-                /*
-                 * Nie rozdzielamy separatora od pierwszego
-                 * przystanku jego sekcji.
-                 */
-                if(
-                    ileSieMiesci>0&&
-                    ileSieMiesci<
-                    elementy.length&&
-                    elementy[
-                        ileSieMiesci-1
-                    ]?.classList?.contains(
-                        "trasa-separator"
-                    )
-                ){
-                    ileSieMiesci--;
-                }
-
-                ileSieMiesci=
+                const wysokoscKolumny=
                     Math.max(
                         1,
-                        Math.min(
-                            ileSieMiesci,
-                            elementyAktualnego.length
-                        )
+                        columns.clientHeight-
+                        parseFloat(
+                            stylKol.paddingTop||0
+                        )-
+                        parseFloat(
+                            stylKol.paddingBottom||0
+                        )-
+                        4
                     );
 
+                /*
+                   Odczytujemy wysokości PO zawinięciu nazw.
+                */
+                const wysokosci=
+                    elementy.map(
+                        el=>
+                            el.getBoundingClientRect().height
+                    );
+
+                const grupy=[
+                    []
+                ];
+
+                let uzyte=0;
+                let overflow=false;
+
+                for(
+                    let i=0;
+                    i<wszystkieHtml.length;
+                    i++
+                ){
+
+                    const h=
+                        Math.max(
+                            1,
+                            wysokosci[i]||
+                            16.5
+                        );
+
+                    /*
+                       Separator musi zostać razem z pierwszym
+                       przystankiem sekcji.
+                    */
+                    let wymagane=h;
+
+                    if(
+                        elementy[i]?.classList?.contains(
+                            "trasa-separator"
+                        )&&
+                        i+1<wysokosci.length
+                    ){
+                        wymagane+=
+                            Math.max(
+                                1,
+                                wysokosci[i+1]||
+                                16.5
+                            );
+                    }
+
+                    if(
+                        grupy[
+                            grupy.length-1
+                        ].length>0&&
+                        uzyte+wymagane>
+                            wysokoscKolumny
+                    ){
+
+                        if(
+                            grupy.length<
+                            ileKolumn
+                        ){
+                            grupy.push(
+                                []
+                            );
+
+                            uzyte=0;
+                        }
+                        else{
+                            overflow=true;
+                        }
+                    }
+
+                    grupy[
+                        grupy.length-1
+                    ].push(
+                        wszystkieHtml[i]
+                    );
+
+                    uzyte+=h;
+                }
+
                 return{
-                    pierwsza:
-                        elementyAktualnego.slice(
-                            0,
-                            ileSieMiesci
-                        ),
-
-                    druga:
-                        elementyAktualnego.slice(
-                            ileSieMiesci
-                        ),
-
-                    miesciSie:
-                        ileSieMiesci>=
-                        elementyAktualnego.length
+                    grupy,
+                    overflow
                 };
             };
 
 
-        /*
-         * Najpierw sprawdzamy układ:
-         * 1 kolumna aktualnego + 1 kolumna drugiego kierunku.
-         */
-        let podzial=
-            podzielAktualnyKierunek(
+        let wynik=
+            podzielDlaKolumn(
                 2
             );
 
         let ileKolumn=2;
 
-        /*
-         * Jeżeli aktualny kierunek nie mieści się w jednej,
-         * dajemy mu DWIE kolumny, a drugiemu kierunkowi trzecią.
-         */
         if(
-            !podzial.miesciSie&&
-            elementyDrugiego.length
+            !wynik||
+            wynik.overflow
         ){
-            podzial=
-                podzielAktualnyKierunek(
+            wynik=
+                podzielDlaKolumn(
                     3
                 );
 
             ileKolumn=3;
         }
-        else if(
-            !podzial.miesciSie&&
-            !elementyDrugiego.length
-        ){
-            ileKolumn=2;
+
+        if(!wynik){
+            return;
         }
 
-
-        const grupy=[];
-
-        if(
-            podzial.pierwsza.length
-        ){
-            grupy.push(
-                podzial.pierwsza
+        const grupy=
+            wynik.grupy.filter(
+                grupa=>
+                    grupa.length
             );
-        }
-
-        if(
-            podzial.druga.length
-        ){
-            grupy.push(
-                podzial.druga
-            );
-        }
-
-        if(
-            elementyDrugiego.length
-        ){
-            grupy.push(
-                elementyDrugiego
-            );
-        }
 
         /*
-         * Jeśli nie ma drugiego kierunku albo aktualny mieści się
-         * w jednej kolumnie, nie tworzymy pustych kolumn.
-         */
+           Jeśli wszystko mieści się w jednej, używamy jednej.
+           W przeciwnym wypadku dokładnie tylu, ile potrzeba.
+        */
         ileKolumn=
             Math.max(
                 1,
