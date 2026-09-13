@@ -8293,11 +8293,6 @@ function usunSztuczneDuplikatyWTymSamymStanieTrasy(
                 pierwszy?.p?.nazwa
             );
 
-        const nr=
-            String(
-                pierwszy?.p?.nr||""
-            ).trim();
-
         const stan=
             kluczStanuTrasy(
                 stanTrasyNaPrzystanku(
@@ -8318,11 +8313,7 @@ function usunSztuczneDuplikatyWTymSamymStanieTrasy(
                 normalizuj(
                     kolejny?.p?.nazwa
                 )===
-                    nazwa&&
-                String(
-                    kolejny?.p?.nr||""
-                ).trim()===
-                    nr;
+                    nazwa;
 
             const tenSamStan=
                 kluczStanuTrasy(
@@ -8467,13 +8458,7 @@ function usunPowtorzenieNaGranicyWariantow(
             )===
                 normalizuj(
                     element?.p?.nazwa
-                )&&
-            String(
-                poprzedni?.p?.nr||""
-            ).trim()===
-                String(
-                    element?.p?.nr||""
-                ).trim();
+                );
 
         if(!tenSamPrzystanek){
 
@@ -11130,7 +11115,12 @@ function dopasujKolumnyTrasy() {
         czyBiezacyPrzystanekDwukierunkowy()
     ){
 
-        const listaDwukierunkowa=
+        /*
+         * =====================================================
+         * AKTUALNY KIERUNEK
+         * =====================================================
+         */
+        const listaAktualnego=
             lista.filter(
                 element=>
                     element.index>=
@@ -11138,22 +11128,22 @@ function dopasujKolumnyTrasy() {
             );
 
         const pierwszyIndex=
-            listaDwukierunkowa.length
-                ? listaDwukierunkowa[0].index
+            listaAktualnego.length
+                ? listaAktualnego[0].index
                 : -1;
 
         const ostatniIndex=
-            listaDwukierunkowa.length
-                ? listaDwukierunkowa[
-                    listaDwukierunkowa.length-1
+            listaAktualnego.length
+                ? listaAktualnego[
+                    listaAktualnego.length-1
                 ].index
                 : -1;
 
-        const htmlPierwszego=
+        const htmlAktualnego=
             renderTrasaKolumna(
                 {
                     start:0,
-                    lista:listaDwukierunkowa
+                    lista:listaAktualnego
                 },
                 czasy,
                 pierwszyIndex,
@@ -11161,81 +11151,84 @@ function dopasujKolumnyTrasy() {
                 false
             );
 
-        const parser=
+        const parserAktualnego=
             document.createElement(
                 "div"
             );
 
-        parser.innerHTML=
-            htmlPierwszego;
+        parserAktualnego.innerHTML=
+            htmlAktualnego;
 
-        const elementyHtml=[];
-
-        const listaPierwszego=
-            parser.querySelector(
-                ".trasa-lista"
-            );
-
-        if(listaPierwszego){
-
+        const elementyAktualnego=
             Array.from(
-                listaPierwszego.children
+                parserAktualnego.querySelector(
+                    ".trasa-lista"
+                )?.children||
+                []
             )
-            .forEach(
-                el=>
-                    elementyHtml.push(
-                        el.outerHTML
-                    )
+            .map(
+                el=>el.outerHTML
             );
-        }
 
-        const drugiHtml=
+
+        /*
+         * =====================================================
+         * DRUGI KIERUNEK
+         * =====================================================
+         */
+        const htmlDrugiego=
             renderElementyDrugiegoKierunkuTrasy();
 
-        if(drugiHtml){
-
-            const p2=
-                document.createElement(
-                    "ul"
-                );
-
-            p2.innerHTML=
-                drugiHtml;
-
-            Array.from(
-                p2.children
-            )
-            .forEach(
-                el=>
-                    elementyHtml.push(
-                        el.outerHTML
-                    )
+        const parserDrugiego=
+            document.createElement(
+                "ul"
             );
-        }
 
-        if(!elementyHtml.length){
+        parserDrugiego.innerHTML=
+            htmlDrugiego||"";
+
+        const elementyDrugiego=
+            Array.from(
+                parserDrugiego.children||
+                []
+            )
+            .map(
+                el=>el.outerHTML
+            );
+
+
+        if(
+            !elementyAktualnego.length&&
+            !elementyDrugiego.length
+        ){
             return;
         }
 
+
         /*
-           Pomiar i pakowanie dla konkretnej liczby kolumn.
-           Najpierw 2 kolumny. Jeśli naprawdę zabraknie wysokości,
-           dopiero wtedy 3 kolumny.
-        */
-        const zmierzIPodziel=
-            ileKolumn=>{
+         * =====================================================
+         * POMIAR AKTUALNEGO KIERUNKU
+         * =====================================================
+         *
+         * Funkcja sprawdza ile elementów rzeczywiście mieści się
+         * w jednej kolumnie przy konkretnej szerokości układu.
+         */
+        const podzielAktualnyKierunek=
+            ileKolumnCalegoPanelu=>{
 
                 tabliczka.classList.remove(
                     "trasa-2-kol",
                     "trasa-3-kol"
                 );
 
-                if(ileKolumn===2){
+                if(
+                    ileKolumnCalegoPanelu===2
+                ){
                     tabliczka.classList.add(
                         "trasa-2-kol"
                     );
                 }
-                else if(ileKolumn===3){
+                else{
                     tabliczka.classList.add(
                         "trasa-3-kol"
                     );
@@ -11243,24 +11236,29 @@ function dopasujKolumnyTrasy() {
 
                 columns.className=
                     "trasa-columns cols-"+
-                    ileKolumn;
+                    ileKolumnCalegoPanelu;
 
                 ustawNaglowekTrasy(
-                    ileKolumn
+                    ileKolumnCalegoPanelu
                 );
 
+                /*
+                 * Wszystkie elementy aktualnego kierunku wkładamy
+                 * chwilowo do pierwszej kolumny, żeby zmierzyć
+                 * prawdziwą wysokość po zawinięciu nazw.
+                 */
                 columns.innerHTML=
                     '<div class="trasa-kol trasa-kol-pomiar">'+
-                    '<ul class="trasa-lista">'+
-                    elementyHtml.join("")+
-                    '</ul>'+
+                        '<ul class="trasa-lista">'+
+                            elementyAktualnego.join("")+
+                        '</ul>'+
                     '</div>'+
                     Array.from(
                         {
                             length:
                                 Math.max(
                                     0,
-                                    ileKolumn-1
+                                    ileKolumnCalegoPanelu-1
                                 )
                         },
                         ()=>(
@@ -11268,219 +11266,192 @@ function dopasujKolumnyTrasy() {
                         )
                     ).join("");
 
-                /*
-                   Pomiar musi odbyć się już po rzeczywistym
-                   zawinięciu nazw dla szerokości danej liczby kolumn.
-                   Inaczej element, który później ma 2 linie, był
-                   liczony jako 1 linia i kolumna wychodziła poza dół.
-                */
                 ustawZawijanieNazwTrasy(
                     columns
                 );
 
-                const pomiarKol=
+                const kolumna=
                     columns.querySelector(
                         ".trasa-kol-pomiar"
                     );
 
+                const listaPomiarowa=
+                    kolumna?.querySelector(
+                        ".trasa-lista"
+                    );
+
                 const elementy=
                     Array.from(
-                        pomiarKol?.querySelector(
-                            ".trasa-lista"
-                        )?.children||
+                        listaPomiarowa?.children||
                         []
                     );
 
                 if(
-                    !pomiarKol||
+                    !kolumna||
                     !elementy.length
                 ){
-                    return null;
+                    return{
+                        pierwsza:[],
+                        druga:[],
+                        miesciSie:true
+                    };
                 }
 
-                const htmlZmierzony=
-                    elementy.map(
-                        el=>
-                            el.outerHTML
+                /*
+                 * .trasa-columns ma już stałą wysokość:
+                 * height: calc(100% - 24px).
+                 * Używamy więc JEJ clientHeight, a nie wysokości
+                 * panelu zależnej od zawartości.
+                 */
+                const styl=
+                    getComputedStyle(
+                        kolumna
                     );
 
-                const style=
-                    getComputedStyle(
-                        pomiarKol
-                    );
+                const maxDol=
+                    kolumna.getBoundingClientRect().top+
+                    columns.clientHeight-
+                    parseFloat(
+                        styl.paddingBottom||0
+                    )-
+                    3;
+
+                let ileSieMiesci=0;
+
+                for(
+                    const el
+                    of elementy
+                ){
+
+                    const rect=
+                        el.getBoundingClientRect();
+
+                    if(
+                        rect.bottom<=
+                        maxDol+0.5
+                    ){
+                        ileSieMiesci++;
+                    }
+                    else{
+                        break;
+                    }
+                }
 
                 /*
-                   Bierzemy pełną wysokość prawego panelu.
-                   Dzięki temu pierwsza kolumna jest zapełniana
-                   aż do dołu, a nie tylko do wysokości chwilowo
-                   wyrenderowanej zawartości.
-                */
-                const panel=
-                    document.querySelector(
-                        ".panel-prawy"
-                    );
+                 * Nie rozdzielamy separatora od pierwszego
+                 * przystanku jego sekcji.
+                 */
+                if(
+                    ileSieMiesci>0&&
+                    ileSieMiesci<
+                    elementy.length&&
+                    elementy[
+                        ileSieMiesci-1
+                    ]?.classList?.contains(
+                        "trasa-separator"
+                    )
+                ){
+                    ileSieMiesci--;
+                }
 
-                const head=
-                    document.querySelector(
-                        ".trasa-head"
-                    );
-
-                const maxWysokosc=
+                ileSieMiesci=
                     Math.max(
                         1,
-                        Math.floor(
-                            (
-                                panel?.clientHeight||
-                                columns.clientHeight
-                            )-
-                            (
-                                head?.offsetHeight||
-                                24
-                            )-
-                            parseFloat(
-                                style.paddingTop||0
-                            )-
-                            parseFloat(
-                                style.paddingBottom||0
-                            )-
-                            4
+                        Math.min(
+                            ileSieMiesci,
+                            elementyAktualnego.length
                         )
                     );
 
-                /*
-                   Jeden odczyt geometrii na element.
-                   Nie pobieramy osobno getComputedStyle() dla każdego
-                   wiersza, bo to potrafi wymuszać bardzo dużo
-                   synchronicznych przeliczeń layoutu.
-                */
-                const wysokosci=
-                    elementy.map(
-                        el=>{
-
-                            const rect=
-                                el.getBoundingClientRect();
-
-                            const dodatkowyMargines=
-                                el.classList.contains(
-                                    "trasa-separator"
-                                )
-                                    ? 6
-                                    : 0;
-
-                            return(
-                                rect.height+
-                                dodatkowyMargines
-                            );
-                        }
-                    );
-
-                const grupy=[
-                    []
-                ];
-
-                let uzyte=0;
-                let overflow=false;
-
-                for(
-                    let i=0;
-                    i<htmlZmierzony.length;
-                    i++
-                ){
-
-                    const h=
-                        wysokosci[i]||
-                        16.5;
-
-                    let wymagane=h;
-
-                    if(
-                        elementy[i]?.classList?.contains(
-                            "trasa-separator"
-                        )&&
-                        i+1<wysokosci.length
-                    ){
-                        wymagane+=
-                            wysokosci[i+1]||
-                            0;
-                    }
-
-                    if(
-                        grupy[
-                            grupy.length-1
-                        ].length>0&&
-                        uzyte+wymagane>
-                            maxWysokosc
-                    ){
-
-                        if(
-                            grupy.length<
-                            ileKolumn
-                        ){
-                            grupy.push(
-                                []
-                            );
-
-                            uzyte=0;
-                        }
-                        else{
-                            overflow=true;
-                        }
-                    }
-
-                    grupy[
-                        grupy.length-1
-                    ].push(
-                        htmlZmierzony[i]
-                    );
-
-                    uzyte+=h;
-                }
-
                 return{
-                    grupy,
-                    overflow
+                    pierwsza:
+                        elementyAktualnego.slice(
+                            0,
+                            ileSieMiesci
+                        ),
+
+                    druga:
+                        elementyAktualnego.slice(
+                            ileSieMiesci
+                        ),
+
+                    miesciSie:
+                        ileSieMiesci>=
+                        elementyAktualnego.length
                 };
             };
 
-        let wynik=
-            zmierzIPodziel(
+
+        /*
+         * Najpierw sprawdzamy układ:
+         * 1 kolumna aktualnego + 1 kolumna drugiego kierunku.
+         */
+        let podzial=
+            podzielAktualnyKierunek(
                 2
             );
 
         let ileKolumn=2;
 
+        /*
+         * Jeżeli aktualny kierunek nie mieści się w jednej,
+         * dajemy mu DWIE kolumny, a drugiemu kierunkowi trzecią.
+         */
         if(
-            !wynik||
-            wynik.overflow
+            !podzial.miesciSie&&
+            elementyDrugiego.length
         ){
-            wynik=
-                zmierzIPodziel(
+            podzial=
+                podzielAktualnyKierunek(
                     3
                 );
 
             ileKolumn=3;
         }
+        else if(
+            !podzial.miesciSie&&
+            !elementyDrugiego.length
+        ){
+            ileKolumn=2;
+        }
 
-        if(!wynik){
-            return;
+
+        const grupy=[];
+
+        if(
+            podzial.pierwsza.length
+        ){
+            grupy.push(
+                podzial.pierwsza
+            );
+        }
+
+        if(
+            podzial.druga.length
+        ){
+            grupy.push(
+                podzial.druga
+            );
+        }
+
+        if(
+            elementyDrugiego.length
+        ){
+            grupy.push(
+                elementyDrugiego
+            );
         }
 
         /*
-           Jeżeli wszystko mieści się nawet w jednej kolumnie,
-           nie tworzymy pustej drugiej kolumny.
-        */
-        const uzyteGrupy=
-            wynik.grupy.filter(
-                grupa=>
-                    grupa.length
-            );
-
+         * Jeśli nie ma drugiego kierunku albo aktualny mieści się
+         * w jednej kolumnie, nie tworzymy pustych kolumn.
+         */
         ileKolumn=
             Math.max(
                 1,
                 Math.min(
-                    ileKolumn,
-                    uzyteGrupy.length
+                    3,
+                    grupy.length
                 )
             );
 
@@ -11509,7 +11480,7 @@ function dopasujKolumnyTrasy() {
         );
 
         columns.innerHTML=
-            uzyteGrupy
+            grupy
                 .slice(
                     0,
                     ileKolumn
@@ -11517,9 +11488,9 @@ function dopasujKolumnyTrasy() {
                 .map(
                     grupa=>
                         '<div class="trasa-kol">'+
-                        '<ul class="trasa-lista">'+
-                        grupa.join("")+
-                        '</ul>'+
+                            '<ul class="trasa-lista">'+
+                                grupa.join("")+
+                            '</ul>'+
                         '</div>'
                 )
                 .join("");
