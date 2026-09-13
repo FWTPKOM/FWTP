@@ -7204,10 +7204,14 @@ function czasDowolnegoKursuNaPrzystanku(
             ){
 
                 const pStart=
-                    znajdzPrzystanekWRozkladzie(
+                    znajdzPrzystanekWRozkladzieDlaElementu(
                         rozklad,
                         aktualnyKierunek,
-                        startP
+                        {
+                            p:startP,
+                            index:
+                                aktualnyPrzystanek
+                        }
                     );
 
                 const kStart=
@@ -7582,6 +7586,112 @@ function istniejeKursLaczacyPrzystanki(pierwszy,drugi){
 
 
 
+
+function kluczeKursowDokladnegoElementuTrasy(
+    element
+){
+
+    const wynik=
+        new Set();
+
+    if(!element?.p){
+        return wynik;
+    }
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        (rozklad,rozkladIndex)=>{
+
+            const p=
+                znajdzPrzystanekWRozkladzieDlaElementu(
+                    rozklad,
+                    aktualnyKierunek,
+                    element
+                );
+
+            (
+                p?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    /*
+                       rozkladIndex jest częścią klucza.
+                       Dwa kursy o tym samym numerze, wariancie i brygadzie
+                       z dwóch różnych bloków rozkładowych nie mogą zostać
+                       przypadkowo uznane za ten sam kurs.
+                    */
+                    wynik.add(
+                        [
+                            rozkladIndex,
+                            String(
+                                kurs?.numer||""
+                            ).trim(),
+                            String(
+                                kurs?.wariant||""
+                            ).trim(),
+                            symbolDnia(kurs),
+                            String(
+                                kurs?.brygada||""
+                            ).trim()
+                        ].join("|")
+                    );
+                }
+            );
+        }
+    );
+
+    return wynik;
+}
+
+
+function istniejeKursLaczacyDokladneElementy(
+    pierwszy,
+    drugi
+){
+
+    const a=
+        kluczeKursowDokladnegoElementuTrasy(
+            pierwszy
+        );
+
+    const b=
+        kluczeKursowDokladnegoElementuTrasy(
+            drugi
+        );
+
+    if(
+        !a.size||
+        !b.size
+    ){
+        return false;
+    }
+
+    for(
+        const key
+        of a
+    ){
+        if(
+            b.has(key)
+        ){
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
 function przeniesMinieteGaleziePrzedAktywny(
     lista
 ){
@@ -7638,9 +7748,9 @@ function przeniesMinieteGaleziePrzedAktywny(
                i nie może być pokazywany za KUPIECKĄ.
             */
             if(
-                !istniejeKursLaczacyPrzystanki(
-                    aktywny.p,
-                    element.p
+                !istniejeKursLaczacyDokladneElementy(
+                    aktywny,
+                    element
                 )
             ){
                 /*
@@ -7997,7 +8107,9 @@ function usunPowtorzenieNazwyPrzedAktywnym(
 
 
 
-function usunPrzyszlePrzystankiBezMinuty(lista){
+function usunPrzyszlePrzystankiBezMinuty(
+    lista
+){
 
     if(
         !Array.isArray(lista)||
@@ -8017,13 +8129,48 @@ function usunPrzyszlePrzystankiBezMinuty(lista){
         return lista;
     }
 
+    const aktywny=
+        lista[
+            aktywnyPos
+        ];
+
     return lista.filter(
         (element,pos)=>{
 
+            /*
+               Przystanki już minięte pozostają bez zmian.
+            */
             if(pos<=aktywnyPos){
                 return true;
             }
 
+            /*
+               NAJWAŻNIEJSZA ZASADA — taka jak przy 131,
+               ale teraz działa również dla identycznej nazwy+nr:
+
+               przystanek po aktywnym zostaje tylko wtedy,
+               gdy istnieje ten sam rzeczywisty kurs, który:
+               - obsługuje aktywny przystanek,
+               - obsługuje dokładnie TO wystąpienie przyszłego
+                 przystanku.
+
+               Kurs, który dopiero zaczyna się na przyszłym punkcie,
+               nie spełnia tego warunku i nie tworzy sztucznego
+               drugiego przystanku.
+            */
+            if(
+                !istniejeKursLaczacyDokladneElementy(
+                    aktywny,
+                    element
+                )
+            ){
+                return false;
+            }
+
+            /*
+               Dodatkowa kontrola zgodna z dotychczasową logiką:
+               musi istnieć poprawny czas przejazdu.
+            */
             return(
                 czasDowolnegoKursuNaPrzystanku(
                     element
@@ -8036,9 +8183,21 @@ function usunPrzyszlePrzystankiBezMinuty(lista){
 
 function __bezCache_listaTrasyDoWyswietlenia(){
 
+    /*
+       W trybie dwóch kierunków musimy analizować CAŁĄ rzeczywistą
+       trasę kierunku. Nie wolno najpierw odcinać "wydłużenia",
+       ponieważ może ono w rzeczywistości być kolejną gałęzią
+       wariantu widoczną na tej samej tabliczce.
+
+       Przykład 170 / WIERNA 04:
+       wspólny odcinek e+l dochodzi do PKP ZACISZE-WILNO,
+       a później jeden przebieg jedzie dalej do ELSNEROWA.
+    */
     const baza=
-        daneTrasWydluzonych()
-            .baza;
+        czyBiezacyPrzystanekDwukierunkowy()
+            ? listaPelnejTrasyDoWyswietlenia()
+            : daneTrasWydluzonych()
+                .baza;
 
     const oczyszczona=
         przeniesMinieteGaleziePrzedAktywny(
