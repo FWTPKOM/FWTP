@@ -184,7 +184,7 @@
 
         .naglowek-tabliczki {
             display: grid;
-            grid-template-columns: 155px minmax(0, 1fr);
+            grid-template-columns: 150px minmax(0, 1fr);
 
             width: min(560px, calc(100% - 23px));
 
@@ -192,7 +192,7 @@
         }
 
         .numer-linii-box {
-            height: 70px;
+            height: 80px;
 
             display: flex;
             align-items: center;
@@ -2692,6 +2692,250 @@ function mapaWariantow(){
 
 
 
+
+function publiczneLiteryWariantow(){
+
+    const wynik=
+        new Set();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            (
+                Array.isArray(
+                    rozklad?.warianty
+                )
+                    ? rozklad.warianty
+                    : []
+            ).forEach(
+                wariant=>{
+
+                    const litera=
+                        String(
+                            wariant?.litera||""
+                        )
+                        .trim()
+                        .toUpperCase();
+
+                    if(litera){
+                        wynik.add(litera);
+                    }
+                }
+            );
+        }
+    );
+
+    return wynik;
+}
+
+
+function wszystkieLiteryWariantowAktualnegoKierunku(){
+
+    const wynik=
+        new Set();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const kierunek=
+                Array.isArray(
+                    rozklad?.kierunki
+                )
+                    ? rozklad.kierunki[
+                        aktualnyKierunek
+                    ]
+                    : null;
+
+            if(
+                !kierunek||
+                !Array.isArray(
+                    kierunek.przystanki
+                )
+            ){
+                return;
+            }
+
+            kierunek.przystanki.forEach(
+                przystanek=>{
+
+                    (
+                        przystanek?.kursy||
+                        []
+                    ).forEach(
+                        kurs=>{
+
+                            /*
+                               Liczymy wariant tylko wtedy,
+                               gdy kurs rzeczywiście istnieje
+                               w tym kierunku i ma prawidłowy czas
+                               na co najmniej jednym przystanku.
+                            */
+                            if(
+                                czasNaMinuty(
+                                    kurs?.czas
+                                )===null
+                            ){
+                                return;
+                            }
+
+                            const litera=
+                                String(
+                                    kurs?.wariant||""
+                                )
+                                .trim()
+                                .toUpperCase();
+
+                            if(litera){
+                                wynik.add(
+                                    litera
+                                );
+                            }
+                        }
+                    );
+                }
+            );
+        }
+    );
+
+    return[
+        ...wynik
+    ];
+}
+
+
+function publiczneLiteryWariantowAktualnegoKierunku(){
+
+    const publiczne=
+        publiczneLiteryWariantow();
+
+    const wszystkie=
+        wszystkieLiteryWariantowAktualnegoKierunku();
+
+    /*
+       Dokładnie jak w linia.html:
+       jeżeli JSON ma publiczne definicje wariantów,
+       nie pokazujemy i nie liczymy liter wewnętrznych,
+       których nie ma w rozklad.warianty.
+    */
+    if(publiczne.size){
+
+        return wszystkie.filter(
+            litera=>
+                publiczne.has(
+                    litera
+                )
+        );
+    }
+
+    return wszystkie;
+}
+
+
+function czyPokazacWariantJakLiniaHTML(litera){
+
+    const znak=
+        String(
+            litera||""
+        )
+        .trim()
+        .toUpperCase();
+
+    if(!znak){
+        return false;
+    }
+
+    const publiczne=
+        publiczneLiteryWariantow();
+
+    /*
+       Litera nieobecna w publicznych definicjach JSON
+       jest oznaczeniem wewnętrznym przebiegu.
+       Nie pokazujemy jej przy minutach ani w legendzie.
+    */
+    if(
+        publiczne.size&&
+        !publiczne.has(znak)
+    ){
+        return false;
+    }
+
+    const literyKierunku=
+        publiczneLiteryWariantowAktualnegoKierunku();
+
+    const liczbaWariantowKierunku=
+        literyKierunku.length;
+
+    if(
+        !literyKierunku.includes(
+            znak
+        )
+    ){
+        return false;
+    }
+
+    /*
+       ZASADA Z linia.html:
+
+       A = przebieg podstawowy.
+
+       1-3 warianty w AKTUALNYM KIERUNKU:
+           A bez literki.
+
+       4 lub więcej wariantów w AKTUALNYM KIERUNKU:
+           pokazujemy również A.
+
+       B/C/D/... pozostają normalnie widoczne.
+    */
+    if(
+        znak==="A"&&
+        liczbaWariantowKierunku<4
+    ){
+        return false;
+    }
+
+    /*
+       Jeżeli w kierunku rzeczywiście występuje kilka
+       publicznych wariantów, wariant jest publiczny.
+    */
+    if(
+        liczbaWariantowKierunku>1
+    ){
+        return true;
+    }
+
+    /*
+       Fallback dla pojedynczego / starszego układu danych:
+       zachowujemy dotychczasową logikę opisu.
+       A nadal pozostaje ukryte.
+    */
+    if(znak==="A"){
+        return false;
+    }
+
+    const mapa=
+        mapaWariantow();
+
+    const opis=
+        mapa.get(znak)||
+        mapa.get(
+            String(
+                litera||""
+            ).trim()
+        )||
+        "";
+
+    return czyOznaczacWariant(
+        opis
+    );
+}
+
+
 function normalizujOpisWariantu(opis){
 
     return String(
@@ -2937,14 +3181,19 @@ function symbolWariantu(kurs,symbol){
             kurs?.wariant||""
         ).trim();
 
-    const opis=
-        mapaWariantow()
-            .get(litera)||
-        "";
-
+    /*
+       Najpierw stosujemy dokładnie zasadę z linia.html.
+       Dzięki temu:
+       - A znika przy 1-3 wariantach w tym kierunku,
+       - A pojawia się przy 4+ wariantach w tym kierunku,
+       - litery wewnętrzne nie są pokazywane,
+       - wariant z drugiego kierunku nie wpływa na próg.
+    */
     if(
         litera&&
-        czyOznaczacWariant(opis)
+        czyPokazacWariantJakLiniaHTML(
+            litera
+        )
     ){
         return kanonicznaLiteraWariantu(
             litera
@@ -2952,15 +3201,24 @@ function symbolWariantu(kurs,symbol){
     }
 
     /*
-       Jeśli litera jest wyznaczana automatycznie po końcu kursu,
-       również przepuszczamy ją przez tę samą regułę,
-       aby identyczny opis nie dostał drugiej litery.
+       Zachowujemy dotychczasowy fallback dla automatycznie
+       rozpoznanego kursu skróconego, ale jego litera również
+       musi przejść tę samą kontrolę publicznego wariantu.
     */
     const literaSkrocenia=
         znajdzLitereSkroceniaPoKoncu(
             kurs,
             symbol
         );
+
+    if(
+        !literaSkrocenia||
+        !czyPokazacWariantJakLiniaHTML(
+            literaSkrocenia
+        )
+    ){
+        return"";
+    }
 
     return kanonicznaLiteraWariantu(
         literaSkrocenia
@@ -4969,12 +5227,12 @@ function renderLegenda(){
                 opis||""
             ).trim();
 
-        if(
-            !tekst||
-            !czyOznaczacWariant(
-                tekst
-            )
-        ){
+        /*
+           Litera trafiła tutaj tylko wtedy, gdy faktycznie
+           została użyta przy minutach. Wystarczy więc publiczny
+           opis z JSON-u — tak jak w linia.html.
+        */
+        if(!tekst){
             continue;
         }
 
