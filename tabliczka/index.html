@@ -3762,6 +3762,149 @@ function kluczKursu(kurs){
 }
 
 
+
+function numerWystapieniaPrzystankuWBazie(element){
+
+    if(
+        !element||
+        !Object.prototype.hasOwnProperty.call(
+            element,
+            "index"
+        )
+    ){
+        return 0;
+    }
+
+    const baza=
+        kierunekBazowy()
+            ?.przystanki||
+        [];
+
+    const index=
+        Number(
+            element.index
+        );
+
+    if(
+        !Number.isInteger(index)||
+        index<0||
+        index>=baza.length
+    ){
+        return 0;
+    }
+
+    const cel=
+        baza[index];
+
+    const nazwa=
+        normalizuj(
+            cel?.nazwa
+        );
+
+    const nr=
+        String(
+            cel?.nr||""
+        ).trim();
+
+    let wystapienie=0;
+
+    for(
+        let i=0;
+        i<index;
+        i++
+    ){
+
+        const p=
+            baza[i];
+
+        if(
+            normalizuj(
+                p?.nazwa
+            )===
+                nazwa&&
+            String(
+                p?.nr||""
+            ).trim()===
+                nr
+        ){
+            wystapienie++;
+        }
+    }
+
+    return wystapienie;
+}
+
+
+function znajdzPrzystanekWRozkladzieDlaElementu(
+    rozklad,
+    kierunekIndex,
+    element
+){
+
+    const k=
+        Array.isArray(
+            rozklad?.kierunki
+        )
+            ? rozklad.kierunki[
+                kierunekIndex
+            ]
+            : null;
+
+    if(
+        !k||
+        !Array.isArray(
+            k.przystanki
+        )||
+        !element
+    ){
+        return null;
+    }
+
+    const bazaP=
+        element?.p||
+        element;
+
+    const nazwa=
+        normalizuj(
+            bazaP?.nazwa
+        );
+
+    const nr=
+        String(
+            bazaP?.nr||""
+        ).trim();
+
+    const pasujace=
+        k.przystanki.filter(
+            p=>
+                normalizuj(
+                    p?.nazwa
+                )===
+                    nazwa&&
+                String(
+                    p?.nr||""
+                ).trim()===
+                    nr
+        );
+
+    if(!pasujace.length){
+        return null;
+    }
+
+    const wystapienie=
+        numerWystapieniaPrzystankuWBazie(
+            element
+        );
+
+    return(
+        pasujace[
+            wystapienie
+        ]||
+        null
+    );
+}
+
+
 function znajdzPrzystanekWRozkladzie(
     rozklad,
     kierunekIndex,
@@ -6314,6 +6457,18 @@ function __bezCache_kursyAktualnegoRozkladuDoTrasy(){
             kursy.forEach(
                 kurs=>{
 
+                    if(
+                        czyBiezacyPrzystanekDwukierunkowy()&&
+                        Number(
+                            kurs?._kierunekIndex
+                        )!==
+                        Number(
+                            aktualnyKierunek
+                        )
+                    ){
+                        return;
+                    }
+
                     const key=
                         kluczKursu(kurs);
 
@@ -6324,7 +6479,14 @@ function __bezCache_kursyAktualnegoRozkladuDoTrasy(){
                         wariant:String(
                             kurs?.wariant||""
                         ).trim(),
-                        symbol:grupa.symbol
+                        symbol:grupa.symbol,
+                        brygada:String(
+                            kurs?.brygada||""
+                        ).trim(),
+                        _kierunekIndex:
+                            Number(
+                                kurs?._kierunekIndex
+                            )
                     };
 
                     /*
@@ -6380,6 +6542,13 @@ function kursMaPrzystanek(
         return false;
     }
 
+    const kierunekIndex=
+        Number.isInteger(
+            kursRef?._kierunekIndex
+        )
+            ? kursRef._kierunekIndex
+            : aktualnyKierunek;
+
     for(
         const rozklad of
         (
@@ -6389,10 +6558,10 @@ function kursMaPrzystanek(
     ){
 
         const p=
-            znajdzPrzystanekWRozkladzie(
+            znajdzPrzystanekWRozkladzieDlaElementu(
                 rozklad,
-                aktualnyKierunek,
-                element.p
+                kierunekIndex,
+                element
             );
 
         const jest=
@@ -6404,13 +6573,28 @@ function kursMaPrzystanek(
                     String(
                         k?.numer||""
                     )===
-                        kursRef.numer&&
+                        String(
+                            kursRef?.numer||""
+                        )&&
                     String(
                         k?.wariant||""
                     ).trim()===
-                        kursRef.wariant&&
+                        String(
+                            kursRef?.wariant||""
+                        ).trim()&&
                     symbolDnia(k)===
                         kursRef.symbol&&
+                    (
+                        !String(
+                            kursRef?.brygada||""
+                        ).trim()||
+                        String(
+                            k?.brygada||""
+                        ).trim()===
+                            String(
+                                kursRef?.brygada||""
+                            ).trim()
+                    )&&
                     czasNaMinuty(
                         k?.czas
                     )!==null
@@ -6425,6 +6609,124 @@ function kursMaPrzystanek(
 }
 
 
+
+function ostatniIndexKursuNaPelnejTrasie(kursRef){
+
+    const pelna=
+        listaPelnejTrasyDoWyswietlenia();
+
+    let ostatni=-1;
+
+    pelna.forEach(
+        element=>{
+
+            if(
+                kursMaPrzystanek(
+                    kursRef,
+                    element
+                )
+            ){
+                ostatni=
+                    Math.max(
+                        ostatni,
+                        Number(
+                            element.index
+                        )
+                    );
+            }
+        }
+    );
+
+    return ostatni;
+}
+
+
+function bazowyKoniecPelnychKursow(){
+
+    let max=-1;
+
+    dostepneGrupyDni()
+        .slice(0,3)
+        .forEach(
+            grupa=>{
+
+                pobierzKursyDlaSymbolu(
+                    grupa.symbol
+                )
+                .forEach(
+                    kurs=>{
+
+                        if(
+                            czyBiezacyPrzystanekDwukierunkowy()&&
+                            Number(
+                                kurs?._kierunekIndex
+                            )!==
+                            Number(
+                                aktualnyKierunek
+                            )
+                        ){
+                            return;
+                        }
+
+                        const opis=
+                            String(
+                                mapaWariantow()
+                                    .get(
+                                        String(
+                                            kurs?.wariant||""
+                                        ).trim()
+                                    )||
+                                ""
+                            );
+
+                        if(
+                            /skrócon|wydłuż|zajezdni|tylko do/i
+                                .test(opis)
+                        ){
+                            return;
+                        }
+
+                        const ref={
+                            numer:String(
+                                kurs?.numer||""
+                            ),
+                            wariant:String(
+                                kurs?.wariant||""
+                            ).trim(),
+                            symbol:grupa.symbol,
+                            brygada:String(
+                                kurs?.brygada||""
+                            ).trim(),
+                            _kierunekIndex:
+                                Number(
+                                    kurs?._kierunekIndex
+                                )
+                        };
+
+                        if(
+                            czyKursZaczynaWSrodkuTrasy(
+                                ref
+                            )
+                        ){
+                            return;
+                        }
+
+                        max=
+                            Math.max(
+                                max,
+                                ostatniIndexKursuNaPelnejTrasie(
+                                    ref
+                                )
+                            );
+                    }
+                );
+            }
+        );
+
+    return max;
+}
+
+
 function czyKursPomijanyPrzyTrasie(kurs){
 
     const litera=
@@ -6433,26 +6735,43 @@ function czyKursPomijanyPrzyTrasie(kurs){
         ).trim();
 
     const opis=
-        mapaWariantow()
-            .get(litera)||
-        "";
+        String(
+            mapaWariantow()
+                .get(litera)||
+            ""
+        );
 
-    /*
-       Przy analizie przebiegów trasy NIE LICZYMY:
-       - kursów skróconych,
-       - kursów wydłużonych,
-       - kursów do zajezdni,
-       - kursów typu "tylko do...".
+    if(
+        /skrócon|zajezdni|tylko do/i
+            .test(opis)
+    ){
+        return true;
+    }
 
-       One nie mogą wpływać na to, czy odcinek jest:
-       "w kursach..." albo "we wszystkich kursach".
-    */
-    return(
-        /skrócon|wydłuż|zajezdni|tylko do/i
-            .test(
-                String(opis)
-            )
-    );
+    if(
+        /wydłuż/i.test(opis)
+    ){
+
+        const koniecKursu=
+            ostatniIndexKursuNaPelnejTrasie(
+                kurs
+            );
+
+        const koniecBazowy=
+            bazowyKoniecPelnychKursow();
+
+        /*
+           Pomijamy jako wydłużenie tylko wtedy,
+           gdy kurs naprawdę jedzie dalej niż zwykła trasa.
+        */
+        return(
+            koniecBazowy>=0&&
+            koniecKursu>
+            koniecBazowy
+        );
+    }
+
+    return false;
 }
 
 
@@ -6920,10 +7239,10 @@ function czasDowolnegoKursuNaPrzystanku(
                 }
 
                 const pKoniec=
-                    znajdzPrzystanekWRozkladzie(
+                    znajdzPrzystanekWRozkladzieDlaElementu(
                         rozklad,
                         aktualnyKierunek,
-                        element.p
+                        element
                     );
 
                 const kKoniec=
@@ -6999,10 +7318,10 @@ function wariantyNaPrzystanku(element){
         rozklad=>{
 
             const p=
-                znajdzPrzystanekWRozkladzie(
+                znajdzPrzystanekWRozkladzieDlaElementu(
                     rozklad,
                     aktualnyKierunek,
-                    element.p
+                    element
                 );
 
             (
@@ -7677,6 +7996,44 @@ function usunPowtorzenieNazwyPrzedAktywnym(
 }
 
 
+
+function usunPrzyszlePrzystankiBezMinuty(lista){
+
+    if(
+        !Array.isArray(lista)||
+        !lista.length
+    ){
+        return lista||[];
+    }
+
+    const aktywnyPos=
+        lista.findIndex(
+            element=>
+                element?.index===
+                aktualnyPrzystanek
+        );
+
+    if(aktywnyPos<0){
+        return lista;
+    }
+
+    return lista.filter(
+        (element,pos)=>{
+
+            if(pos<=aktywnyPos){
+                return true;
+            }
+
+            return(
+                czasDowolnegoKursuNaPrzystanku(
+                    element
+                )!==null
+            );
+        }
+    );
+}
+
+
 function __bezCache_listaTrasyDoWyswietlenia(){
 
     const baza=
@@ -7693,8 +8050,13 @@ function __bezCache_listaTrasyDoWyswietlenia(){
             oczyszczona
         );
 
-    return usunPowtorzenieNazwyPrzedAktywnym(
-        poPoczatkuWariantu
+    const bezPowtorzenia=
+        usunPowtorzenieNazwyPrzedAktywnym(
+            poPoczatkuWariantu
+        );
+
+    return usunPrzyszlePrzystankiBezMinuty(
+        bezPowtorzenia
     );
 }
 
@@ -9043,6 +9405,200 @@ function renderTrasaKolumna(
    ========================================================= */
 
 
+
+function rzeczywistyKraniecKombinacjiDwukierunkowej(item){
+
+    const liczniki=
+        new Map();
+
+    dostepneGrupyDni()
+        .slice(0,3)
+        .forEach(
+            grupa=>{
+
+                pobierzKursyDlaSymbolu(
+                    grupa.symbol
+                )
+                .forEach(
+                    kurs=>{
+
+                        const dir=
+                            Number(
+                                kurs?._kierunekIndex
+                            );
+
+                        if(
+                            dir!==
+                            Number(
+                                item.dir
+                            )
+                        ){
+                            return;
+                        }
+
+                        const litera=
+                            literaWariantuPoRzeczywistymPrzebiegu(
+                                {
+                                    ...kurs,
+                                    symbol:grupa.symbol,
+                                    _kierunekIndex:dir
+                                },
+                                dir
+                            );
+
+                        const wariant=
+                            (
+                                litera&&
+                                czyPokazacWariantJakLiniaHTML(
+                                    litera
+                                )
+                            )
+                                ? String(
+                                    litera
+                                ).toLowerCase()
+                                : "";
+
+                        if(
+                            wariant!==
+                            String(
+                                item.wariant||""
+                            ).toLowerCase()
+                        ){
+                            return;
+                        }
+
+                        const ref={
+                            numer:String(
+                                kurs?.numer||""
+                            ),
+                            wariant:String(
+                                kurs?.wariant||""
+                            ).trim(),
+                            symbol:grupa.symbol,
+                            brygada:String(
+                                kurs?.brygada||""
+                            ).trim(),
+                            _kierunekIndex:dir
+                        };
+
+                        /*
+                           Dla aktualnego kierunku możemy użyć pełnej
+                           listy z dokładnym rozróżnieniem wystąpień.
+                        */
+                        const pelna=
+                            (
+                                dir===
+                                Number(
+                                    aktualnyKierunek
+                                )
+                            )
+                                ? listaPelnejTrasyDoWyswietlenia()
+                                : (
+                                    znajdzNajpelniejszyKierunek(
+                                        dir
+                                    )?.przystanki||
+                                    []
+                                ).map(
+                                    (p,index)=>({
+                                        p,
+                                        index
+                                    })
+                                );
+
+                        let ostatni=null;
+
+                        pelna.forEach(
+                            element=>{
+
+                                if(
+                                    kursMaPrzystanek(
+                                        ref,
+                                        element
+                                    )
+                                ){
+                                    ostatni=
+                                        element;
+                                }
+                            }
+                        );
+
+                        if(!ostatni){
+                            return;
+                        }
+
+                        const nazwa=
+                            String(
+                                ostatni?.p?.nazwa||
+                                ""
+                            ).toUpperCase();
+
+                        const key=
+                            normalizuj(
+                                nazwa
+                            );
+
+                        if(!liczniki.has(key)){
+                            liczniki.set(
+                                key,
+                                {
+                                    nazwa,
+                                    ile:0
+                                }
+                            );
+                        }
+
+                        liczniki
+                            .get(key)
+                            .ile++;
+                    }
+                );
+            }
+        );
+
+    if(!liczniki.size){
+        return"";
+    }
+
+    return[
+        ...liczniki.values()
+    ]
+    .sort(
+        (a,b)=>
+            b.ile-a.ile
+    )[0].nazwa;
+}
+
+
+function opisKombinacjiDwukierunkowej(item){
+
+    const kierunek=
+        String(
+            item?.kierunek||""
+        ).toUpperCase();
+
+    const kraniec=
+        rzeczywistyKraniecKombinacjiDwukierunkowej(
+            item
+        );
+
+    if(
+        kraniec&&
+        normalizuj(kraniec)!==
+        normalizuj(kierunek)
+    ){
+        return(
+            "kurs do krańca "+
+            kraniec
+        );
+    }
+
+    return(
+        "kurs w kierunku "+
+        kierunek
+    );
+}
+
+
 function renderLegendaDwukierunkowa(){
 
     const mapa=
@@ -9067,22 +9623,10 @@ function renderLegendaDwukierunkowa(){
     .forEach(
         item=>{
 
-            let opis=
-                "kurs w kierunku "+
-                item.kierunek;
-
-            if(item.wariant){
-
-                const fragment=
-                    opisWariantuDoKierunku(
-                        item.wariant,
-                        item.dir
-                    );
-
-                if(fragment){
-                    opis+=" "+fragment;
-                }
-            }
+            const opis=
+                opisKombinacjiDwukierunkowej(
+                    item
+                );
 
             wiersze.push(
                 '<div class="legenda-wiersz">'+
