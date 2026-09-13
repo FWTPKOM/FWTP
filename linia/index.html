@@ -2597,7 +2597,7 @@ function dostepneGrupyDni(){
 
         wynik.push({
             symbol:"7",
-            tytul:"NIEDZIELA I ŚWIĘTO"
+            tytul:"ŚWIĘTO"
         });
     }
     else{
@@ -2732,7 +2732,9 @@ function publiczneLiteryWariantow(){
 }
 
 
-function wszystkieLiteryWariantowAktualnegoKierunku(){
+function wszystkieLiteryWariantowAktualnegoKierunku(
+    symbol=null
+){
 
     const wynik=
         new Set();
@@ -2770,16 +2772,30 @@ function wszystkieLiteryWariantowAktualnegoKierunku(){
                     ).forEach(
                         kurs=>{
 
-                            /*
-                               Liczymy wariant tylko wtedy,
-                               gdy kurs rzeczywiście istnieje
-                               w tym kierunku i ma prawidłowy czas
-                               na co najmniej jednym przystanku.
-                            */
                             if(
                                 czasNaMinuty(
                                     kurs?.czas
                                 )===null
+                            ){
+                                return;
+                            }
+
+                            /*
+                               Jeżeli renderujemy konkretną tabelę dnia,
+                               liczymy WYŁĄCZNIE warianty występujące
+                               w tym typie dnia.
+
+                               To odpowiada zachowaniu linia.html,
+                               gdzie próg 4 jest liczony dla bieżącego
+                               rozkładu, a nie jako suma wszystkich
+                               D / 6 / 7 / C naraz.
+                            */
+                            if(
+                                symbol!==null&&
+                                symbol!==undefined&&
+                                symbol!==""&&
+                                symbolDnia(kurs)!==
+                                    symbol
                             ){
                                 return;
                             }
@@ -2809,19 +2825,22 @@ function wszystkieLiteryWariantowAktualnegoKierunku(){
 }
 
 
-function publiczneLiteryWariantowAktualnegoKierunku(){
+function publiczneLiteryWariantowAktualnegoKierunku(
+    symbol=null
+){
 
     const publiczne=
         publiczneLiteryWariantow();
 
     const wszystkie=
-        wszystkieLiteryWariantowAktualnegoKierunku();
+        wszystkieLiteryWariantowAktualnegoKierunku(
+            symbol
+        );
 
     /*
-       Dokładnie jak w linia.html:
-       jeżeli JSON ma publiczne definicje wariantów,
-       nie pokazujemy i nie liczymy liter wewnętrznych,
-       których nie ma w rozklad.warianty.
+       Tak jak w linia.html:
+       jeśli istnieją publiczne definicje rozklad.warianty,
+       do progu wariantów nie liczymy liter wewnętrznych.
     */
     if(publiczne.size){
 
@@ -2837,7 +2856,10 @@ function publiczneLiteryWariantowAktualnegoKierunku(){
 }
 
 
-function czyPokazacWariantJakLiniaHTML(litera){
+function czyPokazacWariantJakLiniaHTML(
+    litera,
+    symbol=null
+){
 
     const znak=
         String(
@@ -2854,9 +2876,8 @@ function czyPokazacWariantJakLiniaHTML(litera){
         publiczneLiteryWariantow();
 
     /*
-       Litera nieobecna w publicznych definicjach JSON
-       jest oznaczeniem wewnętrznym przebiegu.
-       Nie pokazujemy jej przy minutach ani w legendzie.
+       Litera bez publicznej definicji jest wewnętrznym
+       oznaczeniem przebiegu i nie trafia na tabliczkę.
     */
     if(
         publiczne.size&&
@@ -2866,7 +2887,9 @@ function czyPokazacWariantJakLiniaHTML(litera){
     }
 
     const literyKierunku=
-        publiczneLiteryWariantowAktualnegoKierunku();
+        publiczneLiteryWariantowAktualnegoKierunku(
+            symbol
+        );
 
     const liczbaWariantowKierunku=
         literyKierunku.length;
@@ -2880,17 +2903,18 @@ function czyPokazacWariantJakLiniaHTML(litera){
     }
 
     /*
-       ZASADA Z linia.html:
+       DOKŁADNA ZASADA Z linia.html:
 
-       A = przebieg podstawowy.
+       A jest bazą.
 
-       1-3 warianty w AKTUALNYM KIERUNKU:
-           A bez literki.
+       1-3 publiczne warianty w tym kierunku
+       i w tym konkretnym typie dnia:
+           A UKRYTE.
 
-       4 lub więcej wariantów w AKTUALNYM KIERUNKU:
-           pokazujemy również A.
+       4 lub więcej:
+           A WIDOCZNE.
 
-       B/C/D/... pozostają normalnie widoczne.
+       Pozostałe publiczne warianty są widoczne.
     */
     if(
         znak==="A"&&
@@ -2899,10 +2923,6 @@ function czyPokazacWariantJakLiniaHTML(litera){
         return false;
     }
 
-    /*
-       Jeżeli w kierunku rzeczywiście występuje kilka
-       publicznych wariantów, wariant jest publiczny.
-    */
     if(
         liczbaWariantowKierunku>1
     ){
@@ -2910,9 +2930,9 @@ function czyPokazacWariantJakLiniaHTML(litera){
     }
 
     /*
-       Fallback dla pojedynczego / starszego układu danych:
-       zachowujemy dotychczasową logikę opisu.
-       A nadal pozostaje ukryte.
+       Przy pojedynczym wariancie bazowego A nie pokazujemy.
+       Dla innej publicznej litery zachowujemy możliwość
+       wyświetlenia jej opisu.
     */
     if(znak==="A"){
         return false;
@@ -3192,7 +3212,8 @@ function symbolWariantu(kurs,symbol){
     if(
         litera&&
         czyPokazacWariantJakLiniaHTML(
-            litera
+            litera,
+            symbol
         )
     ){
         return kanonicznaLiteraWariantu(
@@ -3214,7 +3235,8 @@ function symbolWariantu(kurs,symbol){
     if(
         !literaSkrocenia||
         !czyPokazacWariantJakLiniaHTML(
-            literaSkrocenia
+            literaSkrocenia,
+            symbol
         )
     ){
         return"";
