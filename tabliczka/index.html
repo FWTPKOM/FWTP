@@ -8682,6 +8682,91 @@ function renderWydluzeniaTrasy(){
 }
 
 
+
+function indeksAktywnegoNaWyswietlanejTrasie(
+    lista
+){
+
+    const source=
+        Array.isArray(lista)
+            ? lista
+            : [];
+
+    /*
+       Najpierw normalny przypadek — dokładny indeks nadal istnieje.
+    */
+    const dokladny=
+        source.find(
+            element=>
+                element?.index===
+                aktualnyPrzystanek
+        );
+
+    if(dokladny){
+        return aktualnyPrzystanek;
+    }
+
+    /*
+       Aktywny wpis mógł zostać usunięty jako sztuczne
+       powtórzenie na granicy trasy podstawowej i wydłużonej.
+
+       Przykład 131 / SADYBA 01:
+       - jedna SADYBA zostaje na końcu trasy podstawowej,
+       - druga SADYBA z początku wydłużenia jest usuwana,
+       - ale wybranym słupkiem nadal jest właśnie SADYBA 01.
+
+       W takim przypadku aktywność przenosimy na najbliższy
+       pozostały wpis o tej samej nazwie.
+    */
+    const pelnyKierunek=
+        kierunekBazowy()?.przystanki||
+        [];
+
+    const aktywny=
+        pelnyKierunek[
+            aktualnyPrzystanek
+        ];
+
+    if(!aktywny){
+        return aktualnyPrzystanek;
+    }
+
+    const nazwaAktywnego=
+        normalizuj(
+            aktywny?.nazwa
+        );
+
+    if(!nazwaAktywnego){
+        return aktualnyPrzystanek;
+    }
+
+    const kandydaci=
+        source
+            .filter(
+                element=>
+                    normalizuj(
+                        element?.p?.nazwa
+                    )===
+                    nazwaAktywnego
+            )
+            .sort(
+                (a,b)=>
+                    Math.abs(
+                        Number(a.index)-
+                        aktualnyPrzystanek
+                    )-
+                    Math.abs(
+                        Number(b.index)-
+                        aktualnyPrzystanek
+                    )
+            );
+
+    return kandydaci.length
+        ? kandydaci[0].index
+        : aktualnyPrzystanek;
+}
+
+
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -8692,6 +8777,11 @@ function renderTrasaKolumna(
 
     const pelnaLista=
         listaTrasyDoWyswietlenia();
+
+    const aktywnyIndexWyswietlany=
+        indeksAktywnegoNaWyswietlanejTrasie(
+            pelnaLista
+        );
 
     return(
         '<div class="trasa-kol">'+
@@ -8745,7 +8835,7 @@ function renderTrasaKolumna(
 
                     const przed=
                         index<
-                        aktualnyPrzystanek;
+                        aktywnyIndexWyswietlany;
 
                     /*
                        Opisy wariantów trasy pokazujemy tylko od
@@ -8776,7 +8866,7 @@ function renderTrasaKolumna(
 
                     const wybrany=
                         index===
-                        aktualnyPrzystanek;
+                        aktywnyIndexWyswietlany;
 
                     if(
                         czyBiezacyPrzystanekDwukierunkowy()
@@ -8839,17 +8929,33 @@ function renderTrasaKolumna(
                     */
                     if(!przed){
 
-                        czas=
-                            czasy[index];
-
                         if(
-                            czas===null||
-                            typeof czas==="undefined"
+                            wybrany&&
+                            index!==
+                            aktualnyPrzystanek
                         ){
+                            /*
+                               Aktywny dokładny wpis został scalony
+                               z przystankiem o tej samej nazwie.
+                               Na tabliczce nadal jest to miejsce,
+                               na którym stoimy, więc czas = 0.
+                            */
+                            czas=0;
+                        }
+                        else{
+
                             czas=
-                                czasDowolnegoKursuNaPrzystanku(
-                                    element
-                                );
+                                czasy[index];
+
+                            if(
+                                czas===null||
+                                typeof czas==="undefined"
+                            ){
+                                czas=
+                                    czasDowolnegoKursuNaPrzystanku(
+                                        element
+                                    );
+                            }
                         }
                     }
 
