@@ -6110,6 +6110,286 @@ function usunDuplikatyTylkoOdKursowSkroconych(lista){
 }
 
 
+
+function kluczPelnyKursuTrasy(
+    kurs
+){
+
+    return[
+        String(
+            kurs?.numer||""
+        ).trim(),
+        String(
+            kurs?.wariant||""
+        ).trim(),
+        String(
+            kurs?.uwagi||""
+        ).trim(),
+        String(
+            kurs?.brygada||""
+        ).trim()
+    ].join("|");
+}
+
+
+function statystykaPoczatkowKursowDlaElementu(
+    element,
+    pelnaLista
+){
+
+    const p=
+        element?.p;
+
+    if(!p){
+        return{
+            wszystkie:0,
+            startowe:0,
+            przelotowe:0
+        };
+    }
+
+    const kursy=
+        (
+            p.kursy||
+            []
+        )
+        .filter(
+            kurs=>
+                czasNaMinuty(
+                    kurs?.czas
+                )!==null
+        );
+
+    if(!kursy.length){
+        return{
+            wszystkie:0,
+            startowe:0,
+            przelotowe:0
+        };
+    }
+
+    const unikalne=
+        new Map();
+
+    kursy.forEach(
+        kurs=>{
+
+            const key=
+                kluczPelnyKursuTrasy(
+                    kurs
+                );
+
+            if(!unikalne.has(key)){
+                unikalne.set(
+                    key,
+                    kurs
+                );
+            }
+        }
+    );
+
+    let startowe=0;
+    let przelotowe=0;
+
+    for(
+        const [key]
+        of unikalne
+    ){
+
+        let maWczesniejszyCzas=false;
+
+        for(
+            const poprzedni
+            of pelnaLista
+        ){
+
+            if(
+                poprzedni.index>=
+                element.index
+            ){
+                break;
+            }
+
+            const jestTenSamKurs=
+                (
+                    poprzedni?.p?.kursy||
+                    []
+                ).some(
+                    kurs=>
+                        czasNaMinuty(
+                            kurs?.czas
+                        )!==null&&
+                        kluczPelnyKursuTrasy(
+                            kurs
+                        )===key
+                );
+
+            if(jestTenSamKurs){
+                maWczesniejszyCzas=true;
+                break;
+            }
+        }
+
+        if(maWczesniejszyCzas){
+            przelotowe++;
+        }
+        else{
+            startowe++;
+        }
+    }
+
+    return{
+        wszystkie:
+            unikalne.size,
+        startowe,
+        przelotowe
+    };
+}
+
+
+function usunPowtorzeniaTylkoOdStartuKursow(
+    lista
+){
+
+    if(
+        !Array.isArray(lista)||
+        lista.length<2
+    ){
+        return lista||[];
+    }
+
+    const wynik=[];
+
+    let i=0;
+
+    while(i<lista.length){
+
+        const nazwa=
+            normalizuj(
+                lista[i]?.p?.nazwa
+            );
+
+        let j=i+1;
+
+        /*
+           Analizujemy tylko kolejne wpisy o tej samej nazwie.
+           Numeru przystanku tutaj celowo nie bierzemy pod uwagę,
+           dokładnie jak w podobnych przypadkach 131/192.
+        */
+        while(
+            j<lista.length&&
+            normalizuj(
+                lista[j]?.p?.nazwa
+            )===nazwa
+        ){
+            j++;
+        }
+
+        const grupa=
+            lista.slice(
+                i,
+                j
+            );
+
+        if(grupa.length===1){
+
+            wynik.push(
+                grupa[0]
+            );
+
+            i=j;
+            continue;
+        }
+
+        const opisane=
+            grupa.map(
+                element=>({
+                    element,
+                    stat:
+                        statystykaPoczatkowKursowDlaElementu(
+                            element,
+                            lista
+                        )
+                })
+            );
+
+        /*
+           Jeżeli aktywny przystanek znajduje się w tej grupie,
+           zawsze zachowujemy właśnie jego.
+        */
+        const aktywny=
+            opisane.find(
+                x=>
+                    x.element.index===
+                    aktualnyPrzystanek
+            );
+
+        if(aktywny){
+
+            wynik.push(
+                aktywny.element
+            );
+
+            i=j;
+            continue;
+        }
+
+        /*
+           Właściwy wpis trasy to ten, przez który przejeżdża
+           co najmniej jeden kurs mający wcześniejszy przystanek.
+        */
+        const przelotowe=
+            opisane.filter(
+                x=>
+                    x.stat.przelotowe>0
+            );
+
+        const tylkoStart=
+            opisane.filter(
+                x=>
+                    x.stat.wszystkie>0&&
+                    x.stat.startowe>0&&
+                    x.stat.przelotowe===0
+            );
+
+        if(
+            przelotowe.length===1&&
+            tylkoStart.length>=1
+        ){
+            /*
+               Np. PKP ZACISZE-WILNO:
+               pierwszy wpis jest tylko punktem rozpoczęcia części
+               kursów, a drugi jest rzeczywistym elementem przebiegu.
+
+               Zostawiamy tylko wpis przelotowy.
+            */
+            wynik.push(
+                przelotowe[0].element
+            );
+
+            i=j;
+            continue;
+        }
+
+        /*
+           Jeżeli nie jesteśmy pewni, zachowujemy dotychczasowy układ.
+           Nie chcemy usuwać prawdziwego dwukrotnego przejazdu
+           przez przystanek.
+        */
+        grupa.forEach(
+            element=>
+                wynik.push(
+                    element
+                )
+        );
+
+        i=j;
+    }
+
+    return wynik;
+}
+
+
 function __bezCache_listaPelnejTrasyDoWyswietlenia(){
 
     const baza=
@@ -6161,8 +6441,17 @@ function __bezCache_listaPelnejTrasyDoWyswietlenia(){
        Na końcu usuwamy tylko sztuczne podwójne wystąpienia
        powstałe przez osobny kraniec kursu skróconego.
     */
-    return usunDuplikatyTylkoOdKursowSkroconych(
-        gotowaLista
+    const bezDuplikatowSkroconych=
+        usunDuplikatyTylkoOdKursowSkroconych(
+            gotowaLista
+        );
+
+    /*
+       Następnie usuwamy sztuczne powtórzenia tworzone wyłącznie
+       przez kursy rozpoczynające się w środku trasy.
+    */
+    return usunPowtorzeniaTylkoOdStartuKursow(
+        bezDuplikatowSkroconych
     );
 }
 
