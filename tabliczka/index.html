@@ -2948,6 +2948,48 @@ function wypelnijKierunki(){
    ========================================================= */
 
 
+
+function czyTenSamPrzystanekPoNazwieINumerze(
+    a,
+    b
+){
+
+    if(
+        !a||
+        !b
+    ){
+        return false;
+    }
+
+    const nazwaA=
+        normalizuj(
+            a.nazwa
+        );
+
+    const nazwaB=
+        normalizuj(
+            b.nazwa
+        );
+
+    const nrA=
+        String(
+            a.nr||""
+        ).trim();
+
+    const nrB=
+        String(
+            b.nr||""
+        ).trim();
+
+    return(
+        nazwaA===
+            nazwaB&&
+        nrA===
+            nrB
+    );
+}
+
+
 function kierunkiObslugujaceBiezacyPrzystanek(){
 
     const baza=
@@ -2963,16 +3005,6 @@ function kierunkiObslugujaceBiezacyPrzystanek(){
     if(!p){
         return[];
     }
-
-    const nazwa=
-        normalizuj(
-            p.nazwa
-        );
-
-    const nr=
-        String(
-            p.nr||""
-        ).trim();
 
     const wynik=[];
 
@@ -2991,18 +3023,31 @@ function kierunkiObslugujaceBiezacyPrzystanek(){
                 return;
             }
 
+            /*
+               KLUCZOWA ZMIANA:
+               drugi kierunek uznajemy za obsługujący TEN SAM
+               przystanek tylko wtedy, gdy zgadza się:
+               - nazwa,
+               - numer przystanku.
+
+               Czyli:
+               SADYBA 05 !== SADYBA 01.
+
+               Dzięki temu:
+               - na SADYBA 05 nie pojawią się kursy do WILANOWA,
+               - na SADYBA 01 mogą się pojawić, jeśli rzeczywiście
+                 ten słupek obsługuje drugi kierunek.
+            */
             const index=
                 (
                     k.przystanki||
                     []
                 ).findIndex(
                     x=>
-                        normalizuj(
-                            x?.nazwa
-                        )===nazwa&&
-                        String(
-                            x?.nr||""
-                        ).trim()===nr
+                        czyTenSamPrzystanekPoNazwieINumerze(
+                            x,
+                            p
+                        )
                 );
 
             if(index<0){
@@ -3055,6 +3100,196 @@ function drugiKierunekBiezacegoPrzystanku(){
 
 
 
+
+function czyBiezacyPrzystanekKraniecWiekszosciKursow(){
+
+    const kierunek=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    const przystanki=
+        kierunek?.przystanki||
+        [];
+
+    const aktywny=
+        przystanki[
+            aktualnyPrzystanek
+        ];
+
+    if(!aktywny){
+        return false;
+    }
+
+    const kursyNaAktywnym=
+        new Map();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const p=
+                znajdzPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    aktywny
+                );
+
+            (
+                p?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    const key=
+                        [
+                            String(
+                                kurs?.numer||""
+                            ),
+                            String(
+                                kurs?.wariant||""
+                            ),
+                            symbolDnia(kurs)
+                        ].join("|");
+
+                    if(!kursyNaAktywnym.has(key)){
+                        kursyNaAktywnym.set(
+                            key,
+                            {
+                                numer:String(
+                                    kurs?.numer||""
+                                ),
+                                wariant:String(
+                                    kurs?.wariant||""
+                                ),
+                                symbol:
+                                    symbolDnia(kurs)
+                            }
+                        );
+                    }
+                }
+            );
+        }
+    );
+
+    if(!kursyNaAktywnym.size){
+        return false;
+    }
+
+    let koncowe=0;
+    let przelotowe=0;
+
+    for(
+        const ref
+        of kursyNaAktywnym.values()
+    ){
+
+        const indeksy=[];
+
+        przystanki.forEach(
+            (p,index)=>{
+
+                let maCzas=false;
+
+                (
+                    daneLinii?.rozkłady||
+                    []
+                ).some(
+                    rozklad=>{
+
+                        const pp=
+                            znajdzPrzystanekWRozkladzie(
+                                rozklad,
+                                aktualnyKierunek,
+                                p
+                            );
+
+                        const znaleziony=
+                            (
+                                pp?.kursy||
+                                []
+                            ).find(
+                                k=>
+                                    String(
+                                        k?.numer||""
+                                    )===
+                                        ref.numer&&
+                                    String(
+                                        k?.wariant||""
+                                    )===
+                                        ref.wariant&&
+                                    symbolDnia(k)===
+                                        ref.symbol&&
+                                    czasNaMinuty(
+                                        k?.czas
+                                    )!==null
+                            );
+
+                        if(znaleziony){
+                            maCzas=true;
+                        }
+
+                        return maCzas;
+                    }
+                );
+
+                if(maCzas){
+                    indeksy.push(index);
+                }
+            }
+        );
+
+        if(!indeksy.length){
+            continue;
+        }
+
+        const pierwszy=
+            indeksy[0];
+
+        const ostatni=
+            indeksy[
+                indeksy.length-1
+            ];
+
+        if(
+            aktualnyPrzystanek===
+                pierwszy||
+            aktualnyPrzystanek===
+                ostatni
+        ){
+            koncowe++;
+        }
+        else{
+            przelotowe++;
+        }
+    }
+
+    /*
+       Jeżeli co najmniej połowa kursów obsługujących ten słupek
+       zaczyna się albo kończy właśnie tutaj, traktujemy go jako
+       rzeczywisty kraniec trasy podstawowej.
+
+       To naprawia przypadki takie jak SADYBA 05:
+       część kursów jedzie dalej jako wydłużone, ale dla większości
+       kursów SADYBA jest początkiem/końcem podstawowej trasy.
+    */
+    return(
+        koncowe>0&&
+        koncowe>=przelotowe
+    );
+}
+
+
 function czyBiezacyPrzystanekKraniecTrasyPodstawowej(){
 
     /*
@@ -3094,7 +3329,8 @@ function czyBiezacyPrzystanekKraniecTrasyPodstawowej(){
         pierwszy?.index===
             aktualnyPrzystanek||
         ostatni?.index===
-            aktualnyPrzystanek
+            aktualnyPrzystanek||
+        czyBiezacyPrzystanekKraniecWiekszosciKursow()
     );
 }
 
@@ -3135,6 +3371,45 @@ function czyBiezacyPrzystanekDwukierunkowy(){
     );
 }
 
+
+
+
+function znajdzDokladnyPrzystanekWRozkladzie(
+    rozklad,
+    kierunekIndex,
+    bazaP
+){
+
+    const kierunki=
+        Array.isArray(
+            rozklad?.kierunki
+        )
+            ? rozklad.kierunki
+            : [];
+
+    const kierunek=
+        kierunki[
+            kierunekIndex
+        ];
+
+    if(!kierunek){
+        return null;
+    }
+
+    return(
+        (
+            kierunek.przystanki||
+            []
+        ).find(
+            p=>
+                czyTenSamPrzystanekPoNazwieINumerze(
+                    p,
+                    bazaP
+                )
+        )||
+        null
+    );
+}
 
 
 function kierunkiAktywneDlaBiezacegoPrzystanku(){
@@ -3385,7 +3660,7 @@ function pobierzKursyDlaSymbolu(symbol){
                 info=>{
 
                     const p=
-                        znajdzPrzystanekWRozkladzie(
+                        znajdzDokladnyPrzystanekWRozkladzie(
                             rozklad,
                             info.indexKierunku,
                             info.przystanek
@@ -3463,7 +3738,7 @@ function dostepneGrupyDni(){
                 info=>{
 
                     const p=
-                        znajdzPrzystanekWRozkladzie(
+                        znajdzDokladnyPrzystanekWRozkladzie(
                             rozklad,
                             info.indexKierunku,
                             info.przystanek
