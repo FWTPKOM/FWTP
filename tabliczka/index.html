@@ -5200,6 +5200,134 @@ function czyRedundantneWydluzenieDoTegoSamegoKierunku(
 }
 
 
+
+function koncowyPrzystanekWariantuDwukierunkowego(
+    dir,
+    wariant
+){
+
+    const kierunek=
+        znajdzNajpelniejszyKierunek(
+            dir
+        );
+
+    const przystanki=
+        kierunek?.przystanki||
+        [];
+
+    if(!przystanki.length){
+        return"";
+    }
+
+    let najlepszyIndex=-1;
+    let najlepszaNazwa="";
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const k=
+                Array.isArray(
+                    rozklad?.kierunki
+                )
+                    ? rozklad.kierunki[dir]
+                    : null;
+
+            (
+                k?.przystanki||
+                []
+            ).forEach(
+                (p,index)=>{
+
+                    const maKurs=
+                        (
+                            p?.kursy||
+                            []
+                        ).some(
+                            kurs=>{
+
+                                if(
+                                    czasNaMinuty(
+                                        kurs?.czas
+                                    )===null
+                                ){
+                                    return false;
+                                }
+
+                                const litera=
+                                    String(
+                                        kurs?.wariant||""
+                                    )
+                                    .trim()
+                                    .toLowerCase();
+
+                                return(
+                                    litera===
+                                    String(
+                                        wariant||""
+                                    )
+                                    .trim()
+                                    .toLowerCase()
+                                );
+                            }
+                        );
+
+                    if(
+                        maKurs&&
+                        index>najlepszyIndex
+                    ){
+                        najlepszyIndex=index;
+                        najlepszaNazwa=
+                            String(
+                                p?.nazwa||""
+                            ).toUpperCase();
+                    }
+                }
+            );
+        }
+    );
+
+    return najlepszaNazwa;
+}
+
+
+function opisKursuDwukierunkowego(
+    dir,
+    wariant,
+    kierunekNazwa
+){
+
+    const koniec=
+        koncowyPrzystanekWariantuDwukierunkowego(
+            dir,
+            wariant
+        );
+
+    const kierunek=
+        String(
+            kierunekNazwa||""
+        ).toUpperCase();
+
+    if(
+        koniec&&
+        normalizuj(koniec)!==
+        normalizuj(kierunek)
+    ){
+        return(
+            "kurs do krańca "+
+            koniec
+        );
+    }
+
+    return(
+        "kurs w kierunku "+
+        kierunek
+    );
+}
+
+
 function opisPrezentacyjnyWariantuDwukierunkowego(
     wariant,
     kierunek
@@ -5336,24 +5464,24 @@ function __bezCache_mapaSymboliDwukierunkowych(){
                             ).toUpperCase();
 
                         /*
-                           Redundantne wydłużenie do tego samego krańca
-                           jest semantycznie kursem podstawowym.
+                           Każdy rzeczywiście różny kraniec kursu musi
+                           pozostać osobnym wariantem w legendzie.
                         */
-                        if(
-                            czyRedundantneWydluzenieDoTegoSamegoKierunku(
-                                wariant,
-                                kierunek
-                            )
-                        ){
-                            wariant="";
-                        }
+                        const koniecWariantu=
+                            koncowyPrzystanekWariantuDwukierunkowego(
+                                dir,
+                                wariant
+                            );
 
                         const semanticKey=
-                            kluczPrezentacyjnyDwukierunkowy(
-                                dir,
-                                wariant,
-                                kierunek
-                            );
+                            [
+                                String(dir),
+                                String(wariant),
+                                normalizuj(
+                                    koniecWariantu||
+                                    kierunek
+                                )
+                            ].join("|");
 
                         const aliasKey=
                             dir+"|"+wariant;
@@ -5375,8 +5503,10 @@ function __bezCache_mapaSymboliDwukierunkowych(){
                                     dir,
                                     wariant,
                                     kierunek,
-                                    fragment:
-                                        opisPrezentacyjnyWariantuDwukierunkowego(
+                                    fragment:"",
+                                    opisGotowy:
+                                        opisKursuDwukierunkowego(
+                                            dir,
                                             wariant,
                                             kierunek
                                         ),
@@ -5565,15 +5695,6 @@ function symbolKursuDwukierunkowego(
             )||
             ""
         ).toUpperCase();
-
-    if(
-        czyRedundantneWydluzenieDoTegoSamegoKierunku(
-            wariant,
-            kierunek
-        )
-    ){
-        wariant="";
-    }
 
     const wpis=
         mapaSymboliDwukierunkowych()
@@ -9477,6 +9598,103 @@ function indeksAktywnegoNaWyswietlanejTrasie(
 }
 
 
+
+function usunKolejneDuplikatyNazwyWFragmencieTrasy(
+    lista
+){
+
+    if(
+        !Array.isArray(lista)||
+        lista.length<2
+    ){
+        return lista||[];
+    }
+
+    const wynik=[];
+
+    let i=0;
+
+    while(i<lista.length){
+
+        const nazwa=
+            normalizuj(
+                lista[i]?.p?.nazwa||
+                lista[i]?.nazwa
+            );
+
+        let j=i+1;
+
+        while(
+            j<lista.length&&
+            normalizuj(
+                lista[j]?.p?.nazwa||
+                lista[j]?.nazwa
+            )===nazwa
+        ){
+            j++;
+        }
+
+        const grupa=
+            lista.slice(
+                i,
+                j
+            );
+
+        if(grupa.length===1){
+
+            wynik.push(
+                grupa[0]
+            );
+
+            i=j;
+            continue;
+        }
+
+        /*
+           Jeśli w grupie znajduje się dokładny aktywny wpis,
+           zostawiamy właśnie jego.
+        */
+        const aktywny=
+            grupa.find(
+                element=>
+                    element?.index===
+                    aktualnyPrzystanek
+            );
+
+        if(aktywny){
+
+            wynik.push(
+                aktywny
+            );
+        }
+        else{
+
+            /*
+               W obrębie jednego fragmentu wariantowego dwa kolejne
+               identyczne przystanki nie oznaczają dwóch realnych
+               przejazdów. Zostawiamy ostatni wpis — ten należący
+               do dalszego, właściwego przebiegu.
+
+               170 / "r":
+               PKP ZACISZE-WILNO
+               PKP ZACISZE-WILNO
+               =>
+               PKP ZACISZE-WILNO
+            */
+            wynik.push(
+                grupa[
+                    grupa.length-1
+                ]
+            );
+        }
+
+        i=j;
+    }
+
+    return wynik;
+}
+
+
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -9496,7 +9714,9 @@ function renderTrasaKolumna(
     return(
         '<div class="trasa-kol">'+
         '<ul class="trasa-lista">'+
-        fragment.lista
+        usunKolejneDuplikatyNazwyWFragmencieTrasy(
+            fragment.lista
+        )
             .map(
                 (element,lokalny)=>{
 
@@ -9793,17 +10013,13 @@ function renderLegendaDwukierunkowa(){
         item=>{
 
             let opis=
-                "kurs w kierunku "+
-                item.kierunek;
-
-            const fragment=
                 String(
-                    item.fragment||""
+                    item.opisGotowy||
+                    (
+                        "kurs w kierunku "+
+                        item.kierunek
+                    )
                 ).trim();
-
-            if(fragment){
-                opis+=" "+fragment;
-            }
 
             const kluczOpisu=
                 normalizujBezPolskichZnakow(
