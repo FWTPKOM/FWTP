@@ -1323,11 +1323,10 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
    ========================================================= */
 
 .kierunki-dwa{
-    grid-column:1 / -1;
     display:grid;
-    gap:2px;
-    margin:4px 0 1px 0;
-    padding-left:163px;
+    gap:1px;
+    margin:1px 0 4px 0;
+    padding:0;
     box-sizing:border-box;
 }
 
@@ -1369,11 +1368,18 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 /* Przy trzech kolumnach celowo pozwalamy na częstsze zawijanie nazw. */
 .tabliczka.trasa-3-kol .trasa-stop{
     grid-template-columns:18px 11px minmax(0,1fr) 11px;
-    font-size:13px;
+
+    /* TAKA SAMA CZCIONKA jak w zwykłej liście przystanków. */
+    font-size:13.5px;
 }
 
+/*
+ * Nie zmieniamy fontu ani nie wymuszamy dwuliniowości.
+ * ustawZawijanieNazwTrasy() zawinie tylko te nazwy,
+ * które naprawdę nie mieszczą się w szerokości kolumny.
+ */
 .tabliczka.trasa-3-kol .trasa-nazwa{
-    white-space:normal;
+    white-space:nowrap;
 }
 
 .trasa-drugi-kierunek-title{
@@ -1389,7 +1395,7 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 }
 
 .trasa-drugi-kierunek-title::before{
-    content:"→ ";
+    content:"";
 }
 
 .trasa-kol.drugi-kierunek .trasa-stop.przed{
@@ -2999,6 +3005,38 @@ function drugiKierunekBiezacegoPrzystanku(){
 
 function czyBiezacyPrzystanekDwukierunkowy(){
 
+    const baza=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    const przystanki=
+        baza?.przystanki||
+        [];
+
+    /*
+       Na krańcach NIE uruchamiamy trybu dwóch kierunków.
+
+       Czyli:
+       - pierwszy przystanek kierunku,
+       - ostatni przystanek kierunku
+
+       mają wyglądać i działać normalnie:
+       - jeden kierunek,
+       - zwykły rozkład,
+       - zwykła lista przystanków,
+       - bez trzeciej kolumny,
+       - bez dodatkowej legendy kierunków.
+    */
+    if(
+        !przystanki.length||
+        aktualnyPrzystanek<=0||
+        aktualnyPrzystanek>=
+            przystanki.length-1
+    ){
+        return false;
+    }
+
     return Boolean(
         drugiKierunekBiezacegoPrzystanku()
     );
@@ -4304,21 +4342,46 @@ function opisWariantuDoKierunku(
     kierunekIndex
 ){
 
-    const opis=
-        String(
-            mapaWariantow()
-                .get(
-                    String(
-                        litera||""
-                    ).trim()
-                )||
-            ""
-        ).trim();
+    const szukana=
+        kanonicznaLiteraWariantu(
+            String(
+                litera||""
+            ).trim()
+        )
+        .toLowerCase();
+
+    let opis="";
+
+    for(
+        const [klucz,wartosc]
+        of mapaWariantow().entries()
+    ){
+        const k=
+            kanonicznaLiteraWariantu(
+                String(
+                    klucz||""
+                ).trim()
+            )
+            .toLowerCase();
+
+        if(k===szukana){
+            opis=
+                String(
+                    wartosc||""
+                ).trim();
+            break;
+        }
+    }
 
     if(!opis){
         return"";
     }
 
+    /*
+       W legendzie chcemy:
+       "kurs w kierunku ... przez PŁYTOWĄ, KUPIECKĄ I POLFA",
+       a nie samo oznaczenie wariantu.
+    */
     return opis
         .replace(
             /^kurs\s+/i,
@@ -4793,29 +4856,44 @@ function renderDzien(grupa,wspolneGodziny){
                         const minuty=
                             mapa.get(h)
                                 .map(
-                                    item=>{
-
-                                        const sym=
-                                            symbolWariantu(
-                                                item.kurs,
-                                                grupa.symbol
-                                            );
-
-                                        return(
-                                            '<span class="minuta">'+
-                                            escapeHtml(
-                                                item.minuta
-                                            )+
-                                            (
-                                                sym
-                                                    ? '<span class="symbol">'+
-                                                      escapeHtml(sym)+
-                                                      '</span>'
-                                                    : ''
-                                            )+
-                                            '</span>'
-                                        );
-                                    }
+                                    item=>({
+                                        ...item,
+                                        sym:
+                                            String(
+                                                symbolWariantu(
+                                                    item.kurs,
+                                                    grupa.symbol
+                                                )||""
+                                            )
+                                            .toLowerCase()
+                                    })
+                                )
+                                .sort(
+                                    (a,b)=>
+                                        Number(a.minuta)-
+                                        Number(b.minuta)||
+                                        a.sym.localeCompare(
+                                            b.sym,
+                                            "pl"
+                                        )
+                                )
+                                .map(
+                                    item=>(
+                                        '<span class="minuta">'+
+                                        escapeHtml(
+                                            item.minuta
+                                        )+
+                                        (
+                                            item.sym
+                                                ? '<span class="symbol">'+
+                                                  escapeHtml(
+                                                      item.sym
+                                                  )+
+                                                  '</span>'
+                                                : ''
+                                        )+
+                                        '</span>'
+                                    )
                                 )
                                 .join("");
 
@@ -6935,6 +7013,170 @@ function listaDrugiegoKierunkuOdPrzystanku(){
 }
 
 
+
+function symboleDrugiegoKierunkuTrasy(
+    info
+){
+
+    if(!info){
+        return[];
+    }
+
+    const wynik=
+        new Set();
+
+    const mapa=
+        mapaSymboliDwukierunkowych();
+
+    for(
+        const item
+        of mapa.values()
+    ){
+        if(
+            Number(item.dir)===
+            Number(info.indexKierunku)&&
+            item.znak
+        ){
+            wynik.add(
+                String(
+                    item.znak
+                ).toLowerCase()
+            );
+        }
+    }
+
+    return[
+        ...wynik
+    ].sort(
+        (a,b)=>
+            a.localeCompare(
+                b,
+                "pl"
+            )
+    );
+}
+
+
+function tytulDrugiegoKierunkuTrasy(
+    info
+){
+
+    const litery=
+        symboleDrugiegoKierunkuTrasy(
+            info
+        );
+
+    if(!litery.length){
+        return"";
+    }
+
+    return(
+        "Trasa w kursach "+
+        litery
+            .map(
+                x=>
+                    "„"+
+                    x+
+                    "”"
+            )
+            .join(", ")
+    );
+}
+
+
+
+function renderElementyDrugiegoKierunkuTrasy(){
+
+    const info=
+        drugiKierunekBiezacegoPrzystanku();
+
+    if(!info){
+        return"";
+    }
+
+    const lista=
+        listaDrugiegoKierunkuOdPrzystanku();
+
+    if(!lista.length){
+        return"";
+    }
+
+    const tytul=
+        tytulDrugiegoKierunkuTrasy(
+            info
+        );
+
+    let html=
+        '<li class="trasa-separator trasa-separator-drugi-kierunek">'+
+        '<span class="trasa-separator-title">'+
+        escapeHtml(
+            tytul
+        )+
+        '</span>'+
+        '</li>';
+
+    html+=
+        lista
+            .map(
+                (element,idx)=>{
+
+                    const p=
+                        element.p;
+
+                    const czas=
+                        czasDrugiegoKierunku(
+                            info,
+                            p
+                        );
+
+                    return(
+                        '<li class="trasa-stop'+
+                        (
+                            czyNZ(p)
+                                ? ' nz'
+                                : ''
+                        )+
+                        (
+                            idx===
+                            lista.length-1
+                                ? ' kraniec-koniec'
+                                : ''
+                        )+
+                        '">'+
+                        '<span class="trasa-czas">'+
+                        (
+                            czas===null
+                                ? ''
+                                : escapeHtml(
+                                    String(czas)
+                                )
+                        )+
+                        '</span>'+
+                        '<span class="trasa-os"></span>'+
+                        '<span class="trasa-nazwa">'+
+                        escapeHtml(
+                            String(
+                                p?.nazwa||""
+                            ).toUpperCase()
+                        )+
+                        '</span>'+
+                        '<span class="trasa-nz">'+
+                        (
+                            czyNZ(p)
+                                ? 'ż'
+                                : ''
+                        )+
+                        '</span>'+
+                        '</li>'
+                    );
+                }
+            )
+            .join("");
+
+    return html;
+}
+
+
 function renderDrugiKierunekTrasy(){
 
     const info=
@@ -7008,7 +7250,9 @@ function renderDrugiKierunekTrasy(){
         '<div class="trasa-kol drugi-kierunek">'+
         '<div class="trasa-drugi-kierunek-title">'+
         escapeHtml(
-            info.nazwa
+            tytulDrugiegoKierunkuTrasy(
+                info
+            )
         )+
         '</div>'+
         '<ul class="trasa-lista">'+
@@ -7724,7 +7968,7 @@ function renderuj(){
         '</div>'+
         (
             kierunkiStopu.length>1
-                ? ''
+                ? kierunkiDwaHtml
                 : (
                     '<div class="kierunek">'+
                     escapeHtml(
@@ -7748,7 +7992,6 @@ function renderuj(){
         )+
         '</div>'+
         '</div>'+
-        kierunkiDwaHtml+
         '</div>'+
 
         '<div class="rozklady-wrap">'+
@@ -8160,10 +8403,97 @@ function dopasujKolumnyTrasy() {
                 ].index
                 : -1;
 
+        /*
+           Najpierw budujemy CAŁĄ treść w jednej kolumnie:
+           - bieżący kierunek,
+           - jego separatory wariantów,
+           - następnie "Trasa w kursach „x”",
+           - przystanki drugiego kierunku od bieżącego słupka dalej.
+
+           Potem dzielimy to WYŁĄCZNIE wg dostępnej wysokości:
+           najpierw do końca kolumny 1, potem kolumny 2,
+           a dopiero po jej zapełnieniu tworzymy kolumnę 3.
+        */
         tabliczka.classList.remove(
-            "trasa-2-kol"
+            "trasa-2-kol",
+            "trasa-3-kol"
         );
 
+        columns.className=
+            "trasa-columns cols-1";
+
+        ustawNaglowekTrasy(1);
+
+        const htmlPierwszego=
+            renderTrasaKolumna(
+                {
+                    start:0,
+                    lista:lista
+                },
+                czasy,
+                pierwszyIndex,
+                ostatniIndex,
+                false
+            );
+
+        const parser=
+            document.createElement(
+                "div"
+            );
+
+        parser.innerHTML=
+            htmlPierwszego;
+
+        const listaPierwszego=
+            parser.querySelector(
+                ".trasa-lista"
+            );
+
+        const elementyHtml=[];
+
+        if(listaPierwszego){
+            Array.from(
+                listaPierwszego.children
+            )
+            .forEach(
+                el=>
+                    elementyHtml.push(
+                        el.outerHTML
+                    )
+            );
+        }
+
+        const drugiHtml=
+            renderElementyDrugiegoKierunkuTrasy();
+
+        if(drugiHtml){
+            const p2=
+                document.createElement(
+                    "ul"
+                );
+
+            p2.innerHTML=
+                drugiHtml;
+
+            Array.from(
+                p2.children
+            )
+            .forEach(
+                el=>
+                    elementyHtml.push(
+                        el.outerHTML
+                    )
+            );
+        }
+
+        if(!elementyHtml.length){
+            return;
+        }
+
+        /*
+           Pomiar wykonujemy w szerokości docelowej 3 kolumn,
+           aby zawijanie nazw odpowiadało najciaśniejszemu układowi.
+        */
         tabliczka.classList.add(
             "trasa-3-kol"
         );
@@ -8173,59 +8503,181 @@ function dopasujKolumnyTrasy() {
 
         ustawNaglowekTrasy(3);
 
-        const startAktualny=
+        columns.innerHTML=
+            '<div class="trasa-kol trasa-kol-pomiar">'+
+            '<ul class="trasa-lista">'+
+            elementyHtml.join("")+
+            '</ul>'+
+            '</div>'+
+            '<div class="trasa-kol trasa-kol-pusta"></div>'+
+            '<div class="trasa-kol trasa-kol-pusta"></div>';
+
+        ustawZawijanieNazwTrasy(
+            columns
+        );
+
+        const pomiarKol=
+            columns.querySelector(
+                ".trasa-kol-pomiar"
+            );
+
+        const elementy=
+            Array.from(
+                pomiarKol?.querySelector(
+                    ".trasa-lista"
+                )?.children||
+                []
+            );
+
+        if(!pomiarKol||!elementy.length){
+            return;
+        }
+
+        const style=
+            getComputedStyle(
+                pomiarKol
+            );
+
+        const maxWysokosc=
             Math.max(
-                0,
-                lista.findIndex(
-                    x=>
-                        x.index===
-                        aktualnyPrzystanek
+                1,
+                Math.floor(
+                    columns.clientHeight-
+                    parseFloat(
+                        style.paddingTop||0
+                    )-
+                    parseFloat(
+                        style.paddingBottom||0
+                    )
                 )
             );
 
-        /*
-           W pierwszych dwóch kolumnach zachowujemy również
-           minięte przystanki aktualnego kierunku (szare),
-           ale dzielimy je możliwie równo.
-        */
-        const polowa=
-            Math.ceil(
-                lista.length/2
+        const wysokosci=
+            elementy.map(
+                el=>{
+
+                    const s=
+                        getComputedStyle(
+                            el
+                        );
+
+                    return(
+                        el.getBoundingClientRect().height+
+                        parseFloat(
+                            s.marginTop||0
+                        )+
+                        parseFloat(
+                            s.marginBottom||0
+                        )
+                    );
+                }
             );
 
-        const pierwsza=
-            lista.slice(
-                0,
-                polowa
+        const grupyKolumn=[
+            []
+        ];
+
+        let uzyte=0;
+
+        for(
+            let i=0;
+            i<elementyHtml.length;
+            i++
+        ){
+
+            const h=
+                wysokosci[i]||16.5;
+
+            /*
+               Separator "Trasa w kursach..." nie może zostać
+               samotnie na samym dole kolumny. Jeżeli razem
+               z pierwszym następnym przystankiem już się nie mieści,
+               przenosimy separator do kolejnej kolumny.
+            */
+            let wymagane=h;
+
+            if(
+                elementy[i]?.classList?.contains(
+                    "trasa-separator"
+                )&&
+                i+1<wysokosci.length
+            ){
+                wymagane+=
+                    wysokosci[i+1]||0;
+            }
+
+            if(
+                grupyKolumn[
+                    grupyKolumn.length-1
+                ].length>0&&
+                uzyte+wymagane>
+                    maxWysokosc&&
+                grupyKolumn.length<3
+            ){
+                grupyKolumn.push(
+                    []
+                );
+
+                uzyte=0;
+            }
+
+            grupyKolumn[
+                grupyKolumn.length-1
+            ].push(
+                elementyHtml[i]
             );
 
-        const druga=
-            lista.slice(
-                polowa
+            uzyte+=h;
+        }
+
+        const ileKolumn=
+            Math.max(
+                1,
+                Math.min(
+                    3,
+                    grupyKolumn.length
+                )
             );
+
+        tabliczka.classList.remove(
+            "trasa-2-kol",
+            "trasa-3-kol"
+        );
+
+        if(ileKolumn===2){
+            tabliczka.classList.add(
+                "trasa-2-kol"
+            );
+        }
+        else if(ileKolumn===3){
+            tabliczka.classList.add(
+                "trasa-3-kol"
+            );
+        }
+
+        columns.className=
+            "trasa-columns cols-"+
+            ileKolumn;
+
+        ustawNaglowekTrasy(
+            ileKolumn
+        );
 
         columns.innerHTML=
-            renderTrasaKolumna(
-                {
-                    start:0,
-                    lista:pierwsza
-                },
-                czasy,
-                pierwszyIndex,
-                ostatniIndex,
-                false
-            )+
-            renderTrasaKolumna(
-                {
-                    start:polowa,
-                    lista:druga
-                },
-                czasy,
-                pierwszyIndex,
-                ostatniIndex,
-                true
-            )+
-            renderDrugiKierunekTrasy();
+            grupyKolumn
+                .slice(
+                    0,
+                    ileKolumn
+                )
+                .map(
+                    grupa=>
+                        '<div class="trasa-kol">'+
+                        '<ul class="trasa-lista">'+
+                        grupa.join("")+
+                        '</ul>'+
+                        '</div>'
+                )
+                .join("");
 
         ustawZawijanieNazwTrasy(
             columns
