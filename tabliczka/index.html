@@ -5091,410 +5091,6 @@ function opisWariantuDoKierunku(
 }
 
 
-
-
-function normalizujBezPolskichZnakow(
-    tekst
-){
-
-    return String(
-        tekst||""
-    )
-    .normalize("NFD")
-    .replace(
-        /[\u0300-\u036f]/g,
-        ""
-    )
-    .toLocaleLowerCase(
-        "pl-PL"
-    )
-    .replace(
-        /\s+/g,
-        " "
-    )
-    .trim();
-}
-
-
-function czyRedundantneWydluzenieDoTegoSamegoKierunku(
-    wariant,
-    kierunek
-){
-
-    const litera=
-        String(
-            wariant||""
-        ).trim();
-
-    if(!litera){
-        return false;
-    }
-
-    let opis="";
-
-    for(
-        const [klucz,wartosc]
-        of mapaWariantow().entries()
-    ){
-        if(
-            String(
-                kanonicznaLiteraWariantu(
-                    klucz
-                )||""
-            )
-            .toLowerCase()===
-            String(
-                kanonicznaLiteraWariantu(
-                    litera
-                )||""
-            )
-            .toLowerCase()
-        ){
-            opis=
-                String(
-                    wartosc||""
-                );
-            break;
-        }
-    }
-
-    if(
-        !/wydłuż|wydluz/i.test(
-            opis
-        )
-    ){
-        return false;
-    }
-
-    const opisNorm=
-        normalizujBezPolskichZnakow(
-            opis
-        );
-
-    const kierunekNorm=
-        normalizujBezPolskichZnakow(
-            kierunek
-        );
-
-    if(!kierunekNorm){
-        return false;
-    }
-
-    /*
-       Jeśli opis mówi:
-       "wydłużony do krańca ELSNERÓW"
-       a sam kierunek już brzmi ELSNERÓW,
-       nie jest to dla pasażera osobny wariant kierunku.
-
-       Ma korzystać z tego samego symbolu i tego samego wpisu legendy
-       co zwykły kurs w kierunku ELSNERÓW.
-    */
-    return(
-        opisNorm.includes(
-            "do kranca "+kierunekNorm
-        )||
-        opisNorm.includes(
-            "do "+kierunekNorm
-        )
-    );
-}
-
-
-
-function koncowyPrzystanekWariantuDwukierunkowego(
-    dir,
-    wariant
-){
-
-    const liczniki=
-        new Map();
-
-    const grupyDni=
-        dostepneGrupyDni()
-            .slice(0,3);
-
-    grupyDni.forEach(
-        grupa=>{
-
-            pobierzKursyDlaSymbolu(
-                grupa.symbol
-            )
-            .forEach(
-                kurs=>{
-
-                    if(
-                        Number(
-                            kurs?._kierunekIndex
-                        )!==
-                        Number(dir)
-                    ){
-                        return;
-                    }
-
-                    const literaPubliczna=
-                        literaWariantuPoRzeczywistymPrzebiegu(
-                            {
-                                ...kurs,
-                                symbol:grupa.symbol,
-                                _kierunekIndex:dir
-                            },
-                            dir
-                        );
-
-                    const kanoniczna=
-                        String(
-                            literaPubliczna
-                                ? kanonicznaLiteraWariantu(
-                                    literaPubliczna
-                                )
-                                : ""
-                        )
-                        .trim()
-                        .toLowerCase();
-
-                    if(
-                        kanoniczna!==
-                        String(
-                            wariant||""
-                        )
-                        .trim()
-                        .toLowerCase()
-                    ){
-                        return;
-                    }
-
-                    /*
-                       Dla konkretnego kursu szukamy ostatniego
-                       rzeczywiście obsługiwanego przystanku w JSON.
-                    */
-                    let najlepszy=null;
-                    let najlepszyIndex=-1;
-
-                    (
-                        daneLinii?.rozkłady||
-                        []
-                    ).forEach(
-                        rozklad=>{
-
-                            const k=
-                                Array.isArray(
-                                    rozklad?.kierunki
-                                )
-                                    ? rozklad.kierunki[
-                                        dir
-                                    ]
-                                    : null;
-
-                            (
-                                k?.przystanki||
-                                []
-                            ).forEach(
-                                (p,index)=>{
-
-                                    const znaleziony=
-                                        (
-                                            p?.kursy||
-                                            []
-                                        ).some(
-                                            x=>
-                                                String(
-                                                    x?.numer||""
-                                                )===
-                                                    String(
-                                                        kurs?.numer||""
-                                                    )&&
-                                                String(
-                                                    x?.wariant||""
-                                                ).trim()===
-                                                    String(
-                                                        kurs?.wariant||""
-                                                    ).trim()&&
-                                                symbolDnia(x)===
-                                                    grupa.symbol&&
-                                                (
-                                                    !String(
-                                                        kurs?.brygada||""
-                                                    ).trim()||
-                                                    String(
-                                                        x?.brygada||""
-                                                    ).trim()===
-                                                        String(
-                                                            kurs?.brygada||""
-                                                        ).trim()
-                                                )&&
-                                                czasNaMinuty(
-                                                    x?.czas
-                                                )!==null
-                                        );
-
-                                    if(
-                                        znaleziony&&
-                                        index>
-                                        najlepszyIndex
-                                    ){
-                                        najlepszyIndex=
-                                            index;
-
-                                        najlepszy=
-                                            p;
-                                    }
-                                }
-                            );
-                        }
-                    );
-
-                    if(najlepszy){
-
-                        const nazwa=
-                            String(
-                                najlepszy?.nazwa||""
-                            ).toUpperCase();
-
-                        const klucz=
-                            normalizuj(
-                                nazwa
-                            );
-
-                        if(klucz){
-
-                            if(
-                                !liczniki.has(
-                                    klucz
-                                )
-                            ){
-                                liczniki.set(
-                                    klucz,
-                                    {
-                                        nazwa,
-                                        ile:0
-                                    }
-                                );
-                            }
-
-                            liczniki
-                                .get(
-                                    klucz
-                                )
-                                .ile++;
-                        }
-                    }
-                }
-            );
-        }
-    );
-
-    if(!liczniki.size){
-        return"";
-    }
-
-    return[
-        ...liczniki.values()
-    ]
-    .sort(
-        (a,b)=>
-            b.ile-a.ile
-    )[0].nazwa;
-}
-
-
-function opisKursuDwukierunkowego(
-    dir,
-    wariant,
-    kierunekNazwa
-){
-
-    const koniec=
-        koncowyPrzystanekWariantuDwukierunkowego(
-            dir,
-            wariant
-        );
-
-    const kierunek=
-        String(
-            kierunekNazwa||""
-        ).toUpperCase();
-
-    if(
-        koniec&&
-        normalizuj(koniec)!==
-        normalizuj(kierunek)
-    ){
-        return(
-            "kurs do krańca "+
-            koniec
-        );
-    }
-
-    return(
-        "kurs w kierunku "+
-        kierunek
-    );
-}
-
-
-function opisPrezentacyjnyWariantuDwukierunkowego(
-    wariant,
-    kierunek
-){
-
-    if(!wariant){
-        return"";
-    }
-
-    /*
-       Najpierw sprawdzamy przypadek redundantny:
-       "kurs w kierunku ELSNERÓW wydłużony do krańca ELSNERÓW"
-       ma być po prostu:
-       "kurs w kierunku ELSNERÓW".
-    */
-    if(
-        czyRedundantneWydluzenieDoTegoSamegoKierunku(
-            wariant,
-            kierunek
-        )
-    ){
-        return"";
-    }
-
-    const fragment=
-        opisWariantuDoKierunku(
-            wariant,
-            0
-        );
-
-    return String(
-        fragment||""
-    ).trim();
-}
-
-
-function kluczPrezentacyjnyDwukierunkowy(
-    dir,
-    wariant,
-    kierunek
-){
-
-    const fragment=
-        opisPrezentacyjnyWariantuDwukierunkowego(
-            wariant,
-            kierunek
-        );
-
-    return[
-        String(dir),
-        normalizuj(
-            "kurs w kierunku "+
-            String(kierunek||"")+
-            (
-                fragment
-                    ? " "+fragment
-                    : ""
-            )
-        )
-    ].join("|");
-}
-
-
 function __bezCache_mapaSymboliDwukierunkowych(){
 
     if(
@@ -5503,22 +5099,7 @@ function __bezCache_mapaSymboliDwukierunkowych(){
         return new Map();
     }
 
-    /*
-       grupyPrezentacyjne:
-       kilka technicznych wariantów może dawać dokładnie ten sam
-       sens dla pasażera. Wtedy muszą dostać jeden symbol.
-
-       Przykład 170:
-       - kurs podstawowy do ELSNEROWA,
-       - wariant opisany "wydłużony do krańca ELSNERÓW".
-
-       Na tym przystanku oba znaczą po prostu:
-       "kurs w kierunku ELSNERÓW".
-    */
-    const grupyPrezentacyjne=
-        new Map();
-
-    const aliasy=
+    const kombinacje=
         new Map();
 
     dostepneGrupyDni()
@@ -5553,81 +5134,32 @@ function __bezCache_mapaSymboliDwukierunkowych(){
                                 litera
                             );
 
-                        let wariant=
+                        const wariant=
                             pokazWariant
                                 ? String(litera).toLowerCase()
                                 : "";
 
-                        const kierunek=
-                            String(
-                                kurs?._kierunekNazwa||
-                                nazwaKierunku(
-                                    znajdzNajpelniejszyKierunek(dir)
-                                )||
-                                ""
-                            ).toUpperCase();
-
-                        /*
-                           Każdy rzeczywiście różny kraniec kursu musi
-                           pozostać osobnym wariantem w legendzie.
-                        */
-                        const koniecWariantu=
-                            koncowyPrzystanekWariantuDwukierunkowego(
-                                dir,
-                                wariant
-                            );
-
-                        const semanticKey=
-                            [
-                                String(dir),
-                                String(wariant),
-                                normalizuj(
-                                    koniecWariantu||
-                                    kierunek
-                                )
-                            ].join("|");
-
-                        const aliasKey=
+                        const key=
                             dir+"|"+wariant;
 
-                        aliasy.set(
-                            aliasKey,
-                            semanticKey
-                        );
-
-                        if(
-                            !grupyPrezentacyjne.has(
-                                semanticKey
-                            )
-                        ){
-                            grupyPrezentacyjne.set(
-                                semanticKey,
+                        if(!kombinacje.has(key)){
+                            kombinacje.set(
+                                key,
                                 {
-                                    semanticKey,
+                                    key,
                                     dir,
                                     wariant,
-                                    kierunek,
-                                    fragment:"",
-                                    opisGotowy:
-                                        opisKursuDwukierunkowego(
-                                            dir,
-                                            wariant,
-                                            kierunek
-                                        ),
-                                    warianty:
-                                        new Set()
+                                    kierunek:
+                                        String(
+                                            kurs?._kierunekNazwa||
+                                            nazwaKierunku(
+                                                znajdzNajpelniejszyKierunek(dir)
+                                            )||
+                                            ""
+                                        ).toUpperCase()
                                 }
                             );
                         }
-
-                        grupyPrezentacyjne
-                            .get(
-                                semanticKey
-                            )
-                            .warianty
-                            .add(
-                                wariant
-                            );
                     }
                 );
             }
@@ -5636,14 +5168,14 @@ function __bezCache_mapaSymboliDwukierunkowych(){
     const zajete=
         new Set();
 
-    const symboleSemantyczne=
+    const wynik=
         new Map();
 
     const alfabet=
         "abcdefghijklmnopqrstuvwxyz".split("");
 
     [
-        ...grupyPrezentacyjne.values()
+        ...kombinacje.values()
     ]
     .sort(
         (a,b)=>
@@ -5665,18 +5197,7 @@ function __bezCache_mapaSymboliDwukierunkowych(){
 
             const kandydaci=[];
 
-            /*
-               Jeżeli grupa zawiera wariant podstawowy + dodatkowy
-               redundantny wariant, preferujemy znak wynikający
-               z kierunku, a nie literę redundantnego wariantu.
-            */
-            const maPodstawowy=
-                item.warianty.has("");
-
-            if(
-                !maPodstawowy&&
-                item.wariant
-            ){
+            if(item.wariant){
                 kandydaci.push(
                     normalizujSymbolKandydata(
                         item.wariant
@@ -5706,12 +5227,10 @@ function __bezCache_mapaSymboliDwukierunkowych(){
                 )||
                 "x";
 
-            zajete.add(
-                znak
-            );
+            zajete.add(znak);
 
-            symboleSemantyczne.set(
-                item.semanticKey,
+            wynik.set(
+                item.key,
                 {
                     ...item,
                     znak
@@ -5719,31 +5238,6 @@ function __bezCache_mapaSymboliDwukierunkowych(){
             );
         }
     );
-
-    /*
-       Wynik jest nadal dostępny przez stary klucz dir|wariant,
-       dzięki czemu reszta kodu nie musi się zmieniać.
-       Kilka aliasów może jednak wskazywać TEN SAM obiekt/symbol.
-    */
-    const wynik=
-        new Map();
-
-    for(
-        const [aliasKey,semanticKey]
-        of aliasy.entries()
-    ){
-        const wpis=
-            symboleSemantyczne.get(
-                semanticKey
-            );
-
-        if(wpis){
-            wynik.set(
-                aliasKey,
-                wpis
-            );
-        }
-    }
 
     return wynik;
 }
@@ -5779,7 +5273,7 @@ function symbolKursuDwukierunkowego(
             dir
         );
 
-    let wariant=
+    const wariant=
         (
             litera&&
             czyPokazacWariantJakLiniaHTML(
@@ -5788,17 +5282,6 @@ function symbolKursuDwukierunkowego(
         )
             ? String(litera).toLowerCase()
             : "";
-
-    const kierunek=
-        String(
-            kurs?._kierunekNazwa||
-            nazwaKierunku(
-                znajdzNajpelniejszyKierunek(
-                    dir
-                )
-            )||
-            ""
-        ).toUpperCase();
 
     const wpis=
         mapaSymboliDwukierunkowych()
@@ -6627,406 +6110,6 @@ function usunDuplikatyTylkoOdKursowSkroconych(lista){
 }
 
 
-
-function kluczPelnyKursuTrasy(
-    kurs
-){
-
-    return[
-        String(
-            kurs?.numer||""
-        ).trim(),
-        String(
-            kurs?.wariant||""
-        ).trim(),
-        String(
-            kurs?.uwagi||""
-        ).trim(),
-        String(
-            kurs?.brygada||""
-        ).trim()
-    ].join("|");
-}
-
-
-function statystykaPoczatkowKursowDlaElementu(
-    element,
-    pelnaLista
-){
-
-    const p=
-        element?.p;
-
-    if(!p){
-        return{
-            wszystkie:0,
-            startowe:0,
-            przelotowe:0
-        };
-    }
-
-    const kursy=
-        (
-            p.kursy||
-            []
-        )
-        .filter(
-            kurs=>
-                czasNaMinuty(
-                    kurs?.czas
-                )!==null
-        );
-
-    if(!kursy.length){
-        return{
-            wszystkie:0,
-            startowe:0,
-            przelotowe:0
-        };
-    }
-
-    const unikalne=
-        new Map();
-
-    kursy.forEach(
-        kurs=>{
-
-            const key=
-                kluczPelnyKursuTrasy(
-                    kurs
-                );
-
-            if(!unikalne.has(key)){
-                unikalne.set(
-                    key,
-                    kurs
-                );
-            }
-        }
-    );
-
-    let startowe=0;
-    let przelotowe=0;
-
-    for(
-        const [key]
-        of unikalne
-    ){
-
-        let maWczesniejszyCzas=false;
-
-        for(
-            const poprzedni
-            of pelnaLista
-        ){
-
-            if(
-                poprzedni.index>=
-                element.index
-            ){
-                break;
-            }
-
-            const jestTenSamKurs=
-                (
-                    poprzedni?.p?.kursy||
-                    []
-                ).some(
-                    kurs=>
-                        czasNaMinuty(
-                            kurs?.czas
-                        )!==null&&
-                        kluczPelnyKursuTrasy(
-                            kurs
-                        )===key
-                );
-
-            if(jestTenSamKurs){
-                maWczesniejszyCzas=true;
-                break;
-            }
-        }
-
-        if(maWczesniejszyCzas){
-            przelotowe++;
-        }
-        else{
-            startowe++;
-        }
-    }
-
-    return{
-        wszystkie:
-            unikalne.size,
-        startowe,
-        przelotowe
-    };
-}
-
-
-function usunPowtorzeniaTylkoOdStartuKursow(
-    lista
-){
-
-    if(
-        !Array.isArray(lista)||
-        lista.length<2
-    ){
-        return lista||[];
-    }
-
-    const wynik=[];
-
-    let i=0;
-
-    while(i<lista.length){
-
-        const nazwa=
-            normalizuj(
-                lista[i]?.p?.nazwa
-            );
-
-        let j=i+1;
-
-        /*
-           Analizujemy tylko kolejne wpisy o tej samej nazwie.
-           Numeru przystanku tutaj celowo nie bierzemy pod uwagę,
-           dokładnie jak w podobnych przypadkach 131/192.
-        */
-        while(
-            j<lista.length&&
-            normalizuj(
-                lista[j]?.p?.nazwa
-            )===nazwa
-        ){
-            j++;
-        }
-
-        const grupa=
-            lista.slice(
-                i,
-                j
-            );
-
-        if(grupa.length===1){
-
-            wynik.push(
-                grupa[0]
-            );
-
-            i=j;
-            continue;
-        }
-
-        const opisane=
-            grupa.map(
-                element=>({
-                    element,
-                    stat:
-                        statystykaPoczatkowKursowDlaElementu(
-                            element,
-                            lista
-                        )
-                })
-            );
-
-        /*
-           Jeżeli aktywny przystanek znajduje się w tej grupie,
-           zawsze zachowujemy właśnie jego.
-        */
-        const aktywny=
-            opisane.find(
-                x=>
-                    x.element.index===
-                    aktualnyPrzystanek
-            );
-
-        if(aktywny){
-
-            wynik.push(
-                aktywny.element
-            );
-
-            i=j;
-            continue;
-        }
-
-        /*
-           Właściwy wpis trasy to ten, przez który przejeżdża
-           co najmniej jeden kurs mający wcześniejszy przystanek.
-        */
-        const przelotowe=
-            opisane.filter(
-                x=>
-                    x.stat.przelotowe>0
-            );
-
-        const tylkoStart=
-            opisane.filter(
-                x=>
-                    x.stat.wszystkie>0&&
-                    x.stat.startowe>0&&
-                    x.stat.przelotowe===0
-            );
-
-        /*
-           Jeżeli PIERWSZY z dwóch kolejnych wpisów tej samej nazwy
-           jest miejscem rozpoczęcia choć części kursów, nie pokazujemy
-           go jako osobnego, dodatkowego przystanku.
-
-           To jest dokładnie przypadek:
-               PKP ZACISZE-WILNO
-               PKP ZACISZE-WILNO
-
-           gdzie pierwszy wpis służy tylko do zapisania kursów
-           rozpoczynających się w tym miejscu.
-
-           Zachowujemy ostatni logiczny wpis tej grupy — ten, który
-           należy do normalnego przebiegu trasy.
-
-           Numeru słupka celowo tutaj nie porównujemy.
-        */
-        if(
-            grupa.length>=2&&
-            opisane[0].stat.startowe>0
-        ){
-            wynik.push(
-                grupa[
-                    grupa.length-1
-                ]
-            );
-
-            i=j;
-            continue;
-        }
-
-        if(
-            przelotowe.length===1&&
-            tylkoStart.length>=1
-        ){
-            wynik.push(
-                przelotowe[0].element
-            );
-
-            i=j;
-            continue;
-        }
-
-        /*
-           Jeżeli nie jesteśmy pewni, zachowujemy dotychczasowy układ.
-           Nie chcemy usuwać prawdziwego dwukrotnego przejazdu
-           przez przystanek.
-        */
-        grupa.forEach(
-            element=>
-                wynik.push(
-                    element
-                )
-        );
-
-        i=j;
-    }
-
-    return wynik;
-}
-
-
-
-function usunKolejnePowtorzeniaNazwyNaTabliczce(
-    lista
-){
-
-    if(
-        !Array.isArray(lista)||
-        lista.length<2
-    ){
-        return lista||[];
-    }
-
-    const wynik=[];
-
-    let i=0;
-
-    while(i<lista.length){
-
-        const nazwa=
-            normalizuj(
-                lista[i]?.p?.nazwa
-            );
-
-        let j=i+1;
-
-        while(
-            j<lista.length&&
-            normalizuj(
-                lista[j]?.p?.nazwa
-            )===nazwa
-        ){
-            j++;
-        }
-
-        const grupa=
-            lista.slice(
-                i,
-                j
-            );
-
-        if(grupa.length===1){
-
-            wynik.push(
-                grupa[0]
-            );
-
-            i=j;
-            continue;
-        }
-
-        /*
-           Jeżeli jednym z powtórzeń jest dokładnie wybrany
-           przystanek, zachowujemy aktywny wpis.
-        */
-        const aktywny=
-            grupa.find(
-                element=>
-                    element?.index===
-                    aktualnyPrzystanek
-            );
-
-        if(aktywny){
-
-            wynik.push(
-                aktywny
-            );
-
-            i=j;
-            continue;
-        }
-
-        /*
-           W pozostałych przypadkach zachowujemy ostatni wpis.
-           W danych FWTP pierwszy z kolejnych identycznych wpisów
-           jest zwykle technicznym początkiem części kursów,
-           a kolejny należy do właściwego przebiegu.
-
-           Przykład 170:
-               PKP ZACISZE-WILNO
-               PKP ZACISZE-WILNO
-           =>
-               PKP ZACISZE-WILNO
-        */
-        wynik.push(
-            grupa[
-                grupa.length-1
-            ]
-        );
-
-        i=j;
-    }
-
-    return wynik;
-}
-
-
 function __bezCache_listaPelnejTrasyDoWyswietlenia(){
 
     const baza=
@@ -7078,26 +6161,9 @@ function __bezCache_listaPelnejTrasyDoWyswietlenia(){
        Na końcu usuwamy tylko sztuczne podwójne wystąpienia
        powstałe przez osobny kraniec kursu skróconego.
     */
-    const bezDuplikatowSkroconych=
-        usunDuplikatyTylkoOdKursowSkroconych(
-            gotowaLista
-        );
-
-    /*
-       Następnie usuwamy sztuczne powtórzenia tworzone wyłącznie
-       przez kursy rozpoczynające się w środku trasy.
-    */
-    const bezStartowychDuplikatow=
-        usunPowtorzeniaTylkoOdStartuKursow(
-            bezDuplikatowSkroconych
-        );
-
-    /*
-       Nie scalamy tu już mechanicznie kolejnych identycznych nazw.
-       O tym, do którego przebiegu należy konkretne wystąpienie,
-       decyduje teraz dokładne mapowanie wystąpień przystanku.
-    */
-    return bezStartowychDuplikatow;
+    return usunDuplikatyTylkoOdKursowSkroconych(
+        gotowaLista
+    );
 }
 
 function listaPelnejTrasyDoWyswietlenia(){
@@ -7302,179 +6368,6 @@ function kursyAktualnegoRozkladuDoTrasy(){
 
 
 
-
-function tenSamPrzystanekTrasy(
-    a,
-    b
-){
-
-    const aa=
-        a?.p||
-        a;
-
-    const bb=
-        b?.p||
-        b;
-
-    return(
-        normalizuj(
-            aa?.nazwa
-        )===
-            normalizuj(
-                bb?.nazwa
-            )&&
-        String(
-            aa?.nr||""
-        ).trim()===
-        String(
-            bb?.nr||""
-        ).trim()
-    );
-}
-
-
-function numerWystapieniaPrzystankuWBazie(
-    element
-){
-
-    const baza=
-        kierunekBazowy()
-            ?.przystanki||
-        [];
-
-    const index=
-        Number(
-            element?.index
-        );
-
-    if(
-        !Number.isInteger(index)||
-        index<0||
-        index>=baza.length
-    ){
-        return 0;
-    }
-
-    const cel=
-        baza[index];
-
-    let wystapienie=0;
-
-    for(
-        let i=0;
-        i<index;
-        i++
-    ){
-        if(
-            tenSamPrzystanekTrasy(
-                baza[i],
-                cel
-            )
-        ){
-            wystapienie++;
-        }
-    }
-
-    return wystapienie;
-}
-
-
-function znajdzPrzystanekWRozkladzieDlaElementu(
-    rozklad,
-    kierunekIndex,
-    element
-){
-
-    const k=
-        Array.isArray(
-            rozklad?.kierunki
-        )
-            ? rozklad.kierunki[
-                kierunekIndex
-            ]
-            : null;
-
-    if(
-        !k||
-        !Array.isArray(
-            k.przystanki
-        )
-    ){
-        return null;
-    }
-
-    const cel=
-        element?.p||
-        element;
-
-    if(!cel){
-        return null;
-    }
-
-    /*
-       Jeżeli JSON ma L.p. i zgadza się on dokładnie,
-       jest to najpewniejsze dopasowanie.
-    */
-    const lp=
-        String(
-            cel?.lp??""
-        ).trim();
-
-    if(lp){
-
-        const poLp=
-            k.przystanki.find(
-                p=>
-                    tenSamPrzystanekTrasy(
-                        p,
-                        cel
-                    )&&
-                    String(
-                        p?.lp??""
-                    ).trim()===
-                    lp
-            );
-
-        if(poLp){
-            return poLp;
-        }
-    }
-
-    /*
-       Gdy L.p. nie pomaga, rozróżniamy pierwsze, drugie itd.
-       wystąpienie tej samej nazwy+numeru.
-    */
-    const wystapienie=
-        (
-            element&&
-            Object.prototype.hasOwnProperty.call(
-                element,
-                "index"
-            )
-        )
-            ? numerWystapieniaPrzystankuWBazie(
-                element
-            )
-            : 0;
-
-    const pasujace=
-        k.przystanki.filter(
-            p=>
-                tenSamPrzystanekTrasy(
-                    p,
-                    cel
-                )
-        );
-
-    return(
-        pasujace[
-            wystapienie
-        ]||
-        null
-    );
-}
-
-
 function kursMaPrzystanek(
     kursRef,
     element
@@ -7496,10 +6389,10 @@ function kursMaPrzystanek(
     ){
 
         const p=
-            znajdzPrzystanekWRozkladzieDlaElementu(
+            znajdzPrzystanekWRozkladzie(
                 rozklad,
                 aktualnyKierunek,
-                element
+                element.p
             );
 
         const jest=
@@ -9874,302 +8767,6 @@ function indeksAktywnegoNaWyswietlanejTrasie(
 }
 
 
-
-function usunKolejneDuplikatyNazwyWFragmencieTrasy(
-    lista
-){
-
-    if(
-        !Array.isArray(lista)||
-        lista.length<2
-    ){
-        return lista||[];
-    }
-
-    const wynik=[];
-
-    let i=0;
-
-    while(i<lista.length){
-
-        const nazwa=
-            normalizuj(
-                lista[i]?.p?.nazwa||
-                lista[i]?.nazwa
-            );
-
-        let j=i+1;
-
-        while(
-            j<lista.length&&
-            normalizuj(
-                lista[j]?.p?.nazwa||
-                lista[j]?.nazwa
-            )===nazwa
-        ){
-            j++;
-        }
-
-        const grupa=
-            lista.slice(
-                i,
-                j
-            );
-
-        if(grupa.length===1){
-
-            wynik.push(
-                grupa[0]
-            );
-
-            i=j;
-            continue;
-        }
-
-        /*
-           Jeśli w grupie znajduje się dokładny aktywny wpis,
-           zostawiamy właśnie jego.
-        */
-        const aktywny=
-            grupa.find(
-                element=>
-                    element?.index===
-                    aktualnyPrzystanek
-            );
-
-        if(aktywny){
-
-            wynik.push(
-                aktywny
-            );
-        }
-        else{
-
-            /*
-               W obrębie jednego fragmentu wariantowego dwa kolejne
-               identyczne przystanki nie oznaczają dwóch realnych
-               przejazdów. Zostawiamy ostatni wpis — ten należący
-               do dalszego, właściwego przebiegu.
-
-               170 / "r":
-               PKP ZACISZE-WILNO
-               PKP ZACISZE-WILNO
-               =>
-               PKP ZACISZE-WILNO
-            */
-            wynik.push(
-                grupa[
-                    grupa.length-1
-                ]
-            );
-        }
-
-        i=j;
-    }
-
-    return wynik;
-}
-
-
-
-function przygotujListeTrasyJak126i131(
-    lista
-){
-
-    if(
-        !Array.isArray(lista)||
-        lista.length<2
-    ){
-        return lista||[];
-    }
-
-    const wynik=[];
-
-    let i=0;
-
-    while(i<lista.length){
-
-        const nazwa=
-            normalizuj(
-                lista[i]?.p?.nazwa
-            );
-
-        let j=i+1;
-
-        while(
-            j<lista.length&&
-            normalizuj(
-                lista[j]?.p?.nazwa
-            )===nazwa
-        ){
-            j++;
-        }
-
-        const grupa=
-            lista.slice(
-                i,
-                j
-            );
-
-        if(grupa.length===1){
-
-            wynik.push(
-                grupa[0]
-            );
-
-            i=j;
-            continue;
-        }
-
-        /*
-           Dla każdego wystąpienia liczymy stan trasy:
-           - wszystkie,
-           - konkretny zestaw wariantów,
-           - podstawowa,
-           - inne.
-
-           To jest ta sama logika, która działa dla rozgałęzień 126.
-        */
-        const opisane=
-            grupa.map(
-                element=>{
-
-                    const stan=
-                        stanTrasyNaPrzystanku(
-                            element
-                        );
-
-                    return{
-                        element,
-                        stan,
-                        klucz:
-                            kluczStanuTrasy(
-                                stan
-                            )
-                    };
-                }
-            );
-
-        /*
-           Wpis "inne" powstały wyłącznie przez kurs startujący
-           w środku trasy nie powinien tworzyć osobnego przystanku,
-           jeżeli obok istnieje normalny przebieg.
-        */
-        const maNormalny=
-            opisane.some(
-                x=>
-                    x.stan?.typ!=="inne"
-            );
-
-        const uzywane=
-            maNormalny
-                ? opisane.filter(
-                    x=>
-                        x.stan?.typ!=="inne"||
-                        x.element?.index===
-                            aktualnyPrzystanek
-                )
-                : opisane;
-
-        /*
-           Zostawiamy maksymalnie JEDEN wpis dla każdego stanu.
-           Jeżeli aktywny przystanek należy do danej grupy,
-           ma pierwszeństwo.
-        */
-        const poStanach=
-            new Map();
-
-        uzywane.forEach(
-            x=>{
-
-                if(
-                    !poStanach.has(
-                        x.klucz
-                    )
-                ){
-                    poStanach.set(
-                        x.klucz,
-                        x
-                    );
-
-                    return;
-                }
-
-                const obecny=
-                    poStanach.get(
-                        x.klucz
-                    );
-
-                if(
-                    x.element?.index===
-                    aktualnyPrzystanek
-                ){
-                    poStanach.set(
-                        x.klucz,
-                        x
-                    );
-                }
-                else if(
-                    obecny.element?.index!==
-                    aktualnyPrzystanek
-                ){
-                    /*
-                       Dla sztucznego duplikatu startowego zostawiamy
-                       późniejszy wpis, czyli wpis należący do dalszego
-                       rzeczywistego przebiegu.
-                    */
-                    poStanach.set(
-                        x.klucz,
-                        x
-                    );
-                }
-            }
-        );
-
-        /*
-           Zachowujemy kolejność pierwszego pojawienia się stanów.
-           Przykład 170:
-           - PKP ZACISZE-WILNO dla e/l -> jeden wpis,
-           - PKP ZACISZE-WILNO dla r   -> jeden osobny wpis.
-        */
-        const dodane=
-            new Set();
-
-        uzywane.forEach(
-            x=>{
-
-                if(
-                    dodane.has(
-                        x.klucz
-                    )
-                ){
-                    return;
-                }
-
-                const finalny=
-                    poStanach.get(
-                        x.klucz
-                    );
-
-                if(finalny){
-                    wynik.push(
-                        finalny.element
-                    );
-                }
-
-                dodane.add(
-                    x.klucz
-                );
-            }
-        );
-
-        i=j;
-    }
-
-    return wynik;
-}
-
-
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -10179,9 +8776,7 @@ function renderTrasaKolumna(
 ){
 
     const pelnaLista=
-        przygotujListeTrasyJak126i131(
-            listaTrasyDoWyswietlenia()
-        );
+        listaTrasyDoWyswietlenia();
 
     const aktywnyIndexWyswietlany=
         indeksAktywnegoNaWyswietlanejTrasie(
@@ -10221,19 +8816,14 @@ function renderTrasaKolumna(
 
                     let stanPoprzedni=null;
 
-                    const pozycjaLogiczna=
-                        pelnaLista.findIndex(
-                            x=>
-                                x.index===
-                                index
-                        );
-
-                    if(pozycjaLogiczna>0){
+                    if(index>0){
 
                         const poprzedniElement=
-                            pelnaLista[
-                                pozycjaLogiczna-1
-                            ];
+                            pelnaLista.find(
+                                x=>
+                                    x.index===
+                                    index-1
+                            );
 
                         if(poprzedniElement){
                             stanPoprzedni=
@@ -10465,22 +9055,7 @@ function renderLegendaDwukierunkowa(){
     const wiersze=[];
 
     [
-        ...new Map(
-            [
-                ...mapa.values()
-            ]
-            .map(
-                item=>[
-                    item.semanticKey||
-                    (
-                        item.dir+
-                        "|"+
-                        item.wariant
-                    ),
-                    item
-                ]
-            )
-        ).values()
+        ...mapa.values()
     ]
     .sort(
         (a,b)=>
@@ -10493,51 +9068,41 @@ function renderLegendaDwukierunkowa(){
         item=>{
 
             let opis=
-                String(
-                    item.opisGotowy||
-                    (
-                        "kurs w kierunku "+
-                        item.kierunek
-                    )
-                ).trim();
+                "kurs w kierunku "+
+                item.kierunek;
 
-            const kluczOpisu=
-                normalizujBezPolskichZnakow(
-                    opis
-                );
+            if(item.wariant){
 
-            if(
-                wiersze.some(
-                    w=>
-                        w.klucz===
-                        kluczOpisu
-                )
-            ){
-                return;
+                const fragment=
+                    opisWariantuDoKierunku(
+                        item.wariant,
+                        item.dir
+                    );
+
+                if(fragment){
+                    opis+=" "+fragment;
+                }
             }
 
-            wiersze.push({
-                klucz:
-                    kluczOpisu,
-                html:
-                    '<div class="legenda-wiersz">'+
-                    '<span class="legenda-litera">'+
-                    escapeHtml(
-                        item.znak
-                    )+
-                    '</span>'+
-                    '<span class="legenda-myslnik">-</span>'+
-                    '<span class="legenda-opis">'+
-                    escapeHtml(
-                        opis
-                    )+
-                    '</span>'+
-                    '</div>'
-            });
+            wiersze.push(
+                '<div class="legenda-wiersz">'+
+                '<span class="legenda-litera">'+
+                escapeHtml(
+                    item.znak
+                )+
+                '</span>'+
+                '<span class="legenda-myslnik">-</span>'+
+                '<span class="legenda-opis">'+
+                escapeHtml(
+                    opis
+                )+
+                '</span>'+
+                '</div>'
+            );
         }
     );
 
-    return wiersze.map(x=>x.html).join("");
+    return wiersze.join("");
 }
 
 
@@ -11302,11 +9867,7 @@ function dopasujKolumnyTrasy() {
 
     if (!tabliczka || !columns) return;
 
-    const lista =
-        przygotujListeTrasyJak126i131(
-            listaTrasyDoWyswietlenia()
-        );
-
+    const lista = listaTrasyDoWyswietlenia();
     if (!lista.length) return;
 
     const czasy = czasyTrasy();
