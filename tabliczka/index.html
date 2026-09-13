@@ -4311,6 +4311,204 @@ function typPrzystankuTrasy(p){
 }
 
 
+
+function czyKursSkroconyDlaListyTrasy(kurs){
+
+    const litera=
+        String(
+            kurs?.wariant||""
+        ).trim();
+
+    const opis=
+        mapaWariantow()
+            .get(litera)||
+        "";
+
+    return(
+        /skrócon/i.test(
+            String(opis)
+        )
+    );
+}
+
+
+function statystykaKursowPrzystankuTrasy(p){
+
+    const normalne=
+        new Set();
+
+    const skrocone=
+        new Set();
+
+    (
+        p?.kursy||
+        []
+    ).forEach(
+        kurs=>{
+
+            if(
+                czasNaMinuty(
+                    kurs?.czas
+                )===null
+            ){
+                return;
+            }
+
+            const klucz=[
+                String(
+                    kurs?.numer||""
+                ).trim(),
+                String(
+                    kurs?.wariant||""
+                ).trim(),
+                String(
+                    kurs?.uwagi||""
+                ).trim(),
+                String(
+                    kurs?.brygada||""
+                ).trim()
+            ].join("|");
+
+            if(
+                czyKursSkroconyDlaListyTrasy(
+                    kurs
+                )
+            ){
+                skrocone.add(
+                    klucz
+                );
+            }
+            else{
+                normalne.add(
+                    klucz
+                );
+            }
+        }
+    );
+
+    return{
+        normalne:
+            normalne.size,
+        skrocone:
+            skrocone.size
+    };
+}
+
+
+function usunDuplikatyTylkoOdKursowSkroconych(lista){
+
+    const wynik=[];
+
+    let i=0;
+
+    while(i<lista.length){
+
+        const nazwa=
+            normalizuj(
+                lista[i]?.p?.nazwa
+            );
+
+        let j=i+1;
+
+        /*
+           Interesują nas tylko KOLEJNE wystąpienia dokładnie
+           tej samej nazwy przystanku.
+        */
+        while(
+            j<lista.length&&
+            normalizuj(
+                lista[j]?.p?.nazwa
+            )===nazwa
+        ){
+            j++;
+        }
+
+        const grupa=
+            lista.slice(
+                i,
+                j
+            );
+
+        if(grupa.length===1){
+
+            wynik.push(
+                grupa[0]
+            );
+
+            i=j;
+            continue;
+        }
+
+        const zeStatystykami=
+            grupa.map(
+                element=>({
+                    element,
+                    stat:
+                        statystykaKursowPrzystankuTrasy(
+                            element.p
+                        )
+                })
+            );
+
+        const zNormalnymi=
+            zeStatystykami.filter(
+                x=>
+                    x.stat.normalne>0
+            );
+
+        /*
+           Usuwamy powtórzenie TYLKO w bezpiecznym przypadku:
+
+           - dokładnie jedno wystąpienie tej nazwy jest używane
+             przez normalne / pełne kursy,
+           - pozostałe wystąpienia mają wyłącznie kursy skrócone.
+
+           Przykład linii 192:
+           URSYNÓW PŁD. dla kursu skróconego +
+           URSYNÓW PŁD. dla normalnych kursów do OS. KABATY
+
+           => zostaje tylko ten drugi, normalny przystanek.
+
+           Jeśli dwa przystanki o tej samej nazwie są rzeczywiście
+           używane przez normalne kursy, NICZEGO nie łączymy.
+        */
+        if(
+            zNormalnymi.length===1&&
+            zeStatystykami.every(
+                x=>
+                    x===zNormalnymi[0]||
+                    (
+                        x.stat.normalne===0&&
+                        x.stat.skrocone>0
+                    )
+            )
+        ){
+            wynik.push(
+                zNormalnymi[0].element
+            );
+        }
+        else{
+
+            /*
+               Nietypowy / niejednoznaczny przypadek:
+               zachowujemy wszystkie wiersze, żeby nie usuwać
+               prawdziwych dwóch różnych przystanków o tej samej nazwie.
+            */
+            grupa.forEach(
+                element=>
+                    wynik.push(
+                        element
+                    )
+            );
+        }
+
+        i=j;
+    }
+
+    return wynik;
+}
+
+
 function listaPelnejTrasyDoWyswietlenia(){
 
     const baza=
@@ -4350,11 +4548,20 @@ function listaPelnejTrasyDoWyswietlenia(){
         bezTech.pop();
     }
 
-    return bezTech.map(
-        x=>({
-            p:x.p,
-            index:x.index
-        })
+    const gotowaLista=
+        bezTech.map(
+            x=>({
+                p:x.p,
+                index:x.index
+            })
+        );
+
+    /*
+       Na końcu usuwamy tylko sztuczne podwójne wystąpienia
+       powstałe przez osobny kraniec kursu skróconego.
+    */
+    return usunDuplikatyTylkoOdKursowSkroconych(
+        gotowaLista
     );
 }
 
