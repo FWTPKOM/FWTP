@@ -1402,6 +1402,19 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     color:#111;
 }
 
+
+/* =========================================================
+   3 KOLUMNY — DWULINIOWE NAZWY TAK JAK W ZWYKŁEJ LIŚCIE
+   ========================================================= */
+
+.tabliczka.trasa-3-kol .trasa-nazwa.zawijaj{
+    white-space:normal !important;
+}
+
+.tabliczka.trasa-3-kol .trasa-stop:has(.trasa-nazwa.zawijaj){
+    min-height:33px;
+}
+
 </style>
 </head>
 
@@ -7002,8 +7015,8 @@ function listaDrugiegoKierunkuOdPrzystanku(){
         )
         .filter(
             x=>
-                x.index>
-                info.indexPrzystanku&&
+                x.index>=
+                    info.indexPrzystanku&&
                 String(
                     x.p?.typ||""
                 ).trim().toUpperCase()!=="TECH"
@@ -7053,6 +7066,67 @@ function symboleDrugiegoKierunkuTrasy(
                 b,
                 "pl"
             )
+    );
+}
+
+
+
+function symboleAktualnegoKierunkuTrasy(){
+
+    const wynik=
+        new Set();
+
+    const mapa=
+        mapaSymboliDwukierunkowych();
+
+    for(
+        const item
+        of mapa.values()
+    ){
+        if(
+            Number(item.dir)===
+            Number(aktualnyKierunek)&&
+            item.znak
+        ){
+            wynik.add(
+                String(
+                    item.znak
+                ).toLowerCase()
+            );
+        }
+    }
+
+    return[
+        ...wynik
+    ].sort(
+        (a,b)=>
+            a.localeCompare(
+                b,
+                "pl"
+            )
+    );
+}
+
+
+function tytulAktualnegoKierunkuTrasy(){
+
+    const litery=
+        symboleAktualnegoKierunkuTrasy();
+
+    if(!litery.length){
+        return"";
+    }
+
+    return(
+        "Trasa w kursach "+
+        litery
+            .map(
+                x=>
+                    "„"+
+                    x+
+                    "”"
+            )
+            .join(", ")
     );
 }
 
@@ -7129,8 +7203,17 @@ function renderElementyDrugiegoKierunkuTrasy(){
                             p
                         );
 
+                    const wybrany=
+                        element.index===
+                        info.indexPrzystanku;
+
                     return(
                         '<li class="trasa-stop'+
+                        (
+                            wybrany
+                                ? ' wybrany'
+                                : ''
+                        )+
                         (
                             czyNZ(p)
                                 ? ' nz'
@@ -7154,10 +7237,20 @@ function renderElementyDrugiegoKierunkuTrasy(){
                         '</span>'+
                         '<span class="trasa-os"></span>'+
                         '<span class="trasa-nazwa">'+
-                        escapeHtml(
-                            String(
-                                p?.nazwa||""
-                            ).toUpperCase()
+                        (
+                            wybrany
+                                ? '<span class="trasa-nazwa-aktywna">'+
+                                  escapeHtml(
+                                      String(
+                                          p?.nazwa||""
+                                      ).toUpperCase()
+                                  )+
+                                  '</span>'
+                                : escapeHtml(
+                                      String(
+                                          p?.nazwa||""
+                                      ).toUpperCase()
+                                  )
                         )+
                         '</span>'+
                         '<span class="trasa-nz">'+
@@ -7434,7 +7527,7 @@ function renderTrasaKolumna(
                        - po minięciu tego rozgałęzienia nie pokazujemy
                          już opisu nieaktualnej gałęzi.
                     */
-                    const separator=
+                    let separator=
                         (
                             stanPoprzedni===null||
                             przed
@@ -7448,6 +7541,57 @@ function renderTrasaKolumna(
                     const wybrany=
                         index===
                         aktualnyPrzystanek;
+
+                    if(
+                        czyBiezacyPrzystanekDwukierunkowy()
+                    ){
+
+                        const tytulKierunku=
+                            tytulAktualnegoKierunkuTrasy();
+
+                        /*
+                           W trybie dwóch kierunków nigdy nie piszemy
+                           "Trasa we wszystkich kursach", bo mogłoby to
+                           sugerować również kursy przeciwnego kierunku.
+                        */
+                        if(
+                            separator.includes(
+                                "Trasa we wszystkich kursach"
+                            )
+                        ){
+                            separator=
+                                tytulKierunku
+                                    ? (
+                                        '<li class="trasa-separator">'+
+                                        '<span class="trasa-separator-title">'+
+                                        escapeHtml(
+                                            tytulKierunku
+                                        )+
+                                        '</span>'+
+                                        '</li>'
+                                    )
+                                    : '';
+                        }
+
+                        /*
+                           Nad aktywnym przystankiem zawsze pokazujemy,
+                           w których kursach obowiązuje właśnie ten
+                           przebieg / kierunek.
+                        */
+                        if(
+                            wybrany&&
+                            tytulKierunku
+                        ){
+                            separator=
+                                '<li class="trasa-separator">'+
+                                '<span class="trasa-separator-title">'+
+                                escapeHtml(
+                                    tytulKierunku
+                                )+
+                                '</span>'+
+                                '</li>';
+                        }
+                    }
 
                     let czas=null;
 
@@ -8449,7 +8593,7 @@ function dopasujKolumnyTrasy() {
                 ".trasa-lista"
             );
 
-        const elementyHtml=[];
+        let elementyHtml=[];
 
         if(listaPierwszego){
             Array.from(
@@ -8532,6 +8676,19 @@ function dopasujKolumnyTrasy() {
         if(!pomiarKol||!elementy.length){
             return;
         }
+
+        /*
+           WAŻNE:
+           ustawZawijanieNazwTrasy() dodało już klasę .zawijaj
+           tym nazwom, które nie mieszczą się w jednej linii.
+           Musimy zapisać właśnie TEN zmierzony HTML, bo wcześniejsza
+           wersja później odtwarzała stare elementy bez klasy .zawijaj.
+        */
+        elementyHtml=
+            elementy.map(
+                el=>
+                    el.outerHTML
+            );
 
         const style=
             getComputedStyle(
