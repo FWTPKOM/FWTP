@@ -9823,7 +9823,9 @@ function indeksAktywnegoNaWyswietlanejTrasie(
             : [];
 
     /*
-       Najpierw normalny przypadek — dokładny indeks nadal istnieje.
+       1. Najpierw dokładny indeks.
+       Jeżeli wybrany przystanek nadal istnieje na liście,
+       niczego nie zgadujemy.
     */
     const dokladny=
         source.find(
@@ -9836,18 +9838,6 @@ function indeksAktywnegoNaWyswietlanejTrasie(
         return aktualnyPrzystanek;
     }
 
-    /*
-       Aktywny wpis mógł zostać usunięty jako sztuczne
-       powtórzenie na granicy trasy podstawowej i wydłużonej.
-
-       Przykład 131 / SADYBA 01:
-       - jedna SADYBA zostaje na końcu trasy podstawowej,
-       - druga SADYBA z początku wydłużenia jest usuwana,
-       - ale wybranym słupkiem nadal jest właśnie SADYBA 01.
-
-       W takim przypadku aktywność przenosimy na najbliższy
-       pozostały wpis o tej samej nazwie.
-    */
     const pelnyKierunek=
         kierunekBazowy()?.przystanki||
         [];
@@ -9866,34 +9856,124 @@ function indeksAktywnegoNaWyswietlanejTrasie(
             aktywny?.nazwa
         );
 
+    const nrAktywnego=
+        String(
+            aktywny?.nr||""
+        ).trim();
+
     if(!nazwaAktywnego){
         return aktualnyPrzystanek;
     }
 
-    const kandydaci=
-        source
-            .filter(
+    /*
+       2. Ustalamy, KTÓRE to jest wystąpienie tej nazwy
+       w oryginalnym kierunku.
+
+       Przykład 170:
+       WIERNA ... WIERNA
+
+       Jeżeli URL wskazuje drugą WIERNA, zapamiętujemy,
+       że jest to wystąpienie nr 2, a nie po prostu
+       "najbliższa WIERNA".
+    */
+    let numerWystapieniaNazwy=0;
+
+    for(
+        let i=0;
+        i<=aktualnyPrzystanek&&
+        i<pelnyKierunek.length;
+        i++
+    ){
+        if(
+            normalizuj(
+                pelnyKierunek[i]?.nazwa
+            )===
+            nazwaAktywnego
+        ){
+            numerWystapieniaNazwy++;
+        }
+    }
+
+    /*
+       3. Kandydaci o tej samej nazwie na liście wynikowej.
+    */
+    const kandydaciNazwy=
+        source.filter(
+            element=>
+                normalizuj(
+                    element?.p?.nazwa
+                )===
+                nazwaAktywnego
+        );
+
+    if(!kandydaciNazwy.length){
+        return aktualnyPrzystanek;
+    }
+
+    /*
+       4. Najpierw próbujemy dopasować dokładny numer słupka
+       ORAZ właściwe wystąpienie tej nazwy.
+
+       To ważne, gdy ta sama nazwa pojawia się kilka razy
+       w jednym kierunku.
+    */
+    const kandydaciNr=
+        nrAktywnego
+            ? kandydaciNazwy.filter(
                 element=>
-                    normalizuj(
-                        element?.p?.nazwa
-                    )===
-                    nazwaAktywnego
+                    String(
+                        element?.p?.nr||""
+                    ).trim()===
+                    nrAktywnego
             )
-            .sort(
-                (a,b)=>
-                    Math.abs(
-                        Number(a.index)-
-                        aktualnyPrzystanek
-                    )-
-                    Math.abs(
-                        Number(b.index)-
-                        aktualnyPrzystanek
-                    )
+            : [];
+
+    if(kandydaciNr.length===1){
+        return kandydaciNr[0].index;
+    }
+
+    if(kandydaciNr.length>1){
+
+        /*
+           Jeżeli nawet nazwa+nr powtarza się kilka razy,
+           wybieramy to samo wystąpienie, które wskazano
+           w oryginalnym kierunku.
+        */
+        const pozycja=
+            Math.min(
+                Math.max(
+                    numerWystapieniaNazwy-1,
+                    0
+                ),
+                kandydaciNr.length-1
             );
 
-    return kandydaci.length
-        ? kandydaci[0].index
-        : aktualnyPrzystanek;
+        return kandydaciNr[
+            pozycja
+        ].index;
+    }
+
+    /*
+       5. Jeśli numer nie pomoże, wybieramy właściwe wystąpienie
+       tej SAMEJ NAZWY.
+
+       To naprawia m.in. linię 170:
+       - pierwsza WIERNA nie zostaje aktywna,
+       - gdy wybrana jest druga WIERNA (idx:21),
+         aktywność przechodzi na drugą WIERNA.
+    */
+    const pozycjaNazwy=
+        Math.min(
+            Math.max(
+                numerWystapieniaNazwy-1,
+                0
+            ),
+            kandydaciNazwy.length-1
+        );
+
+    return kandydaciNazwy[
+        pozycjaNazwy
+    ].index;
 }
 
 
