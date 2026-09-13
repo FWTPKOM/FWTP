@@ -1173,6 +1173,113 @@
     max-width: none;
 }
 
+
+/* =========================================================
+   ŁADOWANIE TABLICZKI – AUTOBUS NA PASKU
+   Wygląd taki sam jak w brygady.html.
+   Loader pozostaje widoczny aż do zakończenia renderowania.
+   ========================================================= */
+
+.tabliczka-loader{
+    padding:28px 20px 30px;
+    background:#ffffff;
+    border:1px solid #dddddd;
+    border-radius:8px;
+    box-sizing:border-box;
+    text-align:center;
+    margin-bottom:16px;
+}
+
+.tabliczka-loader-title{
+    margin:0 0 22px;
+    color:#222222;
+    font-size:16px;
+    font-weight:800;
+}
+
+.tabliczka-loader-road{
+    position:relative;
+    width:min(650px,100%);
+    height:62px;
+    margin:0 auto;
+    overflow:visible;
+}
+
+.tabliczka-loader-track{
+    position:absolute;
+    left:0;
+    right:0;
+    top:50%;
+    height:9px;
+    transform:translateY(-50%);
+    overflow:hidden;
+    background:#e4e4e4;
+    border:1px solid #c7c7c7;
+    border-radius:999px;
+    box-sizing:border-box;
+}
+
+.tabliczka-loader-progress{
+    width:0%;
+    height:100%;
+    background:#d61c12;
+    border-radius:999px;
+    transition:width .30s ease;
+}
+
+.tabliczka-loader-bus{
+    position:absolute;
+    left:0%;
+    top:50%;
+    width:125px;
+    height:auto;
+    max-height:54px;
+    object-fit:contain;
+    transform:translate(-50%,-50%);
+    z-index:3;
+    transition:left .30s ease;
+    filter:drop-shadow(0 2px 2px rgba(0,0,0,.18));
+    pointer-events:none;
+}
+
+.tabliczka-loader-percent{
+    margin-top:7px;
+    color:#d61c12;
+    font-size:18px;
+    font-weight:900;
+}
+
+.tabliczka-loader-stage{
+    margin-top:4px;
+    min-height:15px;
+    color:#666666;
+    font-size:12px;
+}
+
+.tabliczka-loader-progress.gotowe{
+    width:100%!important;
+}
+
+.tabliczka-loader-bus.gotowe{
+    left:100%!important;
+}
+
+@media(max-width:550px){
+    .tabliczka-loader{
+        padding:24px 10px 26px;
+    }
+
+    .tabliczka-loader-road{
+        width:86%;
+    }
+
+    .tabliczka-loader-bus{
+        width:96px;
+        height:auto;
+        max-height:46px;
+    }
+}
+
 </style>
 </head>
 
@@ -1224,6 +1331,8 @@
 
     </section>
 
+
+    <div id="tabliczkaLoaderHost"></div>
 
     <div id="wynik"></div>
 
@@ -1512,6 +1621,211 @@ let wybranaData=
         parametry.get("data")
     )||
     new Date();
+
+
+
+/* =========================================================
+   LOADER TABLICZKI – TAKI SAM JAK W brygady.html
+   ========================================================= */
+
+function pokazLoaderTabliczki(){
+
+    const host=
+        document.getElementById(
+            "tabliczkaLoaderHost"
+        );
+
+    if(!host){
+        return;
+    }
+
+    host.innerHTML=
+        '<div class="tabliczka-loader" id="tabliczkaLoader">'+
+            '<div class="tabliczka-loader-title">Ładowanie tabliczki...</div>'+
+            '<div class="tabliczka-loader-road">'+
+                '<div class="tabliczka-loader-track">'+
+                    '<div class="tabliczka-loader-progress" id="tabliczkaLoaderProgress"></div>'+
+                '</div>'+
+                '<img class="tabliczka-loader-bus" id="tabliczkaLoaderBus" '+
+                     'src="/FWTP/brygady/autobus-loader.png" '+
+                     'alt="" aria-hidden="true">'+
+            '</div>'+
+            '<div class="tabliczka-loader-percent" id="tabliczkaLoaderPercent">0%</div>'+
+            '<div class="tabliczka-loader-stage" id="tabliczkaLoaderStage">Rozpoczynanie...</div>'+
+        '</div>';
+
+    ustawLoaderTabliczki(
+        2,
+        "Rozpoczynanie..."
+    );
+}
+
+
+function ustawLoaderTabliczki(
+    procent,
+    etap
+){
+
+    const p=
+        Math.max(
+            0,
+            Math.min(
+                100,
+                Math.round(
+                    Number(procent)||0
+                )
+            )
+        );
+
+    const pasek=
+        document.getElementById(
+            "tabliczkaLoaderProgress"
+        );
+
+    const autobus=
+        document.getElementById(
+            "tabliczkaLoaderBus"
+        );
+
+    const liczba=
+        document.getElementById(
+            "tabliczkaLoaderPercent"
+        );
+
+    const opis=
+        document.getElementById(
+            "tabliczkaLoaderStage"
+        );
+
+    if(pasek){
+
+        pasek.style.width=
+            p+"%";
+
+        pasek.classList.toggle(
+            "gotowe",
+            p>=100
+        );
+    }
+
+    if(autobus){
+
+        autobus.style.left=
+            p+"%";
+
+        autobus.classList.toggle(
+            "gotowe",
+            p>=100
+        );
+    }
+
+    if(liczba){
+        liczba.textContent=
+            p+"%";
+    }
+
+    if(
+        opis&&
+        etap
+    ){
+        opis.textContent=
+            etap;
+    }
+}
+
+
+function czekajNaRenderTabliczki(){
+
+    return new Promise(
+        resolve=>{
+
+            requestAnimationFrame(
+                ()=>{
+                    requestAnimationFrame(
+                        resolve
+                    );
+                }
+            );
+        }
+    );
+}
+
+
+async function czekajNaPelneRenderowanieTabliczki(){
+
+    /*
+       Najpierw czekamy na fonty.
+       Dzięki temu szerokości napisów i kolumn są już ostateczne.
+    */
+    try{
+
+        if(
+            document.fonts&&
+            document.fonts.ready
+        ){
+            await document.fonts.ready;
+        }
+    }
+    catch{}
+
+    /*
+       renderuj() wykonuje własne requestAnimationFrame:
+       1. wyrównanie tabel SOBOTA / ŚWIĘTO,
+       2. dopasowanie kolumn trasy.
+
+       Czekamy więc jeszcze kilka pełnych klatek,
+       aby loader zniknął dopiero po rzeczywistym
+       zakończeniu układania tabliczki.
+    */
+    await czekajNaRenderTabliczki();
+    await czekajNaRenderTabliczki();
+    await czekajNaRenderTabliczki();
+}
+
+
+async function zakonczLoaderTabliczki(){
+
+    ustawLoaderTabliczki(
+        100,
+        "Gotowe"
+    );
+
+    await czekajNaRenderTabliczki();
+
+    /*
+       Krótka chwila, aby użytkownik zobaczył dojazd autobusu
+       dokładnie do 100%.
+    */
+    await new Promise(
+        resolve=>
+            setTimeout(
+                resolve,
+                320
+            )
+    );
+
+    const host=
+        document.getElementById(
+            "tabliczkaLoaderHost"
+        );
+
+    if(host){
+        host.innerHTML="";
+    }
+}
+
+
+function ukryjLoaderTabliczki(){
+
+    const host=
+        document.getElementById(
+            "tabliczkaLoaderHost"
+        );
+
+    if(host){
+        host.innerHTML="";
+    }
+}
 
 
 /* =========================================================
@@ -1967,6 +2281,15 @@ async function pobierzLinie(
 
 async function wczytajLinie(){
 
+    pokazLoaderTabliczki();
+
+    ustawLoaderTabliczki(
+        5,
+        "Pobieranie danych linii "+
+        aktualnaLinia+
+        "..."
+    );
+
     ustawStatus(
         "Ładowanie linii "+
         aktualnaLinia+
@@ -1977,14 +2300,31 @@ async function wczytajLinie(){
         .getElementById("wynik")
         .innerHTML="";
 
+    await czekajNaRenderTabliczki();
+
     try{
 
+        /*
+           5–45%:
+           pobranie manifestu / właściwego JSON-u linii.
+        */
         daneLinii=
             await pobierzLinie(
                 aktualnaLinia,
                 wybranaData
             );
 
+        ustawLoaderTabliczki(
+            45,
+            "Dane linii pobrane"
+        );
+
+        await czekajNaRenderTabliczki();
+
+        /*
+           45–62%:
+           analiza kierunków i danych przystanków.
+        */
         const kierunki=
             pobierzKierunki();
 
@@ -2002,11 +2342,50 @@ async function wczytajLinie(){
             aktualnyKierunek=0;
         }
 
+        ustawLoaderTabliczki(
+            62,
+            "Analizowanie kierunków i przystanków..."
+        );
+
         wypelnijKierunki();
         wypelnijPrzystanki();
 
+        await czekajNaRenderTabliczki();
+
+        /*
+           62–78%:
+           przygotowanie rozkładów i trasy.
+        */
+        ustawLoaderTabliczki(
+            78,
+            "Budowanie rozkładów i trasy..."
+        );
+
         zapiszURL();
+
+        await czekajNaRenderTabliczki();
+
+        /*
+           78–92%:
+           właściwe renderowanie tabliczki.
+           Loader jest w osobnym kontenerze, więc pozostaje
+           widoczny podczas budowania gotowej tabliczki.
+        */
         renderuj();
+
+        ustawLoaderTabliczki(
+            92,
+            "Dopasowywanie układu tabliczki..."
+        );
+
+        /*
+           Czekamy aż zakończą się:
+           - render DOM,
+           - fonty,
+           - wyrównanie SOBOTA / ŚWIĘTO,
+           - dopasowanie 1/2 kolumn listy przystanków.
+        */
+        await czekajNaPelneRenderowanieTabliczki();
 
         ustawStatus(
             "Linia "+
@@ -2019,10 +2398,18 @@ async function wczytajLinie(){
                 wybranaData
             )
         );
+
+        /*
+           100% następuje dopiero wtedy, gdy gotowa tabliczka
+           jest już naprawdę ułożona na stronie.
+        */
+        await zakonczLoaderTabliczki();
     }
     catch(error){
 
         console.error(error);
+
+        ukryjLoaderTabliczki();
 
         pokazBlad(
             error.message||
