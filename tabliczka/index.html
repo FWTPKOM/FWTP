@@ -8625,131 +8625,6 @@ function usunKolejnePowtorzeniaNazwyWDwukierunkowym(
 }
 
 
-
-function przywrocDokladnieWybranyPrzystanek(
-    lista
-){
-
-    const wynik=
-        Array.isArray(lista)
-            ? [...lista]
-            : [];
-
-    const pelna=
-        listaPelnejTrasyDoWyswietlenia();
-
-    const aktywnyPelny=
-        pelna.find(
-            element=>
-                element?.index===
-                aktualnyPrzystanek
-        );
-
-    if(!aktywnyPelny){
-        return wynik;
-    }
-
-    /*
-       Jeżeli dokładny indeks nadal jest na liście,
-       nic nie zmieniamy.
-    */
-    if(
-        wynik.some(
-            element=>
-                element?.index===
-                aktualnyPrzystanek
-        )
-    ){
-        return wynik;
-    }
-
-    const nazwa=
-        normalizuj(
-            aktywnyPelny?.p?.nazwa
-        );
-
-    const nr=
-        String(
-            aktywnyPelny?.p?.nr||""
-        ).trim();
-
-    /*
-       Najpierw szukamy wpisu, który został błędnie pozostawiony
-       zamiast dokładnie wybranego: ta sama nazwa + ten sam numer.
-       Przy WIERNA 02 pozwala to zamienić pierwsze wystąpienie
-       na drugie bez dokładania kolejnego wiersza.
-    */
-    let pozycja=
-        wynik.findIndex(
-            element=>
-                normalizuj(
-                    element?.p?.nazwa
-                )===
-                    nazwa&&
-                String(
-                    element?.p?.nr||""
-                ).trim()===
-                    nr
-        );
-
-    /*
-       Jeżeli nazwa+nr nie istnieje, fallback po samej nazwie.
-       To jest istotne dla danych, w których po filtrach numer
-       został przypisany do sąsiedniego logicznego wystąpienia.
-    */
-    if(pozycja<0){
-
-        pozycja=
-            wynik.findIndex(
-                element=>
-                    normalizuj(
-                        element?.p?.nazwa
-                    )===
-                    nazwa
-            );
-    }
-
-    if(pozycja>=0){
-
-        wynik[
-            pozycja
-        ]=
-            aktywnyPelny;
-
-        return wynik;
-    }
-
-    /*
-       Jeżeli przystanek został całkowicie usunięty (np. LNIANA 02),
-       wstawiamy dokładny element z pełnej trasy w miejsce zgodne
-       z jego indeksem.
-    */
-    let wstaw=
-        wynik.findIndex(
-            element=>
-                Number(
-                    element?.index
-                )>
-                Number(
-                    aktualnyPrzystanek
-                )
-        );
-
-    if(wstaw<0){
-        wstaw=
-            wynik.length;
-    }
-
-    wynik.splice(
-        wstaw,
-        0,
-        aktywnyPelny
-    );
-
-    return wynik;
-}
-
-
 function __bezCache_listaTrasyDoWyswietlenia(){
 
     const baza=
@@ -8799,13 +8674,8 @@ function __bezCache_listaTrasyDoWyswietlenia(){
             bezDuplikatowTegoSamegoStanu
         );
 
-    const bezKolejnychPowtorzen=
-        usunKolejnePowtorzeniaNazwyWDwukierunkowym(
-            bezGranicy
-        );
-
-    return przywrocDokladnieWybranyPrzystanek(
-        bezKolejnychPowtorzen
+    return usunKolejnePowtorzeniaNazwyWDwukierunkowym(
+        bezGranicy
     );
 }
 
@@ -9952,6 +9822,9 @@ function indeksAktywnegoNaWyswietlanejTrasie(
             ? lista
             : [];
 
+    /*
+       Najpierw normalny przypadek — dokładny indeks nadal istnieje.
+    */
     const dokladny=
         source.find(
             element=>
@@ -9964,15 +9837,23 @@ function indeksAktywnegoNaWyswietlanejTrasie(
     }
 
     /*
-       Fallback bezpieczeństwa – po prawidłowym przywróceniu
-       aktywnego elementu normalnie nie powinien być potrzebny.
+       Aktywny wpis mógł zostać usunięty jako sztuczne
+       powtórzenie na granicy trasy podstawowej i wydłużonej.
+
+       Przykład 131 / SADYBA 01:
+       - jedna SADYBA zostaje na końcu trasy podstawowej,
+       - druga SADYBA z początku wydłużenia jest usuwana,
+       - ale wybranym słupkiem nadal jest właśnie SADYBA 01.
+
+       W takim przypadku aktywność przenosimy na najbliższy
+       pozostały wpis o tej samej nazwie.
     */
-    const baza=
+    const pelnyKierunek=
         kierunekBazowy()?.przystanki||
         [];
 
     const aktywny=
-        baza[
+        pelnyKierunek[
             aktualnyPrzystanek
         ];
 
@@ -9980,47 +9861,39 @@ function indeksAktywnegoNaWyswietlanejTrasie(
         return aktualnyPrzystanek;
     }
 
-    const nazwa=
+    const nazwaAktywnego=
         normalizuj(
             aktywny?.nazwa
         );
 
-    const nr=
-        String(
-            aktywny?.nr||""
-        ).trim();
+    if(!nazwaAktywnego){
+        return aktualnyPrzystanek;
+    }
 
     const kandydaci=
-        source.filter(
-            element=>
-                normalizuj(
-                    element?.p?.nazwa
-                )===
-                    nazwa&&
-                String(
-                    element?.p?.nr||""
-                ).trim()===
-                    nr
-        );
-
-    if(kandydaci.length){
-
-        return kandydaci
-            .slice()
+        source
+            .filter(
+                element=>
+                    normalizuj(
+                        element?.p?.nazwa
+                    )===
+                    nazwaAktywnego
+            )
             .sort(
                 (a,b)=>
                     Math.abs(
                         Number(a.index)-
-                        Number(aktualnyPrzystanek)
+                        aktualnyPrzystanek
                     )-
                     Math.abs(
                         Number(b.index)-
-                        Number(aktualnyPrzystanek)
+                        aktualnyPrzystanek
                     )
-            )[0].index;
-    }
+            );
 
-    return aktualnyPrzystanek;
+    return kandydaci.length
+        ? kandydaci[0].index
+        : aktualnyPrzystanek;
 }
 
 
@@ -10326,13 +10199,17 @@ function renderTrasaKolumna(
                     */
                     if(!przed){
 
-                        /*
-                           Aktywny przystanek zawsze ma 0 minut,
-                           niezależnie od tego, czy był scalany,
-                           przywracany po filtrach, czy występuje
-                           drugi raz pod tą samą nazwą.
-                        */
-                        if(wybrany){
+                        if(
+                            wybrany&&
+                            index!==
+                            aktualnyPrzystanek
+                        ){
+                            /*
+                               Aktywny dokładny wpis został scalony
+                               z przystankiem o tej samej nazwie.
+                               Na tabliczce nadal jest to miejsce,
+                               na którym stoimy, więc czas = 0.
+                            */
                             czas=0;
                         }
                         else{
