@@ -5206,88 +5206,104 @@ function koncowyPrzystanekWariantuDwukierunkowego(
     wariant
 ){
 
-    const kierunek=
-        znajdzNajpelniejszyKierunek(
-            dir
-        );
+    const pelna=
+        listaPelnejTrasyDoWyswietlenia();
 
-    const przystanki=
-        kierunek?.przystanki||
-        [];
-
-    if(!przystanki.length){
+    if(!pelna.length){
         return"";
     }
 
     let najlepszyIndex=-1;
     let najlepszaNazwa="";
 
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(
-        rozklad=>{
+    dostepneGrupyDni()
+        .slice(0,3)
+        .forEach(
+            grupa=>{
 
-            const k=
-                Array.isArray(
-                    rozklad?.kierunki
+                pobierzKursyDlaSymbolu(
+                    grupa.symbol
                 )
-                    ? rozklad.kierunki[dir]
-                    : null;
+                .forEach(
+                    kurs=>{
 
-            (
-                k?.przystanki||
-                []
-            ).forEach(
-                (p,index)=>{
+                        if(
+                            Number(
+                                kurs?._kierunekIndex
+                            )!==
+                            Number(dir)
+                        ){
+                            return;
+                        }
 
-                    const maKurs=
-                        (
-                            p?.kursy||
-                            []
-                        ).some(
-                            kurs=>{
+                        const litera=
+                            literaWariantuPoRzeczywistymPrzebiegu(
+                                {
+                                    ...kurs,
+                                    symbol:grupa.symbol,
+                                    _kierunekIndex:dir
+                                },
+                                dir
+                            );
+
+                        const kanoniczna=
+                            String(
+                                litera
+                                    ? kanonicznaLiteraWariantu(
+                                        litera
+                                    )
+                                    : ""
+                            )
+                            .trim()
+                            .toLowerCase();
+
+                        if(
+                            kanoniczna!==
+                            String(
+                                wariant||""
+                            )
+                            .trim()
+                            .toLowerCase()
+                        ){
+                            return;
+                        }
+
+                        const ref={
+                            numer:String(
+                                kurs?.numer||""
+                            ),
+                            wariant:String(
+                                kurs?.wariant||""
+                            ).trim(),
+                            symbol:grupa.symbol
+                        };
+
+                        pelna.forEach(
+                            element=>{
 
                                 if(
-                                    czasNaMinuty(
-                                        kurs?.czas
-                                    )===null
+                                    kursMaPrzystanek(
+                                        ref,
+                                        element
+                                    )&&
+                                    element.index>
+                                    najlepszyIndex
                                 ){
-                                    return false;
+                                    najlepszyIndex=
+                                        element.index;
+
+                                    najlepszaNazwa=
+                                        String(
+                                            element?.p?.nazwa||
+                                            ""
+                                        ).toUpperCase();
                                 }
-
-                                const litera=
-                                    String(
-                                        kurs?.wariant||""
-                                    )
-                                    .trim()
-                                    .toLowerCase();
-
-                                return(
-                                    litera===
-                                    String(
-                                        wariant||""
-                                    )
-                                    .trim()
-                                    .toLowerCase()
-                                );
                             }
                         );
-
-                    if(
-                        maKurs&&
-                        index>najlepszyIndex
-                    ){
-                        najlepszyIndex=index;
-                        najlepszaNazwa=
-                            String(
-                                p?.nazwa||""
-                            ).toUpperCase();
                     }
-                }
-            );
-        }
-    );
+                );
+            }
+        );
 
     return najlepszaNazwa;
 }
@@ -6989,12 +7005,11 @@ function __bezCache_listaPelnejTrasyDoWyswietlenia(){
         );
 
     /*
-       Ostateczna warstwa zabezpieczająca widok tabliczki:
-       dwa kolejne wpisy tej samej nazwy pokazujemy jako jeden.
+       Nie scalamy tu już mechanicznie kolejnych identycznych nazw.
+       O tym, do którego przebiegu należy konkretne wystąpienie,
+       decyduje teraz dokładne mapowanie wystąpień przystanku.
     */
-    return usunKolejnePowtorzeniaNazwyNaTabliczce(
-        bezStartowychDuplikatow
-    );
+    return bezStartowychDuplikatow;
 }
 
 function listaPelnejTrasyDoWyswietlenia(){
@@ -7199,6 +7214,179 @@ function kursyAktualnegoRozkladuDoTrasy(){
 
 
 
+
+function tenSamPrzystanekTrasy(
+    a,
+    b
+){
+
+    const aa=
+        a?.p||
+        a;
+
+    const bb=
+        b?.p||
+        b;
+
+    return(
+        normalizuj(
+            aa?.nazwa
+        )===
+            normalizuj(
+                bb?.nazwa
+            )&&
+        String(
+            aa?.nr||""
+        ).trim()===
+        String(
+            bb?.nr||""
+        ).trim()
+    );
+}
+
+
+function numerWystapieniaPrzystankuWBazie(
+    element
+){
+
+    const baza=
+        kierunekBazowy()
+            ?.przystanki||
+        [];
+
+    const index=
+        Number(
+            element?.index
+        );
+
+    if(
+        !Number.isInteger(index)||
+        index<0||
+        index>=baza.length
+    ){
+        return 0;
+    }
+
+    const cel=
+        baza[index];
+
+    let wystapienie=0;
+
+    for(
+        let i=0;
+        i<index;
+        i++
+    ){
+        if(
+            tenSamPrzystanekTrasy(
+                baza[i],
+                cel
+            )
+        ){
+            wystapienie++;
+        }
+    }
+
+    return wystapienie;
+}
+
+
+function znajdzPrzystanekWRozkladzieDlaElementu(
+    rozklad,
+    kierunekIndex,
+    element
+){
+
+    const k=
+        Array.isArray(
+            rozklad?.kierunki
+        )
+            ? rozklad.kierunki[
+                kierunekIndex
+            ]
+            : null;
+
+    if(
+        !k||
+        !Array.isArray(
+            k.przystanki
+        )
+    ){
+        return null;
+    }
+
+    const cel=
+        element?.p||
+        element;
+
+    if(!cel){
+        return null;
+    }
+
+    /*
+       Jeżeli JSON ma L.p. i zgadza się on dokładnie,
+       jest to najpewniejsze dopasowanie.
+    */
+    const lp=
+        String(
+            cel?.lp??""
+        ).trim();
+
+    if(lp){
+
+        const poLp=
+            k.przystanki.find(
+                p=>
+                    tenSamPrzystanekTrasy(
+                        p,
+                        cel
+                    )&&
+                    String(
+                        p?.lp??""
+                    ).trim()===
+                    lp
+            );
+
+        if(poLp){
+            return poLp;
+        }
+    }
+
+    /*
+       Gdy L.p. nie pomaga, rozróżniamy pierwsze, drugie itd.
+       wystąpienie tej samej nazwy+numeru.
+    */
+    const wystapienie=
+        (
+            element&&
+            Object.prototype.hasOwnProperty.call(
+                element,
+                "index"
+            )
+        )
+            ? numerWystapieniaPrzystankuWBazie(
+                element
+            )
+            : 0;
+
+    const pasujace=
+        k.przystanki.filter(
+            p=>
+                tenSamPrzystanekTrasy(
+                    p,
+                    cel
+                )
+        );
+
+    return(
+        pasujace[
+            wystapienie
+        ]||
+        null
+    );
+}
+
+
 function kursMaPrzystanek(
     kursRef,
     element
@@ -7220,10 +7408,10 @@ function kursMaPrzystanek(
     ){
 
         const p=
-            znajdzPrzystanekWRozkladzie(
+            znajdzPrzystanekWRozkladzieDlaElementu(
                 rozklad,
                 aktualnyKierunek,
-                element.p
+                element
             );
 
         const jest=
@@ -9714,9 +9902,7 @@ function renderTrasaKolumna(
     return(
         '<div class="trasa-kol">'+
         '<ul class="trasa-lista">'+
-        usunKolejneDuplikatyNazwyWFragmencieTrasy(
-            fragment.lista
-        )
+        fragment.lista
             .map(
                 (element,lokalny)=>{
 
