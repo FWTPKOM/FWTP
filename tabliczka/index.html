@@ -8555,6 +8555,76 @@ function usunPowtorzenieNaGranicyWariantow(
 }
 
 
+
+function usunKolejnePowtorzeniaNazwyWDwukierunkowym(
+    lista
+){
+
+    if(
+        !czyBiezacyPrzystanekDwukierunkowy()||
+        !Array.isArray(lista)||
+        lista.length<2
+    ){
+        return lista||[];
+    }
+
+    const wynik=[];
+
+    for(
+        const element
+        of lista
+    ){
+
+        const poprzedni=
+            wynik[
+                wynik.length-1
+            ];
+
+        if(
+            poprzedni&&
+            normalizuj(
+                poprzedni?.p?.nazwa
+            )===
+            normalizuj(
+                element?.p?.nazwa
+            )
+        ){
+            /*
+               Aktywny wpis ma pierwszeństwo.
+               W przeciwnym razie zostawiamy PIERWSZE rzeczywiste
+               wystąpienie przystanku.
+
+               Dzięki temu dla 170:
+               e+l -> PKP ZACISZE-WILNO
+               e   -> PKP ZACISZE-WILNO
+
+               zostaje tylko pierwszy PKP.
+
+               Zmiana wariantu zostanie wykryta przed następnym
+               rzeczywistym przystankiem, np. PL. OSTREJ BRAMY.
+            */
+            if(
+                element?.index===
+                aktualnyPrzystanek
+            ){
+                wynik[
+                    wynik.length-1
+                ]=
+                    element;
+            }
+
+            continue;
+        }
+
+        wynik.push(
+            element
+        );
+    }
+
+    return wynik;
+}
+
+
 function __bezCache_listaTrasyDoWyswietlenia(){
 
     const baza=
@@ -8599,8 +8669,13 @@ function __bezCache_listaTrasyDoWyswietlenia(){
        ten sam przystanek jako punkt graniczny między np. e+l i e
        pokazujemy tylko raz.
     */
-    return usunPowtorzenieNaGranicyWariantow(
-        bezDuplikatowTegoSamegoStanu
+    const bezGranicy=
+        usunPowtorzenieNaGranicyWariantow(
+            bezDuplikatowTegoSamegoStanu
+        );
+
+    return usunKolejnePowtorzeniaNazwyWDwukierunkowym(
+        bezGranicy
     );
 }
 
@@ -11152,12 +11227,8 @@ function dopasujKolumnyTrasy() {
 
         /*
          * =====================================================
-         * 1. BUDUJEMY JEDEN CIĄG ELEMENTÓW
+         * JEDEN CIĄG TRASY
          * =====================================================
-         *
-         * Najpierw cała trasa aktualnego kierunku,
-         * potem elementy drugiego kierunku.
-         * Nie przypisujemy im z góry osobnych kolumn.
          */
         const listaAktualnego=
             lista.filter(
@@ -11190,17 +11261,17 @@ function dopasujKolumnyTrasy() {
                 false
             );
 
-        const parser1=
+        const parserAktualnego=
             document.createElement(
                 "div"
             );
 
-        parser1.innerHTML=
+        parserAktualnego.innerHTML=
             htmlAktualnego;
 
         const wszystkieHtml=
             Array.from(
-                parser1.querySelector(
+                parserAktualnego.querySelector(
                     ".trasa-lista"
                 )?.children||
                 []
@@ -11209,28 +11280,21 @@ function dopasujKolumnyTrasy() {
                 el=>el.outerHTML
             );
 
-
-        /*
-         * Drugi kierunek DOKŁADAMY POD spodem.
-         * Jeśli pierwszy kierunek nie zapełni kolumny,
-         * drugi zacznie się jeszcze w tej samej kolumnie.
-         */
-        const htmlDrugiego=
+        const drugiHtml=
             renderElementyDrugiegoKierunkuTrasy();
 
-        if(htmlDrugiego){
+        if(drugiHtml){
 
-            const parser2=
+            const parserDrugiego=
                 document.createElement(
                     "ul"
                 );
 
-            parser2.innerHTML=
-                htmlDrugiego;
+            parserDrugiego.innerHTML=
+                drugiHtml;
 
             Array.from(
-                parser2.children||
-                []
+                parserDrugiego.children
             )
             .forEach(
                 el=>
@@ -11247,17 +11311,14 @@ function dopasujKolumnyTrasy() {
 
         /*
          * =====================================================
-         * 2. POMIAR I PODZIAŁ
+         * POMOCNICZY PODZIAŁ DLA N KOLUMN
          * =====================================================
          *
-         * Próbujemy najpierw 2 kolumny.
-         * Elementy idą kolejno:
-         * 1. kolumna aż do dołu,
-         * potem 2. kolumna.
-         *
-         * Jeśli 2 nie wystarczą, próbujemy 3.
+         * Działa tak samo jak zwykły 126:
+         * wypełnia pierwszą kolumnę do samego dołu,
+         * dopiero potem przechodzi do kolejnej.
          */
-        const podzielDlaKolumn=
+        const podziel=
             ileKolumn=>{
 
                 tabliczka.classList.remove(
@@ -11285,9 +11346,7 @@ function dopasujKolumnyTrasy() {
                 );
 
                 /*
-                   Do pomiaru wszystko trafia do jednej kolumny
-                   o DOKŁADNIE takiej szerokości, jaką będzie miała
-                   finalna kolumna przy 2 albo 3 kolumnach.
+                   Wszystko wkładamy tymczasowo do pierwszej kolumny.
                 */
                 columns.innerHTML=
                     '<div class="trasa-kol trasa-kol-pomiar">'+
@@ -11308,122 +11367,162 @@ function dopasujKolumnyTrasy() {
                         )
                     ).join("");
 
+                /*
+                   Tak samo jak przy 126: najpierw rzeczywiste
+                   zawinięcie nazw, dopiero potem pomiar.
+                */
                 ustawZawijanieNazwTrasy(
                     columns
                 );
 
-                const kolumnaPomiar=
+                const kolumna=
                     columns.querySelector(
                         ".trasa-kol-pomiar"
                     );
 
-                const listaPomiar=
-                    kolumnaPomiar?.querySelector(
-                        ".trasa-lista"
-                    );
-
-                const elementy=
+                const dzieci=
                     Array.from(
-                        listaPomiar?.children||
+                        kolumna?.querySelector(
+                            ".trasa-lista"
+                        )?.children||
                         []
                     );
 
                 if(
-                    !kolumnaPomiar||
-                    !elementy.length
+                    !kolumna||
+                    !dzieci.length
                 ){
                     return null;
                 }
 
-                /*
-                   Rzeczywista dostępna wysokość kolumny.
-                   Bierzemy wysokość .trasa-columns, która jest
-                   ograniczona wysokością całej tabliczki.
-                */
-                const stylKol=
+                const styl=
                     getComputedStyle(
-                        kolumnaPomiar
-                    );
-
-                const wysokoscKolumny=
-                    Math.max(
-                        1,
-                        columns.clientHeight-
-                        parseFloat(
-                            stylKol.paddingTop||0
-                        )-
-                        parseFloat(
-                            stylKol.paddingBottom||0
-                        )-
-                        4
+                        kolumna
                     );
 
                 /*
-                   Odczytujemy wysokości PO zawinięciu nazw.
+                   Dokładnie jak w zwykłym podziale:
+                   maxDol = top kolumny + wysokość dostępna.
                 */
-                const wysokosci=
-                    elementy.map(
-                        el=>
-                            el.getBoundingClientRect().height
-                    );
+                const maxDol=
+                    kolumna
+                        .getBoundingClientRect()
+                        .top+
+                    columns.clientHeight-
+                    parseFloat(
+                        styl.paddingBottom||0
+                    )-
+                    2;
 
                 const grupy=[
                     []
                 ];
 
-                let uzyte=0;
                 let overflow=false;
 
                 for(
                     let i=0;
-                    i<wszystkieHtml.length;
+                    i<dzieci.length;
                     i++
                 ){
 
-                    const h=
-                        Math.max(
-                            1,
-                            wysokosci[i]||
-                            16.5
-                        );
+                    const dziecko=
+                        dzieci[i];
 
                     /*
-                       Separator musi zostać razem z pierwszym
-                       przystankiem sekcji.
+                       Sprawdzamy, czy ten REALNIE wyrenderowany
+                       element mieści się w aktualnej kolumnie.
                     */
-                    let wymagane=h;
+                    const rect=
+                        dziecko
+                            .getBoundingClientRect();
 
-                    if(
-                        elementy[i]?.classList?.contains(
-                            "trasa-separator"
-                        )&&
-                        i+1<wysokosci.length
-                    ){
-                        wymagane+=
-                            Math.max(
-                                1,
-                                wysokosci[i+1]||
-                                16.5
-                            );
-                    }
+                    const topPierwszego=
+                        dzieci[
+                            grupy[
+                                grupy.length-1
+                            ].length
+                                ? i-
+                                    grupy[
+                                        grupy.length-1
+                                    ].length
+                                : i
+                        ]
+                        ?.getBoundingClientRect()
+                        .top;
 
+                    const realnaWysokoscOdPoczatku=
+                        topPierwszego!==undefined
+                            ? rect.bottom-
+                                topPierwszego
+                            : rect.height;
+
+                    const dostepna=
+                        columns.clientHeight-
+                        parseFloat(
+                            styl.paddingTop||0
+                        )-
+                        parseFloat(
+                            styl.paddingBottom||0
+                        )-
+                        2;
+
+                    /*
+                       Jeżeli bieżący element już nie mieści się,
+                       zaczynamy następną kolumnę.
+                    */
                     if(
                         grupy[
                             grupy.length-1
                         ].length>0&&
-                        uzyte+wymagane>
-                            wysokoscKolumny
+                        realnaWysokoscOdPoczatku>
+                            dostepna
                     ){
 
+                        /*
+                           Nie zostawiamy samego nagłówka/separatora
+                           na dole poprzedniej kolumny.
+                        */
+                        const poprzedniIndex=
+                            i-1;
+
                         if(
+                            poprzedniIndex>=0&&
+                            dzieci[
+                                poprzedniIndex
+                            ]?.classList?.contains(
+                                "trasa-separator"
+                            )&&
+                            grupy[
+                                grupy.length-1
+                            ].length>1
+                        ){
+                            const przeniesiony=
+                                grupy[
+                                    grupy.length-1
+                                ].pop();
+
+                            if(
+                                grupy.length<
+                                ileKolumn
+                            ){
+                                grupy.push(
+                                    [
+                                        przeniesiony
+                                    ]
+                                );
+                            }
+                            else{
+                                overflow=true;
+                            }
+                        }
+                        else if(
                             grupy.length<
                             ileKolumn
                         ){
                             grupy.push(
                                 []
                             );
-
-                            uzyte=0;
                         }
                         else{
                             overflow=true;
@@ -11435,8 +11534,46 @@ function dopasujKolumnyTrasy() {
                     ].push(
                         wszystkieHtml[i]
                     );
+                }
 
-                    uzyte+=h;
+                /*
+                   Po podziale sprawdzamy jeszcze każdą kolumnę
+                   osobno, już z finalną zawartością.
+                */
+                columns.innerHTML=
+                    grupy
+                        .map(
+                            grupa=>
+                                '<div class="trasa-kol">'+
+                                    '<ul class="trasa-lista">'+
+                                        grupa.join("")+
+                                    '</ul>'+
+                                '</div>'
+                        )
+                        .join("");
+
+                ustawZawijanieNazwTrasy(
+                    columns
+                );
+
+                const kolumnyTest=
+                    Array.from(
+                        columns.querySelectorAll(
+                            ".trasa-kol"
+                        )
+                    );
+
+                for(
+                    const kol
+                    of kolumnyTest
+                ){
+                    if(
+                        kol.scrollHeight>
+                        columns.clientHeight+2
+                    ){
+                        overflow=true;
+                        break;
+                    }
                 }
 
                 return{
@@ -11446,19 +11583,25 @@ function dopasujKolumnyTrasy() {
             };
 
 
+        /*
+         * Najpierw 2 kolumny – tak jak przy 126.
+         */
         let wynik=
-            podzielDlaKolumn(
+            podziel(
                 2
             );
 
         let ileKolumn=2;
 
+        /*
+         * Trzecia dopiero jeżeli dwie naprawdę nie wystarczą.
+         */
         if(
             !wynik||
             wynik.overflow
         ){
             wynik=
-                podzielDlaKolumn(
+                podziel(
                     3
                 );
 
@@ -11475,10 +11618,6 @@ function dopasujKolumnyTrasy() {
                     grupa.length
             );
 
-        /*
-           Jeśli wszystko mieści się w jednej, używamy jednej.
-           W przeciwnym wypadku dokładnie tylu, ile potrzeba.
-        */
         ileKolumn=
             Math.max(
                 1,
@@ -11514,10 +11653,6 @@ function dopasujKolumnyTrasy() {
 
         columns.innerHTML=
             grupy
-                .slice(
-                    0,
-                    ileKolumn
-                )
                 .map(
                     grupa=>
                         '<div class="trasa-kol">'+
