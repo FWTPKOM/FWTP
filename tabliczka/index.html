@@ -8379,6 +8379,162 @@ function usunSztuczneDuplikatyWTymSamymStanieTrasy(
 }
 
 
+
+function czyStanWariantuJestPodzbiorem(
+    mniejszy,
+    wiekszy
+){
+
+    if(
+        !mniejszy||
+        !wiekszy||
+        mniejszy.typ!=="wariant"||
+        wiekszy.typ!=="wariant"
+    ){
+        return false;
+    }
+
+    const a=
+        new Set(
+            mniejszy.litery||
+            []
+        );
+
+    const b=
+        new Set(
+            wiekszy.litery||
+            []
+        );
+
+    if(
+        !a.size||
+        !b.size||
+        a.size>=b.size
+    ){
+        return false;
+    }
+
+    for(
+        const litera
+        of a
+    ){
+        if(
+            !b.has(litera)
+        ){
+            return false;
+        }
+    }
+
+    return true;
+}
+
+
+function usunPowtorzenieNaGranicyWariantow(
+    lista
+){
+
+    if(
+        !Array.isArray(lista)||
+        lista.length<2
+    ){
+        return lista||[];
+    }
+
+    const wynik=[];
+
+    for(
+        const element
+        of lista
+    ){
+
+        const poprzedni=
+            wynik[
+                wynik.length-1
+            ];
+
+        if(!poprzedni){
+
+            wynik.push(
+                element
+            );
+
+            continue;
+        }
+
+        const tenSamPrzystanek=
+            normalizuj(
+                poprzedni?.p?.nazwa
+            )===
+                normalizuj(
+                    element?.p?.nazwa
+                )&&
+            String(
+                poprzedni?.p?.nr||""
+            ).trim()===
+                String(
+                    element?.p?.nr||""
+                ).trim();
+
+        if(!tenSamPrzystanek){
+
+            wynik.push(
+                element
+            );
+
+            continue;
+        }
+
+        /*
+           Aktywnego przystanku nigdy nie usuwamy.
+        */
+        if(
+            element?.index===
+            aktualnyPrzystanek
+        ){
+            wynik[
+                wynik.length-1
+            ]=
+                element;
+
+            continue;
+        }
+
+        const stanPoprzedni=
+            stanTrasyNaPrzystanku(
+                poprzedni
+            );
+
+        const stanAktualny=
+            stanTrasyNaPrzystanku(
+                element
+            );
+
+        /*
+           Typowy przypadek 170:
+           poprzedni = e+l
+           aktualny  = e
+
+           Drugi PKP ZACISZE-WILNO jest tylko granicą,
+           więc go nie dokładamy ponownie.
+        */
+        if(
+            czyStanWariantuJestPodzbiorem(
+                stanAktualny,
+                stanPoprzedni
+            )
+        ){
+            continue;
+        }
+
+        wynik.push(
+            element
+        );
+    }
+
+    return wynik;
+}
+
+
 function __bezCache_listaTrasyDoWyswietlenia(){
 
     const baza=
@@ -8413,8 +8569,18 @@ function __bezCache_listaTrasyDoWyswietlenia(){
        Prawdziwy powrót do tego samego przystanku później na trasie
        pozostaje bez zmian.
     */
-    return usunSztuczneDuplikatyWTymSamymStanieTrasy(
-        bezPustychPrzyszlych
+    const bezDuplikatowTegoSamegoStanu=
+        usunSztuczneDuplikatyWTymSamymStanieTrasy(
+            bezPustychPrzyszlych
+        );
+
+    /*
+       Jeszcze jeden szczególny przypadek:
+       ten sam przystanek jako punkt graniczny między np. e+l i e
+       pokazujemy tylko raz.
+    */
+    return usunPowtorzenieNaGranicyWariantow(
+        bezDuplikatowTegoSamegoStanu
     );
 }
 
@@ -11102,6 +11268,16 @@ function dopasujKolumnyTrasy() {
                         )
                     ).join("");
 
+                /*
+                   Pomiar musi odbyć się już po rzeczywistym
+                   zawinięciu nazw dla szerokości danej liczby kolumn.
+                   Inaczej element, który później ma 2 linie, był
+                   liczony jako 1 linia i kolumna wychodziła poza dół.
+                */
+                ustawZawijanieNazwTrasy(
+                    columns
+                );
+
                 const pomiarKol=
                     columns.querySelector(
                         ".trasa-kol-pomiar"
@@ -11166,7 +11342,8 @@ function dopasujKolumnyTrasy() {
                             )-
                             parseFloat(
                                 style.paddingBottom||0
-                            )
+                            )-
+                            4
                         )
                     );
 
