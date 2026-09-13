@@ -2597,7 +2597,7 @@ function dostepneGrupyDni(){
 
         wynik.push({
             symbol:"7",
-            tytul:"NIEDZIELA I ŚWIĘTO"
+            tytul:"ŚWIĘTO"
         });
     }
     else{
@@ -4087,15 +4087,50 @@ function grupyPrzebiegowTrasy(){
                     kurs?.wariant||""
                 ).trim();
 
-            const litera=
+            const literaKanoniczna=
                 oryginalnaLitera
                     ? kanonicznaLiteraWariantu(
                         oryginalnaLitera
                     )
                     : "";
 
+            /*
+               KLUCZOWA ZASADA:
+               lista przystanków używa tej samej reguły widoczności
+               wariantów co oznaczenia przy minutach.
+
+               Przebieg A nadal pozostaje osobnym przebiegiem
+               do analizy trasy, ale jego litera jest ukryta,
+               gdy linia.html również jej nie pokazuje
+               (czyli przy 1-3 wariantach w kierunku).
+
+               Dzięki temu np. przy linii 192:
+               - przy minutach nie ma "a",
+               - na liście przystanków również nie pojawi się
+                 "Trasa w kursach „a”".
+            */
+            const literaWidoczna=
+                (
+                    oryginalnaLitera&&
+                    czyPokazacWariantJakLiniaHTML(
+                        oryginalnaLitera
+                    )
+                )
+                    ? literaKanoniczna
+                    : "";
+
+            /*
+               Do rozdzielenia rzeczywistych przebiegów używamy
+               oryginalnej/kanonicznej litery, nawet gdy jej nie
+               pokazujemy użytkownikowi.
+            */
             const key=
-                litera||"__PODSTAWOWY__";
+                literaKanoniczna||
+                (
+                    oryginalnaLitera
+                        ? oryginalnaLitera.toUpperCase()
+                        : "__PODSTAWOWY__"
+                );
 
             if(
                 !grupy.has(key)
@@ -4103,7 +4138,7 @@ function grupyPrzebiegowTrasy(){
                 grupy.set(
                     key,
                     {
-                        litera,
+                        litera:literaWidoczna,
                         kursy:[]
                     }
                 );
@@ -4257,8 +4292,14 @@ function stanTrasyNaPrzystanku(element){
     }
 
     /*
-       Jeżeli został tylko przebieg bez litery, nie tworzymy
-       pustego nagłówka "Trasa w kursach".
+       Jeżeli został tylko przebieg bez WIDOCZNEJ litery
+       (np. A ukryte przy 1-3 wariantach), nie tworzymy
+       nagłówka "Trasa w kursach".
+
+       Ta sama litera jest więc ukryta zarówno:
+       - przy minutach,
+       - w legendzie,
+       - na liście przystanków.
     */
     if(jadace.length){
         return{
