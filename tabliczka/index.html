@@ -1317,6 +1317,85 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     overflow: visible !important;
 }
 
+
+/* =========================================================
+   PRZYSTANEK OBSŁUGIWANY W OBU KIERUNKACH
+   ========================================================= */
+
+.kierunki-dwa{
+    grid-column:1 / -1;
+    display:grid;
+    gap:2px;
+    margin:4px 0 1px 0;
+    padding-left:163px;
+    box-sizing:border-box;
+}
+
+.kierunki-dwa-wiersz{
+    font-family:Calibri,"Segoe UI",Arial,sans-serif;
+    font-size:17px;
+    line-height:18px;
+    font-weight:400;
+    white-space:nowrap;
+    transform:scaleY(1.08);
+    transform-origin:left center;
+}
+
+.kierunki-dwa-strzalka{
+    display:inline-block;
+    margin-right:7px;
+}
+
+.tabliczka.trasa-3-kol{
+    --lewa:42%;
+    --prawa:58%;
+}
+
+.trasa-head.cols-3,
+.trasa-columns.cols-3{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+}
+
+.trasa-head.cols-3 .trasa-head-label{
+    padding-left:2px;
+    padding-right:2px;
+}
+
+.trasa-columns.cols-3 .trasa-kol{
+    padding-left:1px;
+    padding-right:1px;
+}
+
+/* Przy trzech kolumnach celowo pozwalamy na częstsze zawijanie nazw. */
+.tabliczka.trasa-3-kol .trasa-stop{
+    grid-template-columns:18px 11px minmax(0,1fr) 11px;
+    font-size:13px;
+}
+
+.tabliczka.trasa-3-kol .trasa-nazwa{
+    white-space:normal;
+}
+
+.trasa-drugi-kierunek-title{
+    margin:8px 2px 7px;
+    text-align:center;
+    font-family:Calibri,"Segoe UI",Arial,sans-serif;
+    font-size:13.5px;
+    line-height:1;
+    font-weight:400;
+    letter-spacing:.75px;
+    transform:scaleY(1.30);
+    transform-origin:center;
+}
+
+.trasa-drugi-kierunek-title::before{
+    content:"→ ";
+}
+
+.trasa-kol.drugi-kierunek .trasa-stop.przed{
+    color:#111;
+}
+
 </style>
 </head>
 
@@ -2811,6 +2890,121 @@ function wypelnijKierunki(){
    PRZYSTANKI
    ========================================================= */
 
+
+function kierunkiObslugujaceBiezacyPrzystanek(){
+
+    const baza=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    const p=
+        baza?.przystanki?.[
+            aktualnyPrzystanek
+        ];
+
+    if(!p){
+        return[];
+    }
+
+    const nazwa=
+        normalizuj(
+            p.nazwa
+        );
+
+    const nr=
+        String(
+            p.nr||""
+        ).trim();
+
+    const wynik=[];
+
+    const listaKierunkow=
+        pobierzKierunki();
+
+    listaKierunkow.forEach(
+        el=>{
+
+            const k=
+                znajdzNajpelniejszyKierunek(
+                    el.index
+                );
+
+            if(!k){
+                return;
+            }
+
+            const index=
+                (
+                    k.przystanki||
+                    []
+                ).findIndex(
+                    x=>
+                        normalizuj(
+                            x?.nazwa
+                        )===nazwa&&
+                        String(
+                            x?.nr||""
+                        ).trim()===nr
+                );
+
+            if(index<0){
+                return;
+            }
+
+            wynik.push({
+                indexKierunku:el.index,
+                kierunek:k,
+                indexPrzystanku:index,
+                przystanek:
+                    k.przystanki[index],
+                nazwa:
+                    String(
+                        nazwaKierunku(k)||
+                        ""
+                    ).toUpperCase()
+            });
+        }
+    );
+
+    wynik.sort(
+        (a,b)=>
+            Number(
+                a.indexKierunku!==
+                aktualnyKierunek
+            )-
+            Number(
+                b.indexKierunku!==
+                aktualnyKierunek
+            )
+    );
+
+    return wynik;
+}
+
+
+function drugiKierunekBiezacegoPrzystanku(){
+
+    return(
+        kierunkiObslugujaceBiezacyPrzystanek()
+            .find(
+                x=>
+                    x.indexKierunku!==
+                    aktualnyKierunek
+            )||
+        null
+    );
+}
+
+
+function czyBiezacyPrzystanekDwukierunkowy(){
+
+    return Boolean(
+        drugiKierunekBiezacegoPrzystanku()
+    );
+}
+
+
 function kierunekBazowy(){
 
     return znajdzNajpelniejszyKierunek(
@@ -3007,17 +3201,15 @@ function znajdzPrzystanekWRozkladzie(
 
 function pobierzKursyDlaSymbolu(symbol){
 
-    const bazaK=
-        kierunekBazowy();
+    const obsluga=
+        kierunkiObslugujaceBiezacyPrzystanek();
 
-    const bazaP=
-        bazaK?.przystanki?.[
-            aktualnyPrzystanek
-        ];
+    if(!obsluga.length){
+        return[];
+    }
 
-    if(!bazaP)return[];
-
-    const mapa=new Map();
+    const mapa=
+        new Map();
 
     (
         daneLinii?.rozkłady||
@@ -3025,43 +3217,59 @@ function pobierzKursyDlaSymbolu(symbol){
     ).forEach(
         rozklad=>{
 
-            const p=
-                znajdzPrzystanekWRozkladzie(
-                    rozklad,
-                    aktualnyKierunek,
-                    bazaP
-                );
+            obsluga.forEach(
+                info=>{
 
-            (
-                p?.kursy||
-                []
-            ).forEach(
-                kurs=>{
-
-                    if(
-                        symbolDnia(kurs)!==
-                        symbol
-                    ){
-                        return;
-                    }
-
-                    if(
-                        czasNaMinuty(
-                            kurs.czas
-                        )===null
-                    ){
-                        return;
-                    }
-
-                    const key=
-                        kluczKursu(kurs);
-
-                    if(!mapa.has(key)){
-                        mapa.set(
-                            key,
-                            kurs
+                    const p=
+                        znajdzPrzystanekWRozkladzie(
+                            rozklad,
+                            info.indexKierunku,
+                            info.przystanek
                         );
-                    }
+
+                    (
+                        p?.kursy||
+                        []
+                    ).forEach(
+                        kurs=>{
+
+                            if(
+                                symbolDnia(kurs)!==
+                                symbol
+                            ){
+                                return;
+                            }
+
+                            if(
+                                czasNaMinuty(
+                                    kurs.czas
+                                )===null
+                            ){
+                                return;
+                            }
+
+                            const key=
+                                info.indexKierunku+
+                                "|"+
+                                kluczKursu(kurs);
+
+                            if(!mapa.has(key)){
+
+                                mapa.set(
+                                    key,
+                                    {
+                                        ...kurs,
+                                        _kierunekIndex:
+                                            info.indexKierunku,
+                                        _kierunekNazwa:
+                                            info.nazwa,
+                                        _przystanekIndex:
+                                            info.indexPrzystanku
+                                    }
+                                );
+                            }
+                        }
+                    );
                 }
             );
         }
@@ -3078,39 +3286,39 @@ function dostepneGrupyDni(){
     const symbole=
         new Set();
 
+    const obsluga=
+        kierunkiObslugujaceBiezacyPrzystanek();
+
     (
         daneLinii?.rozkłady||
         []
     ).forEach(
         rozklad=>{
 
-            const bazaK=
-                kierunekBazowy();
+            obsluga.forEach(
+                info=>{
 
-            const bazaP=
-                bazaK?.przystanki?.[
-                    aktualnyPrzystanek
-                ];
+                    const p=
+                        znajdzPrzystanekWRozkladzie(
+                            rozklad,
+                            info.indexKierunku,
+                            info.przystanek
+                        );
 
-            const p=
-                znajdzPrzystanekWRozkladzie(
-                    rozklad,
-                    aktualnyKierunek,
-                    bazaP
-                );
+                    (
+                        p?.kursy||
+                        []
+                    ).forEach(
+                        kurs=>{
 
-            (
-                p?.kursy||
-                []
-            ).forEach(
-                kurs=>{
+                            const s=
+                                symbolDnia(kurs);
 
-                    const s=
-                        symbolDnia(kurs);
-
-                    if(s){
-                        symbole.add(s);
-                    }
+                            if(s){
+                                symbole.add(s);
+                            }
+                        }
+                    );
                 }
             );
         }
@@ -3743,7 +3951,8 @@ function znajdzLitereSkroceniaPoKoncu(
 
 
 function nazwyPrzystankowKursu(
-    kursRef
+    kursRef,
+    kierunekIndex=aktualnyKierunek
 ){
 
     const wynik=
@@ -3816,7 +4025,9 @@ function nazwyPrzystankowKursu(
 }
 
 
-function wszystkieNazwyPrzystankowKierunku(){
+function wszystkieNazwyPrzystankowKierunku(
+    kierunekIndex=aktualnyKierunek
+){
 
     const wynik=
         [];
@@ -3880,7 +4091,8 @@ function wszystkieNazwyPrzystankowKierunku(){
 
 
 function wymaganePrzystankiZWariantu(
-    litera
+    litera,
+    kierunekIndex=aktualnyKierunek
 ){
 
     const opis=
@@ -3901,7 +4113,9 @@ function wymaganePrzystankiZWariantu(
 
     const wynik=[];
 
-    wszystkieNazwyPrzystankowKierunku()
+    wszystkieNazwyPrzystankowKierunku(
+        kierunekIndex
+    )
         .forEach(
             p=>{
 
@@ -3936,7 +4150,14 @@ function wymaganePrzystankiZWariantu(
 
 
 function literaWariantuPoRzeczywistymPrzebiegu(
-    kursRef
+    kursRef,
+    kierunekIndex=(
+        Number.isInteger(
+            kursRef?._kierunekIndex
+        )
+            ? kursRef._kierunekIndex
+            : aktualnyKierunek
+    )
 ){
 
     if(!kursRef){
@@ -3972,7 +4193,8 @@ function literaWariantuPoRzeczywistymPrzebiegu(
 
     const przystankiKursu=
         nazwyPrzystankowKursu(
-            kursRef
+            kursRef,
+            kierunekIndex
         );
 
     if(!przystankiKursu.size){
@@ -3996,7 +4218,8 @@ function literaWariantuPoRzeczywistymPrzebiegu(
 
         const wymagane=
             wymaganePrzystankiZWariantu(
-                litera
+                litera,
+                kierunekIndex
             );
 
         if(!wymagane.length){
@@ -4057,7 +4280,256 @@ function literaWariantuPoRzeczywistymPrzebiegu(
 }
 
 
+
+function normalizujSymbolKandydata(tekst){
+
+    return String(
+        tekst||""
+    )
+    .normalize("NFD")
+    .replace(
+        /[\u0300-\u036f]/g,
+        ""
+    )
+    .replace(
+        /[^A-Za-z0-9]/g,
+        ""
+    )
+    .toLowerCase();
+}
+
+
+function opisWariantuDoKierunku(
+    litera,
+    kierunekIndex
+){
+
+    const opis=
+        String(
+            mapaWariantow()
+                .get(
+                    String(
+                        litera||""
+                    ).trim()
+                )||
+            ""
+        ).trim();
+
+    if(!opis){
+        return"";
+    }
+
+    return opis
+        .replace(
+            /^kurs\s+/i,
+            ""
+        )
+        .trim();
+}
+
+
+function mapaSymboliDwukierunkowych(){
+
+    if(
+        !czyBiezacyPrzystanekDwukierunkowy()
+    ){
+        return new Map();
+    }
+
+    const kombinacje=
+        new Map();
+
+    dostepneGrupyDni()
+        .slice(0,3)
+        .forEach(
+            grupa=>{
+
+                pobierzKursyDlaSymbolu(
+                    grupa.symbol
+                )
+                .forEach(
+                    kurs=>{
+
+                        const dir=
+                            Number(
+                                kurs?._kierunekIndex
+                            );
+
+                        const litera=
+                            literaWariantuPoRzeczywistymPrzebiegu(
+                                {
+                                    ...kurs,
+                                    symbol:grupa.symbol,
+                                    _kierunekIndex:dir
+                                },
+                                dir
+                            );
+
+                        const pokazWariant=
+                            litera&&
+                            czyPokazacWariantJakLiniaHTML(
+                                litera
+                            );
+
+                        const wariant=
+                            pokazWariant
+                                ? String(litera).toLowerCase()
+                                : "";
+
+                        const key=
+                            dir+"|"+wariant;
+
+                        if(!kombinacje.has(key)){
+                            kombinacje.set(
+                                key,
+                                {
+                                    key,
+                                    dir,
+                                    wariant,
+                                    kierunek:
+                                        String(
+                                            kurs?._kierunekNazwa||
+                                            nazwaKierunku(
+                                                znajdzNajpelniejszyKierunek(dir)
+                                            )||
+                                            ""
+                                        ).toUpperCase()
+                                }
+                            );
+                        }
+                    }
+                );
+            }
+        );
+
+    const zajete=
+        new Set();
+
+    const wynik=
+        new Map();
+
+    const alfabet=
+        "abcdefghijklmnopqrstuvwxyz".split("");
+
+    [
+        ...kombinacje.values()
+    ]
+    .sort(
+        (a,b)=>
+            Number(
+                a.dir!==
+                aktualnyKierunek
+            )-
+            Number(
+                b.dir!==
+                aktualnyKierunek
+            )||
+            a.wariant.localeCompare(
+                b.wariant,
+                "pl"
+            )
+    )
+    .forEach(
+        item=>{
+
+            const kandydaci=[];
+
+            if(item.wariant){
+                kandydaci.push(
+                    normalizujSymbolKandydata(
+                        item.wariant
+                    ).slice(0,1)
+                );
+            }
+
+            const kierunekLitery=
+                normalizujSymbolKandydata(
+                    item.kierunek
+                )
+                .split("");
+
+            kandydaci.push(
+                ...kierunekLitery
+            );
+
+            kandydaci.push(
+                ...alfabet
+            );
+
+            const znak=
+                kandydaci.find(
+                    x=>
+                        x&&
+                        !zajete.has(x)
+                )||
+                "x";
+
+            zajete.add(znak);
+
+            wynik.set(
+                item.key,
+                {
+                    ...item,
+                    znak
+                }
+            );
+        }
+    );
+
+    return wynik;
+}
+
+
+function symbolKursuDwukierunkowego(
+    kurs,
+    symbol
+){
+
+    const dir=
+        Number(
+            kurs?._kierunekIndex
+        );
+
+    const litera=
+        literaWariantuPoRzeczywistymPrzebiegu(
+            {
+                ...kurs,
+                symbol,
+                _kierunekIndex:dir
+            },
+            dir
+        );
+
+    const wariant=
+        (
+            litera&&
+            czyPokazacWariantJakLiniaHTML(
+                litera
+            )
+        )
+            ? String(litera).toLowerCase()
+            : "";
+
+    const wpis=
+        mapaSymboliDwukierunkowych()
+            .get(
+                dir+"|"+wariant
+            );
+
+    return wpis?.znak||"";
+}
+
+
 function symbolWariantu(kurs,symbol){
+
+    if(
+        czyBiezacyPrzystanekDwukierunkowy()
+    ){
+        return symbolKursuDwukierunkowego(
+            kurs,
+            symbol
+        );
+    }
 
     const kursRef={
         numer:String(
@@ -6204,6 +6676,349 @@ function czasWariantuNaPrzystanku(
 }
 
 
+
+function kursReferencyjnyDrugiegoKierunku(
+    info
+){
+
+    if(!info){
+        return null;
+    }
+
+    const mapa=
+        new Map();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const p=
+                znajdzPrzystanekWRozkladzie(
+                    rozklad,
+                    info.indexKierunku,
+                    info.przystanek
+                );
+
+            (
+                p?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    const key=
+                        kluczKursu(kurs);
+
+                    if(!mapa.has(key)){
+                        mapa.set(
+                            key,
+                            {
+                                ...kurs,
+                                _kierunekIndex:
+                                    info.indexKierunku,
+                                count:0
+                            }
+                        );
+                    }
+                }
+            );
+        }
+    );
+
+    const pelna=
+        info.kierunek?.przystanki||
+        [];
+
+    mapa.forEach(
+        ref=>{
+
+            pelna.forEach(
+                p=>{
+
+                    (
+                        daneLinii?.rozkłady||
+                        []
+                    ).some(
+                        rozklad=>{
+
+                            const pp=
+                                znajdzPrzystanekWRozkladzie(
+                                    rozklad,
+                                    info.indexKierunku,
+                                    p
+                                );
+
+                            const jest=
+                                (
+                                    pp?.kursy||
+                                    []
+                                ).some(
+                                    k=>
+                                        String(
+                                            k?.numer||""
+                                        )===
+                                            String(
+                                                ref?.numer||""
+                                            )&&
+                                        String(
+                                            k?.wariant||""
+                                        ).trim()===
+                                            String(
+                                                ref?.wariant||""
+                                            ).trim()&&
+                                        czasNaMinuty(
+                                            k?.czas
+                                        )!==null
+                                );
+
+                            if(jest){
+                                ref.count++;
+                            }
+
+                            return jest;
+                        }
+                    );
+                }
+            );
+        }
+    );
+
+    return[
+        ...mapa.values()
+    ]
+    .sort(
+        (a,b)=>
+            b.count-a.count
+    )[0]||null;
+}
+
+
+function czasDrugiegoKierunku(
+    info,
+    p
+){
+
+    const ref=
+        kursReferencyjnyDrugiegoKierunku(
+            info
+        );
+
+    if(!ref){
+        return null;
+    }
+
+    let start=null;
+    let cel=null;
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const ps=
+                znajdzPrzystanekWRozkladzie(
+                    rozklad,
+                    info.indexKierunku,
+                    info.przystanek
+                );
+
+            const pc=
+                znajdzPrzystanekWRozkladzie(
+                    rozklad,
+                    info.indexKierunku,
+                    p
+                );
+
+            const znajdz=
+                pp=>
+                    (
+                        pp?.kursy||
+                        []
+                    ).find(
+                        k=>
+                            String(
+                                k?.numer||""
+                            )===
+                                String(
+                                    ref?.numer||""
+                                )&&
+                            String(
+                                k?.wariant||""
+                            ).trim()===
+                                String(
+                                    ref?.wariant||""
+                                ).trim()&&
+                            czasNaMinuty(
+                                k?.czas
+                            )!==null
+                    );
+
+            const ks=znajdz(ps);
+            const kc=znajdz(pc);
+
+            if(ks){
+                start=
+                    czasNaMinuty(
+                        ks.czas
+                    );
+            }
+
+            if(kc){
+                cel=
+                    czasNaMinuty(
+                        kc.czas
+                    );
+            }
+        }
+    );
+
+    if(
+        start===null||
+        cel===null
+    ){
+        return null;
+    }
+
+    let wynik=cel-start;
+
+    while(wynik<0){
+        wynik+=1440;
+    }
+
+    return wynik;
+}
+
+
+function listaDrugiegoKierunkuOdPrzystanku(){
+
+    const info=
+        drugiKierunekBiezacegoPrzystanku();
+
+    if(!info){
+        return[];
+    }
+
+    const lista=
+        (
+            info.kierunek?.przystanki||
+            []
+        )
+        .map(
+            (p,index)=>({
+                p,
+                index,
+                _drugiKierunek:true,
+                _sourceDirection:
+                    info.indexKierunku
+            })
+        )
+        .filter(
+            x=>
+                x.index>
+                info.indexPrzystanku&&
+                String(
+                    x.p?.typ||""
+                ).trim().toUpperCase()!=="TECH"
+        );
+
+    return lista;
+}
+
+
+function renderDrugiKierunekTrasy(){
+
+    const info=
+        drugiKierunekBiezacegoPrzystanku();
+
+    if(!info){
+        return"";
+    }
+
+    const lista=
+        listaDrugiegoKierunkuOdPrzystanku();
+
+    const wiersze=
+        lista.map(
+            (element,idx)=>{
+
+                const p=
+                    element.p;
+
+                const czas=
+                    czasDrugiegoKierunku(
+                        info,
+                        p
+                    );
+
+                return(
+                    '<li class="trasa-stop'+
+                    (
+                        czyNZ(p)
+                            ? ' nz'
+                            : ''
+                    )+
+                    (
+                        idx===
+                        lista.length-1
+                            ? ' kraniec-koniec'
+                            : ''
+                    )+
+                    '">'+
+                    '<span class="trasa-czas">'+
+                    (
+                        czas===null
+                            ? ''
+                            : escapeHtml(
+                                String(czas)
+                            )
+                    )+
+                    '</span>'+
+                    '<span class="trasa-os"></span>'+
+                    '<span class="trasa-nazwa">'+
+                    escapeHtml(
+                        String(
+                            p?.nazwa||""
+                        ).toUpperCase()
+                    )+
+                    '</span>'+
+                    '<span class="trasa-nz">'+
+                    (
+                        czyNZ(p)
+                            ? 'ż'
+                            : ''
+                    )+
+                    '</span>'+
+                    '</li>'
+                );
+            }
+        )
+        .join("");
+
+    return(
+        '<div class="trasa-kol drugi-kierunek">'+
+        '<div class="trasa-drugi-kierunek-title">'+
+        escapeHtml(
+            info.nazwa
+        )+
+        '</div>'+
+        '<ul class="trasa-lista">'+
+        wiersze+
+        '</ul>'+
+        '</div>'
+    );
+}
+
+
 function renderWydluzeniaTrasy(){
 
     const dane=
@@ -6497,7 +7312,77 @@ function renderTrasaKolumna(
    LEGENDA
    ========================================================= */
 
+
+function renderLegendaDwukierunkowa(){
+
+    const mapa=
+        mapaSymboliDwukierunkowych();
+
+    if(!mapa.size){
+        return"";
+    }
+
+    const wiersze=[];
+
+    [
+        ...mapa.values()
+    ]
+    .sort(
+        (a,b)=>
+            a.znak.localeCompare(
+                b.znak,
+                "pl"
+            )
+    )
+    .forEach(
+        item=>{
+
+            let opis=
+                "kurs w kierunku "+
+                item.kierunek;
+
+            if(item.wariant){
+
+                const fragment=
+                    opisWariantuDoKierunku(
+                        item.wariant,
+                        item.dir
+                    );
+
+                if(fragment){
+                    opis+=" "+fragment;
+                }
+            }
+
+            wiersze.push(
+                '<div class="legenda-wiersz">'+
+                '<span class="legenda-litera">'+
+                escapeHtml(
+                    item.znak
+                )+
+                '</span>'+
+                '<span class="legenda-myslnik">-</span>'+
+                '<span class="legenda-opis">'+
+                escapeHtml(
+                    opis
+                )+
+                '</span>'+
+                '</div>'
+            );
+        }
+    );
+
+    return wiersze.join("");
+}
+
+
 function renderLegenda(){
+
+    if(
+        czyBiezacyPrzystanekDwukierunkowy()
+    ){
+        return renderLegendaDwukierunkowa();
+    }
 
     const mapa=
         mapaWariantow();
@@ -6783,6 +7668,29 @@ function renderuj(){
             ? listaTrasy[listaTrasy.length-1].index
             : -1;
 
+    const kierunkiStopu=
+        kierunkiObslugujaceBiezacyPrzystanek();
+
+    const kierunkiDwaHtml=
+        kierunkiStopu.length>1
+            ? (
+                '<div class="kierunki-dwa">'+
+                kierunkiStopu
+                    .slice(0,2)
+                    .map(
+                        info=>
+                            '<div class="kierunki-dwa-wiersz">'+
+                            '<span class="kierunki-dwa-strzalka">→</span>'+
+                            escapeHtml(
+                                info.nazwa
+                            )+
+                            '</div>'
+                    )
+                    .join("")+
+                '</div>'
+            )
+            : '';
+
     const trasaHtml=
         fragmenty
             .map(
@@ -6814,15 +7722,21 @@ function renderuj(){
             typLinii(numer)
         )+
         '</div>'+
-        '<div class="kierunek">'+
-        escapeHtml(
-            String(
-                nazwaKierunku(
-                    kierunek
+        (
+            kierunkiStopu.length>1
+                ? ''
+                : (
+                    '<div class="kierunek">'+
+                    escapeHtml(
+                        String(
+                            nazwaKierunku(
+                                kierunek
+                            )
+                        ).toUpperCase()
+                    )+
+                    '</div>'
                 )
-            ).toUpperCase()
         )+
-        '</div>'+
         '<div class="wazny">'+
         (
             waznyOdDanych
@@ -6834,6 +7748,7 @@ function renderuj(){
         )+
         '</div>'+
         '</div>'+
+        kierunkiDwaHtml+
         '</div>'+
 
         '<div class="rozklady-wrap">'+
@@ -7171,19 +8086,40 @@ function wyrownajSzerokoscWeekendow() {
 }
 function ustawNaglowekTrasy(liczbaKolumn) {
 
-    const head = document.querySelector(".trasa-head");
-    if (!head) return;
-
-    const ile = liczbaKolumn === 2 ? 2 : 1;
-
-    head.className = "trasa-head cols-" + ile;
-    head.innerHTML =
-        '<div class="trasa-head-label">czasy, trasa, przystanki</div>' +
-        (
-            ile === 2
-                ? '<div class="trasa-head-label">czasy, trasa, przystanki</div>'
-                : ''
+    const head =
+        document.querySelector(
+            ".trasa-head"
         );
+
+    if(!head){
+        return;
+    }
+
+    const ile=
+        Math.max(
+            1,
+            Math.min(
+                3,
+                Number(
+                    liczbaKolumn
+                )||1
+            )
+        );
+
+    head.className=
+        "trasa-head cols-"+
+        ile;
+
+    head.innerHTML=
+        Array.from(
+            {length:ile},
+            ()=>(
+                '<div class="trasa-head-label">'+
+                'czasy, trasa, przystanki'+
+                '</div>'
+            )
+        )
+        .join("");
 }
 
 
@@ -7198,6 +8134,109 @@ function dopasujKolumnyTrasy() {
     if (!lista.length) return;
 
     const czasy = czasyTrasy();
+
+    /*
+       Jeżeli ten sam słupek jest obsługiwany w obu kierunkach,
+       budujemy układ 3-kolumnowy:
+       - 1. i 2. kolumna: aktualny kierunek,
+       - 3. kolumna: drugi kierunek od bieżącego przystanku dalej.
+
+       Dzięki temu nie pokazujemy w drugim kierunku przystanków,
+       które pasażer ma już za sobą.
+    */
+    if(
+        czyBiezacyPrzystanekDwukierunkowy()
+    ){
+
+        const pierwszyIndex=
+            lista.length
+                ? lista[0].index
+                : -1;
+
+        const ostatniIndex=
+            lista.length
+                ? lista[
+                    lista.length-1
+                ].index
+                : -1;
+
+        tabliczka.classList.remove(
+            "trasa-2-kol"
+        );
+
+        tabliczka.classList.add(
+            "trasa-3-kol"
+        );
+
+        columns.className=
+            "trasa-columns cols-3";
+
+        ustawNaglowekTrasy(3);
+
+        const startAktualny=
+            Math.max(
+                0,
+                lista.findIndex(
+                    x=>
+                        x.index===
+                        aktualnyPrzystanek
+                )
+            );
+
+        /*
+           W pierwszych dwóch kolumnach zachowujemy również
+           minięte przystanki aktualnego kierunku (szare),
+           ale dzielimy je możliwie równo.
+        */
+        const polowa=
+            Math.ceil(
+                lista.length/2
+            );
+
+        const pierwsza=
+            lista.slice(
+                0,
+                polowa
+            );
+
+        const druga=
+            lista.slice(
+                polowa
+            );
+
+        columns.innerHTML=
+            renderTrasaKolumna(
+                {
+                    start:0,
+                    lista:pierwsza
+                },
+                czasy,
+                pierwszyIndex,
+                ostatniIndex,
+                false
+            )+
+            renderTrasaKolumna(
+                {
+                    start:polowa,
+                    lista:druga
+                },
+                czasy,
+                pierwszyIndex,
+                ostatniIndex,
+                true
+            )+
+            renderDrugiKierunekTrasy();
+
+        ustawZawijanieNazwTrasy(
+            columns
+        );
+
+        return;
+    }
+
+    tabliczka.classList.remove(
+        "trasa-3-kol"
+    );
 
     const pierwszyIndexTrasy =
         lista.length
