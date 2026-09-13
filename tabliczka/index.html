@@ -3741,37 +3741,358 @@ function znajdzLitereSkroceniaPoKoncu(
 }
 
 
-function symbolWariantu(kurs,symbol){
 
-    const litera=
+function nazwyPrzystankowKursu(
+    kursRef
+){
+
+    const wynik=
+        new Set();
+
+    if(!kursRef){
+        return wynik;
+    }
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const kierunek=
+                Array.isArray(
+                    rozklad?.kierunki
+                )
+                    ? rozklad.kierunki[
+                        aktualnyKierunek
+                    ]
+                    : null;
+
+            (
+                kierunek?.przystanki||
+                []
+            ).forEach(
+                p=>{
+
+                    const jest=
+                        (
+                            p?.kursy||
+                            []
+                        ).some(
+                            k=>
+                                String(
+                                    k?.numer||""
+                                )===
+                                    String(
+                                        kursRef?.numer||""
+                                    )&&
+                                String(
+                                    k?.wariant||""
+                                ).trim()===
+                                    String(
+                                        kursRef?.wariant||""
+                                    ).trim()&&
+                                symbolDnia(k)===
+                                    kursRef?.symbol&&
+                                czasNaMinuty(
+                                    k?.czas
+                                )!==null
+                        );
+
+                    if(jest){
+
+                        wynik.add(
+                            normalizuj(
+                                p?.nazwa
+                            )
+                        );
+                    }
+                }
+            );
+        }
+    );
+
+    return wynik;
+}
+
+
+function wszystkieNazwyPrzystankowKierunku(){
+
+    const wynik=
+        [];
+
+    const widziane=
+        new Set();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const kierunek=
+                Array.isArray(
+                    rozklad?.kierunki
+                )
+                    ? rozklad.kierunki[
+                        aktualnyKierunek
+                    ]
+                    : null;
+
+            (
+                kierunek?.przystanki||
+                []
+            ).forEach(
+                p=>{
+
+                    const nazwa=
+                        String(
+                            p?.nazwa||""
+                        ).trim();
+
+                    const klucz=
+                        normalizuj(
+                            nazwa
+                        );
+
+                    if(
+                        klucz&&
+                        !widziane.has(
+                            klucz
+                        )
+                    ){
+                        widziane.add(
+                            klucz
+                        );
+
+                        wynik.push({
+                            nazwa,
+                            klucz
+                        });
+                    }
+                }
+            );
+        }
+    );
+
+    return wynik;
+}
+
+
+function wymaganePrzystankiZWariantu(
+    litera
+){
+
+    const opis=
         String(
-            kurs?.wariant||""
+            mapaWariantow()
+                .get(
+                    String(
+                        litera||""
+                    ).trim()
+                )||
+            ""
+        );
+
+    const opisNorm=
+        normalizuj(
+            opis
+        );
+
+    const wynik=[];
+
+    wszystkieNazwyPrzystankowKierunku()
+        .forEach(
+            p=>{
+
+                /*
+                   W opisie wariantu szukamy nazw rzeczywistych
+                   przystanków z bieżącego kierunku.
+
+                   Np.:
+                   "kurs przez PŁYTOWĄ, KUPIECKĄ I POLFA"
+
+                   => [PŁYTOWA, KUPIECKA, POLFA]
+                */
+                if(
+                    p.klucz.length>=3&&
+                    opisNorm.includes(
+                        p.klucz
+                    )
+                ){
+                    wynik.push(
+                        p.klucz
+                    );
+                }
+            }
+        );
+
+    return[
+        ...new Set(
+            wynik
+        )
+    ];
+}
+
+
+function literaWariantuPoRzeczywistymPrzebiegu(
+    kursRef
+){
+
+    if(!kursRef){
+        return"";
+    }
+
+    const oryginalna=
+        String(
+            kursRef?.wariant||""
         ).trim();
 
+    const opisOryginalny=
+        String(
+            mapaWariantow()
+                .get(
+                    oryginalna
+                )||
+            ""
+        );
+
     /*
-       Najpierw stosujemy dokładnie zasadę z linia.html.
-       Dzięki temu:
-       - A znika przy 1-3 wariantach w tym kierunku,
-       - A pojawia się przy 4+ wariantach w tym kierunku,
-       - litery wewnętrzne nie są pokazywane,
-       - wariant z drugiego kierunku nie wpływa na próg.
+       Kursów skróconych / wydłużonych nie klasyfikujemy ponownie.
+       Ich litera wynika z innej logiki niż podjazdy "przez ...".
     */
     if(
-        litera&&
-        czyPokazacWariantJakLiniaHTML(
-            litera
-        )
+        /skrócon|wydłuż|zajezdni|tylko do/i
+            .test(
+                opisOryginalny
+            )
     ){
-        return kanonicznaLiteraWariantu(
-            litera
-        ).toLowerCase();
+        return oryginalna;
+    }
+
+    const przystankiKursu=
+        nazwyPrzystankowKursu(
+            kursRef
+        );
+
+    if(!przystankiKursu.size){
+        return oryginalna;
+    }
+
+    const kandydaci=[];
+
+    for(
+        const [litera,opis]
+        of mapaWariantow().entries()
+    ){
+
+        if(
+            !czyWariantTrasyPrzez(
+                litera
+            )
+        ){
+            continue;
+        }
+
+        const wymagane=
+            wymaganePrzystankiZWariantu(
+                litera
+            );
+
+        if(!wymagane.length){
+            continue;
+        }
+
+        const pasuje=
+            wymagane.every(
+                nazwa=>
+                    przystankiKursu.has(
+                        nazwa
+                    )
+            );
+
+        if(!pasuje){
+            continue;
+        }
+
+        kandydaci.push({
+            litera:
+                String(
+                    litera||""
+                ).trim(),
+            wymagane:
+                wymagane.length,
+            oryginalny:
+                String(
+                    litera||""
+                ).trim()===
+                oryginalna
+        });
+    }
+
+    if(!kandydaci.length){
+        return oryginalna;
     }
 
     /*
-       Zachowujemy dotychczasowy fallback dla automatycznie
-       rozpoznanego kursu skróconego, ale jego litera również
-       musi przejść tę samą kontrolę publicznego wariantu.
+       Wybieramy NAJBARDZIEJ SZCZEGÓŁOWY pasujący wariant.
+
+       Dla 126:
+       - o = POLFA                      -> 1 przystanek
+       - p = PŁYTOWA + KUPIECKA        -> 2 przystanki
+       - l = PŁYTOWA + KUPIECKA+POLFA  -> 3 przystanki
+
+       Jeśli kurs 6:13 faktycznie jedzie przez KUPIECKĄ i POLFA,
+       a także PŁYTOWĄ, wygra "l", a nie "o".
     */
+    kandydaci.sort(
+        (a,b)=>
+            b.wymagane-
+            a.wymagane||
+            Number(b.oryginalny)-
+            Number(a.oryginalny)
+    );
+
+    return kandydaci[0].litera;
+}
+
+
+function symbolWariantu(kurs,symbol){
+
+    const kursRef={
+        numer:String(
+            kurs?.numer||""
+        ),
+        wariant:String(
+            kurs?.wariant||""
+        ).trim(),
+        symbol
+    };
+
+    const literaRzeczywista=
+        literaWariantuPoRzeczywistymPrzebiegu(
+            kursRef
+        );
+
+    /*
+       Litera przy minucie wynika teraz z rzeczywistej trasy,
+       a nie wyłącznie z pola kurs.wariant.
+
+       Dzięki temu np. kurs oznaczony w danych jako "o",
+       który faktycznie jedzie przez PŁYTOWĄ + KUPIECKĄ + POLFA,
+       dostanie "l".
+    */
+    if(
+        literaRzeczywista&&
+        czyPokazacWariantJakLiniaHTML(
+            literaRzeczywista
+        )
+    ){
+        return kanonicznaLiteraWariantu(
+            literaRzeczywista
+        ).toLowerCase();
+    }
+
     const literaSkrocenia=
         znajdzLitereSkroceniaPoKoncu(
             kurs,
@@ -4861,10 +5182,15 @@ function grupyPrzebiegowTrasy(){
                     kurs?.wariant||""
                 ).trim();
 
+            const literaPoTrasie=
+                literaWariantuPoRzeczywistymPrzebiegu(
+                    kurs
+                );
+
             const literaKanoniczna=
-                oryginalnaLitera
+                literaPoTrasie
                     ? kanonicznaLiteraWariantu(
-                        oryginalnaLitera
+                        literaPoTrasie
                     )
                     : "";
 
@@ -4885,9 +5211,9 @@ function grupyPrzebiegowTrasy(){
             */
             const literaWidoczna=
                 (
-                    oryginalnaLitera&&
+                    literaPoTrasie&&
                     czyPokazacWariantJakLiniaHTML(
-                        oryginalnaLitera
+                        literaPoTrasie
                     )
                 )
                     ? literaKanoniczna
@@ -4901,9 +5227,13 @@ function grupyPrzebiegowTrasy(){
             const key=
                 literaKanoniczna||
                 (
-                    oryginalnaLitera
-                        ? oryginalnaLitera.toUpperCase()
-                        : "__PODSTAWOWY__"
+                    literaPoTrasie
+                        ? literaPoTrasie.toUpperCase()
+                        : (
+                            oryginalnaLitera
+                                ? oryginalnaLitera.toUpperCase()
+                                : "__PODSTAWOWY__"
+                        )
                 );
 
             if(
