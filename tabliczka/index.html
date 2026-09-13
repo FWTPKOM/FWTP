@@ -5206,106 +5206,194 @@ function koncowyPrzystanekWariantuDwukierunkowego(
     wariant
 ){
 
-    const pelna=
-        listaPelnejTrasyDoWyswietlenia();
+    const liczniki=
+        new Map();
 
-    if(!pelna.length){
+    const grupyDni=
+        dostepneGrupyDni()
+            .slice(0,3);
+
+    grupyDni.forEach(
+        grupa=>{
+
+            pobierzKursyDlaSymbolu(
+                grupa.symbol
+            )
+            .forEach(
+                kurs=>{
+
+                    if(
+                        Number(
+                            kurs?._kierunekIndex
+                        )!==
+                        Number(dir)
+                    ){
+                        return;
+                    }
+
+                    const literaPubliczna=
+                        literaWariantuPoRzeczywistymPrzebiegu(
+                            {
+                                ...kurs,
+                                symbol:grupa.symbol,
+                                _kierunekIndex:dir
+                            },
+                            dir
+                        );
+
+                    const kanoniczna=
+                        String(
+                            literaPubliczna
+                                ? kanonicznaLiteraWariantu(
+                                    literaPubliczna
+                                )
+                                : ""
+                        )
+                        .trim()
+                        .toLowerCase();
+
+                    if(
+                        kanoniczna!==
+                        String(
+                            wariant||""
+                        )
+                        .trim()
+                        .toLowerCase()
+                    ){
+                        return;
+                    }
+
+                    /*
+                       Dla konkretnego kursu szukamy ostatniego
+                       rzeczywiście obsługiwanego przystanku w JSON.
+                    */
+                    let najlepszy=null;
+                    let najlepszyIndex=-1;
+
+                    (
+                        daneLinii?.rozkłady||
+                        []
+                    ).forEach(
+                        rozklad=>{
+
+                            const k=
+                                Array.isArray(
+                                    rozklad?.kierunki
+                                )
+                                    ? rozklad.kierunki[
+                                        dir
+                                    ]
+                                    : null;
+
+                            (
+                                k?.przystanki||
+                                []
+                            ).forEach(
+                                (p,index)=>{
+
+                                    const znaleziony=
+                                        (
+                                            p?.kursy||
+                                            []
+                                        ).some(
+                                            x=>
+                                                String(
+                                                    x?.numer||""
+                                                )===
+                                                    String(
+                                                        kurs?.numer||""
+                                                    )&&
+                                                String(
+                                                    x?.wariant||""
+                                                ).trim()===
+                                                    String(
+                                                        kurs?.wariant||""
+                                                    ).trim()&&
+                                                symbolDnia(x)===
+                                                    grupa.symbol&&
+                                                (
+                                                    !String(
+                                                        kurs?.brygada||""
+                                                    ).trim()||
+                                                    String(
+                                                        x?.brygada||""
+                                                    ).trim()===
+                                                        String(
+                                                            kurs?.brygada||""
+                                                        ).trim()
+                                                )&&
+                                                czasNaMinuty(
+                                                    x?.czas
+                                                )!==null
+                                        );
+
+                                    if(
+                                        znaleziony&&
+                                        index>
+                                        najlepszyIndex
+                                    ){
+                                        najlepszyIndex=
+                                            index;
+
+                                        najlepszy=
+                                            p;
+                                    }
+                                }
+                            );
+                        }
+                    );
+
+                    if(najlepszy){
+
+                        const nazwa=
+                            String(
+                                najlepszy?.nazwa||""
+                            ).toUpperCase();
+
+                        const klucz=
+                            normalizuj(
+                                nazwa
+                            );
+
+                        if(klucz){
+
+                            if(
+                                !liczniki.has(
+                                    klucz
+                                )
+                            ){
+                                liczniki.set(
+                                    klucz,
+                                    {
+                                        nazwa,
+                                        ile:0
+                                    }
+                                );
+                            }
+
+                            liczniki
+                                .get(
+                                    klucz
+                                )
+                                .ile++;
+                        }
+                    }
+                }
+            );
+        }
+    );
+
+    if(!liczniki.size){
         return"";
     }
 
-    let najlepszyIndex=-1;
-    let najlepszaNazwa="";
-
-    dostepneGrupyDni()
-        .slice(0,3)
-        .forEach(
-            grupa=>{
-
-                pobierzKursyDlaSymbolu(
-                    grupa.symbol
-                )
-                .forEach(
-                    kurs=>{
-
-                        if(
-                            Number(
-                                kurs?._kierunekIndex
-                            )!==
-                            Number(dir)
-                        ){
-                            return;
-                        }
-
-                        const litera=
-                            literaWariantuPoRzeczywistymPrzebiegu(
-                                {
-                                    ...kurs,
-                                    symbol:grupa.symbol,
-                                    _kierunekIndex:dir
-                                },
-                                dir
-                            );
-
-                        const kanoniczna=
-                            String(
-                                litera
-                                    ? kanonicznaLiteraWariantu(
-                                        litera
-                                    )
-                                    : ""
-                            )
-                            .trim()
-                            .toLowerCase();
-
-                        if(
-                            kanoniczna!==
-                            String(
-                                wariant||""
-                            )
-                            .trim()
-                            .toLowerCase()
-                        ){
-                            return;
-                        }
-
-                        const ref={
-                            numer:String(
-                                kurs?.numer||""
-                            ),
-                            wariant:String(
-                                kurs?.wariant||""
-                            ).trim(),
-                            symbol:grupa.symbol
-                        };
-
-                        pelna.forEach(
-                            element=>{
-
-                                if(
-                                    kursMaPrzystanek(
-                                        ref,
-                                        element
-                                    )&&
-                                    element.index>
-                                    najlepszyIndex
-                                ){
-                                    najlepszyIndex=
-                                        element.index;
-
-                                    najlepszaNazwa=
-                                        String(
-                                            element?.p?.nazwa||
-                                            ""
-                                        ).toUpperCase();
-                                }
-                            }
-                        );
-                    }
-                );
-            }
-        );
-
-    return najlepszaNazwa;
+    return[
+        ...liczniki.values()
+    ]
+    .sort(
+        (a,b)=>
+            b.ile-a.ile
+    )[0].nazwa;
 }
 
 
@@ -9883,6 +9971,205 @@ function usunKolejneDuplikatyNazwyWFragmencieTrasy(
 }
 
 
+
+function przygotujListeTrasyJak126i131(
+    lista
+){
+
+    if(
+        !Array.isArray(lista)||
+        lista.length<2
+    ){
+        return lista||[];
+    }
+
+    const wynik=[];
+
+    let i=0;
+
+    while(i<lista.length){
+
+        const nazwa=
+            normalizuj(
+                lista[i]?.p?.nazwa
+            );
+
+        let j=i+1;
+
+        while(
+            j<lista.length&&
+            normalizuj(
+                lista[j]?.p?.nazwa
+            )===nazwa
+        ){
+            j++;
+        }
+
+        const grupa=
+            lista.slice(
+                i,
+                j
+            );
+
+        if(grupa.length===1){
+
+            wynik.push(
+                grupa[0]
+            );
+
+            i=j;
+            continue;
+        }
+
+        /*
+           Dla każdego wystąpienia liczymy stan trasy:
+           - wszystkie,
+           - konkretny zestaw wariantów,
+           - podstawowa,
+           - inne.
+
+           To jest ta sama logika, która działa dla rozgałęzień 126.
+        */
+        const opisane=
+            grupa.map(
+                element=>{
+
+                    const stan=
+                        stanTrasyNaPrzystanku(
+                            element
+                        );
+
+                    return{
+                        element,
+                        stan,
+                        klucz:
+                            kluczStanuTrasy(
+                                stan
+                            )
+                    };
+                }
+            );
+
+        /*
+           Wpis "inne" powstały wyłącznie przez kurs startujący
+           w środku trasy nie powinien tworzyć osobnego przystanku,
+           jeżeli obok istnieje normalny przebieg.
+        */
+        const maNormalny=
+            opisane.some(
+                x=>
+                    x.stan?.typ!=="inne"
+            );
+
+        const uzywane=
+            maNormalny
+                ? opisane.filter(
+                    x=>
+                        x.stan?.typ!=="inne"||
+                        x.element?.index===
+                            aktualnyPrzystanek
+                )
+                : opisane;
+
+        /*
+           Zostawiamy maksymalnie JEDEN wpis dla każdego stanu.
+           Jeżeli aktywny przystanek należy do danej grupy,
+           ma pierwszeństwo.
+        */
+        const poStanach=
+            new Map();
+
+        uzywane.forEach(
+            x=>{
+
+                if(
+                    !poStanach.has(
+                        x.klucz
+                    )
+                ){
+                    poStanach.set(
+                        x.klucz,
+                        x
+                    );
+
+                    return;
+                }
+
+                const obecny=
+                    poStanach.get(
+                        x.klucz
+                    );
+
+                if(
+                    x.element?.index===
+                    aktualnyPrzystanek
+                ){
+                    poStanach.set(
+                        x.klucz,
+                        x
+                    );
+                }
+                else if(
+                    obecny.element?.index!==
+                    aktualnyPrzystanek
+                ){
+                    /*
+                       Dla sztucznego duplikatu startowego zostawiamy
+                       późniejszy wpis, czyli wpis należący do dalszego
+                       rzeczywistego przebiegu.
+                    */
+                    poStanach.set(
+                        x.klucz,
+                        x
+                    );
+                }
+            }
+        );
+
+        /*
+           Zachowujemy kolejność pierwszego pojawienia się stanów.
+           Przykład 170:
+           - PKP ZACISZE-WILNO dla e/l -> jeden wpis,
+           - PKP ZACISZE-WILNO dla r   -> jeden osobny wpis.
+        */
+        const dodane=
+            new Set();
+
+        uzywane.forEach(
+            x=>{
+
+                if(
+                    dodane.has(
+                        x.klucz
+                    )
+                ){
+                    return;
+                }
+
+                const finalny=
+                    poStanach.get(
+                        x.klucz
+                    );
+
+                if(finalny){
+                    wynik.push(
+                        finalny.element
+                    );
+                }
+
+                dodane.add(
+                    x.klucz
+                );
+            }
+        );
+
+        i=j;
+    }
+
+    return wynik;
+}
+
+
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -9892,7 +10179,9 @@ function renderTrasaKolumna(
 ){
 
     const pelnaLista=
-        listaTrasyDoWyswietlenia();
+        przygotujListeTrasyJak126i131(
+            listaTrasyDoWyswietlenia()
+        );
 
     const aktywnyIndexWyswietlany=
         indeksAktywnegoNaWyswietlanejTrasie(
@@ -9932,14 +10221,19 @@ function renderTrasaKolumna(
 
                     let stanPoprzedni=null;
 
-                    if(index>0){
+                    const pozycjaLogiczna=
+                        pelnaLista.findIndex(
+                            x=>
+                                x.index===
+                                index
+                        );
+
+                    if(pozycjaLogiczna>0){
 
                         const poprzedniElement=
-                            pelnaLista.find(
-                                x=>
-                                    x.index===
-                                    index-1
-                            );
+                            pelnaLista[
+                                pozycjaLogiczna-1
+                            ];
 
                         if(poprzedniElement){
                             stanPoprzedni=
@@ -11008,7 +11302,11 @@ function dopasujKolumnyTrasy() {
 
     if (!tabliczka || !columns) return;
 
-    const lista = listaTrasyDoWyswietlenia();
+    const lista =
+        przygotujListeTrasyJak126i131(
+            listaTrasyDoWyswietlenia()
+        );
+
     if (!lista.length) return;
 
     const czasy = czasyTrasy();
