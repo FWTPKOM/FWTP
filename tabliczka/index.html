@@ -6095,7 +6095,7 @@ function renderuj(){
         '<div class="rozklady-wrap">'+
         ('<div class="rozklady-grid '+kolKlasa+(
                     grupy.some(g => g.tytul === "SOBOTA") &&
-                    grupy.some(g => g.tytul.includes("NIEDZIELA"))
+                    grupy.some(g => g.tytul === "ŚWIĘTO")
                         ? ' weekend-rowny'
                         : ''
                 )+'">')+
@@ -6352,49 +6352,77 @@ function wyrownajSzerokoscWeekendow() {
         return t === "ŚWIĘTO";
     });
 
-    if(
-        !sobota ||
-        !swieto
-    ){
+    if(!sobota || !swieto){
         return;
     }
 
     /*
-       Najpierw zdejmujemy wymuszoną szerokość,
-       aby zmierzyć naturalną szerokość obu tabel.
+       Zdejmujemy wcześniejsze szerokości tylko na czas pomiaru.
     */
     [sobota, swieto].forEach(d => {
         d.style.width = "";
         d.style.minWidth = "";
     });
 
-    /*
-       SOBOTA i ŚWIĘTO pozostają jednakowej szerokości,
-       ale całe pudełka są o 8 px szersze.
+    const szerokoscNaturalnaSobota =
+        Math.ceil(
+            sobota.getBoundingClientRect().width
+        );
 
-       Poszerzamy CAŁY element .dzien, a nie dodajemy paddingu.
-       Dzięki temu:
-       - SOBOTA / ŚWIĘTO nadal są idealnie na środku,
-       - poziome kreski dochodzą do prawej ramki,
-       - pionowa ramka pozostaje na końcu tabeli,
-       - po ostatniej minucie zostaje ok. 8 px więcej miejsca.
+    const szerokoscNaturalnaSwieto =
+        Math.ceil(
+            swieto.getBoundingClientRect().width
+        );
+
+    /*
+       Jeżeli w którejś tabeli jest "NIE KURSUJE",
+       tabela musi być na tyle szeroka, by napis zmieścił się
+       w jednej linii w części minutowej.
+    */
+    function wymaganaSzerokoscNieKursuje(dzien){
+
+        const napis =
+            dzien.querySelector(
+                ".nie-kursuje-napis"
+            );
+
+        if(!napis){
+            return 0;
+        }
+
+        return (
+            22 +
+            Math.ceil(napis.scrollWidth) +
+            16
+        );
+    }
+
+    const wymaganaSobota =
+        wymaganaSzerokoscNieKursuje(
+            sobota
+        );
+
+    const wymaganaSwieto =
+        wymaganaSzerokoscNieKursuje(
+            swieto
+        );
+
+    /*
+       Obie kolumny dostają DOKŁADNIE tę samą szerokość:
+       większą z naturalnych / wymaganych szerokości + 8 px luzu.
     */
     const szerokosc =
         Math.max(
-            Math.ceil(
-                sobota.getBoundingClientRect().width
-            ),
-            Math.ceil(
-                swieto.getBoundingClientRect().width
-            )
+            szerokoscNaturalnaSobota,
+            szerokoscNaturalnaSwieto,
+            wymaganaSobota,
+            wymaganaSwieto
         ) + 8;
 
     [sobota, swieto].forEach(d => {
-        d.style.width =
-            szerokosc + "px";
-
-        d.style.minWidth =
-            szerokosc + "px";
+        d.style.width = szerokosc + "px";
+        d.style.minWidth = szerokosc + "px";
+        d.style.maxWidth = szerokosc + "px";
     });
 }
 function ustawNaglowekTrasy(liczbaKolumn) {
