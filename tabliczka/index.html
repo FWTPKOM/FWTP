@@ -1767,6 +1767,92 @@ function rozdzielNazweIMiejscowosc(nazwa){
 }
 
 
+
+/* =========================================================
+   CACHE OBLICZEŃ TABLICZKI
+   =========================================================
+   Wiele funkcji analizuje te same kursy, warianty i przystanki
+   po kilkadziesiąt / kilkaset razy podczas jednego renderowania.
+
+   Wynik zależy od:
+   - linii,
+   - daty,
+   - kierunku,
+   - wybranego przystanku.
+
+   Cache jest czyszczony przed każdym renderuj(), więc logika
+   pozostaje dokładnie taka sama jak wcześniej.
+   ========================================================= */
+
+const cacheObliczenTabliczki=
+    new Map();
+
+function kluczStanuCache(){
+
+    return[
+        String(
+            aktualnaLinia||""
+        ),
+        (
+            wybranaData instanceof Date
+                ? dataISO(
+                    wybranaData
+                )
+                : ""
+        ),
+        String(
+            aktualnyKierunek
+        ),
+        String(
+            aktualnyPrzystanek
+        )
+    ].join("|");
+}
+
+
+function memoTabliczki(
+    nazwa,
+    klucz,
+    producent
+){
+
+    const pelnyKlucz=
+        kluczStanuCache()+
+        "||"+
+        nazwa+
+        "||"+
+        String(
+            klucz||""
+        );
+
+    if(
+        cacheObliczenTabliczki.has(
+            pelnyKlucz
+        )
+    ){
+        return cacheObliczenTabliczki.get(
+            pelnyKlucz
+        );
+    }
+
+    const wynik=
+        producent();
+
+    cacheObliczenTabliczki.set(
+        pelnyKlucz,
+        wynik
+    );
+
+    return wynik;
+}
+
+
+function wyczyscCacheTabliczki(){
+
+    cacheObliczenTabliczki.clear();
+}
+
+
 let daneLinii=null;
 let manifestPaczek=null;
 let waznyOdDanych="";
@@ -2990,7 +3076,7 @@ function czyTenSamPrzystanekPoNazwieINumerze(
 }
 
 
-function kierunkiObslugujaceBiezacyPrzystanek(){
+function __bezCache_kierunkiObslugujaceBiezacyPrzystanek(){
 
     const baza=
         znajdzNajpelniejszyKierunek(
@@ -3084,6 +3170,16 @@ function kierunkiObslugujaceBiezacyPrzystanek(){
     return wynik;
 }
 
+function kierunkiObslugujaceBiezacyPrzystanek(){
+
+    return memoTabliczki(
+        "kierunkiObslugujaceBiezacyPrzystanek",
+        "",
+        ()=>__bezCache_kierunkiObslugujaceBiezacyPrzystanek()
+    );
+}
+
+
 
 function drugiKierunekBiezacegoPrzystanku(){
 
@@ -3101,7 +3197,7 @@ function drugiKierunekBiezacegoPrzystanku(){
 
 
 
-function czyBiezacyPrzystanekKraniecWiekszosciKursow(){
+function __bezCache_czyBiezacyPrzystanekKraniecWiekszosciKursow(){
 
     const kierunek=
         znajdzNajpelniejszyKierunek(
@@ -3289,8 +3385,18 @@ function czyBiezacyPrzystanekKraniecWiekszosciKursow(){
     );
 }
 
+function czyBiezacyPrzystanekKraniecWiekszosciKursow(){
 
-function czyBiezacyPrzystanekKraniecTrasyPodstawowej(){
+    return memoTabliczki(
+        "czyBiezacyPrzystanekKraniecWiekszosciKursow",
+        "",
+        ()=>__bezCache_czyBiezacyPrzystanekKraniecWiekszosciKursow()
+    );
+}
+
+
+
+function __bezCache_czyBiezacyPrzystanekKraniecTrasyPodstawowej(){
 
     /*
        Pełna lista może zawierać także dalszą część kursów
@@ -3334,8 +3440,18 @@ function czyBiezacyPrzystanekKraniecTrasyPodstawowej(){
     );
 }
 
+function czyBiezacyPrzystanekKraniecTrasyPodstawowej(){
 
-function czyBiezacyPrzystanekDwukierunkowy(){
+    return memoTabliczki(
+        "czyBiezacyPrzystanekKraniecTrasyPodstawowej",
+        "",
+        ()=>__bezCache_czyBiezacyPrzystanekKraniecTrasyPodstawowej()
+    );
+}
+
+
+
+function __bezCache_czyBiezacyPrzystanekDwukierunkowy(){
 
     const baza=
         znajdzNajpelniejszyKierunek(
@@ -3370,6 +3486,16 @@ function czyBiezacyPrzystanekDwukierunkowy(){
         drugiKierunekBiezacegoPrzystanku()
     );
 }
+
+function czyBiezacyPrzystanekDwukierunkowy(){
+
+    return memoTabliczki(
+        "czyBiezacyPrzystanekDwukierunkowy",
+        "",
+        ()=>__bezCache_czyBiezacyPrzystanekDwukierunkowy()
+    );
+}
+
 
 
 
@@ -3412,7 +3538,7 @@ function znajdzDokladnyPrzystanekWRozkladzie(
 }
 
 
-function kierunkiAktywneDlaBiezacegoPrzystanku(){
+function __bezCache_kierunkiAktywneDlaBiezacegoPrzystanku(){
 
     const wszystkie=
         kierunkiObslugujaceBiezacyPrzystanek();
@@ -3442,6 +3568,16 @@ function kierunkiAktywneDlaBiezacegoPrzystanku(){
 
     return wszystkie;
 }
+
+function kierunkiAktywneDlaBiezacegoPrzystanku(){
+
+    return memoTabliczki(
+        "kierunkiAktywneDlaBiezacegoPrzystanku",
+        "",
+        ()=>__bezCache_kierunkiAktywneDlaBiezacegoPrzystanku()
+    );
+}
+
 
 
 function kierunekBazowy(){
@@ -3514,17 +3650,41 @@ function wypelnijPrzystanki(){
    CZAS
    ========================================================= */
 
+
+const cacheCzasNaMinuty=
+    new Map();
+
 function czasNaMinuty(czas){
+
+    const tekst=
+        String(
+            czas||""
+        ).trim();
+
+    if(
+        cacheCzasNaMinuty.has(
+            tekst
+        )
+    ){
+        return cacheCzasNaMinuty.get(
+            tekst
+        );
+    }
 
     const m=
         /^(\d{1,2}):(\d{2})$/
             .exec(
-                String(
-                    czas||""
-                ).trim()
+                tekst
             );
 
-    if(!m)return null;
+    if(!m){
+        cacheCzasNaMinuty.set(
+            tekst,
+            null
+        );
+
+        return null;
+    }
 
     const h=Number(m[1]);
     const min=Number(m[2]);
@@ -3535,10 +3695,23 @@ function czasNaMinuty(czas){
         min<0||
         min>59
     ){
+        cacheCzasNaMinuty.set(
+            tekst,
+            null
+        );
+
         return null;
     }
 
-    return h*60+min;
+    const wynik=
+        h*60+min;
+
+    cacheCzasNaMinuty.set(
+        tekst,
+        wynik
+    );
+
+    return wynik;
 }
 
 
@@ -3638,7 +3811,7 @@ function znajdzPrzystanekWRozkladzie(
 }
 
 
-function pobierzKursyDlaSymbolu(symbol){
+function __bezCache_pobierzKursyDlaSymbolu(symbol){
 
     const obsluga=
         kierunkiAktywneDlaBiezacegoPrzystanku();
@@ -3719,8 +3892,18 @@ function pobierzKursyDlaSymbolu(symbol){
     );
 }
 
+function pobierzKursyDlaSymbolu(symbol){
 
-function dostepneGrupyDni(){
+    return memoTabliczki(
+        "pobierzKursyDlaSymbolu",
+        String(symbol||""),
+        ()=>__bezCache_pobierzKursyDlaSymbolu(symbol)
+    );
+}
+
+
+
+function __bezCache_dostepneGrupyDni(){
 
     const symbole=
         new Set();
@@ -3856,12 +4039,22 @@ function dostepneGrupyDni(){
     return wynik;
 }
 
+function dostepneGrupyDni(){
+
+    return memoTabliczki(
+        "dostepneGrupyDni",
+        "",
+        ()=>__bezCache_dostepneGrupyDni()
+    );
+}
+
+
 
 /* =========================================================
    WARIANTY / LEGENDA
    ========================================================= */
 
-function mapaWariantow(){
+function __bezCache_mapaWariantow(){
 
     const mapa=new Map();
 
@@ -3904,10 +4097,20 @@ function mapaWariantow(){
     return mapa;
 }
 
+function mapaWariantow(){
+
+    return memoTabliczki(
+        "mapaWariantow",
+        "",
+        ()=>__bezCache_mapaWariantow()
+    );
+}
 
 
 
-function publiczneLiteryWariantow(){
+
+
+function __bezCache_publiczneLiteryWariantow(){
 
     const wynik=
         new Set();
@@ -3945,8 +4148,18 @@ function publiczneLiteryWariantow(){
     return wynik;
 }
 
+function publiczneLiteryWariantow(){
 
-function wszystkieLiteryWariantowAktualnegoKierunku(){
+    return memoTabliczki(
+        "publiczneLiteryWariantow",
+        "",
+        ()=>__bezCache_publiczneLiteryWariantow()
+    );
+}
+
+
+
+function __bezCache_wszystkieLiteryWariantowAktualnegoKierunku(){
 
     const wynik=
         new Set();
@@ -4022,8 +4235,18 @@ function wszystkieLiteryWariantowAktualnegoKierunku(){
     ];
 }
 
+function wszystkieLiteryWariantowAktualnegoKierunku(){
 
-function publiczneLiteryWariantowAktualnegoKierunku(){
+    return memoTabliczki(
+        "wszystkieLiteryWariantowAktualnegoKierunku",
+        "",
+        ()=>__bezCache_wszystkieLiteryWariantowAktualnegoKierunku()
+    );
+}
+
+
+
+function __bezCache_publiczneLiteryWariantowAktualnegoKierunku(){
 
     const publiczne=
         publiczneLiteryWariantow();
@@ -4049,6 +4272,16 @@ function publiczneLiteryWariantowAktualnegoKierunku(){
 
     return wszystkie;
 }
+
+function publiczneLiteryWariantowAktualnegoKierunku(){
+
+    return memoTabliczki(
+        "publiczneLiteryWariantowAktualnegoKierunku",
+        "",
+        ()=>__bezCache_publiczneLiteryWariantowAktualnegoKierunku()
+    );
+}
+
 
 
 function czyPokazacWariantJakLiniaHTML(litera){
@@ -4389,7 +4622,7 @@ function znajdzLitereSkroceniaPoKoncu(
 
 
 
-function nazwyPrzystankowKursu(
+function __bezCache_nazwyPrzystankowKursu(
     kursRef,
     kierunekIndex=aktualnyKierunek
 ){
@@ -4463,8 +4696,24 @@ function nazwyPrzystankowKursu(
     return wynik;
 }
 
+function nazwyPrzystankowKursu(kursRef,kierunekIndex=aktualnyKierunek){
 
-function wszystkieNazwyPrzystankowKierunku(
+    return memoTabliczki(
+        "nazwyPrzystankowKursu",
+        [
+            String(kursRef?.numer||""),
+            String(kursRef?.wariant||""),
+            String(kursRef?.symbol||""),
+            String(kursRef?.brygada||""),
+            String(kierunekIndex)
+        ].join("|"),
+        ()=>__bezCache_nazwyPrzystankowKursu(kursRef,kierunekIndex=aktualnyKierunek)
+    );
+}
+
+
+
+function __bezCache_wszystkieNazwyPrzystankowKierunku(
     kierunekIndex=aktualnyKierunek
 ){
 
@@ -4528,8 +4777,18 @@ function wszystkieNazwyPrzystankowKierunku(
     return wynik;
 }
 
+function wszystkieNazwyPrzystankowKierunku(kierunekIndex=aktualnyKierunek){
 
-function wymaganePrzystankiZWariantu(
+    return memoTabliczki(
+        "wszystkieNazwyPrzystankowKierunku",
+        String(kierunekIndex),
+        ()=>__bezCache_wszystkieNazwyPrzystankowKierunku(kierunekIndex=aktualnyKierunek)
+    );
+}
+
+
+
+function __bezCache_wymaganePrzystankiZWariantu(
     litera,
     kierunekIndex=aktualnyKierunek
 ){
@@ -4587,8 +4846,18 @@ function wymaganePrzystankiZWariantu(
     ];
 }
 
+function wymaganePrzystankiZWariantu(litera,kierunekIndex=aktualnyKierunek){
 
-function literaWariantuPoRzeczywistymPrzebiegu(
+    return memoTabliczki(
+        "wymaganePrzystankiZWariantu",
+        String(litera||"")+"|"+String(kierunekIndex),
+        ()=>__bezCache_wymaganePrzystankiZWariantu(litera,kierunekIndex=aktualnyKierunek)
+    );
+}
+
+
+
+function __bezCache_literaWariantuPoRzeczywistymPrzebiegu(
     kursRef,
     kierunekIndex=(
         Number.isInteger(
@@ -4718,6 +4987,36 @@ function literaWariantuPoRzeczywistymPrzebiegu(
     return kandydaci[0].litera;
 }
 
+function literaWariantuPoRzeczywistymPrzebiegu(kursRef,
+    kierunekIndex=(
+        Number.isInteger(
+            kursRef?._kierunekIndex
+        )
+            ? kursRef._kierunekIndex
+            : aktualnyKierunek
+    )){
+
+    return memoTabliczki(
+        "literaWariantuPoRzeczywistymPrzebiegu",
+        [
+            String(kursRef?.numer||""),
+            String(kursRef?.wariant||""),
+            String(kursRef?.symbol||""),
+            String(kursRef?.brygada||""),
+            String(kierunekIndex)
+        ].join("|"),
+        ()=>__bezCache_literaWariantuPoRzeczywistymPrzebiegu(kursRef,
+    kierunekIndex=(
+        Number.isInteger(
+            kursRef?._kierunekIndex
+        )
+            ? kursRef._kierunekIndex
+            : aktualnyKierunek
+    ))
+    );
+}
+
+
 
 
 function normalizujSymbolKandydata(tekst){
@@ -4792,7 +5091,7 @@ function opisWariantuDoKierunku(
 }
 
 
-function mapaSymboliDwukierunkowych(){
+function __bezCache_mapaSymboliDwukierunkowych(){
 
     if(
         !czyBiezacyPrzystanekDwukierunkowy()
@@ -4942,6 +5241,16 @@ function mapaSymboliDwukierunkowych(){
 
     return wynik;
 }
+
+function mapaSymboliDwukierunkowych(){
+
+    return memoTabliczki(
+        "mapaSymboliDwukierunkowych",
+        "",
+        ()=>__bezCache_mapaSymboliDwukierunkowych()
+    );
+}
+
 
 
 function symbolKursuDwukierunkowego(
@@ -5334,7 +5643,7 @@ function renderDzien(grupa,wspolneGodziny){
    CZASY PRZEJAZDU NA TRASIE
    ========================================================= */
 
-function znajdzNajlepszyKursDoTrasy(){
+function __bezCache_znajdzNajlepszyKursDoTrasy(){
 
     const baza=
         kierunekBazowy();
@@ -5439,6 +5748,16 @@ function znajdzNajlepszyKursDoTrasy(){
     )[0]||null;
 }
 
+function znajdzNajlepszyKursDoTrasy(){
+
+    return memoTabliczki(
+        "znajdzNajlepszyKursDoTrasy",
+        "",
+        ()=>__bezCache_znajdzNajlepszyKursDoTrasy()
+    );
+}
+
+
 
 function znajdzCzasKursuNaPrzystanku(
     kandydat,
@@ -5490,7 +5809,7 @@ function znajdzCzasKursuNaPrzystanku(
 }
 
 
-function czasyTrasy(){
+function __bezCache_czasyTrasy(){
 
     const baza=
         kierunekBazowy();
@@ -5548,6 +5867,16 @@ function czasyTrasy(){
 
     return wynik;
 }
+
+function czasyTrasy(){
+
+    return memoTabliczki(
+        "czasyTrasy",
+        "",
+        ()=>__bezCache_czasyTrasy()
+    );
+}
+
 
 
 /* =========================================================
@@ -5781,7 +6110,7 @@ function usunDuplikatyTylkoOdKursowSkroconych(lista){
 }
 
 
-function listaPelnejTrasyDoWyswietlenia(){
+function __bezCache_listaPelnejTrasyDoWyswietlenia(){
 
     const baza=
         kierunekBazowy();
@@ -5837,8 +6166,18 @@ function listaPelnejTrasyDoWyswietlenia(){
     );
 }
 
+function listaPelnejTrasyDoWyswietlenia(){
 
-function literyWydluzonychWariantow(){
+    return memoTabliczki(
+        "listaPelnejTrasyDoWyswietlenia",
+        "",
+        ()=>__bezCache_listaPelnejTrasyDoWyswietlenia()
+    );
+}
+
+
+
+function __bezCache_literyWydluzonychWariantow(){
 
     const wynik=new Set();
 
@@ -5860,6 +6199,16 @@ function literyWydluzonychWariantow(){
 
     return wynik;
 }
+
+function literyWydluzonychWariantow(){
+
+    return memoTabliczki(
+        "literyWydluzonychWariantow",
+        "",
+        ()=>__bezCache_literyWydluzonychWariantow()
+    );
+}
+
 
 
 
@@ -5942,7 +6291,7 @@ function czyKursZaczynaWSrodkuTrasy(kursRef){
 }
 
 
-function kursyAktualnegoRozkladuDoTrasy(){
+function __bezCache_kursyAktualnegoRozkladuDoTrasy(){
 
     const wynik=
         new Map();
@@ -6007,6 +6356,16 @@ function kursyAktualnegoRozkladuDoTrasy(){
         ...wynik.values()
     ];
 }
+
+function kursyAktualnegoRozkladuDoTrasy(){
+
+    return memoTabliczki(
+        "kursyAktualnegoRozkladuDoTrasy",
+        "",
+        ()=>__bezCache_kursyAktualnegoRozkladuDoTrasy()
+    );
+}
+
 
 
 function kursMaPrzystanek(
@@ -6097,7 +6456,7 @@ function czyKursPomijanyPrzyTrasie(kurs){
 }
 
 
-function grupyPrzebiegowTrasy(){
+function __bezCache_grupyPrzebiegowTrasy(){
 
     const wszystkie=
         kursyAktualnegoRozkladuDoTrasy();
@@ -6209,6 +6568,16 @@ function grupyPrzebiegowTrasy(){
     return grupy;
 }
 
+function grupyPrzebiegowTrasy(){
+
+    return memoTabliczki(
+        "grupyPrzebiegowTrasy",
+        "",
+        ()=>__bezCache_grupyPrzebiegowTrasy()
+    );
+}
+
+
 
 function wybierzNajdluzszyKurs(
     listaKursow
@@ -6252,7 +6621,7 @@ function wybierzNajdluzszyKurs(
 }
 
 
-function danePrzebiegowWariantowych(){
+function __bezCache_danePrzebiegowWariantowych(){
 
     const grupy=
         grupyPrzebiegowTrasy();
@@ -6280,6 +6649,16 @@ function danePrzebiegowWariantowych(){
 
     return przebiegi;
 }
+
+function danePrzebiegowWariantowych(){
+
+    return memoTabliczki(
+        "danePrzebiegowWariantowych",
+        "",
+        ()=>__bezCache_danePrzebiegowWariantowych()
+    );
+}
+
 
 
 function stanTrasyNaPrzystanku(element){
@@ -6654,7 +7033,7 @@ function wariantyNaPrzystanku(element){
 }
 
 
-function daneTrasWydluzonych(){
+function __bezCache_daneTrasWydluzonych(){
 
     const pelna=
         listaPelnejTrasyDoWyswietlenia();
@@ -6753,9 +7132,19 @@ function daneTrasWydluzonych(){
     };
 }
 
+function daneTrasWydluzonych(){
+
+    return memoTabliczki(
+        "daneTrasWydluzonych",
+        "",
+        ()=>__bezCache_daneTrasWydluzonych()
+    );
+}
 
 
-function kluczeKursowNaPrzystanku(
+
+
+function __bezCache_kluczeKursowNaPrzystanku(
     bazaP
 ){
 
@@ -6811,8 +7200,18 @@ function kluczeKursowNaPrzystanku(
     return wynik;
 }
 
+function kluczeKursowNaPrzystanku(bazaP){
 
-function istniejeKursLaczacyPrzystanki(
+    return memoTabliczki(
+        "kluczeKursowNaPrzystanku",
+        normalizuj(bazaP?.nazwa)+"|"+String(bazaP?.nr||""),
+        ()=>__bezCache_kluczeKursowNaPrzystanku(bazaP)
+    );
+}
+
+
+
+function __bezCache_istniejeKursLaczacyPrzystanki(
     pierwszy,
     drugi
 ){
@@ -6847,6 +7246,21 @@ function istniejeKursLaczacyPrzystanki(
 
     return false;
 }
+
+function istniejeKursLaczacyPrzystanki(pierwszy,drugi){
+
+    return memoTabliczki(
+        "istniejeKursLaczacyPrzystanki",
+        [
+            normalizuj(pierwszy?.nazwa),
+            String(pierwszy?.nr||""),
+            normalizuj(drugi?.nazwa),
+            String(drugi?.nr||"")
+        ].join("|"),
+        ()=>__bezCache_istniejeKursLaczacyPrzystanki(pierwszy,drugi)
+    );
+}
+
 
 
 function przeniesMinieteGaleziePrzedAktywny(
@@ -6940,7 +7354,7 @@ function przeniesMinieteGaleziePrzedAktywny(
 
 
 
-function czyAktywnyPrzystanekJestPoczatkiemSwoichKursow(){
+function __bezCache_czyAktywnyPrzystanekJestPoczatkiemSwoichKursow(){
 
     const kierunek=
         znajdzNajpelniejszyKierunek(
@@ -7128,6 +7542,16 @@ function czyAktywnyPrzystanekJestPoczatkiemSwoichKursow(){
     return znalezionoKurs;
 }
 
+function czyAktywnyPrzystanekJestPoczatkiemSwoichKursow(){
+
+    return memoTabliczki(
+        "czyAktywnyPrzystanekJestPoczatkiemSwoichKursow",
+        "",
+        ()=>__bezCache_czyAktywnyPrzystanekJestPoczatkiemSwoichKursow()
+    );
+}
+
+
 
 function przytnijInneGaleziePrzedPoczatkiemWariantu(
     lista
@@ -7253,7 +7677,7 @@ function usunPowtorzenieNazwyPrzedAktywnym(
 }
 
 
-function listaTrasyDoWyswietlenia(){
+function __bezCache_listaTrasyDoWyswietlenia(){
 
     const baza=
         daneTrasWydluzonych()
@@ -7273,6 +7697,16 @@ function listaTrasyDoWyswietlenia(){
         poPoczatkuWariantu
     );
 }
+
+function listaTrasyDoWyswietlenia(){
+
+    return memoTabliczki(
+        "listaTrasyDoWyswietlenia",
+        "",
+        ()=>__bezCache_listaTrasyDoWyswietlenia()
+    );
+}
+
 
 
 function podzielTrase(lista){
@@ -8768,6 +9202,14 @@ function typLinii(numer){
    ========================================================= */
 
 function renderuj(){
+
+    /*
+       Każde nowe renderowanie zaczyna z czystym cache.
+       W obrębie jednego renderu te same ciężkie analizy są
+       wykonywane tylko raz.
+    */
+    wyczyscCacheTabliczki();
+
 
     const kierunek=
         kierunekBazowy();
