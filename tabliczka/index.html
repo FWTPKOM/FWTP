@@ -1881,6 +1881,85 @@ function ukryjLoaderTabliczki(){
 }
 
 
+async function przerysujTabliczkeZLoaderem(
+    etapPoczatkowy,
+    przygotuj=null
+){
+
+    /*
+       Ten sam loader działa teraz także przy:
+       - zmianie kierunku,
+       - zmianie przystanku.
+
+       Tabliczka pozostaje niewidoczna od początku zmiany
+       aż do zakończenia pełnego renderowania.
+    */
+    pokazLoaderTabliczki();
+
+    ustawLoaderTabliczki(
+        10,
+        etapPoczatkowy||
+        "Przygotowywanie tabliczki..."
+    );
+
+    await czekajNaRenderTabliczki();
+
+    try{
+
+        if(
+            typeof przygotuj===
+            "function"
+        ){
+            przygotuj();
+        }
+
+        ustawLoaderTabliczki(
+            42,
+            "Przygotowywanie rozkładu..."
+        );
+
+        await czekajNaRenderTabliczki();
+
+        ustawLoaderTabliczki(
+            68,
+            "Budowanie rozkładu i trasy..."
+        );
+
+        renderuj();
+
+        await czekajNaRenderTabliczki();
+
+        ustawLoaderTabliczki(
+            90,
+            "Dopasowywanie układu tabliczki..."
+        );
+
+        /*
+           Czekamy dokładnie tak samo jak przy zmianie linii:
+           - na fonty,
+           - na wyrównanie tabel dni,
+           - na obliczenie szerokości "NIE KURSUJE",
+           - na podział listy przystanków na kolumny,
+           - na końcowy układ całej tabliczki.
+        */
+        await czekajNaPelneRenderowanieTabliczki();
+
+        await zakonczLoaderTabliczki();
+    }
+    catch(error){
+
+        console.error(error);
+
+        ukryjLoaderTabliczki();
+
+        pokazBlad(
+            error?.message||
+            "Nie udało się przygotować tabliczki."
+        );
+    }
+}
+
+
 /* =========================================================
    START
    ========================================================= */
@@ -1960,18 +2039,26 @@ document.addEventListener(
             .getElementById("kierunekSelect")
             .addEventListener(
                 "change",
-                function(){
+                async function(){
 
-                    aktualnyKierunek=
+                    const nowyKierunek=
                         Number(
                             this.value
                         );
 
-                    aktualnyPrzystanek=0;
+                    await przerysujTabliczkeZLoaderem(
+                        "Zmiana kierunku...",
+                        ()=>{
 
-                    wypelnijPrzystanki();
-                    zapiszURL();
-                    renderuj();
+                            aktualnyKierunek=
+                                nowyKierunek;
+
+                            aktualnyPrzystanek=0;
+
+                            wypelnijPrzystanki();
+                            zapiszURL();
+                        }
+                    );
                 }
             );
 
@@ -1979,15 +2066,23 @@ document.addEventListener(
             .getElementById("przystanekSelect")
             .addEventListener(
                 "change",
-                function(){
+                async function(){
 
-                    aktualnyPrzystanek=
+                    const nowyPrzystanek=
                         Number(
                             this.value
                         );
 
-                    zapiszURL();
-                    renderuj();
+                    await przerysujTabliczkeZLoaderem(
+                        "Zmiana przystanku...",
+                        ()=>{
+
+                            aktualnyPrzystanek=
+                                nowyPrzystanek;
+
+                            zapiszURL();
+                        }
+                    );
                 }
             );
 
