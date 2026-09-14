@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 179
+     WERSJA: 180
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2054,15 +2054,22 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 
 
 /* =========================================================
-   WERSJA 179 — PRAWDZIWY PRZYSTANEK POCZĄTKOWY
-   NIE MA LINII NAD KROPKĄ
+   WERSJA 180 — PIERWSZY WIDOCZNY PRZYSTANEK PASAŻERSKI
+   NIE MA KRESKI DO GÓRY
    ========================================================= */
 
-.trasa-stop.kraniec-poczatek .trasa-os::before,
-.trasa-stop.kraniec-poczatek.aktywny-pierwszy .trasa-os::before {
-    top: 8px !important;
+.trasa-stop.pierwszy-pasazerski .trasa-os::before {
+    top: 50% !important;
     bottom: 0 !important;
     height: auto !important;
+}
+
+/*
+   Jeśli wcześniejsza logika rysuje oś innym pseudo-elementem,
+   górna część jest dodatkowo maskowana białym tłem.
+*/
+.trasa-stop.pierwszy-pasazerski .trasa-os {
+    overflow: hidden !important;
 }
 
 </style>
@@ -2127,12 +2134,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 179
+   WERSJA: 180
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "179";
+const WERSJA_TABLICZKI = "180";
 console.log(
-    "FWTP Tabliczka — wersja 179 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 180 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -12629,30 +12636,11 @@ function poprawPierwszyAktywnyPrzystanek(){
                     poprzedni=poprzedni.previousElementSibling;
                 }
 
-                /*
-                   V179:
-                   "aktywny-pierwszy" oznacza pierwszy aktywny punkt
-                   widocznego fragmentu / wariantu, ale NIE prawdziwy
-                   przystanek początkowy całej trasy.
-
-                   Prawdziwy kraniec początkowy ma kropkę, od której
-                   linia zaczyna się dopiero W DÓŁ. Nie może mieć
-                   kreski nad kropką.
-                */
-                const prawdziwyPoczatek=
-                    stop.classList.contains(
-                        "kraniec-poczatek"
-                    );
-
                 stop.classList.toggle(
                     "aktywny-pierwszy",
-                    !maPrzystanekPrzed &&
-                    !prawdziwyPoczatek
+                    !maPrzystanekPrzed
                 );
 
-                /*
-                   Czas 0 zostaje również dla prawdziwego początku.
-                */
                 if(!maPrzystanekPrzed){
                     const czas=
                         stop.querySelector(".trasa-czas");
@@ -14823,6 +14811,95 @@ function dopasujSzerokoscKolumnyDoJednowyrazowych177(
     );
 }
 
+
+/* =========================================================
+   WERSJA 180 — PIERWSZY PRZYSTANEK PASAŻERSKI
+   =========================================================
+   TECH może istnieć wcześniej w danych, ale nie jest pokazany
+   pasażerowi. Dlatego o początku osi decyduje pierwszy
+   WIDOCZNY przystanek pasażerski w danej ciągłej trasie.
+   ========================================================= */
+
+function poprawPierwszyPasazerski180(
+    root=document
+){
+
+    root
+        .querySelectorAll(
+            ".trasa-kol"
+        )
+        .forEach(
+            kolumna=>{
+
+                const przystanki=
+                    Array.from(
+                        kolumna.querySelectorAll(
+                            ".trasa-stop"
+                        )
+                    )
+                    .filter(
+                        stop=>{
+
+                            /*
+                               Pomijamy elementy techniczne, jeśli z jakiegoś
+                               powodu są obecne w DOM.
+                            */
+                            const typ=
+                                (
+                                    stop.dataset.typ||
+                                    stop.getAttribute(
+                                        "data-typ"
+                                    )||
+                                    ""
+                                )
+                                .toUpperCase();
+
+                            if(typ==="TECH"){
+                                return false;
+                            }
+
+                            const style=
+                                getComputedStyle(
+                                    stop
+                                );
+
+                            return(
+                                style.display!=="none"&&
+                                style.visibility!=="hidden"
+                            );
+                        }
+                    );
+
+                /*
+                   Czyścimy poprzednie oznaczenie tylko w tej kolumnie.
+                */
+                kolumna
+                    .querySelectorAll(
+                        ".trasa-stop.pierwszy-pasazerski"
+                    )
+                    .forEach(
+                        stop=>
+                            stop.classList.remove(
+                                "pierwszy-pasazerski"
+                            )
+                    );
+
+                if(!przystanki.length){
+                    return;
+                }
+
+                /*
+                   Pierwszy widoczny pasażerski przystanek:
+                   linia zaczyna się od jego kropki i idzie w dół.
+                */
+                przystanki[0]
+                    .classList.add(
+                        "pierwszy-pasazerski"
+                    );
+            }
+        );
+}
+
 function ustawZawijanieNazwTrasy(columns){
     /*
        v176 — przed pomiarem zaznaczamy nazwy jednowyrazowe.
@@ -15048,6 +15125,54 @@ window.addEventListener(
     ()=>{
         requestAnimationFrame(
             odswiezSzerokoscJednowyrazowych177
+        );
+    }
+);
+
+
+
+/* =========================================================
+   WERSJA 180 — KOŃCOWE OZNACZENIE PIERWSZEGO PASAŻERSKIEGO
+   ========================================================= */
+function odswiezPierwszyPasazerski180(){
+
+    document
+        .querySelectorAll(
+            ".tabliczka"
+        )
+        .forEach(
+            tabliczka=>
+                poprawPierwszyPasazerski180(
+                    tabliczka
+                )
+        );
+}
+
+window.addEventListener(
+    "load",
+    ()=>{
+        requestAnimationFrame(
+            ()=>{
+                requestAnimationFrame(
+                    ()=>{
+                        odswiezPierwszyPasazerski180();
+
+                        setTimeout(
+                            odswiezPierwszyPasazerski180,
+                            100
+                        );
+                    }
+                );
+            }
+        );
+    }
+);
+
+window.addEventListener(
+    "resize",
+    ()=>{
+        requestAnimationFrame(
+            odswiezPierwszyPasazerski180
         );
     }
 );
