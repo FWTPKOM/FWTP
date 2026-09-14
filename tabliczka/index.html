@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 171
+     WERSJA: 172
      BAZA: 169
      DATA: 2026-09-14
      ========================================================= -->
@@ -1995,13 +1995,11 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
    Klasa jest nakładana parami przez JS.
 */
 .godzina-row.wiersz-dwuliniowy-cd {
-    min-height: 32px !important;
-    height: 32px !important;
+    align-items: stretch !important;
 }
 
+.godzina-row.wiersz-dwuliniowy-cd .godzina-cell,
 .godzina-row.wiersz-dwuliniowy-cd .minuty-cell {
-    min-height: 32px !important;
-    height: 32px !important;
     align-content: flex-start !important;
 }
 
@@ -2067,10 +2065,10 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 171
+   WERSJA: 172
    BAZA: 169
    ========================================================= */
-const WERSJA_TABLICZKI = "171";
+const WERSJA_TABLICZKI = "172";
 console.log("FWTP Tabliczka — wersja " + WERSJA_TABLICZKI + " (baza 169)");
 </script>
 
@@ -14507,7 +14505,7 @@ function wyrownajDwulinioweGodzinyCDoD(
     const dni=
         Array.from(
             tabliczka.querySelectorAll(
-                ".dzien"
+                ".rozklady-grid > .dzien"
             )
         );
 
@@ -14516,80 +14514,66 @@ function wyrownajDwulinioweGodzinyCDoD(
     }
 
     /*
-       Usuwamy wyłącznie klasy nadane przez tę funkcję.
+       Czyścimy poprzednie ręczne wysokości.
+       Najpierw każdy wiersz wraca do swojej naturalnej wysokości,
+       żeby można było prawidłowo wykryć, gdzie minuty rzeczywiście
+       zawijają się do dwóch wierszy.
     */
     tabliczka
         .querySelectorAll(
-            ".godzina-row.wiersz-dwuliniowy-cd"
+            ".godzina-row"
         )
         .forEach(
-            row=>
+            row=>{
+
                 row.classList.remove(
                     "wiersz-dwuliniowy-cd"
-                )
+                );
+
+                row.style.height="";
+                row.style.minHeight="";
+
+                const godzinaCell=
+                    row.querySelector(
+                        ".godzina-cell"
+                    );
+
+                const minutyCell=
+                    row.querySelector(
+                        ".minuty-cell"
+                    );
+
+                if(godzinaCell){
+                    godzinaCell.style.height="";
+                    godzinaCell.style.minHeight="";
+                }
+
+                if(minutyCell){
+                    minutyCell.style.height="";
+                    minutyCell.style.minHeight="";
+                }
+            }
         );
 
-    /*
-       W układzie z trzema tabelami:
-       A/B = pierwsza,
-       C   = przedostatnia,
-       D   = ostatnia.
-
-       W układzie z dwiema tabelami:
-       C = pierwsza,
-       D = druga.
-    */
-    const dzienC=
-        dni[
-            dni.length-2
-        ];
-
-    const dzienD=
-        dni[
-            dni.length-1
-        ];
-
-    if(
-        !dzienC||
-        !dzienD||
-        dzienC===dzienD
-    ){
-        return;
-    }
 
     const pobierzGodzine=
         row=>{
 
-            /*
-               Najpierw próbujemy typowych klas kolumny godziny.
-            */
             const komorka=
                 row.querySelector(
-                    ".godzina, .godzina-cell, .hour, .godz"
+                    ".godzina-cell"
                 );
 
-            let tekst=
+            const tekst=
                 (
                     komorka?.textContent||
                     ""
                 )
                 .trim();
 
-            /*
-               Fallback: pierwsza komórka / pierwszy element w wierszu.
-            */
-            if(!tekst){
-                tekst=
-                    (
-                        row.firstElementChild?.textContent||
-                        ""
-                    )
-                    .trim();
-            }
-
             const m=
                 tekst.match(
-                    /(?:^|\D)([0-2]?\d)(?:\D|$)/
+                    /^([0-2]?\d)$/
                 );
 
             return m
@@ -14602,83 +14586,165 @@ function wyrownajDwulinioweGodzinyCDoD(
                 : "";
         };
 
-    const mapaC=
+
+    /*
+       mapa:
+       "6" -> [wiersz z dnia powszedniego, wiersz z soboty, ...]
+    */
+    const mapa=
         new Map();
 
-    dzienC
-        .querySelectorAll(
-            ".godzina-row"
-        )
-        .forEach(
-            row=>{
+    dni.forEach(
+        dzien=>{
 
-                const godzina=
-                    pobierzGodzine(
-                        row
-                    );
+            dzien
+                .querySelectorAll(
+                    ".godzina-row"
+                )
+                .forEach(
+                    row=>{
 
-                if(godzina){
-                    mapaC.set(
-                        godzina,
-                        row
-                    );
-                }
+                        const godzina=
+                            pobierzGodzine(
+                                row
+                            );
+
+                        if(!godzina){
+                            return;
+                        }
+
+                        if(
+                            !mapa.has(
+                                godzina
+                            )
+                        ){
+                            mapa.set(
+                                godzina,
+                                []
+                            );
+                        }
+
+                        mapa
+                            .get(
+                                godzina
+                            )
+                            .push(
+                                row
+                            );
+                    }
+                );
+        }
+    );
+
+
+    /*
+       Dla każdej godziny mierzymy NAJWYŻSZY naturalny wiersz.
+       Jeśli np. godzina 6 w jednej tabeli ma 32 px, to wszystkie
+       pozostałe tabele z godziną 6 także dostają 32 px.
+    */
+    mapa.forEach(
+        rows=>{
+
+            if(rows.length<2){
+                return;
             }
-        );
 
-    dzienD
-        .querySelectorAll(
-            ".godzina-row"
-        )
-        .forEach(
-            rowD=>{
+            let maxWysokosc=16;
 
-                const minutyD=
-                    rowD.querySelector(
-                        ".minuty-cell"
-                    );
+            rows.forEach(
+                row=>{
 
-                if(!minutyD){
-                    return;
+                    const minuty=
+                        row.querySelector(
+                            ".minuty-cell"
+                        );
+
+                    /*
+                       offsetHeight daje aktualną wysokość wiersza,
+                       scrollHeight łapie także zawiniętą zawartość.
+                    */
+                    const wysRow=
+                        Math.max(
+                            row.offsetHeight,
+                            row.scrollHeight
+                        );
+
+                    const wysMin=
+                        minuty
+                            ? Math.max(
+                                minuty.offsetHeight,
+                                minuty.scrollHeight
+                              )
+                            : 16;
+
+                    maxWysokosc=
+                        Math.max(
+                            maxWysokosc,
+                            wysRow,
+                            wysMin
+                        );
                 }
+            );
 
-                /*
-                   Wykrywamy prawdziwe 2 wiersze po wysokości zawartości.
-                   Typowy pojedynczy wiersz ma około 16 px.
-                */
-                const dwuwiersz=
-                    minutyD.scrollHeight>20||
-                    rowD.scrollHeight>20;
-
-                if(!dwuwiersz){
-                    return;
-                }
-
-                const godzina=
-                    pobierzGodzine(
-                        rowD
-                    );
-
-                if(!godzina){
-                    return;
-                }
-
-                rowD.classList.add(
-                    "wiersz-dwuliniowy-cd"
+            /*
+               W tym układzie pojedynczy wiersz = 16 px,
+               dwa wiersze = 32 px. Zaokrąglamy do wielokrotności 16,
+               żeby linie tabel były idealnie równe.
+            */
+            maxWysokosc=
+                Math.max(
+                    16,
+                    Math.ceil(
+                        maxWysokosc/16
+                    )*16
                 );
 
-                const rowC=
-                    mapaC.get(
-                        godzina
-                    );
+            if(maxWysokosc<=16){
+                return;
+            }
 
-                if(rowC){
-                    rowC.classList.add(
+            rows.forEach(
+                row=>{
+
+                    row.classList.add(
                         "wiersz-dwuliniowy-cd"
                     );
+
+                    row.style.height=
+                        maxWysokosc+"px";
+
+                    row.style.minHeight=
+                        maxWysokosc+"px";
+
+                    const godzinaCell=
+                        row.querySelector(
+                            ".godzina-cell"
+                        );
+
+                    const minutyCell=
+                        row.querySelector(
+                            ".minuty-cell"
+                        );
+
+                    if(godzinaCell){
+                        godzinaCell.style.height=
+                            maxWysokosc+"px";
+
+                        godzinaCell.style.minHeight=
+                            maxWysokosc+"px";
+                    }
+
+                    if(minutyCell){
+                        minutyCell.style.height=
+                            maxWysokosc+"px";
+
+                        minutyCell.style.minHeight=
+                            maxWysokosc+"px";
+                    }
                 }
-            }
-        );
+            );
+        }
+    );
 }
 
 
@@ -14802,7 +14868,14 @@ window.addEventListener(
         requestAnimationFrame(
             ()=>{
                 requestAnimationFrame(
-                    zastosujPoprawkiWersji171
+                    ()=>{
+                        zastosujPoprawkiWersji171();
+
+                        setTimeout(
+                            zastosujPoprawkiWersji171,
+                            60
+                        );
+                    }
                 );
             }
         );
@@ -14813,7 +14886,14 @@ window.addEventListener(
     "resize",
     ()=>{
         requestAnimationFrame(
-            zastosujPoprawkiWersji171
+            ()=>{
+                zastosujPoprawkiWersji171();
+
+                setTimeout(
+                    zastosujPoprawkiWersji171,
+                    60
+                );
+            }
         );
     }
 );
