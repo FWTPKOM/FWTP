@@ -1,4 +1,10 @@
 <!DOCTYPE html>
+<!-- =========================================================
+     FWTP — TABLICZKA PRZYSTANKOWA
+     WERSJA: 177
+     DATA: 2026-09-14
+     ========================================================= -->
+
 <html lang="pl">
 
 <head>
@@ -2236,6 +2242,30 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     min-height: 16px !important;
 }
 
+
+/* =========================================================
+   v177 — LISTA PRZYSTANKÓW NIE WYCHODZI POZA KARTKĘ
+   ========================================================= */
+
+.trasa-columns {
+    max-height: 100% !important;
+    overflow: hidden !important;
+}
+
+.trasa-kol {
+    max-height: 100% !important;
+    box-sizing: border-box !important;
+}
+
+/*
+   To nie ucina poprawnie podzielonej listy.
+   Jest tylko ostatnim zabezpieczeniem przed wizualnym wyjściem
+   elementów poza obrys tabliczki w trakcie przeliczania.
+*/
+.panel-prawy {
+    overflow: hidden !important;
+}
+
 </style>
 </head>
 
@@ -2298,6 +2328,9 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js"></script>
 
 <script>
+const WERSJA_TABLICZKI = "177";
+console.log("FWTP Tabliczka — wersja " + WERSJA_TABLICZKI);
+
 
 /* =========================================================
    ZMIENNE
@@ -14971,88 +15004,356 @@ function dopasujKolumnyTrasy() {
         return;
     }
 
-    // Jeśli się nie mieści, przechodzimy na szeroki panel 2-kolumnowy.
-    tabliczka.classList.add("trasa-2-kol");
-    columns.className = "trasa-columns cols-2";
-    ustawNaglowekTrasy(2);
+    // Jeśli jedna kolumna się nie mieści, dzielimy trasę
+    // po REALNEJ wysokości wszystkich elementów listy.
+    // Uwzględniamy także separatory wariantów i nazwy dwuliniowe.
 
-    // Do pierwszej kolumny tymczasowo wkładamy wszystko,
-    // aby sprawdzić ile kolejnych przystanków realnie się mieści.
-    columns.innerHTML =
+    const htmlPelnejTrasy=
         renderTrasaKolumna(
             { start: 0, lista: lista },
             czasy,
             pierwszyIndexTrasy,
             ostatniIndexTrasy,
             true
-        ) +
-        '<div class="trasa-kol trasa-kol-pusta"></div>';
-
-    ustawZawijanieNazwTrasy(columns);
-
-    const pierwszaKolumna = columns.querySelector(".trasa-kol");
-    const wiersze = Array.from(
-        pierwszaKolumna?.querySelectorAll(".trasa-stop") || []
-    );
-
-    if (!pierwszaKolumna || !wiersze.length) return;
-
-    const stylKolumny = getComputedStyle(pierwszaKolumna);
-    const paddingBottom = parseFloat(stylKolumny.paddingBottom || 0);
-
-    const maxDol =
-        pierwszaKolumna.getBoundingClientRect().top +
-        columns.clientHeight -
-        paddingBottom;
-
-    let ileSieMiesci = 0;
-
-    for (const wiersz of wiersze) {
-        const rect = wiersz.getBoundingClientRect();
-
-        if (rect.bottom <= maxDol + 0.5) {
-            ileSieMiesci++;
-        } else {
-            break;
-        }
-    }
-
-    ileSieMiesci = Math.max(
-        1,
-        Math.min(
-            ileSieMiesci,
-            lista.length - 1
-        )
-    );
-
-    const pierwszaLista = lista.slice(0, ileSieMiesci);
-    const drugaLista = lista.slice(ileSieMiesci);
-
-    // Pierwsza kolumna = maksymalnie dużo przystanków.
-    // Druga kolumna = wyłącznie te, które się nie zmieściły.
-    columns.innerHTML =
-        renderTrasaKolumna(
-            {
-                start: 0,
-                lista: pierwszaLista
-            },
-            czasy,
-            pierwszyIndexTrasy,
-            ostatniIndexTrasy,
-            false
-        ) +
-        renderTrasaKolumna(
-            {
-                start: ileSieMiesci,
-                lista: drugaLista
-            },
-            czasy,
-            pierwszyIndexTrasy,
-            ostatniIndexTrasy,
-            true
         );
 
-    ustawZawijanieNazwTrasy(columns);
+    const parser=
+        document.createElement("div");
+
+    parser.innerHTML=
+        htmlPelnejTrasy;
+
+    const wszystkieHtml=
+        Array.from(
+            parser.querySelector(
+                ".trasa-lista"
+            )?.children||
+            []
+        )
+        .map(
+            el=>el.outerHTML
+        );
+
+    if(!wszystkieHtml.length){
+        return;
+    }
+
+    const podzielStandardowaTrase=
+        ileKolumn=>{
+
+            tabliczka.classList.remove(
+                "trasa-2-kol",
+                "trasa-3-kol"
+            );
+
+            if(ileKolumn===2){
+                tabliczka.classList.add(
+                    "trasa-2-kol"
+                );
+            }
+            else if(ileKolumn===3){
+                tabliczka.classList.add(
+                    "trasa-3-kol"
+                );
+            }
+
+            columns.className=
+                "trasa-columns cols-"+
+                ileKolumn;
+
+            ustawNaglowekTrasy(
+                ileKolumn
+            );
+
+            /*
+               Wszystko tymczasowo ląduje w pierwszej kolumnie,
+               żeby zmierzyć REALNE wysokości po zawinięciu.
+            */
+            columns.innerHTML=
+                '<div class="trasa-kol trasa-kol-pomiar">'+
+                    '<ul class="trasa-lista">'+
+                        wszystkieHtml.join("")+
+                    '</ul>'+
+                '</div>'+
+                Array.from(
+                    {
+                        length:
+                            Math.max(
+                                0,
+                                ileKolumn-1
+                            )
+                    },
+                    ()=>(
+                        '<div class="trasa-kol trasa-kol-pusta"></div>'
+                    )
+                ).join("");
+
+            ustawZawijanieNazwTrasy(
+                columns
+            );
+
+            const kolumna=
+                columns.querySelector(
+                    ".trasa-kol-pomiar"
+                );
+
+            const dzieci=
+                Array.from(
+                    kolumna?.querySelector(
+                        ".trasa-lista"
+                    )?.children||
+                    []
+                );
+
+            if(
+                !kolumna||
+                !dzieci.length
+            ){
+                return null;
+            }
+
+            const styl=
+                getComputedStyle(
+                    kolumna
+                );
+
+            const dostepna=
+                columns.clientHeight-
+                parseFloat(
+                    styl.paddingTop||0
+                )-
+                parseFloat(
+                    styl.paddingBottom||0
+                )-
+                1;
+
+            const wysokosci=
+                dzieci.map(
+                    dziecko=>{
+
+                        const rect=
+                            dziecko.getBoundingClientRect();
+
+                        const css=
+                            getComputedStyle(
+                                dziecko
+                            );
+
+                        return(
+                            rect.height+
+                            parseFloat(
+                                css.marginTop||0
+                            )+
+                            parseFloat(
+                                css.marginBottom||0
+                            )
+                        );
+                    }
+                );
+
+            const grupy=[
+                []
+            ];
+
+            let suma=0;
+            let overflow=false;
+
+            for(
+                let i=0;
+                i<dzieci.length;
+                i++
+            ){
+
+                const dziecko=
+                    dzieci[i];
+
+                const wysokosc=
+                    Math.max(
+                        0,
+                        wysokosci[i]||0
+                    );
+
+                /*
+                   Separator "Trasa w kursach..." nie może zostać
+                   sam na samym dole kolumny — rezerwujemy miejsce
+                   także na pierwszy element po nim.
+                */
+                let wymagane=
+                    wysokosc;
+
+                if(
+                    dziecko
+                        ?.classList
+                        ?.contains(
+                            "trasa-separator"
+                        )&&
+                    i+1<dzieci.length
+                ){
+                    wymagane+=
+                        Math.max(
+                            0,
+                            wysokosci[i+1]||0
+                        );
+                }
+
+                if(
+                    grupy[
+                        grupy.length-1
+                    ].length>0&&
+                    suma+
+                        wymagane>
+                        dostepna
+                ){
+
+                    if(
+                        grupy.length<
+                        ileKolumn
+                    ){
+                        grupy.push(
+                            []
+                        );
+
+                        suma=0;
+                    }
+                    else{
+                        overflow=true;
+                    }
+                }
+
+                grupy[
+                    grupy.length-1
+                ].push(
+                    wszystkieHtml[i]
+                );
+
+                suma+=
+                    wysokosc;
+            }
+
+            /*
+               Render finalny i jeszcze jedna kontrola każdej kolumny.
+            */
+            columns.innerHTML=
+                grupy
+                    .map(
+                        grupa=>
+                            '<div class="trasa-kol">'+
+                                '<ul class="trasa-lista">'+
+                                    grupa.join("")+
+                                '</ul>'+
+                            '</div>'
+                    )
+                    .join("");
+
+            ustawZawijanieNazwTrasy(
+                columns
+            );
+
+            for(
+                const kol
+                of Array.from(
+                    columns.querySelectorAll(
+                        ".trasa-kol"
+                    )
+                )
+            ){
+                if(
+                    kol.scrollHeight>
+                    columns.clientHeight+2
+                ){
+                    overflow=true;
+                    break;
+                }
+            }
+
+            return{
+                grupy,
+                overflow
+            };
+        };
+
+
+    /*
+       Najpierw 2 kolumny.
+       Trzecia dopiero wtedy, gdy 2 naprawdę nie wystarczą.
+    */
+    let wynik=
+        podzielStandardowaTrase(
+            2
+        );
+
+    let ileKolumn=2;
+
+    if(
+        !wynik||
+        wynik.overflow
+    ){
+        wynik=
+            podzielStandardowaTrase(
+                3
+            );
+
+        ileKolumn=3;
+    }
+
+    if(!wynik){
+        return;
+    }
+
+    const grupy=
+        wynik.grupy.filter(
+            grupa=>
+                grupa.length
+        );
+
+    ileKolumn=
+        Math.max(
+            1,
+            Math.min(
+                3,
+                grupy.length
+            )
+        );
+
+    tabliczka.classList.remove(
+        "trasa-2-kol",
+        "trasa-3-kol"
+    );
+
+    if(ileKolumn===2){
+        tabliczka.classList.add(
+            "trasa-2-kol"
+        );
+    }
+    else if(ileKolumn===3){
+        tabliczka.classList.add(
+            "trasa-3-kol"
+        );
+    }
+
+    columns.className=
+        "trasa-columns cols-"+
+        ileKolumn;
+
+    ustawNaglowekTrasy(
+        ileKolumn
+    );
+
+    columns.innerHTML=
+        grupy
+            .map(
+                grupa=>
+                    '<div class="trasa-kol">'+
+                        '<ul class="trasa-lista">'+
+                            grupa.join("")+
+                        '</ul>'+
+                    '</div>'
+            )
+            .join("");
+
+    ustawZawijanieNazwTrasy(
+        columns
+    );
 }
 
 
