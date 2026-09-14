@@ -9827,31 +9827,93 @@ function indeksAktywnegoNaWyswietlanejTrasie(
             ?.przystanki||
         [];
 
-    const wybranyPrzystanek=
+    const wybrany=
         baza[
             aktualnyPrzystanek
         ];
 
-    if(!wybranyPrzystanek){
+    if(!wybrany){
         return aktualnyPrzystanek;
     }
 
     const nazwa=
         normalizuj(
-            wybranyPrzystanek?.nazwa
+            wybrany?.nazwa
         );
 
     const nr=
         String(
-            wybranyPrzystanek?.nr||""
+            wybrany?.nr||""
         ).trim();
 
-    /*
-       Najpierw dokładne dopasowanie NAZWA + NUMER.
-       To jest najważniejsza zmiana.
+    if(!nazwa){
+        return aktualnyPrzystanek;
+    }
 
-       Nie bierzemy już pierwszego elementu tylko dlatego,
-       że ma ten sam index albo tę samą nazwę.
+    /*
+       KLUCZOWA ZASADA — taka sama dla wszystkich linii:
+
+       jeżeli ta sama NAZWA występuje kilka razy w kierunku,
+       nie wolno najpierw brać elementu tylko dlatego, że ma
+       ten sam indeks.
+
+       Najpierw ustalamy, KTÓRE to wystąpienie nazwy
+       w kierunku bazowym.
+
+       Przykład 170:
+           1. WIERNA
+           ...
+           2. WIERNA 02  <- wybrany idx:21
+
+       => aktywne ma być DRUGIE widoczne WIERNA.
+    */
+    let numerWystapieniaNazwy=0;
+
+    for(
+        let i=0;
+        i<aktualnyPrzystanek;
+        i++
+    ){
+        if(
+            normalizuj(
+                baza[i]?.nazwa
+            )===
+            nazwa
+        ){
+            numerWystapieniaNazwy++;
+        }
+    }
+
+    const kandydaciPoNazwie=
+        source.filter(
+            element=>
+                normalizuj(
+                    element?.p?.nazwa
+                )===
+                nazwa
+        );
+
+    /*
+       Jeżeli na finalnej liście istnieje odpowiednia liczba
+       wystąpień tej nazwy, wybieramy dokładnie to samo
+       wystąpienie co w kierunku bazowym.
+
+       To jest ważniejsze niż sam index oraz niż samo nr,
+       bo po składaniu wariantów dwa logiczne wpisy mogą mieć
+       indeksy/numerację pochodzącą z różnych przebiegów.
+    */
+    if(
+        kandydaciPoNazwie.length>
+        numerWystapieniaNazwy
+    ){
+        return kandydaciPoNazwie[
+            numerWystapieniaNazwy
+        ].index;
+    }
+
+    /*
+       Fallback 1: dokładna nazwa + numer.
+       Przy nazwie występującej tylko raz zachowuje zwykłą logikę.
     */
     const dokladne=
         source.filter(
@@ -9866,104 +9928,15 @@ function indeksAktywnegoNaWyswietlanejTrasie(
                     nr
         );
 
-    if(dokladne.length===1){
-        return dokladne[0].index;
+    if(dokladne.length){
+        return dokladne[
+            dokladne.length-1
+        ].index;
     }
 
     /*
-       Jeżeli ta sama nazwa + numer występują kilka razy,
-       ustalamy które to jest wystąpienie w bazowym kierunku.
-    */
-    if(dokladne.length>1){
-
-        let wystapienieWybranego=0;
-
-        for(
-            let i=0;
-            i<aktualnyPrzystanek;
-            i++
-        ){
-            const p=
-                baza[i];
-
-            if(
-                normalizuj(
-                    p?.nazwa
-                )===
-                    nazwa&&
-                String(
-                    p?.nr||""
-                ).trim()===
-                    nr
-            ){
-                wystapienieWybranego++;
-            }
-        }
-
-        return(
-            dokladne[
-                Math.min(
-                    wystapienieWybranego,
-                    dokladne.length-1
-                )
-            ]?.index
-            ??
-            dokladne[0].index
-        );
-    }
-
-    /*
-       Jeżeli dokładne NAZWA + NUMER zostało usunięte przez
-       wcześniejszą logikę wariantów, dopiero wtedy próbujemy
-       dopasowania po samej nazwie.
-
-       Ale również wybieramy odpowiednie wystąpienie tej nazwy,
-       a nie zawsze pierwsze.
-    */
-    const poNazwie=
-        source.filter(
-            element=>
-                normalizuj(
-                    element?.p?.nazwa
-                )===
-                    nazwa
-        );
-
-    if(poNazwie.length){
-
-        let wystapienieNazwy=0;
-
-        for(
-            let i=0;
-            i<aktualnyPrzystanek;
-            i++
-        ){
-            if(
-                normalizuj(
-                    baza[i]?.nazwa
-                )===
-                nazwa
-            ){
-                wystapienieNazwy++;
-            }
-        }
-
-        return(
-            poNazwie[
-                Math.min(
-                    wystapienieNazwy,
-                    poNazwie.length-1
-                )
-            ]?.index
-            ??
-            poNazwie[
-                poNazwie.length-1
-            ].index
-        );
-    }
-
-    /*
-       Ostateczny fallback.
+       Fallback 2: dokładny indeks, jeżeli nazwa nie została
+       odnaleziona po wcześniejszych filtrach.
     */
     const poIndeksie=
         source.find(
@@ -9972,11 +9945,14 @@ function indeksAktywnegoNaWyswietlanejTrasie(
                 aktualnyPrzystanek
         );
 
-    return(
-        poIndeksie?.index
-        ??
-        aktualnyPrzystanek
-    );
+    if(poIndeksie){
+        return poIndeksie.index;
+    }
+
+    /*
+       Ostatecznie zwracamy indeks z URL.
+    */
+    return aktualnyPrzystanek;
 }
 
 
@@ -10283,8 +10259,9 @@ function renderTrasaKolumna(
                     if(!przed){
 
                         /*
-                           Wybrany przystanek na tabliczce zawsze
-                           ma czas przejazdu 0.
+                           Aktywny WIDOCZNY przystanek zawsze ma 0 min.
+                           Dotyczy również drugiego wystąpienia tej samej
+                           nazwy, np. WIERNA 02.
                         */
                         if(wybrany){
                             czas=0;
