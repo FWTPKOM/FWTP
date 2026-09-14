@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 184
+     WERSJA: 185
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2221,12 +2221,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 184
+   WERSJA: 185
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "184";
+const WERSJA_TABLICZKI = "185";
 console.log(
-    "FWTP Tabliczka — wersja 184 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 185 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -13549,6 +13549,10 @@ function wyrownajWysokosciGodzinMiedzyDniami(
     const mapa=
         new Map();
 
+    /*
+       Najpierw zerujemy wcześniejsze wymuszenia wysokości,
+       żeby pomiar był rzeczywisty.
+    */
     dni.forEach(
         dzien=>{
 
@@ -13563,13 +13567,32 @@ function wyrownajWysokosciGodzinMiedzyDniami(
                             "wiersz-dwuliniowy"
                         );
 
+                        row.style.height="";
+                        row.style.minHeight="";
+
+                        const godzinaCell=
+                            row.querySelector(
+                                ".godzina-cell"
+                            );
+
+                        const minutyCell=
+                            row.querySelector(
+                                ".minuty-cell"
+                            );
+
+                        if(godzinaCell){
+                            godzinaCell.style.height="";
+                            godzinaCell.style.minHeight="";
+                        }
+
+                        if(minutyCell){
+                            minutyCell.style.height="";
+                            minutyCell.style.minHeight="";
+                        }
+
                         const godzina=
                             String(
-                                row
-                                    .querySelector(
-                                        ".godzina-cell"
-                                    )
-                                    ?.textContent||
+                                godzinaCell?.textContent||
                                 ""
                             )
                             .trim();
@@ -13593,10 +13616,21 @@ function wyrownajWysokosciGodzinMiedzyDniami(
         }
     );
 
+    /*
+       Wymuszamy reflow po zdjęciu wcześniejszych wysokości.
+    */
+    void tabliczka.offsetHeight;
+
+    /*
+       Dla każdej godziny bierzemy największą rzeczywistą
+       wysokość z dowolnego typu dnia i nadajemy ją wszystkim.
+       Dzięki temu np. 5:00, 6:00, 7:00 itd. zawsze leżą
+       dokładnie na tej samej wysokości w sąsiednich tabelach.
+    */
     mapa.forEach(
         rows=>{
 
-            let potrzebaDwoch=false;
+            let maxH=16;
 
             rows.forEach(
                 row=>{
@@ -13606,34 +13640,90 @@ function wyrownajWysokosciGodzinMiedzyDniami(
                             ".minuty-cell"
                         );
 
-                    if(!minuty){
-                        return;
-                    }
-
-                    /*
-                       Jeżeli zawartość jest wyższa niż pojedynczy wiersz,
-                       to znaczy, że minuty zawinęły się do 2 linii.
-                    */
-                    const h=
-                        Math.max(
-                            minuty.scrollHeight,
-                            minuty.getBoundingClientRect().height
+                    const godzina=
+                        row.querySelector(
+                            ".godzina-cell"
                         );
 
-                    if(h>18){
-                        potrzebaDwoch=true;
+                    const h=
+                        Math.max(
+                            row.scrollHeight||0,
+                            row.getBoundingClientRect().height||0,
+                            minuty?.scrollHeight||0,
+                            minuty?.getBoundingClientRect().height||0,
+                            godzina?.scrollHeight||0,
+                            godzina?.getBoundingClientRect().height||0
+                        );
+
+                    if(h>maxH){
+                        maxH=h;
                     }
                 }
             );
 
-            if(potrzebaDwoch){
-                rows.forEach(
-                    row=>
+            /*
+               Zaokrąglenie do pełnego piksela zapobiega
+               drobnym różnicom 0.5 px między kolumnami.
+            */
+            maxH=
+                Math.ceil(
+                    maxH
+                );
+
+            /*
+               Jeśli choć jeden wiersz faktycznie jest dwuliniowy,
+               zachowujemy dotychczasową klasę 32 px.
+            */
+            if(maxH>18){
+                maxH=
+                    Math.max(
+                        32,
+                        maxH
+                    );
+            }
+
+            rows.forEach(
+                row=>{
+
+                    row.style.height=
+                        maxH+"px";
+
+                    row.style.minHeight=
+                        maxH+"px";
+
+                    if(maxH>18){
                         row.classList.add(
                             "wiersz-dwuliniowy"
-                        )
-                );
-            }
+                        );
+                    }
+
+                    const godzina=
+                        row.querySelector(
+                            ".godzina-cell"
+                        );
+
+                    const minuty=
+                        row.querySelector(
+                            ".minuty-cell"
+                        );
+
+                    if(godzina){
+                        godzina.style.height=
+                            maxH+"px";
+
+                        godzina.style.minHeight=
+                            maxH+"px";
+                    }
+
+                    if(minuty){
+                        minuty.style.height=
+                            maxH+"px";
+
+                        minuty.style.minHeight=
+                            maxH+"px";
+                    }
+                }
+            );
         }
     );
 }
@@ -13727,12 +13817,37 @@ function ustawSzerokoscDniaPowszedniego184(
     if(
         typeof wyrownajWysokosciGodzinMiedzyDniami==="function"
     ){
-        wyrownajWysokosciGodzinMiedzyDniami(
+        wymusRowneGodziny185(
             tabliczka
         );
     }
 }
 
+
+
+function wymusRowneGodziny185(
+    tabliczka
+){
+    if(!tabliczka){
+        return;
+    }
+
+    requestAnimationFrame(
+        ()=>{
+            wyrownajWysokosciGodzinMiedzyDniami(
+                tabliczka
+            );
+
+            requestAnimationFrame(
+                ()=>{
+                    wyrownajWysokosciGodzinMiedzyDniami(
+                        tabliczka
+                    );
+                }
+            );
+        }
+    );
+}
 
 function zastosujEtapyRozkladu184(){
 
@@ -13793,7 +13908,7 @@ function zastosujEtapyRozkladu184(){
                     if(
                         typeof wyrownajWysokosciGodzinMiedzyDniami==="function"
                     ){
-                        wyrownajWysokosciGodzinMiedzyDniami(
+                        wymusRowneGodziny185(
                             tabliczka
                         );
                     }
@@ -15793,6 +15908,46 @@ window.addEventListener(
                     80
                 );
             }
+        );
+    }
+);
+
+
+
+/* =========================================================
+   WERSJA 185 — KOŃCOWE WYRÓWNANIE WIERSZY GODZIN
+   ========================================================= */
+
+function odswiezRowneGodziny185(){
+
+    document
+        .querySelectorAll(
+            ".tabliczka"
+        )
+        .forEach(
+            tabliczka=>
+                wymusRowneGodziny185(
+                    tabliczka
+                )
+        );
+}
+
+window.addEventListener(
+    "load",
+    ()=>{
+        setTimeout(
+            odswiezRowneGodziny185,
+            180
+        );
+    }
+);
+
+window.addEventListener(
+    "resize",
+    ()=>{
+        setTimeout(
+            odswiezRowneGodziny185,
+            100
         );
     }
 );
