@@ -10955,6 +10955,64 @@ function renderTrasaKolumna(
             pelnaLista
         );
 
+    /*
+       =========================================================
+       WYJĄTEK TYLKO DLA POCZĄTKU WŁASNEGO WARIANTU
+       =========================================================
+
+       Wersja 154 miała poprawną całą logikę pozostałych linii.
+       Problem dotyczył tylko przypadku takiego jak SADYBA 05:
+
+       - wybrany dokładny słupek jest początkiem swoich kursów,
+       - wcześniejsza gałąź zostaje prawidłowo odcięta,
+       - po scaleniu wariantów na początku finalnej listy zostaje
+         logicznie ten sam przystanek SADYBA, ale jego `index`
+         może pochodzić z drugiego wpisu tej samej nazwy.
+
+       Nie zmieniamy więc globalnego sposobu zaznaczania aktywnego.
+       Tworzymy tylko jeden lokalny fallback:
+       jeśli dokładnego `aktualnyPrzystanek` nie ma już na finalnej
+       liście, a aktywny jest początkiem swoich kursów, wtedy pierwszy
+       element finalnej listy o tej samej nazwie traktujemy jako aktywny.
+    */
+    const bazaAktywna=
+        kierunekBazowy()
+            ?.przystanki?.[
+                aktualnyPrzystanek
+            ]||
+        null;
+
+    const finalMaDokladnyAktywny=
+        pelnaLista.some(
+            element=>
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
+        );
+
+    let awaryjnaPozycjaPoczatkuWariantu=
+        -1;
+
+    if(
+        !finalMaDokladnyAktywny&&
+        bazaAktywna&&
+        czyAktywnyPrzystanekJestPoczatkiemSwoichKursow()
+    ){
+        awaryjnaPozycjaPoczatkuWariantu=
+            pelnaLista.findIndex(
+                element=>
+                    normalizuj(
+                        element?.p?.nazwa
+                    )===
+                    normalizuj(
+                        bazaAktywna?.nazwa
+                    )
+            );
+    }
+
     return(
         '<div class="trasa-kol">'+
         '<ul class="trasa-lista">'+
@@ -11057,19 +11115,9 @@ function renderTrasaKolumna(
                        w kierunku bazowym, z którego renderowany jest
                        ten wiersz.
                     */
-                    /*
-                       Po wcześniejszych filtrach i scalaniu wariantów
-                       indeks elementu nie zawsze odpowiada już pozycji
-                       na FINALNEJ liście.
-
-                       Dlatego "przed aktywnym" liczymy względem
-                       aktywnej pozycji na finalnej liście.
-                    */
                     const przed=
-                        aktywnaPozycjaWyswietlana>=0&&
-                        pozycjaWidoczna>=0&&
-                        pozycjaWidoczna<
-                            aktywnaPozycjaWyswietlana;
+                        Number(index)<
+                        Number(aktualnyPrzystanek);
 
                     /*
                        Opisy wariantów trasy pokazujemy tylko od
@@ -11108,20 +11156,16 @@ function renderTrasaKolumna(
                        niezależnie od tego, jak lista wariantów została
                        później przefiltrowana.
                     */
-                    /*
-                       Aktywny przystanek wskazujemy przez finalną
-                       pozycję wyliczoną z dokładnej nazwy + numeru
-                       i numeru wystąpienia.
-
-                       To zachowuje:
-                       - SADYBA 05 jako aktywną po przycięciu gałęzi,
-                       - drugą WIERNA jako drugą WIERNA,
-                       - unikalną LNIANA jako LNIANA.
-                    */
                     const wybrany=
-                        aktywnaPozycjaWyswietlana>=0&&
-                        pozycjaWidoczna===
-                            aktywnaPozycjaWyswietlana;
+                        (
+                            Number(index)===
+                            Number(aktualnyPrzystanek)
+                        )||
+                        (
+                            awaryjnaPozycjaPoczatkuWariantu>=0&&
+                            pozycjaWidoczna===
+                                awaryjnaPozycjaPoczatkuWariantu
+                        );
 
                     if(
                         czyBiezacyPrzystanekDwukierunkowy()
