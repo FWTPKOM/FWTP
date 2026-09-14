@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 172
+     WERSJA: 173
      BAZA: 169
      DATA: 2026-09-14
      ========================================================= -->
@@ -2003,6 +2003,41 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     align-content: flex-start !important;
 }
 
+
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 173
+   - wyrównanie tych samych godzin tylko w obrębie jednej kartki
+   - dwuliniowe nazwy przystanków: line-height 0.9
+   ========================================================= */
+
+/*
+   Tylko nazwy faktycznie oznaczone jako zawijane/dwuliniowe.
+   Jednoliniowe pozostają bez zmian.
+*/
+.trasa-nazwa.zawijaj:not(.nazwa-jednowyrazowa) {
+    line-height: 0.9 !important;
+}
+
+/*
+   Jeżeli dwuliniowa nazwa ma osobną klasę w wariantach/rozszerzeniach,
+   też zachowujemy ten sam odstęp między liniami.
+*/
+.trasa-extra-stop .trasa-nazwa.zawijaj:not(.nazwa-jednowyrazowa) {
+    line-height: 0.9 !important;
+}
+
+/*
+   Wyrównane wiersze godzin na tej samej kartce.
+*/
+.godzina-row.wiersz-wyrownany-na-kartce {
+    align-items: stretch !important;
+}
+
+.godzina-row.wiersz-wyrownany-na-kartce .godzina-cell,
+.godzina-row.wiersz-wyrownany-na-kartce .minuty-cell {
+    align-content: flex-start !important;
+}
+
 </style>
 </head>
 
@@ -2065,10 +2100,10 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 172
+   WERSJA: 173
    BAZA: 169
    ========================================================= */
-const WERSJA_TABLICZKI = "172";
+const WERSJA_TABLICZKI = "173";
 console.log("FWTP Tabliczka — wersja " + WERSJA_TABLICZKI + " (baza 169)");
 </script>
 
@@ -14488,7 +14523,7 @@ function oznaczJednowyrazoweNazwyPrzystankow(
 
 
 /* =========================================================
-   WERSJA 171 — WYRÓWNANIE GODZIN C / D
+   WERSJA 173 — WYRÓWNANIE GODZIN NA TEJ SAMEJ KARTCE
    =========================================================
    Jeśli minuty w godzinie X w D układają się w 2 wierszach,
    godzina X w C dostaje dokładnie taką samą wysokość.
@@ -14502,6 +14537,10 @@ function wyrownajDwulinioweGodzinyCDoD(
         return;
     }
 
+    /*
+       Bierzemy TYLKO dni znajdujące się na tej konkretnej kartce.
+       Dzięki temu wyrównanie nie przechodzi na drugą stronę / kartkę.
+    */
     const dni=
         Array.from(
             tabliczka.querySelectorAll(
@@ -14514,20 +14553,18 @@ function wyrownajDwulinioweGodzinyCDoD(
     }
 
     /*
-       Czyścimy poprzednie ręczne wysokości.
-       Najpierw każdy wiersz wraca do swojej naturalnej wysokości,
-       żeby można było prawidłowo wykryć, gdzie minuty rzeczywiście
-       zawijają się do dwóch wierszy.
+       Najpierw usuwamy tylko nasze wcześniejsze wyrównanie,
+       żeby sprawdzić rzeczywistą, naturalną wysokość wierszy.
     */
     tabliczka
         .querySelectorAll(
-            ".godzina-row"
+            ".godzina-row.wiersz-wyrownany-na-kartce"
         )
         .forEach(
             row=>{
 
                 row.classList.remove(
-                    "wiersz-dwuliniowy-cd"
+                    "wiersz-wyrownany-na-kartce"
                 );
 
                 row.style.height="";
@@ -14555,18 +14592,20 @@ function wyrownajDwulinioweGodzinyCDoD(
             }
         );
 
-
+    /*
+       Zwraca numer godziny z wiersza, np. "7".
+    */
     const pobierzGodzine=
         row=>{
 
-            const komorka=
+            const cell=
                 row.querySelector(
                     ".godzina-cell"
                 );
 
             const tekst=
                 (
-                    komorka?.textContent||
+                    cell?.textContent||
                     ""
                 )
                 .trim();
@@ -14586,12 +14625,12 @@ function wyrownajDwulinioweGodzinyCDoD(
                 : "";
         };
 
-
     /*
-       mapa:
-       "6" -> [wiersz z dnia powszedniego, wiersz z soboty, ...]
+       Grupujemy wiersze po godzinie:
+       7 -> [7 z dnia powszedniego, 7 z soboty, 7 z niedzieli...]
+       ale WYŁĄCZNIE w obrębie tej tabliczki/kartki.
     */
-    const mapa=
+    const mapaGodzin=
         new Map();
 
     dni.forEach(
@@ -14614,17 +14653,17 @@ function wyrownajDwulinioweGodzinyCDoD(
                         }
 
                         if(
-                            !mapa.has(
+                            !mapaGodzin.has(
                                 godzina
                             )
                         ){
-                            mapa.set(
+                            mapaGodzin.set(
                                 godzina,
                                 []
                             );
                         }
 
-                        mapa
+                        mapaGodzin
                             .get(
                                 godzina
                             )
@@ -14636,20 +14675,21 @@ function wyrownajDwulinioweGodzinyCDoD(
         }
     );
 
-
     /*
-       Dla każdej godziny mierzymy NAJWYŻSZY naturalny wiersz.
-       Jeśli np. godzina 6 w jednej tabeli ma 32 px, to wszystkie
-       pozostałe tabele z godziną 6 także dostają 32 px.
+       Dla każdej godziny:
+       - mierzymy każdy wiersz,
+       - jeśli którykolwiek jest wyższy (np. ma 2 rzędy minut),
+         wszystkie pozostałe wiersze tej samej godziny
+         na tej samej kartce dostają identyczną wysokość.
     */
-    mapa.forEach(
+    mapaGodzin.forEach(
         rows=>{
 
             if(rows.length<2){
                 return;
             }
 
-            let maxWysokosc=16;
+            let maxWysokosc=0;
 
             rows.forEach(
                 row=>{
@@ -14659,62 +14699,55 @@ function wyrownajDwulinioweGodzinyCDoD(
                             ".minuty-cell"
                         );
 
-                    /*
-                       offsetHeight daje aktualną wysokość wiersza,
-                       scrollHeight łapie także zawiniętą zawartość.
-                    */
-                    const wysRow=
+                    const wysokosc=
                         Math.max(
-                            row.offsetHeight,
-                            row.scrollHeight
+                            row.getBoundingClientRect().height,
+                            row.scrollHeight,
+                            minuty
+                                ? minuty.scrollHeight
+                                : 0
                         );
-
-                    const wysMin=
-                        minuty
-                            ? Math.max(
-                                minuty.offsetHeight,
-                                minuty.scrollHeight
-                              )
-                            : 16;
 
                     maxWysokosc=
                         Math.max(
                             maxWysokosc,
-                            wysRow,
-                            wysMin
+                            wysokosc
                         );
                 }
             );
 
             /*
-               W tym układzie pojedynczy wiersz = 16 px,
-               dwa wiersze = 32 px. Zaokrąglamy do wielokrotności 16,
-               żeby linie tabel były idealnie równe.
+               Pojedynczy wiersz ma ok. 16 px.
+               Dopiero gdy któraś tabela realnie zrobi się wyższa,
+               wyrównujemy pozostałe.
             */
-            maxWysokosc=
+            if(maxWysokosc<=20){
+                return;
+            }
+
+            /*
+               Zaokrąglenie do pełnego podwójnego wiersza.
+            */
+            const docelowa=
                 Math.max(
-                    16,
+                    32,
                     Math.ceil(
                         maxWysokosc/16
                     )*16
                 );
 
-            if(maxWysokosc<=16){
-                return;
-            }
-
             rows.forEach(
                 row=>{
 
                     row.classList.add(
-                        "wiersz-dwuliniowy-cd"
+                        "wiersz-wyrownany-na-kartce"
                     );
 
                     row.style.height=
-                        maxWysokosc+"px";
+                        docelowa+"px";
 
                     row.style.minHeight=
-                        maxWysokosc+"px";
+                        docelowa+"px";
 
                     const godzinaCell=
                         row.querySelector(
@@ -14728,18 +14761,16 @@ function wyrownajDwulinioweGodzinyCDoD(
 
                     if(godzinaCell){
                         godzinaCell.style.height=
-                            maxWysokosc+"px";
-
+                            docelowa+"px";
                         godzinaCell.style.minHeight=
-                            maxWysokosc+"px";
+                            docelowa+"px";
                     }
 
                     if(minutyCell){
                         minutyCell.style.height=
-                            maxWysokosc+"px";
-
+                            docelowa+"px";
                         minutyCell.style.minHeight=
-                            maxWysokosc+"px";
+                            docelowa+"px";
                     }
                 }
             );
@@ -14858,7 +14889,7 @@ function ustawZawijanieNazwTrasy(columns){
 
 
 /* =========================================================
-   FWTP — TABLICZKA, WERSJA 171
+   FWTP — TABLICZKA, WERSJA 173
    Końcowe przeliczenie po pełnym renderze strony.
    ========================================================= */
 
