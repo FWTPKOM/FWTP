@@ -1782,6 +1782,94 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     }
 }
 
+
+/* =========================================================
+   v168 — ETAP 1: TRYB KOMPAKTOWY
+   Najpierw próbujemy zmieścić całość na JEDNEJ tabliczce.
+   Dopiero jeśli to nadal nie wystarczy, uruchamiane są dwie strony.
+   ========================================================= */
+
+.tabliczka.tryb-kompaktowy.trasa-2-kol {
+    --lewa: 60%;
+    --prawa: 40%;
+}
+
+.tabliczka.tryb-kompaktowy.trasa-3-kol {
+    --lewa: 55%;
+    --prawa: 45%;
+}
+
+.tabliczka.tryb-kompaktowy .rozklady-wrap {
+    width: calc(100% - 34px);
+}
+
+.tabliczka.tryb-kompaktowy .rozklady-grid {
+    width: 100%;
+    max-width: 100%;
+    grid-auto-columns: auto;
+}
+
+.tabliczka.tryb-kompaktowy .dzien {
+    min-width: 0 !important;
+    max-width: none;
+}
+
+/*
+   Godzina może mieć 2 wiersze minut.
+   Sama kolumna godzin rozciąga się wtedy na pełną wysokość wiersza.
+*/
+.tabliczka.tryb-kompaktowy .godzina-row {
+    height: auto;
+    min-height: 16px;
+    align-items: stretch;
+}
+
+.tabliczka.tryb-kompaktowy .godzina-cell {
+    height: auto;
+    min-height: 16px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    line-height: 16px;
+}
+
+.tabliczka.tryb-kompaktowy .minuty-cell {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    align-items: center;
+
+    height: auto;
+    min-height: 16px;
+
+    white-space: normal;
+    overflow: visible;
+}
+
+.tabliczka.tryb-kompaktowy .minuta {
+    flex: 0 0 24px;
+    width: 24px;
+    min-width: 24px;
+}
+
+/*
+   Przy węższej liście przystankowej pozwalamy częściej
+   zawijać długie nazwy na 2 wiersze zamiast zabierać szerokość.
+*/
+.tabliczka.tryb-kompaktowy .trasa-nazwa {
+    white-space: normal;
+}
+
+.tabliczka.tryb-kompaktowy .trasa-stop {
+    min-height: 16.5px;
+}
+
+/* Druga strona ma powstać dopiero PO nieudanej próbie kompaktowej. */
+.tabliczka.strona-weekend {
+    --lewa: 74%;
+    --prawa: 26%;
+}
+
 </style>
 </head>
 
@@ -12624,11 +12712,47 @@ function renderuj(){
             dopasujKolumnyTrasy();
 
             /*
-               Jeśli po ostatecznym dopasowaniu lista przystanków
-               wymusiła zbyt wąski lewy panel i tabele dni zaczynają
-               na nią nachodzić, automatycznie tworzymy dwie tabliczki.
+               ETAP 1:
+               próbujemy zachować JEDNĄ tabliczkę:
+               - węższy panel trasy,
+               - częstsze zawijanie nazw przystanków,
+               - minuty mogą przejść do drugiego wiersza.
             */
-            zastosujTrybDwochTabliczekJesliPotrzeba();
+            const wlaczonoKompakt=
+                zastosujTrybKompaktowyJesliPotrzeba();
+
+            if(wlaczonoKompakt){
+
+                requestAnimationFrame(
+                    ()=>{
+
+                        /*
+                           Po zmianie proporcji paneli przeliczamy
+                           ponownie zawijanie i podział listy przystanków.
+                        */
+                        dopasujKolumnyTrasy();
+
+                        dopasujRozkladyWTrybieKompaktowym(
+                            document.querySelector(
+                                "#wynik .tabliczka"
+                            )
+                        );
+
+                        requestAnimationFrame(
+                            ()=>{
+
+                                /*
+                                   ETAP 2:
+                                   tylko jeśli wersja kompaktowa NADAL
+                                   nachodzi na listę przystanków,
+                                   robimy dwie tabliczki jak w przykładzie PDF.
+                                */
+                                zastosujTrybDwochTabliczekJesliPotrzeba();
+                            }
+                        );
+                    }
+                );
+            }
         });
     });
 
@@ -12864,6 +12988,244 @@ function czyRozkladNachodziNaListePrzystankow(
 }
 
 
+
+function minimalnaSzerokoscDnia(
+    dzien
+){
+
+    const tytul=
+        dzien.querySelector(
+            ".dzien-tytul"
+        );
+
+    const tytulMin=
+        tytul
+            ? Math.ceil(
+                tytul.scrollWidth
+              )+4
+            : 90;
+
+    /*
+       Nie pozwalamy zejść tak nisko, żeby nagłówek dnia
+       lub kolumna "Godz. Minuty" zaczęły wyglądać źle.
+    */
+    return Math.max(
+        92,
+        tytulMin
+    );
+}
+
+
+function dopasujRozkladyWTrybieKompaktowym(
+    tabliczka
+){
+
+    if(!tabliczka){
+        return;
+    }
+
+    const panel=
+        tabliczka.querySelector(
+            ".panel-lewy"
+        );
+
+    const wrap=
+        tabliczka.querySelector(
+            ".rozklady-wrap"
+        );
+
+    const grid=
+        tabliczka.querySelector(
+            ".rozklady-grid"
+        );
+
+    if(
+        !panel||
+        !wrap||
+        !grid
+    ){
+        return;
+    }
+
+    const dni=
+        Array.from(
+            grid.querySelectorAll(
+                ":scope > .dzien"
+            )
+        );
+
+    if(!dni.length){
+        return;
+    }
+
+    /*
+       Najpierw zdejmujemy szerokości nadane przez wcześniejsze
+       dopasowania (np. równe SOBOTA/ŚWIĘTO), żeby zmierzyć
+       rzeczywistą potrzebną szerokość.
+    */
+    dni.forEach(
+        dzien=>{
+
+            dzien.style.width="";
+            dzien.style.minWidth="";
+        }
+    );
+
+    const odstepy=
+        Math.max(
+            0,
+            dni.length-1
+        )*3;
+
+    const dostepna=
+        Math.max(
+            120,
+            Math.floor(
+                wrap.clientWidth-
+                odstepy
+            )
+        );
+
+    const naturalne=
+        dni.map(
+            dzien=>
+                Math.ceil(
+                    dzien.scrollWidth
+                )
+        );
+
+    const minima=
+        dni.map(
+            minimalnaSzerokoscDnia
+        );
+
+    let docelowe=
+        naturalne.slice();
+
+    let suma=
+        docelowe.reduce(
+            (a,b)=>a+b,
+            0
+        );
+
+    /*
+       Jeżeli naturalne szerokości się nie mieszczą,
+       stopniowo odbieramy szerokość głównie najszerszym tabelom.
+       Dzięki flex-wrap minuty przejdą wtedy do następnego wiersza.
+    */
+    if(suma>dostepna){
+
+        let brak=
+            suma-dostepna;
+
+        let bezpiecznik=0;
+
+        while(
+            brak>0.5&&
+            bezpiecznik<2000
+        ){
+
+            bezpiecznik++;
+
+            let kandydat=-1;
+            let najwiekszyZapas=0;
+
+            for(
+                let i=0;
+                i<docelowe.length;
+                i++
+            ){
+
+                const zapas=
+                    docelowe[i]-
+                    minima[i];
+
+                if(zapas>najwiekszyZapas){
+                    najwiekszyZapas=zapas;
+                    kandydat=i;
+                }
+            }
+
+            if(
+                kandydat<0||
+                najwiekszyZapas<=0
+            ){
+                break;
+            }
+
+            const krok=
+                Math.min(
+                    2,
+                    brak,
+                    najwiekszyZapas
+                );
+
+            docelowe[kandydat]-=
+                krok;
+
+            brak-=
+                krok;
+        }
+    }
+
+    dni.forEach(
+        (dzien,i)=>{
+
+            const szer=
+                Math.max(
+                    minima[i],
+                    Math.floor(
+                        docelowe[i]
+                    )
+                );
+
+            dzien.style.width=
+                szer+"px";
+
+            dzien.style.minWidth=
+                szer+"px";
+        }
+    );
+}
+
+
+function zastosujTrybKompaktowyJesliPotrzeba(){
+
+    const tabliczka=
+        document.querySelector(
+            "#wynik .tabliczka"
+        );
+
+    if(!tabliczka){
+        return false;
+    }
+
+    if(
+        !czyRozkladNachodziNaListePrzystankow(
+            tabliczka
+        )
+    ){
+        return false;
+    }
+
+    /*
+       ETAP 1:
+       najpierw NIE robimy drugiej strony.
+       Zwężamy listę przystankową i pozwalamy minutom przechodzić
+       do kolejnego wiersza w obrębie tej samej godziny.
+    */
+    tabliczka.classList.add(
+        "tryb-kompaktowy"
+    );
+
+    dopasujRozkladyWTrybieKompaktowym(
+        tabliczka
+    );
+
+    return true;
+}
+
+
 function zastosujTrybDwochTabliczekJesliPotrzeba(){
 
     const scroll=
@@ -12939,7 +13301,14 @@ function zastosujTrybDwochTabliczekJesliPotrzeba(){
         return;
     }
 
+    /*
+       Druga strona jest OSTATECZNOŚCIĄ.
+       Funkcja może się uruchomić dopiero po próbie trybu kompaktowego.
+    */
     if(
+        !tabliczka.classList.contains(
+            "tryb-kompaktowy"
+        )||
         !czyRozkladNachodziNaListePrzystankow(
             tabliczka
         )
