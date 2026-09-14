@@ -2149,26 +2149,10 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
    przejść do drugiego wiersza.
    ========================================================= */
 
-.tabliczka.tryb-kompaktowy:not(.strona-dzien-powszedni)
-.rozklady-grid.kol-2 {
-    grid-template-columns:
-        230px
-        minmax(0, 1fr) !important;
-}
-
-.tabliczka.tryb-kompaktowy:not(.strona-dzien-powszedni)
-.rozklady-grid.kol-3 {
-    grid-template-columns:
-        230px
-        minmax(0, 1fr)
-        minmax(0, 1fr) !important;
-}
-
+/* Szerokość DZIEŃ POWSZEDNI jest wyliczana automatycznie w JS. */
 .tabliczka.tryb-kompaktowy:not(.strona-dzien-powszedni)
 .dzien.dzien-powszedni-kompakt {
-    width: 230px !important;
-    min-width: 230px !important;
-    max-width: 230px !important;
+    min-width: 0 !important;
 }
 
 /* Minuty mają normalne 23 px, ale mogą przejść do 2. wiersza. */
@@ -2212,6 +2196,44 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     width: 100% !important;
     min-width: 0 !important;
     max-width: none !important;
+}
+
+
+/* =========================================================
+   v176 — AUTOMATYCZNA SZEROKOŚĆ DNIA POWSZEDNIEGO
+   ========================================================= */
+
+.tabliczka.tryb-kompaktowy .rozklady-grid.kol-2 {
+    grid-template-columns:
+        auto
+        minmax(0, 1fr) !important;
+}
+
+.tabliczka.tryb-kompaktowy .rozklady-grid.kol-3 {
+    grid-template-columns:
+        auto
+        minmax(0, 1fr)
+        minmax(0, 1fr) !important;
+}
+
+/* Normalne 23 px — bez ściskania samych minut. */
+.tabliczka.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt .minuta {
+    flex: 0 0 23px !important;
+    width: 23px !important;
+    min-width: 23px !important;
+    max-width: 23px !important;
+}
+
+/* Wiersze minut mogą zawinąć się automatycznie przy wyliczonej szerokości. */
+.tabliczka.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt .minuty-cell {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 16px !important;
 }
 
 </style>
@@ -13085,6 +13107,10 @@ function renderuj(){
                             kompaktowaTabliczka
                         );
 
+                        ustawAutomatycznaSzerokoscDniaPowszedniego(
+                            kompaktowaTabliczka
+                        );
+
                         requestAnimationFrame(
                             ()=>{
 
@@ -13408,6 +13434,140 @@ function oznaczDzienPowszedniDoKompaktu(
 }
 
 
+
+function ustawAutomatycznaSzerokoscDniaPowszedniego(
+    tabliczka
+){
+
+    if(!tabliczka){
+        return;
+    }
+
+    const grid=
+        tabliczka.querySelector(
+            ".rozklady-grid"
+        );
+
+    const powszedni=
+        tabliczka.querySelector(
+            ".dzien.dzien-powszedni-kompakt"
+        );
+
+    if(
+        !grid||
+        !powszedni
+    ){
+        return;
+    }
+
+    /*
+       Najpierw zerujemy ręczne szerokości i sprawdzamy,
+       ile naprawdę potrzebuje naturalny układ.
+    */
+    powszedni.style.width="";
+    powszedni.style.minWidth="";
+    powszedni.style.maxWidth="";
+
+    /*
+       Minimalna szerokość nie jest stałą "docelową".
+       To tylko bezpieczna dolna granica, żeby nagłówek dnia
+       i kolumna godzin nie zrobiły się absurdalnie wąskie.
+    */
+    const minBezpieczne=
+        185;
+
+    const naturalna=
+        Math.ceil(
+            powszedni.getBoundingClientRect().width
+        );
+
+    let dol=
+        minBezpieczne;
+
+    let gora=
+        Math.max(
+            minBezpieczne,
+            naturalna
+        );
+
+    let najlepsza=
+        gora;
+
+    /*
+       Jeżeli już się mieści — niczego nie zwężamy.
+    */
+    if(
+        !czyRozkladNachodziNaListePrzystankow(
+            tabliczka
+        )
+    ){
+        return;
+    }
+
+    /*
+       Szukamy NAJWIĘKSZEJ szerokości dnia powszedniego,
+       przy której cały układ jeszcze się mieści.
+       Dzięki temu:
+       - nie ściskamy bardziej niż trzeba,
+       - minuty same zawijają się tylko wtedy, gdy rzeczywiście muszą.
+    */
+    for(
+        let i=0;
+        i<14;
+        i++
+    ){
+
+        const srodek=
+            Math.floor(
+                (
+                    dol+
+                    gora
+                )/2
+            );
+
+        powszedni.style.width=
+            srodek+"px";
+        powszedni.style.minWidth=
+            srodek+"px";
+        powszedni.style.maxWidth=
+            srodek+"px";
+
+        /*
+           Wymuszenie reflow przed pomiarem.
+        */
+        void powszedni.offsetWidth;
+
+        const nachodzi=
+            czyRozkladNachodziNaListePrzystankow(
+                tabliczka
+            );
+
+        if(nachodzi){
+
+            gora=
+                srodek-1;
+        }
+        else{
+
+            najlepsza=
+                srodek;
+
+            dol=
+                srodek+1;
+        }
+    }
+
+    powszedni.style.width=
+        najlepsza+"px";
+
+    powszedni.style.minWidth=
+        najlepsza+"px";
+
+    powszedni.style.maxWidth=
+        najlepsza+"px";
+}
+
+
 function dopasujRozkladyWTrybieKompaktowym(
     tabliczka
 ){
@@ -13562,17 +13722,6 @@ function dopasujRozkladyWTrybieKompaktowym(
 
     dni.forEach(
         dzien=>{
-
-            if(
-                dzien.classList.contains(
-                    "dzien-powszedni-kompakt"
-                )
-            ){
-                dzien.style.width="230px";
-                dzien.style.minWidth="230px";
-                dzien.style.maxWidth="230px";
-                return;
-            }
 
             /*
                Pozostałe dni wykorzystują całe pozostałe miejsce.
@@ -13787,6 +13936,10 @@ function zastosujTrybKompaktowyJesliPotrzeba(){
     );
 
     dopasujRozkladyWTrybieKompaktowym(
+        tabliczka
+    );
+
+    ustawAutomatycznaSzerokoscDniaPowszedniego(
         tabliczka
     );
 
