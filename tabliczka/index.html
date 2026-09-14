@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 181
+     WERSJA: 182
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2098,6 +2098,18 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     max-width: var(--szerokosc-8-kursow) !important;
 }
 
+
+/* =========================================================
+   WERSJA 182 — TECH NIGDY NIE JEST WIDOCZNY NA TABLICZCE
+   ========================================================= */
+
+.trasa-stop[data-typ="TECH"],
+.trasa-stop[data-typ="tech"],
+.trasa-extra-stop[data-typ="TECH"],
+.trasa-extra-stop[data-typ="tech"] {
+    display: none !important;
+}
+
 </style>
 </head>
 
@@ -2160,12 +2172,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 181
+   WERSJA: 182
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "181";
+const WERSJA_TABLICZKI = "182";
 console.log(
-    "FWTP Tabliczka — wersja 181 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 182 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -11593,6 +11605,43 @@ function renderTrasaKolumna(
     pokazWydluzenia=false
 ){
 
+    /*
+       WERSJA 182:
+       Przystanki TECH są wyłącznie techniczne i nie mogą być
+       widoczne na tabliczce pasażerskiej.
+
+       Filtrujemy je tutaj, tuż przed renderowaniem, dzięki czemu
+       zabezpieczenie działa dla:
+       - trasy podstawowej,
+       - wariantów,
+       - wydłużeń,
+       - fragmentów dzielonych na kolumny.
+    */
+    fragment={
+        ...fragment,
+        lista:
+            Array.from(
+                fragment?.lista||
+                []
+            )
+            .filter(
+                element=>{
+
+                    const p=
+                        element?.p||
+                        element;
+
+                    return(
+                        typPrzystankuTrasy(
+                            p
+                        )!=="TECH"
+                    );
+                }
+            )
+    };
+
+
+
     const pelnaLista=
         listaTrasyDoWyswietlenia();
 
@@ -14860,44 +14909,54 @@ function czyTabliczkaMiesciSiePionowo181(
     }
 
     /*
-       Porównujemy faktyczną zawartość z wysokością samej kartki.
-       Uwzględniamy zarówno scrollHeight tabliczki, jak i elementy,
-       które mogą wizualnie wystawać poniżej jej obrysu.
+       WERSJA 182:
+       nazwa funkcji zostaje dla zgodności z v181, ale testujemy
+       już właściwy problem: czy układ rozkładów mieści się
+       SZEROKOŚCIOWO na tej samej kartce.
+
+       Jeśli prawa krawędź rozkładów wchodzi w obszar listy
+       przystanków / wychodzi poza panel lewy, wtedy 9 kursów
+       w jednym rzędzie uznajemy za układ, który się nie mieści.
     */
-    const rect=
-        tabliczka.getBoundingClientRect();
+    if(
+        typeof czyRozkladNachodziNaListePrzystankow==="function"
+    ){
+        return(
+            !czyRozkladNachodziNaListePrzystankow(
+                tabliczka
+            )
+        );
+    }
 
-    let najnizszy=
-        rect.top;
-
-    tabliczka
-        .querySelectorAll(
-            ".rozklady-grid, .dzien, .godzina-row, .legenda, .trasa-columns, .panel-prawy, .panel-lewy"
-        )
-        .forEach(
-            el=>{
-
-                const r=
-                    el.getBoundingClientRect();
-
-                if(r.bottom>najnizszy){
-                    najnizszy=
-                        r.bottom;
-                }
-            }
+    /*
+       Fallback geometryczny.
+    */
+    const panelLewy=
+        tabliczka.querySelector(
+            ".panel-lewy"
         );
 
-    const wystajeGeometrycznie=
-        najnizszy>
-        rect.bottom+1;
+    const grid=
+        tabliczka.querySelector(
+            ".rozklady-grid"
+        );
 
-    const wystajeScroll=
-        tabliczka.scrollHeight>
-        tabliczka.clientHeight+1;
+    if(
+        !panelLewy||
+        !grid
+    ){
+        return true;
+    }
 
-    return !(
-        wystajeGeometrycznie||
-        wystajeScroll
+    const panelRect=
+        panelLewy.getBoundingClientRect();
+
+    const gridRect=
+        grid.getBoundingClientRect();
+
+    return(
+        gridRect.right<=
+        panelRect.right-2
     );
 }
 
@@ -14911,7 +14970,7 @@ function ustawLimit8Kursow181(
     }
 
     /*
-       Najpierw zawsze sprawdzamy układ normalny.
+       ETAP 1 — zawsze zaczynamy od normalnego układu 9.
     */
     tabliczka.classList.remove(
         "max-8-kursow"
@@ -14933,10 +14992,14 @@ function ustawLimit8Kursow181(
     );
 
     /*
-       Wymuszamy przeliczenie układu.
+       Po zdjęciu limitu przywracamy naturalny layout.
     */
-    void tabliczka.offsetHeight;
+    void tabliczka.offsetWidth;
 
+    /*
+       Jeśli 9 kursów mieści się szerokościowo na tej samej kartce,
+       NICZEGO nie zmieniamy.
+    */
     if(
         czyTabliczkaMiesciSiePionowo181(
             tabliczka
@@ -14945,6 +15008,10 @@ function ustawLimit8Kursow181(
         return;
     }
 
+    /*
+       ETAP 2 — 9 się nie mieści.
+       Liczymy dokładne miejsce na 8 normalnych pól minut.
+    */
     const pierwszaMinuta=
         tabliczka.querySelector(
             ".minuty-cell .minuta"
@@ -14966,12 +15033,8 @@ function ustawLimit8Kursow181(
         Math.max(
             1,
             minutaRect.width+
-            parseFloat(
-                minutaStyle.marginLeft||0
-            )+
-            parseFloat(
-                minutaStyle.marginRight||0
-            )
+            (parseFloat(minutaStyle.marginLeft)||0)+
+            (parseFloat(minutaStyle.marginRight)||0)
         );
 
     const przykladowaCell=
@@ -15001,10 +15064,6 @@ function ustawLimit8Kursow181(
             cellStyle.paddingRight||0
         )||0;
 
-    /*
-       Dokładnie miejsce na 8 normalnych pozycji minutowych.
-       Nie ściskamy ich.
-    */
     const szerokosc8=
         Math.ceil(
             paddingL+
@@ -15024,9 +15083,9 @@ function ustawLimit8Kursow181(
     );
 
     /*
-       Limit stosujemy tylko do tabel, w których rzeczywiście
-       występuje co najmniej 9 kursów/minut w którejś godzinie.
-       Mniejsze tabele nie są niepotrzebnie zwężane.
+       Limit stosujemy w tabelach, które rzeczywiście mają godzinę
+       z co najmniej 9 kursami. Tam dziewiąty kurs przechodzi do
+       drugiego wiersza.
     */
     tabliczka
         .querySelectorAll(
@@ -15065,17 +15124,35 @@ function ustawLimit8Kursow181(
             }
         );
 
-    void tabliczka.offsetHeight;
+    void tabliczka.offsetWidth;
 
     /*
-       Po zmianie liczby pozycji w rzędzie uruchamiamy istniejące
-       wyrównanie wysokości tych samych godzin między dniami.
+       Po przejściu 9 -> 8 jeszcze raz uruchamiamy istniejące
+       dopasowanie kompaktowe, bo zmieniła się szerokość tabel.
+    */
+    if(
+        tabliczka.classList.contains(
+            "tryb-kompaktowy"
+        )&&
+        typeof dopasujRozkladyWTrybieKompaktowym==="function"
+    ){
+        dopasujRozkladyWTrybieKompaktowym(
+            tabliczka
+        );
+    }
+
+    /*
+       I wyrównujemy wysokości tych samych godzin między dniami.
     */
     if(
         typeof wyrownajWysokosciGodzinMiedzyDniami==="function"
     ){
-        wyrownajWysokosciGodzinMiedzyDniami(
-            tabliczka
+        requestAnimationFrame(
+            ()=>{
+                wyrownajWysokosciGodzinMiedzyDniami(
+                    tabliczka
+                );
+            }
         );
     }
 }
