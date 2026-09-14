@@ -1670,6 +1670,118 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     border-color: #777 !important;
 }
 
+
+/* =========================================================
+   v167 — STAŁA WYSOKOŚĆ NAGŁÓWKA
+   =========================================================
+   Dwuliniowy kierunek nie może spychać tabeli rozkładu w dół.
+   Dolna krawędź pola numeru linii i początek tabeli pozostają
+   w tym samym miejscu jak przy jednym kierunku.
+   ========================================================= */
+
+.naglowek-tabliczki {
+    height: 80px;
+    min-height: 80px;
+    align-items: start;
+}
+
+.naglowek-tabliczki:has(.kierunki-dwa) .dane-linii {
+    padding-top: 2px;
+}
+
+.naglowek-tabliczki:has(.kierunki-dwa) .typ-linii {
+    margin-bottom: 4px;
+}
+
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
+    top: -7px;
+    margin-bottom: -7px;
+}
+
+.naglowek-tabliczki:has(.kierunki-dwa) .wazny {
+    position: relative;
+    top: -4px;
+}
+
+
+/* =========================================================
+   v167 — AUTOMATYCZNY TRYB DWÓCH TABLICZEK
+   =========================================================
+   Włącza się tylko wtedy, gdy kilka tabel dni nie mieści się
+   w lewym panelu i zaczyna nachodzić na listę przystanków.
+
+   Strona 1:
+   - DZIEŃ POWSZEDNI
+   - pełna lista przystanków / przebieg trasy
+
+   Strona 2:
+   - SOBOTA / NIEDZIELA / ŚWIĘTO (wszystkie dni pozostałe)
+   - komunikat odsyłający do tabliczki DZIEŃ POWSZEDNI
+   ========================================================= */
+
+.tabliczka-scroll.tryb-dwoch-tabliczek {
+    overflow-x: auto;
+}
+
+.tabliczka.strona-dzien-powszedni,
+.tabliczka.strona-weekend {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.tabliczka.strona-weekend {
+    margin-top: 18px;
+    --lewa: 74%;
+    --prawa: 26%;
+}
+
+.tabliczka.strona-weekend.trasa-2-kol,
+.tabliczka.strona-weekend.trasa-3-kol {
+    --lewa: 74%;
+    --prawa: 26%;
+}
+
+.tabliczka.strona-weekend .panel-prawy {
+    position: relative;
+}
+
+.tabliczka.strona-weekend .trasa-przeniesiona-info {
+    height: 100%;
+    box-sizing: border-box;
+    padding: 17px 13px 12px 13px;
+
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+
+    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
+    font-size: 14px;
+    line-height: 1.15;
+    font-weight: 700;
+    text-align: left;
+}
+
+.tabliczka.strona-weekend .rozklady-grid {
+    max-width: 100%;
+}
+
+.tabliczka.strona-weekend .rozklady-grid .dzien + .dzien {
+    margin-left: 3px;
+}
+
+/* Na drugiej tabliczce SOBOTA i ŚWIĘTO/NIEDZIELA mogą wykorzystać
+   cały dostępny lewy panel, ale zachowują naturalne szerokości. */
+.tabliczka.strona-weekend .rozklady-wrap {
+    width: calc(100% - 36px);
+}
+
+@media print {
+    .tabliczka.strona-weekend {
+        break-before: page;
+        page-break-before: always;
+    }
+}
+
 </style>
 </head>
 
@@ -12510,6 +12622,13 @@ function renderuj(){
             wyrownajSzerokoscWeekendow();
 
             dopasujKolumnyTrasy();
+
+            /*
+               Jeśli po ostatecznym dopasowaniu lista przystanków
+               wymusiła zbyt wąski lewy panel i tabele dni zaczynają
+               na nią nachodzić, automatycznie tworzymy dwie tabliczki.
+            */
+            zastosujTrybDwochTabliczekJesliPotrzeba();
         });
     });
 
@@ -12598,6 +12717,351 @@ function pokazBlad(tekst){
 }
 
 
+
+
+
+function tytulDniaElementu(
+    dzien
+){
+    return String(
+        dzien
+            ?.querySelector(
+                ".dzien-tytul"
+            )
+            ?.textContent||
+        ""
+    )
+        .trim()
+        .toUpperCase();
+}
+
+
+function czyDzienPowszedniElement(
+    dzien
+){
+    const t=
+        tytulDniaElementu(
+            dzien
+        );
+
+    return(
+        t.includes(
+            "POWSZED"
+        )||
+        t.includes(
+            "ROBOCZ"
+        )||
+        t.includes(
+            "PONIEDZIAŁEK"
+        )||
+        t.includes(
+            "PON-PT"
+        )
+    );
+}
+
+
+function ustawKlaseLiczbyDni(
+    grid
+){
+
+    if(!grid){
+        return;
+    }
+
+    const dni=
+        Array.from(
+            grid.children
+        )
+        .filter(
+            x=>
+                x.classList
+                ?.contains(
+                    "dzien"
+                )
+        );
+
+    grid.classList.remove(
+        "kol-1",
+        "kol-2",
+        "kol-3",
+        "weekend-rowny"
+    );
+
+    grid.classList.add(
+        "kol-"+
+        Math.max(
+            1,
+            Math.min(
+                3,
+                dni.length
+            )
+        )
+    );
+
+    const tytuly=
+        dni.map(
+            tytulDniaElementu
+        );
+
+    if(
+        tytuly.includes(
+            "SOBOTA"
+        )&&
+        tytuly.includes(
+            "ŚWIĘTO"
+        )
+    ){
+        grid.classList.add(
+            "weekend-rowny"
+        );
+    }
+}
+
+
+function czyRozkladNachodziNaListePrzystankow(
+    tabliczka
+){
+
+    if(!tabliczka){
+        return false;
+    }
+
+    const panel=
+        tabliczka.querySelector(
+            ".panel-lewy"
+        );
+
+    const grid=
+        tabliczka.querySelector(
+            ".rozklady-grid"
+        );
+
+    if(
+        !panel||
+        !grid
+    ){
+        return false;
+    }
+
+    const panelRect=
+        panel.getBoundingClientRect();
+
+    const gridRect=
+        grid.getBoundingClientRect();
+
+    /*
+       2 px tolerancji na linię podziału.
+       Jeśli prawa krawędź tabel wychodzi poza lewy panel,
+       oznacza to dokładnie problem widoczny np. na 523.
+    */
+    return(
+        gridRect.right>
+            panelRect.right-2||
+        grid.scrollWidth>
+            panel.clientWidth-34
+    );
+}
+
+
+function zastosujTrybDwochTabliczekJesliPotrzeba(){
+
+    const scroll=
+        document.querySelector(
+            "#wynik > .tabliczka-scroll"
+        )||
+        document.querySelector(
+            "#wynik .tabliczka-scroll"
+        );
+
+    if(!scroll){
+        return;
+    }
+
+    /*
+       Zabezpieczenie przed ponownym klonowaniem przy kolejnych
+       requestAnimationFrame.
+    */
+    if(
+        scroll.classList.contains(
+            "tryb-dwoch-tabliczek"
+        )
+    ){
+        return;
+    }
+
+    const tabliczka=
+        scroll.querySelector(
+            ":scope > .tabliczka"
+        );
+
+    if(!tabliczka){
+        return;
+    }
+
+    const grid=
+        tabliczka.querySelector(
+            ".rozklady-grid"
+        );
+
+    if(!grid){
+        return;
+    }
+
+    const dni=
+        Array.from(
+            grid.querySelectorAll(
+                ":scope > .dzien"
+            )
+        );
+
+    const powszednie=
+        dni.filter(
+            czyDzienPowszedniElement
+        );
+
+    const pozostale=
+        dni.filter(
+            dzien=>
+                !czyDzienPowszedniElement(
+                    dzien
+                )
+        );
+
+    /*
+       Rozdzielenie ma sens tylko wtedy, gdy rzeczywiście mamy
+       dzień powszedni ORAZ co najmniej jeden drugi typ dnia.
+    */
+    if(
+        !powszednie.length||
+        !pozostale.length
+    ){
+        return;
+    }
+
+    if(
+        !czyRozkladNachodziNaListePrzystankow(
+            tabliczka
+        )
+    ){
+        return;
+    }
+
+    /*
+       Klon robimy przed usuwaniem tabel z pierwszej tabliczki.
+       Dzięki temu druga strona dostaje identyczny nagłówek,
+       legendę i etykietę przystanku.
+    */
+    const druga=
+        tabliczka.cloneNode(
+            true
+        );
+
+    scroll.classList.add(
+        "tryb-dwoch-tabliczek"
+    );
+
+    tabliczka.classList.add(
+        "strona-dzien-powszedni"
+    );
+
+    druga.classList.add(
+        "strona-weekend"
+    );
+
+    /*
+       STRONA 1 — tylko dzień powszedni.
+    */
+    const gridPierwszy=
+        tabliczka.querySelector(
+            ".rozklady-grid"
+        );
+
+    Array.from(
+        gridPierwszy.querySelectorAll(
+            ":scope > .dzien"
+        )
+    ).forEach(
+        dzien=>{
+
+            if(
+                !czyDzienPowszedniElement(
+                    dzien
+                )
+            ){
+                dzien.remove();
+            }
+        }
+    );
+
+    ustawKlaseLiczbyDni(
+        gridPierwszy
+    );
+
+
+    /*
+       STRONA 2 — wszystkie dni inne niż powszedni.
+    */
+    const gridDrugi=
+        druga.querySelector(
+            ".rozklady-grid"
+        );
+
+    Array.from(
+        gridDrugi.querySelectorAll(
+            ":scope > .dzien"
+        )
+    ).forEach(
+        dzien=>{
+
+            if(
+                czyDzienPowszedniElement(
+                    dzien
+                )
+            ){
+                dzien.remove();
+            }
+        }
+    );
+
+    ustawKlaseLiczbyDni(
+        gridDrugi
+    );
+
+
+    /*
+       Na drugiej stronie nie pokazujemy ponownie przebiegu.
+       Zamiast niego dokładnie komunikat wzorowany na tabliczkach
+       wieloczęściowych.
+    */
+    druga.classList.remove(
+        "trasa-2-kol",
+        "trasa-3-kol"
+    );
+
+    const prawyDrugi=
+        druga.querySelector(
+            ".panel-prawy"
+        );
+
+    if(prawyDrugi){
+
+        prawyDrugi.innerHTML=
+            '<div class="trasa-przeniesiona-info">'+
+            'Przebieg trasy oraz listę przystanków wraz z czasami przejazdu '+
+            'umieszczono na rozkładzie „DZIEŃ POWSZEDNI”'+
+            '</div>';
+    }
+
+    scroll.appendChild(
+        druga
+    );
+
+    /*
+       Po usunięciu części dni poprawiamy szerokości weekendu jeszcze raz.
+    */
+    wyrownajSzerokoscWeekendow();
+}
 
 
 function dopasujSzerokoscNieKursuje(){
