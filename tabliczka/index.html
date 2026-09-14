@@ -10425,21 +10425,133 @@ function listaWydluzeniaBezPowtorzonegoKranca(
 
 
 
-function czyDokladnyAktywnyJestWWydluzeniu(){
 
-    const baza=
+function pozycjaAktywnegoWWydluzeniu(
+    wariant,
+    dane=null
+){
+
+    const daneWydluzen=
+        dane||
+        daneTrasWydluzonych();
+
+    const bazaKierunku=
         kierunekBazowy()
             ?.przystanki||
         [];
 
-    const aktywny=
-        baza[
+    const wybranyBazowy=
+        bazaKierunku[
             aktualnyPrzystanek
-        ];
+        ]||null;
 
-    if(!aktywny){
-        return false;
+    const przystankiWydluzenia=
+        listaWydluzeniaBezPowtorzonegoKranca(
+            wariant,
+            daneWydluzen?.baza||[]
+        );
+
+    if(
+        !przystankiWydluzenia.length||
+        !wybranyBazowy
+    ){
+        return -1;
     }
+
+    /*
+     * 1. Najpierw dokładny indeks.
+     */
+    let aktywnaPozycja=
+        przystankiWydluzenia.findIndex(
+            element=>
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
+        );
+
+    if(aktywnaPozycja>=0){
+        return aktywnaPozycja;
+    }
+
+    const nazwaWybranego=
+        normalizuj(
+            wybranyBazowy?.nazwa
+        );
+
+    const nrWybranego=
+        String(
+            wybranyBazowy?.nr||""
+        ).trim();
+
+    /*
+     * 2. Dokładna nazwa + numer.
+     */
+    aktywnaPozycja=
+        przystankiWydluzenia.findIndex(
+            element=>{
+
+                const p=
+                    element?.p||
+                    element;
+
+                return(
+                    normalizuj(
+                        p?.nazwa
+                    )===
+                        nazwaWybranego&&
+                    String(
+                        p?.nr||""
+                    ).trim()===
+                        nrWybranego
+                );
+            }
+        );
+
+    if(aktywnaPozycja>=0){
+        return aktywnaPozycja;
+    }
+
+    /*
+     * 3. Jeżeli na wydłużeniu nazwa występuje tylko raz,
+     *    możemy użyć samej nazwy.
+     *
+     *    To jest dotychczasowy fallback np. dla LNIANEJ / WIERNEJ.
+     *
+     *    Dla SADYBY nie zadziała błędnie, bo graniczna SADYBA
+     *    jest wcześniej usuwana przez
+     *    listaWydluzeniaBezPowtorzonegoKranca().
+     */
+    const poNazwie=
+        przystankiWydluzenia
+            .map(
+                (element,pozycja)=>({
+                    element,
+                    pozycja
+                })
+            )
+            .filter(
+                item=>
+                    normalizuj(
+                        (
+                            item.element?.p||
+                            item.element
+                        )?.nazwa
+                    )===
+                    nazwaWybranego
+            );
+
+    if(poNazwie.length===1){
+        return poNazwie[0].pozycja;
+    }
+
+    return -1;
+}
+
+
+function czyDokladnyAktywnyJestWWydluzeniu(){
 
     const dane=
         daneTrasWydluzonych();
@@ -10453,80 +10565,13 @@ function czyDokladnyAktywnyJestWWydluzeniu(){
         return false;
     }
 
-    const nazwa=
-        normalizuj(
-            aktywny?.nazwa
-        );
-
-    const nr=
-        String(
-            aktywny?.nr||""
-        ).trim();
-
-    for(
-        const wariant
-        of dane.wydluzenia
-    ){
-
-        /*
-         * Używamy dokładnie TEJ SAMEJ listy, która jest później
-         * renderowana w sekcji "Trasa w kursach ...".
-         *
-         * To ważne dla SADYBY:
-         * powtórzony kraniec SADYBA jest z wydłużenia usuwany,
-         * więc SADYBA nadal może być aktywna w części podstawowej.
-         */
-        const lista=
-            listaWydluzeniaBezPowtorzonegoKranca(
+    return dane.wydluzenia.some(
+        wariant=>
+            pozycjaAktywnegoWWydluzeniu(
                 wariant,
-                dane.baza
-            );
-
-        const maDokladny=
-            lista.some(
-                element=>{
-
-                    const p=
-                        element?.p||
-                        element;
-
-                    /*
-                     * Najpierw dokładny indeks, jeśli jest dostępny.
-                     */
-                    if(
-                        Number(
-                            element?.index
-                        )===
-                        Number(
-                            aktualnyPrzystanek
-                        )
-                    ){
-                        return true;
-                    }
-
-                    /*
-                     * Potem dokładna nazwa + numer słupka.
-                     * Nie dopasowujemy po samej nazwie.
-                     */
-                    return(
-                        normalizuj(
-                            p?.nazwa
-                        )===
-                            nazwa&&
-                        String(
-                            p?.nr||""
-                        ).trim()===
-                            nr
-                    );
-                }
-            );
-
-        if(maDokladny){
-            return true;
-        }
-    }
-
-    return false;
+                dane
+            )>=0
+    );
 }
 
 
@@ -10538,16 +10583,6 @@ function renderWydluzeniaTrasy(){
     if(!dane.wydluzenia.length){
         return"";
     }
-
-    const bazaKierunku=
-        kierunekBazowy()
-            ?.przystanki||
-        [];
-
-    const wybranyBazowy=
-        bazaKierunku[
-            aktualnyPrzystanek
-        ]||null;
 
     return dane.wydluzenia
         .map(
@@ -10567,95 +10602,15 @@ function renderWydluzeniaTrasy(){
                     );
 
                 /*
-                 * =================================================
-                 * AKTYWNY PRZYSTANEK W WYDŁUŻENIU
-                 * =================================================
-                 *
-                 * To jest odpowiednik logiki działającej w zwykłej
-                 * liście (np. linia 126).
-                 *
-                 * Najpierw dokładny index z URL, potem nazwa+nr,
-                 * a przy unikalnej nazwie sama nazwa.
+                 * Aktywną pozycję liczymy WSPÓLNĄ funkcją.
+                 * Ta sama decyzja jest używana również do tego,
+                 * czy główna lista ma wyłączyć wcześniejszy aktywny wpis.
                  */
-                let aktywnaPozycja=
-                    przystankiWydluzenia.findIndex(
-                        element=>
-                            Number(
-                                element?.index
-                            )===
-                            Number(
-                                aktualnyPrzystanek
-                            )
+                const aktywnaPozycja=
+                    pozycjaAktywnegoWWydluzeniu(
+                        wariant,
+                        dane
                     );
-
-                if(
-                    aktywnaPozycja<0&&
-                    wybranyBazowy
-                ){
-
-                    const nazwaWybranego=
-                        normalizuj(
-                            wybranyBazowy?.nazwa
-                        );
-
-                    const nrWybranego=
-                        String(
-                            wybranyBazowy?.nr||""
-                        ).trim();
-
-                    aktywnaPozycja=
-                        przystankiWydluzenia.findIndex(
-                            element=>{
-
-                                const p=
-                                    element?.p||
-                                    element;
-
-                                return(
-                                    normalizuj(
-                                        p?.nazwa
-                                    )===
-                                        nazwaWybranego&&
-                                    String(
-                                        p?.nr||""
-                                    ).trim()===
-                                        nrWybranego
-                                );
-                            }
-                        );
-
-                    /*
-                       Jeżeli nazwa jest na wydłużeniu tylko raz,
-                       numer nie musi blokować poprawnego dopasowania.
-                       To zabezpiecza LNIANA.
-                    */
-                    if(aktywnaPozycja<0){
-
-                        const poNazwie=
-                            przystankiWydluzenia
-                                .map(
-                                    (element,pozycja)=>({
-                                        element,
-                                        pozycja
-                                    })
-                                )
-                                .filter(
-                                    item=>
-                                        normalizuj(
-                                            (
-                                                item.element?.p||
-                                                item.element
-                                            )?.nazwa
-                                        )===
-                                        nazwaWybranego
-                                );
-
-                        if(poNazwie.length===1){
-                            aktywnaPozycja=
-                                poNazwie[0].pozycja;
-                        }
-                    }
-                }
 
                 const wiersze=
                     przystankiWydluzenia
