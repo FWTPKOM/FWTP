@@ -9822,6 +9822,10 @@ function indeksAktywnegoNaWyswietlanejTrasie(
             ? lista
             : [];
 
+    if(!source.length){
+        return -1;
+    }
+
     const baza=
         kierunekBazowy()
             ?.przystanki||
@@ -9832,10 +9836,7 @@ function indeksAktywnegoNaWyswietlanejTrasie(
             aktualnyPrzystanek
         ];
 
-    if(
-        !wybrany||
-        !source.length
-    ){
+    if(!wybrany){
         return -1;
     }
 
@@ -9850,12 +9851,11 @@ function indeksAktywnegoNaWyswietlanejTrasie(
         ).trim();
 
     /*
-       1. Najpierw dokładna NAZWA + NUMER.
-
-       Dla WIERNA 02 to powinien być konkretny drugi przystanek,
-       niezależnie od tego jaki "index" dostał po składaniu trasy.
+       =========================================================
+       KROK 1 — NAZWA + NUMER
+       =========================================================
     */
-    const dokladnePozycje=[];
+    const exact=[];
 
     source.forEach(
         (element,pozycja)=>{
@@ -9870,22 +9870,22 @@ function indeksAktywnegoNaWyswietlanejTrasie(
                 ).trim()===
                     nr
             ){
-                dokladnePozycje.push(
+                exact.push(
                     pozycja
                 );
             }
         }
     );
 
-    if(dokladnePozycje.length===1){
-        return dokladnePozycje[0];
+    if(exact.length===1){
+        return exact[0];
     }
 
     /*
-       2. Jeśli nazwa+numer też występują kilka razy,
-       ustalamy które to wystąpienie w kierunku bazowym.
+       Jeśli ta sama nazwa+nr występuje kilka razy,
+       wybieramy to samo wystąpienie co w bazowym kierunku.
     */
-    if(dokladnePozycje.length>1){
+    if(exact.length>1){
 
         let wystapienie=0;
 
@@ -9908,42 +9908,28 @@ function indeksAktywnegoNaWyswietlanejTrasie(
             }
         }
 
-        return dokladnePozycje[
+        return exact[
             Math.min(
                 wystapienie,
-                dokladnePozycje.length-1
+                exact.length-1
             )
         ];
     }
 
     /*
-       3. Fallback po samej nazwie:
-       liczymy, które to wystąpienie tej nazwy w bazie.
+       =========================================================
+       KROK 2 — WŁAŚCIWE WYSTĄPIENIE NAZWY
+       =========================================================
+       To jest fallback używany tylko wtedy, gdy po złożeniu
+       wariantów numer przystanku w finalnej liście nie jest już
+       dostępny / zgodny.
 
-       Przykład 170:
-       pierwsza WIERNA -> nr wystąpienia 0
-       druga WIERNA 02 -> nr wystąpienia 1
-
-       Wtedy zaznaczamy DRUGI widoczny wiersz WIERNA.
+       Dzięki temu:
+       - pierwsza WIERNA -> pierwsza WIERNA
+       - druga WIERNA -> druga WIERNA
+       - LNIANA -> jedyna LNIANA
     */
-    let wystapienieNazwy=0;
-
-    for(
-        let i=0;
-        i<aktualnyPrzystanek;
-        i++
-    ){
-        if(
-            normalizuj(
-                baza[i]?.nazwa
-            )===
-            nazwa
-        ){
-            wystapienieNazwy++;
-        }
-    }
-
-    const pozycjeNazwy=[];
+    const sameName=[];
 
     source.forEach(
         (element,pozycja)=>{
@@ -9954,27 +9940,46 @@ function indeksAktywnegoNaWyswietlanejTrasie(
                 )===
                 nazwa
             ){
-                pozycjeNazwy.push(
+                sameName.push(
                     pozycja
                 );
             }
         }
     );
 
-    if(pozycjeNazwy.length){
+    if(sameName.length){
 
-        return pozycjeNazwy[
+        let wystapienieNazwy=0;
+
+        for(
+            let i=0;
+            i<aktualnyPrzystanek;
+            i++
+        ){
+            if(
+                normalizuj(
+                    baza[i]?.nazwa
+                )===
+                nazwa
+            ){
+                wystapienieNazwy++;
+            }
+        }
+
+        return sameName[
             Math.min(
                 wystapienieNazwy,
-                pozycjeNazwy.length-1
+                sameName.length-1
             )
         ];
     }
 
     /*
-       4. Ostateczny fallback po dokładnym indeksie z bazy.
+       =========================================================
+       KROK 3 — awaryjny fallback po index
+       =========================================================
     */
-    const poIndeksie=
+    const poIndexie=
         source.findIndex(
             element=>
                 Number(
@@ -9985,7 +9990,7 @@ function indeksAktywnegoNaWyswietlanejTrasie(
                 )
         );
 
-    return poIndeksie;
+    return poIndexie;
 }
 
 
@@ -10200,15 +10205,17 @@ function pozycjaElementuNaPelnejLiscie(
 ){
 
     /*
-       1. Najpierw dokładnie ten sam obiekt.
+       Tak działa zwykła logika:
+       jeśli renderujemy dokładnie ten sam element z finalnej listy,
+       bierzemy jego realną pozycję.
     */
-    const poObiekcie=
+    const bezposrednia=
         pelnaLista.indexOf(
             element
         );
 
-    if(poObiekcie>=0){
-        return poObiekcie;
+    if(bezposrednia>=0){
+        return bezposrednia;
     }
 
     const nazwa=
@@ -10221,13 +10228,7 @@ function pozycjaElementuNaPelnejLiscie(
             p?.nr||""
         ).trim();
 
-    /*
-       2. Potem NAZWA + NUMER — bez wymagania zgodnego indexu.
-       To jest kluczowe przy trasach złożonych z wariantów, gdzie
-       index po filtrach może już nie odpowiadać temu samemu
-       logicznemu przystankowi.
-    */
-    const dokladne=[];
+    const kandydaci=[];
 
     pelnaLista.forEach(
         (x,pozycja)=>{
@@ -10242,37 +10243,37 @@ function pozycjaElementuNaPelnejLiscie(
                 ).trim()===
                     nr
             ){
-                dokladne.push(
+                kandydaci.push(
                     pozycja
                 );
             }
         }
     );
 
-    if(dokladne.length===1){
-        return dokladne[0];
+    if(kandydaci.length===1){
+        return kandydaci[0];
     }
 
-    if(dokladne.length>1){
+    if(kandydaci.length>1){
 
         /*
-           Przy kilku identycznych nazwach+numerach wybieramy
-           pozycję najbliższą indeksowi źródłowemu.
+           Jeśli jest kilka identycznych wpisów,
+           wybieramy pozycję najbliższą kolejności źródłowej.
         */
-        let najlepsza=
-            dokladne[0];
+        let najlepszy=
+            kandydaci[0];
 
         let roznica=
             Math.abs(
                 Number(
                     pelnaLista[
-                        najlepsza
+                        najlepszy
                     ]?.index
                 )-
                 Number(index)
             );
 
-        dokladne
+        kandydaci
             .slice(1)
             .forEach(
                 pozycja=>{
@@ -10288,19 +10289,18 @@ function pozycjaElementuNaPelnejLiscie(
                         );
 
                     if(r<roznica){
-                        najlepsza=
+                        najlepszy=
                             pozycja;
-
                         roznica=r;
                     }
                 }
             );
 
-        return najlepsza;
+        return najlepszy;
     }
 
     /*
-       3. Fallback po samej nazwie tylko dla nazwy unikalnej.
+       Fallback po samej nazwie tylko gdy jest jednoznaczna.
     */
     const poNazwie=
         pelnaLista
@@ -10405,9 +10405,6 @@ function renderTrasaKolumna(
                     }
 
                     const przed=
-                        !czyToDokladnieWybranyPrzystanek(
-                            p
-                        )&&
                         aktywnaPozycjaWyswietlana>=0&&
                         pozycjaWidoczna>=0&&
                         pozycjaWidoczna<
@@ -10441,14 +10438,9 @@ function renderTrasaKolumna(
                         );
 
                     const wybrany=
-                        czyToDokladnieWybranyPrzystanek(
-                            p
-                        )||
-                        (
-                            aktywnaPozycjaWyswietlana>=0&&
-                            pozycjaWidoczna===
-                                aktywnaPozycjaWyswietlana
-                        );
+                        aktywnaPozycjaWyswietlana>=0&&
+                        pozycjaWidoczna===
+                            aktywnaPozycjaWyswietlana;
 
                     if(
                         czyBiezacyPrzystanekDwukierunkowy()
