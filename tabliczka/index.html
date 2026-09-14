@@ -9211,30 +9211,148 @@ function __bezCache_listaTrasyDoWyswietlenia(){
             bezPowtorzenia
         );
 
-    /*
-       Ostatecznie usuwamy wyłącznie sztuczne, KOLEJNE duplikaty
-       tego samego fizycznego przystanku w tym samym stanie wariantów.
-       Prawdziwy powrót do tego samego przystanku później na trasie
-       pozostaje bez zmian.
-    */
     const bezDuplikatowTegoSamegoStanu=
         usunSztuczneDuplikatyWTymSamymStanieTrasy(
             bezPustychPrzyszlych
         );
 
-    /*
-       Jeszcze jeden szczególny przypadek:
-       ten sam przystanek jako punkt graniczny między np. e+l i e
-       pokazujemy tylko raz.
-    */
     const bezGranicy=
         usunPowtorzenieNaGranicyWariantow(
             bezDuplikatowTegoSamegoStanu
         );
 
-    return usunKolejnePowtorzeniaNazwyWDwukierunkowym(
-        bezGranicy
-    );
+    let wynik=
+        usunKolejnePowtorzeniaNazwyWDwukierunkowym(
+            bezGranicy
+        );
+
+    /*
+       =========================================================
+       FALLBACK DLA DOKŁADNEGO AKTYWNEGO PRZYSTANKU
+       =========================================================
+
+       Jeżeli rozkład jazdy i kierunek zostały poprawnie znalezione,
+       ale filtry wariantów usunęły wszystkie przystanki PO aktywnym,
+       odbudowujemy dalszą trasę z TEGO SAMEGO kursu, z którego
+       zostały policzone czasy przejazdu.
+
+       To jest dokładnie przypadek:
+           linia 170
+           kierunek RONDO STARZYŃSKIEGO
+           PKP ZACISZE-WILNO 02 (idx:5)
+
+       Godziny są poprawne, więc kurs został znaleziony.
+       Nie ma powodu, żeby lista kończyła się na aktywnym punkcie,
+       jeżeli czasyTrasy() ma czasy dla następnych przystanków.
+    */
+
+    const aktywnyPos=
+        wynik.findIndex(
+            element=>
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
+        );
+
+    const maCosPoAktywnym=
+        aktywnyPos>=0&&
+        aktywnyPos<
+            wynik.length-1;
+
+    if(
+        aktywnyPos>=0&&
+        !maCosPoAktywnym
+    ){
+
+        const czasy=
+            czasyTrasy();
+
+        const dalsze=
+            baza.filter(
+                element=>{
+
+                    const idx=
+                        Number(
+                            element?.index
+                        );
+
+                    if(
+                        !Number.isInteger(idx)||
+                        idx<=
+                            Number(
+                                aktualnyPrzystanek
+                            )
+                    ){
+                        return false;
+                    }
+
+                    /*
+                       Zostawiamy wyłącznie te punkty, dla których
+                       wybrany rzeczywisty kurs ma policzony czas.
+                       Dzięki temu nie dokładamy obcych gałęzi.
+                    */
+                    return(
+                        czasy[
+                            idx
+                        ]!==null&&
+                        czasy[
+                            idx
+                        ]!==undefined
+                    );
+                }
+            );
+
+        if(dalsze.length){
+
+            const klucze=
+                new Set(
+                    wynik.map(
+                        element=>
+                            [
+                                Number(
+                                    element?.index
+                                ),
+                                normalizuj(
+                                    element?.p?.nazwa
+                                ),
+                                String(
+                                    element?.p?.nr||""
+                                ).trim()
+                            ].join("|")
+                    )
+                );
+
+            dalsze.forEach(
+                element=>{
+
+                    const key=
+                        [
+                            Number(
+                                element?.index
+                            ),
+                            normalizuj(
+                                element?.p?.nazwa
+                            ),
+                            String(
+                                element?.p?.nr||""
+                            ).trim()
+                        ].join("|");
+
+                    if(!klucze.has(key)){
+                        wynik.push(
+                            element
+                        );
+                        klucze.add(key);
+                    }
+                }
+            );
+        }
+    }
+
+    return wynik;
 }
 
 function listaTrasyDoWyswietlenia(){
