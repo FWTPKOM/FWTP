@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 173
+     WERSJA: 174
      BAZA: 169
      DATA: 2026-09-14
      ========================================================= -->
@@ -2100,10 +2100,10 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 173
+   WERSJA: 174
    BAZA: 169
    ========================================================= */
-const WERSJA_TABLICZKI = "173";
+const WERSJA_TABLICZKI = "174";
 console.log("FWTP Tabliczka — wersja " + WERSJA_TABLICZKI + " (baza 169)");
 </script>
 
@@ -14538,8 +14538,7 @@ function wyrownajDwulinioweGodzinyCDoD(
     }
 
     /*
-       Bierzemy TYLKO dni znajdujące się na tej konkretnej kartce.
-       Dzięki temu wyrównanie nie przechodzi na drugą stronę / kartkę.
+       TYLKO dni na tej jednej kartce.
     */
     const dni=
         Array.from(
@@ -14553,59 +14552,56 @@ function wyrownajDwulinioweGodzinyCDoD(
     }
 
     /*
-       Najpierw usuwamy tylko nasze wcześniejsze wyrównanie,
-       żeby sprawdzić rzeczywistą, naturalną wysokość wierszy.
+       Usuwamy wyłącznie wysokości ustawione przez nasze wyrównanie.
+       Naturalne dwuwierszowe godziny dnia powszedniego pozostają
+       dwuwierszowe dzięki flex-wrap z trybu kompaktowego.
     */
     tabliczka
         .querySelectorAll(
-            ".godzina-row.wiersz-wyrownany-na-kartce"
+            ".godzina-row"
         )
         .forEach(
             row=>{
 
                 row.classList.remove(
-                    "wiersz-wyrownany-na-kartce"
+                    "wiersz-wyrownany-na-kartce",
+                    "wiersz-dwuliniowy-cd"
                 );
 
                 row.style.height="";
                 row.style.minHeight="";
 
-                const godzinaCell=
+                const gc=
                     row.querySelector(
                         ".godzina-cell"
                     );
 
-                const minutyCell=
+                const mc=
                     row.querySelector(
                         ".minuty-cell"
                     );
 
-                if(godzinaCell){
-                    godzinaCell.style.height="";
-                    godzinaCell.style.minHeight="";
+                if(gc){
+                    gc.style.height="";
+                    gc.style.minHeight="";
                 }
 
-                if(minutyCell){
-                    minutyCell.style.height="";
-                    minutyCell.style.minHeight="";
+                if(mc){
+                    mc.style.height="";
+                    mc.style.minHeight="";
                 }
             }
         );
 
-    /*
-       Zwraca numer godziny z wiersza, np. "7".
-    */
+
     const pobierzGodzine=
         row=>{
 
-            const cell=
-                row.querySelector(
-                    ".godzina-cell"
-                );
-
             const tekst=
                 (
-                    cell?.textContent||
+                    row.querySelector(
+                        ".godzina-cell"
+                    )?.textContent||
                     ""
                 )
                 .trim();
@@ -14625,12 +14621,131 @@ function wyrownajDwulinioweGodzinyCDoD(
                 : "";
         };
 
+
     /*
-       Grupujemy wiersze po godzinie:
-       7 -> [7 z dnia powszedniego, 7 z soboty, 7 z niedzieli...]
-       ale WYŁĄCZNIE w obrębie tej tabliczki/kartki.
+       Wyliczamy prawdziwą potrzebną wysokość wiersza.
+       Nie opieramy się tylko na scrollHeight, bo przeglądarka
+       potrafi zwrócić 16 px zanim zakończy końcowy reflow.
+
+       Dla komórki minut w trybie flex-wrap liczymy:
+       ile elementów mieści się w jednym rzędzie i ile rzędów
+       jest rzeczywiście potrzebnych.
     */
-    const mapaGodzin=
+    const policzNaturalnaWysokosc=
+        row=>{
+
+            const minutyCell=
+                row.querySelector(
+                    ".minuty-cell"
+                );
+
+            if(!minutyCell){
+                return 16;
+            }
+
+            const minuty=
+                Array.from(
+                    minutyCell.querySelectorAll(
+                        ".minuta"
+                    )
+                );
+
+            if(!minuty.length){
+                return 16;
+            }
+
+            const style=
+                getComputedStyle(
+                    minutyCell
+                );
+
+            const isFlexWrap=
+                style.display==="flex"&&
+                style.flexWrap==="wrap";
+
+            if(isFlexWrap){
+
+                const szerokosc=
+                    minutyCell.clientWidth;
+
+                if(szerokosc>0){
+
+                    const pierwsza=
+                        minuty[0];
+
+                    const szerMinuty=
+                        Math.max(
+                            1,
+                            pierwsza.getBoundingClientRect().width||
+                            24
+                        );
+
+                    const gap=
+                        parseFloat(
+                            style.columnGap||
+                            style.gap||
+                            0
+                        )||0;
+
+                    const paddingL=
+                        parseFloat(
+                            style.paddingLeft||0
+                        )||0;
+
+                    const paddingR=
+                        parseFloat(
+                            style.paddingRight||0
+                        )||0;
+
+                    const dostepna=
+                        Math.max(
+                            1,
+                            szerokosc-
+                            paddingL-
+                            paddingR
+                        );
+
+                    const naWiersz=
+                        Math.max(
+                            1,
+                            Math.floor(
+                                (
+                                    dostepna+
+                                    gap
+                                )/
+                                (
+                                    szerMinuty+
+                                    gap
+                                )
+                            )
+                        );
+
+                    const liczbaWierszy=
+                        Math.max(
+                            1,
+                            Math.ceil(
+                                minuty.length/
+                                naWiersz
+                            )
+                        );
+
+                    return liczbaWierszy*16;
+                }
+            }
+
+            return Math.max(
+                16,
+                row.getBoundingClientRect().height,
+                row.scrollHeight,
+                minutyCell.scrollHeight
+            );
+        };
+
+
+    /*
+       Grupujemy te same godziny ze wszystkich dni tej kartki.
+    */
+    const mapa=
         new Map();
 
     dni.forEach(
@@ -14652,89 +14767,69 @@ function wyrownajDwulinioweGodzinyCDoD(
                             return;
                         }
 
-                        if(
-                            !mapaGodzin.has(
-                                godzina
-                            )
-                        ){
-                            mapaGodzin.set(
+                        if(!mapa.has(godzina)){
+                            mapa.set(
                                 godzina,
                                 []
                             );
                         }
 
-                        mapaGodzin
-                            .get(
-                                godzina
-                            )
-                            .push(
-                                row
-                            );
+                        mapa.get(
+                            godzina
+                        ).push(
+                            row
+                        );
                     }
                 );
         }
     );
 
+
     /*
-       Dla każdej godziny:
-       - mierzymy każdy wiersz,
-       - jeśli którykolwiek jest wyższy (np. ma 2 rzędy minut),
-         wszystkie pozostałe wiersze tej samej godziny
-         na tej samej kartce dostają identyczną wysokość.
+       KLUCZOWA ZASADA:
+       6 zawsze jest na wysokości 6,
+       7 zawsze jest na wysokości 7,
+       8 zawsze jest na wysokości 8 itd.
+
+       Jeśli np. godzina 6 w jednym dniu potrzebuje 32 px,
+       wszystkie godziny 6 na tej samej kartce dostają 32 px.
     */
-    mapaGodzin.forEach(
+    mapa.forEach(
         rows=>{
 
             if(rows.length<2){
                 return;
             }
 
-            let maxWysokosc=0;
+            let docelowa=16;
 
             rows.forEach(
                 row=>{
 
-                    const minuty=
-                        row.querySelector(
-                            ".minuty-cell"
-                        );
-
-                    const wysokosc=
+                    docelowa=
                         Math.max(
-                            row.getBoundingClientRect().height,
-                            row.scrollHeight,
-                            minuty
-                                ? minuty.scrollHeight
-                                : 0
-                        );
-
-                    maxWysokosc=
-                        Math.max(
-                            maxWysokosc,
-                            wysokosc
+                            docelowa,
+                            policzNaturalnaWysokosc(
+                                row
+                            )
                         );
                 }
             );
 
             /*
-               Pojedynczy wiersz ma ok. 16 px.
-               Dopiero gdy któraś tabela realnie zrobi się wyższa,
-               wyrównujemy pozostałe.
+               Zaokrąglamy do 16 / 32 / 48...
             */
-            if(maxWysokosc<=20){
-                return;
-            }
-
-            /*
-               Zaokrąglenie do pełnego podwójnego wiersza.
-            */
-            const docelowa=
+            docelowa=
                 Math.max(
-                    32,
+                    16,
                     Math.ceil(
-                        maxWysokosc/16
+                        docelowa/16
                     )*16
                 );
+
+            if(docelowa<=16){
+                return;
+            }
 
             rows.forEach(
                 row=>{
@@ -14762,6 +14857,7 @@ function wyrownajDwulinioweGodzinyCDoD(
                     if(godzinaCell){
                         godzinaCell.style.height=
                             docelowa+"px";
+
                         godzinaCell.style.minHeight=
                             docelowa+"px";
                     }
@@ -14769,6 +14865,7 @@ function wyrownajDwulinioweGodzinyCDoD(
                     if(minutyCell){
                         minutyCell.style.height=
                             docelowa+"px";
+
                         minutyCell.style.minHeight=
                             docelowa+"px";
                     }
@@ -14929,6 +15026,65 @@ window.addEventListener(
     }
 );
 
+
+
+/* =========================================================
+   WERSJA 174 — KOŃCOWE WYRÓWNANIE GODZIN
+   ========================================================= */
+function przeliczWyrownanieGodzin174(){
+
+    document
+        .querySelectorAll(
+            ".tabliczka"
+        )
+        .forEach(
+            tabliczka=>
+                wyrownajDwulinioweGodzinyCDoD(
+                    tabliczka
+                )
+        );
+}
+
+window.addEventListener(
+    "load",
+    ()=>{
+        requestAnimationFrame(
+            ()=>{
+                requestAnimationFrame(
+                    ()=>{
+                        przeliczWyrownanieGodzin174();
+
+                        setTimeout(
+                            przeliczWyrownanieGodzin174,
+                            100
+                        );
+
+                        setTimeout(
+                            przeliczWyrownanieGodzin174,
+                            300
+                        );
+                    }
+                );
+            }
+        );
+    }
+);
+
+window.addEventListener(
+    "resize",
+    ()=>{
+        requestAnimationFrame(
+            ()=>{
+                przeliczWyrownanieGodzin174();
+
+                setTimeout(
+                    przeliczWyrownanieGodzin174,
+                    80
+                );
+            }
+        );
+    }
+);
 </script>
 
 </body>
