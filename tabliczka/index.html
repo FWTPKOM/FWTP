@@ -8533,6 +8533,180 @@ function czyStanWariantuJestPodzbiorem(
 }
 
 
+
+function czyElementJestPoczatkiemLubKoncemKursu(
+    element
+){
+
+    if(
+        !element||
+        !element.p||
+        !Number.isInteger(
+            Number(
+                element.index
+            )
+        )
+    ){
+        return false;
+    }
+
+    const kierunekBazowyDane=
+        kierunekBazowy();
+
+    const przystanki=
+        kierunekBazowyDane?.przystanki||
+        [];
+
+    const indeks=
+        Number(
+            element.index
+        );
+
+    if(
+        indeks<0||
+        indeks>=przystanki.length
+    ){
+        return false;
+    }
+
+    const p=
+        element.p;
+
+    const kursyTutaj=
+        [];
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const przystanek=
+                znajdzPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    p
+                );
+
+            (
+                przystanek?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    kursyTutaj.push({
+                        numer:String(
+                            kurs?.numer||""
+                        ),
+                        wariant:String(
+                            kurs?.wariant||""
+                        ),
+                        symbol:
+                            symbolDnia(
+                                kurs
+                            )
+                    });
+                }
+            );
+        }
+    );
+
+    if(!kursyTutaj.length){
+        return false;
+    }
+
+    for(
+        const ref
+        of kursyTutaj
+    ){
+
+        const indeksy=[];
+
+        przystanki.forEach(
+            (przystanekTrasy,i)=>{
+
+                let maTenKurs=false;
+
+                (
+                    daneLinii?.rozkłady||
+                    []
+                ).some(
+                    rozklad=>{
+
+                        const pp=
+                            znajdzPrzystanekWRozkladzie(
+                                rozklad,
+                                aktualnyKierunek,
+                                przystanekTrasy
+                            );
+
+                        const znaleziony=
+                            (
+                                pp?.kursy||
+                                []
+                            ).some(
+                                kurs=>
+                                    String(
+                                        kurs?.numer||""
+                                    )===
+                                        ref.numer&&
+                                    String(
+                                        kurs?.wariant||""
+                                    )===
+                                        ref.wariant&&
+                                    symbolDnia(
+                                        kurs
+                                    )===
+                                        ref.symbol&&
+                                    czasNaMinuty(
+                                        kurs?.czas
+                                    )!==null
+                            );
+
+                        if(znaleziony){
+                            maTenKurs=true;
+                        }
+
+                        return maTenKurs;
+                    }
+                );
+
+                if(maTenKurs){
+                    indeksy.push(
+                        i
+                    );
+                }
+            }
+        );
+
+        if(!indeksy.length){
+            continue;
+        }
+
+        if(
+            indeks===
+                indeksy[0]||
+            indeks===
+                indeksy[
+                    indeksy.length-1
+                ]
+        ){
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
 function usunPowtorzenieNaGranicyWariantow(
     lista
 ){
@@ -8566,25 +8740,55 @@ function usunPowtorzenieNaGranicyWariantow(
         }
 
         /*
-           Na GRANICY wariantu porównujemy nazwę przystanku,
-           a nie numer słupka.
+           Rozróżniamy:
+           - prawdziwe dwa przystanki w środku trasy,
+           - sztuczne powtórzenie powstałe dlatego, że jeden
+             z wpisów jest początkiem/końcem innego kursu.
 
-           To jest ważne dla 170:
-           PKP ZACISZE-WILNO jest jednym rzeczywistym punktem
-           trasy do ELSNEROWA, ale przy złożeniu wariantów może
-           dostać dwa wpisy z różnymi numerami / źródłami.
+           Przykład 126:
+           dwa MARCELIN / OS. MARYWILSKA w środku trasy
+           => oba zostają.
 
-           Nie dotykamy natomiast zwykłego usuwania duplikatów
-           w tym samym stanie trasy — tam nadal wymagamy
-           nazwa + numer, żeby zachować prawdziwe podwójne
-           MARCELIN / OS. MARYWILSKA na 126.
+           Przykład 170:
+           PKP ZACISZE-WILNO jako zwykły punkt pełnej trasy
+           + PKP jako początek/koniec kursu skróconego
+           => pokazujemy tylko jeden.
         */
-        const tenSamPrzystanek=
+        const taSamaNazwa=
             normalizuj(
                 poprzedni?.p?.nazwa
             )===
             normalizuj(
                 element?.p?.nazwa
+            );
+
+        const tenSamNumer=
+            String(
+                poprzedni?.p?.nr||""
+            ).trim()===
+            String(
+                element?.p?.nr||""
+            ).trim();
+
+        const poprzedniKraniec=
+            czyElementJestPoczatkiemLubKoncemKursu(
+                poprzedni
+            );
+
+        const aktualnyKraniec=
+            czyElementJestPoczatkiemLubKoncemKursu(
+                element
+            );
+
+        const tylkoJedenJestKrancem=
+            poprzedniKraniec!==
+            aktualnyKraniec;
+
+        const tenSamPrzystanek=
+            taSamaNazwa&&
+            (
+                tenSamNumer||
+                tylkoJedenJestKrancem
             );
 
         if(!tenSamPrzystanek){
