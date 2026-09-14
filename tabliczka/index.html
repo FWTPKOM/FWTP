@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 176
+     WERSJA: 177
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2031,6 +2031,27 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     min-height: 16.5px !important;
 }
 
+
+/* =========================================================
+   WERSJA 177 — JEDNOWYRAZOWE BEZ MYŚLNIKA
+   ========================================================= */
+
+/*
+   Jedno słowo bez myślnika, np. NOWOURSYNOWSKA,
+   musi zawsze zostać w jednej linii.
+*/
+.trasa-nazwa.nazwa-jednowyrazowa {
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    overflow-wrap: normal !important;
+    hyphens: none !important;
+}
+
+/*
+   Nazwy z myślnikami nie są objęte tą blokadą
+   i mogą przechodzić do 2 wierszy.
+*/
+
 </style>
 </head>
 
@@ -2093,12 +2114,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 176
+   WERSJA: 177
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "176";
+const WERSJA_TABLICZKI = "177";
 console.log(
-    "FWTP Tabliczka — wersja 176 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 177 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -14622,7 +14643,10 @@ function zabezpieczJednowyrazoweNazwy176(root=document){
             */
             const jednowyrazowa=
                 tekst.length>0 &&
-                !tekst.includes(" ");
+                !tekst.includes(" ") &&
+                !tekst.includes("-") &&
+                !tekst.includes("–") &&
+                !tekst.includes("—");
 
             nazwa.classList.toggle(
                 "nazwa-jednowyrazowa",
@@ -14635,6 +14659,135 @@ function zabezpieczJednowyrazoweNazwy176(root=document){
                 );
             }
         }
+    );
+}
+
+
+/* =========================================================
+   WERSJA 177 — AUTOMATYCZNE POSZERZANIE KOLUMNY DLA
+   JEDNOWYRAZOWYCH NAZW PRZYSTANKÓW
+   ========================================================= */
+
+function dopasujSzerokoscKolumnyDoJednowyrazowych177(
+    tabliczka
+){
+
+    if(!tabliczka){
+        return;
+    }
+
+    const panelPrawy=
+        tabliczka.querySelector(
+            ".panel-prawy"
+        );
+
+    const panelLewy=
+        tabliczka.querySelector(
+            ".panel-lewy"
+        );
+
+    const columns=
+        tabliczka.querySelector(
+            ".trasa-columns"
+        );
+
+    if(
+        !panelPrawy||
+        !panelLewy||
+        !columns
+    ){
+        return;
+    }
+
+    const nazwy=
+        Array.from(
+            tabliczka.querySelectorAll(
+                ".trasa-nazwa.nazwa-jednowyrazowa"
+            )
+        );
+
+    if(!nazwy.length){
+        return;
+    }
+
+    /*
+       Szukamy największej różnicy:
+       scrollWidth - clientWidth.
+       Jeśli dodatnia, jednowyrazowa nazwa nie mieści się.
+    */
+    let brakujace=0;
+
+    nazwy.forEach(
+        nazwa=>{
+
+            const roznica=
+                Math.ceil(
+                    nazwa.scrollWidth-
+                    nazwa.clientWidth
+                );
+
+            if(roznica>brakujace){
+                brakujace=
+                    roznica;
+            }
+        }
+    );
+
+    if(brakujace<=0){
+        return;
+    }
+
+    /*
+       Dodajemy mały zapas, żeby napis nie dotykał krawędzi.
+    */
+    const zapas=8;
+
+    const szerTabliczki=
+        tabliczka.clientWidth;
+
+    if(!szerTabliczki){
+        return;
+    }
+
+    const obecnaPrawa=
+        panelPrawy.getBoundingClientRect().width;
+
+    const nowaPrawa=
+        obecnaPrawa+
+        brakujace+
+        zapas;
+
+    /*
+       Nie pozwalamy, żeby prawa część zabrała absurdalnie dużo.
+       Górna granica 55% całej kartki.
+    */
+    const maxPrawa=
+        szerTabliczki*0.55;
+
+    const docelowaPrawa=
+        Math.min(
+            nowaPrawa,
+            maxPrawa
+        );
+
+    const procentPrawa=
+        (
+            docelowaPrawa/
+            szerTabliczki
+        )*100;
+
+    const procentLewa=
+        100-
+        procentPrawa;
+
+    tabliczka.style.setProperty(
+        "--prawa",
+        procentPrawa.toFixed(2)+"%"
+    );
+
+    tabliczka.style.setProperty(
+        "--lewa",
+        procentLewa.toFixed(2)+"%"
     );
 }
 
@@ -14790,6 +14943,83 @@ window.addEventListener(
         );
     }
 );
+
+
+/* =========================================================
+   WERSJA 177 — KOŃCOWE DOPASOWANIE SZEROKOŚCI
+   ========================================================= */
+
+function odswiezSzerokoscJednowyrazowych177(){
+
+    document
+        .querySelectorAll(
+            ".tabliczka"
+        )
+        .forEach(
+            tabliczka=>{
+
+                zabezpieczJednowyrazoweNazwy176(
+                    tabliczka
+                );
+
+                dopasujSzerokoscKolumnyDoJednowyrazowych177(
+                    tabliczka
+                );
+
+                /*
+                   Po zmianie szerokości ponownie liczymy zawijanie
+                   nazw wielowyrazowych / z myślnikami.
+                */
+                const columns=
+                    tabliczka.querySelector(
+                        ".trasa-columns"
+                    );
+
+                if(
+                    columns&&
+                    typeof ustawZawijanieNazwTrasy==="function"
+                ){
+                    ustawZawijanieNazwTrasy(
+                        columns
+                    );
+
+                    zabezpieczJednowyrazoweNazwy176(
+                        tabliczka
+                    );
+                }
+            }
+        );
+}
+
+window.addEventListener(
+    "load",
+    ()=>{
+        requestAnimationFrame(
+            ()=>{
+                requestAnimationFrame(
+                    ()=>{
+                        odswiezSzerokoscJednowyrazowych177();
+
+                        setTimeout(
+                            odswiezSzerokoscJednowyrazowych177,
+                            100
+                        );
+                    }
+                );
+            }
+        );
+    }
+);
+
+window.addEventListener(
+    "resize",
+    ()=>{
+        requestAnimationFrame(
+            odswiezSzerokoscJednowyrazowych177
+        );
+    }
+);
+
 </script>
 
 </body>
