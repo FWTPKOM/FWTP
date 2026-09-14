@@ -5958,6 +5958,12 @@ function __bezCache_znajdzNajlepszyKursDoTrasy(){
 
     if(!start)return null;
 
+    const startElement={
+        p:start,
+        index:
+            aktualnyPrzystanek
+    };
+
     const kandydaci=
         new Map();
 
@@ -5967,11 +5973,26 @@ function __bezCache_znajdzNajlepszyKursDoTrasy(){
     ).forEach(
         rozklad=>{
 
+            /*
+               KLUCZOWA POPRAWKA:
+               nie szukamy już pierwszego przystanku o tej samej
+               nazwie i numerze.
+
+               Szukamy dokładnie TEGO wystąpienia, które zostało
+               wybrane w URL / select:
+                   kierunek=1
+                   przystanek=idx:5
+
+               To jest konieczne np. dla linii 170, gdzie
+               PKP ZACISZE-WILNO 02 może wystąpić więcej niż raz
+               w strukturze kierunku, ale każde wystąpienie należy
+               do innego przebiegu.
+            */
             const p=
-                znajdzPrzystanekWRozkladzie(
+                znajdzPrzystanekWRozkladzieDlaElementu(
                     rozklad,
                     aktualnyKierunek,
-                    start
+                    startElement
                 );
 
             (
@@ -6029,7 +6050,8 @@ function __bezCache_znajdzNajlepszyKursDoTrasy(){
                 if(
                     znajdzCzasKursuNaPrzystanku(
                         kandydat,
-                        lista[i]
+                        lista[i],
+                        i
                     )!==null
                 ){
                     kandydat.count++;
@@ -6060,7 +6082,8 @@ function znajdzNajlepszyKursDoTrasy(){
 
 function znajdzCzasKursuNaPrzystanku(
     kandydat,
-    bazaP
+    bazaP,
+    bazaIndex=null
 ){
 
     for(
@@ -6071,12 +6094,41 @@ function znajdzCzasKursuNaPrzystanku(
         )
     ){
 
-        const p=
-            znajdzPrzystanekWRozkladzie(
-                rozklad,
-                aktualnyKierunek,
-                bazaP
-            );
+        let p=null;
+
+        if(
+            Number.isInteger(
+                Number(
+                    bazaIndex
+                )
+            )
+        ){
+
+            p=
+                znajdzPrzystanekWRozkladzieDlaElementu(
+                    rozklad,
+                    aktualnyKierunek,
+                    {
+                        p:bazaP,
+                        index:Number(
+                            bazaIndex
+                        )
+                    }
+                );
+        }
+        else{
+
+            /*
+               Stary fallback pozostaje dla pozostałych miejsc kodu,
+               które nie mają informacji o indeksie wystąpienia.
+            */
+            p=
+                znajdzPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    bazaP
+                );
+        }
 
         const kurs=
             (
@@ -6134,7 +6186,8 @@ function __bezCache_czasyTrasy(){
             kandydat,
             lista[
                 aktualnyPrzystanek
-            ]
+            ],
+            aktualnyPrzystanek
         );
 
     if(start===null){
@@ -6151,7 +6204,8 @@ function __bezCache_czasyTrasy(){
         let t=
             znajdzCzasKursuNaPrzystanku(
                 kandydat,
-                lista[i]
+                lista[i],
+                i
             );
 
         if(t===null)continue;
