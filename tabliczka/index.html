@@ -9822,78 +9822,161 @@ function indeksAktywnegoNaWyswietlanejTrasie(
             ? lista
             : [];
 
+    const baza=
+        kierunekBazowy()
+            ?.przystanki||
+        [];
+
+    const wybranyPrzystanek=
+        baza[
+            aktualnyPrzystanek
+        ];
+
+    if(!wybranyPrzystanek){
+        return aktualnyPrzystanek;
+    }
+
+    const nazwa=
+        normalizuj(
+            wybranyPrzystanek?.nazwa
+        );
+
+    const nr=
+        String(
+            wybranyPrzystanek?.nr||""
+        ).trim();
+
     /*
-       Najpierw normalny przypadek — dokładny indeks nadal istnieje.
+       Najpierw dokładne dopasowanie NAZWA + NUMER.
+       To jest najważniejsza zmiana.
+
+       Nie bierzemy już pierwszego elementu tylko dlatego,
+       że ma ten sam index albo tę samą nazwę.
     */
-    const dokladny=
+    const dokladne=
+        source.filter(
+            element=>
+                normalizuj(
+                    element?.p?.nazwa
+                )===
+                    nazwa&&
+                String(
+                    element?.p?.nr||""
+                ).trim()===
+                    nr
+        );
+
+    if(dokladne.length===1){
+        return dokladne[0].index;
+    }
+
+    /*
+       Jeżeli ta sama nazwa + numer występują kilka razy,
+       ustalamy które to jest wystąpienie w bazowym kierunku.
+    */
+    if(dokladne.length>1){
+
+        let wystapienieWybranego=0;
+
+        for(
+            let i=0;
+            i<aktualnyPrzystanek;
+            i++
+        ){
+            const p=
+                baza[i];
+
+            if(
+                normalizuj(
+                    p?.nazwa
+                )===
+                    nazwa&&
+                String(
+                    p?.nr||""
+                ).trim()===
+                    nr
+            ){
+                wystapienieWybranego++;
+            }
+        }
+
+        return(
+            dokladne[
+                Math.min(
+                    wystapienieWybranego,
+                    dokladne.length-1
+                )
+            ]?.index
+            ??
+            dokladne[0].index
+        );
+    }
+
+    /*
+       Jeżeli dokładne NAZWA + NUMER zostało usunięte przez
+       wcześniejszą logikę wariantów, dopiero wtedy próbujemy
+       dopasowania po samej nazwie.
+
+       Ale również wybieramy odpowiednie wystąpienie tej nazwy,
+       a nie zawsze pierwsze.
+    */
+    const poNazwie=
+        source.filter(
+            element=>
+                normalizuj(
+                    element?.p?.nazwa
+                )===
+                    nazwa
+        );
+
+    if(poNazwie.length){
+
+        let wystapienieNazwy=0;
+
+        for(
+            let i=0;
+            i<aktualnyPrzystanek;
+            i++
+        ){
+            if(
+                normalizuj(
+                    baza[i]?.nazwa
+                )===
+                nazwa
+            ){
+                wystapienieNazwy++;
+            }
+        }
+
+        return(
+            poNazwie[
+                Math.min(
+                    wystapienieNazwy,
+                    poNazwie.length-1
+                )
+            ]?.index
+            ??
+            poNazwie[
+                poNazwie.length-1
+            ].index
+        );
+    }
+
+    /*
+       Ostateczny fallback.
+    */
+    const poIndeksie=
         source.find(
             element=>
                 element?.index===
                 aktualnyPrzystanek
         );
 
-    if(dokladny){
-        return aktualnyPrzystanek;
-    }
-
-    /*
-       Aktywny wpis mógł zostać usunięty jako sztuczne
-       powtórzenie na granicy trasy podstawowej i wydłużonej.
-
-       Przykład 131 / SADYBA 01:
-       - jedna SADYBA zostaje na końcu trasy podstawowej,
-       - druga SADYBA z początku wydłużenia jest usuwana,
-       - ale wybranym słupkiem nadal jest właśnie SADYBA 01.
-
-       W takim przypadku aktywność przenosimy na najbliższy
-       pozostały wpis o tej samej nazwie.
-    */
-    const pelnyKierunek=
-        kierunekBazowy()?.przystanki||
-        [];
-
-    const aktywny=
-        pelnyKierunek[
-            aktualnyPrzystanek
-        ];
-
-    if(!aktywny){
-        return aktualnyPrzystanek;
-    }
-
-    const nazwaAktywnego=
-        normalizuj(
-            aktywny?.nazwa
-        );
-
-    if(!nazwaAktywnego){
-        return aktualnyPrzystanek;
-    }
-
-    const kandydaci=
-        source
-            .filter(
-                element=>
-                    normalizuj(
-                        element?.p?.nazwa
-                    )===
-                    nazwaAktywnego
-            )
-            .sort(
-                (a,b)=>
-                    Math.abs(
-                        Number(a.index)-
-                        aktualnyPrzystanek
-                    )-
-                    Math.abs(
-                        Number(b.index)-
-                        aktualnyPrzystanek
-                    )
-            );
-
-    return kandydaci.length
-        ? kandydaci[0].index
-        : aktualnyPrzystanek;
+    return(
+        poIndeksie?.index
+        ??
+        aktualnyPrzystanek
+    );
 }
 
 
@@ -10199,17 +10282,11 @@ function renderTrasaKolumna(
                     */
                     if(!przed){
 
-                        if(
-                            wybrany&&
-                            index!==
-                            aktualnyPrzystanek
-                        ){
-                            /*
-                               Aktywny dokładny wpis został scalony
-                               z przystankiem o tej samej nazwie.
-                               Na tabliczce nadal jest to miejsce,
-                               na którym stoimy, więc czas = 0.
-                            */
+                        /*
+                           Wybrany przystanek na tabliczce zawsze
+                           ma czas przejazdu 0.
+                        */
+                        if(wybrany){
                             czas=0;
                         }
                         else{
