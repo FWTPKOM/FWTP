@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 183
+     WERSJA: 184
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2120,6 +2120,45 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     max-width: 225px !important;
 }
 
+
+/* =========================================================
+   FWTP — WERSJA 184
+   1) NATURALNY UKŁAD — MINUTY W 1 WIERSZU
+   2) JEŚLI SIĘ NIE MIEŚCI -> DZIEŃ POWSZEDNI 250px
+   3) JEŚLI NADAL NIE -> DZIEŃ POWSZEDNI 225px
+   4) JEŚLI NADAL NIE -> 2 STRONY
+   ========================================================= */
+
+.tabliczka.etap-250.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt {
+    width: 250px !important;
+    min-width: 250px !important;
+    max-width: 250px !important;
+}
+
+.tabliczka.etap-225.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt {
+    width: 225px !important;
+    min-width: 225px !important;
+    max-width: 225px !important;
+}
+
+.tabliczka.etap-250.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt .minuty-cell,
+.tabliczka.etap-225.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt .minuty-cell {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    white-space: normal !important;
+    overflow: visible !important;
+}
+
+/* wyłączenie starego limitu 8 z v183 */
+.tabliczka.max-8-kursow .minuty-cell.limit-8-kursow {
+    width: auto !important;
+    max-width: none !important;
+}
+
 </style>
 </head>
 
@@ -2182,12 +2221,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 183
+   WERSJA: 184
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "183";
+const WERSJA_TABLICZKI = "184";
 console.log(
-    "FWTP Tabliczka — wersja 183 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 184 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -13009,59 +13048,13 @@ function renderuj(){
             dopasujKolumnyTrasy();
 
             /*
-               ETAP 1:
-               próbujemy zachować JEDNĄ tabliczkę:
-               - węższy panel trasy,
-               - częstsze zawijanie nazw przystanków,
-               - minuty mogą przejść do drugiego wiersza.
+               WERSJA 184:
+               1. naturalny układ — minuty wszędzie w jednym rzędzie,
+               2. jeśli nie mieści się -> dzień powszedni 250 px,
+               3. jeśli nadal nie -> dzień powszedni 225 px,
+               4. jeśli nadal nie -> dwie strony.
             */
-            const wlaczonoKompakt=
-                zastosujTrybKompaktowyJesliPotrzeba();
-
-            if(wlaczonoKompakt){
-
-                requestAnimationFrame(
-                    ()=>{
-
-                        /*
-                           Po zmianie proporcji paneli przeliczamy
-                           ponownie zawijanie i podział listy przystanków.
-                        */
-                        dopasujKolumnyTrasy();
-
-                        const kompaktowaTabliczka=
-                            document.querySelector(
-                                "#wynik .tabliczka"
-                            );
-
-                        dopasujRozkladyWTrybieKompaktowym(
-                            kompaktowaTabliczka
-                        );
-
-                        requestAnimationFrame(
-                            ()=>{
-
-                                wyrownajWysokosciGodzinMiedzyDniami(
-                                    kompaktowaTabliczka
-                                );
-
-                                requestAnimationFrame(
-                                    ()=>{
-
-                                        /*
-                                           ETAP 2:
-                                           tylko jeśli wersja kompaktowa NADAL
-                                           nachodzi na listę przystanków,
-                                           robimy dwie tabliczki.
-                                        */
-                                        zastosujTrybDwochTabliczekJesliPotrzeba();
-                                    }
-                                );
-                            }
-                        );
-                    }
-                );
-            }
+            zastosujEtapyRozkladu184();
         });
     });
 
@@ -13646,6 +13639,235 @@ function wyrownajWysokosciGodzinMiedzyDniami(
 }
 
 
+
+/* =========================================================
+   WERSJA 184 — ETAPOWE DOPASOWANIE
+   ========================================================= */
+
+function wyczyscEtapy184(tabliczka){
+
+    if(!tabliczka){
+        return;
+    }
+
+    tabliczka.classList.remove(
+        "etap-250",
+        "etap-225",
+        "max-8-kursow"
+    );
+
+    tabliczka
+        .querySelectorAll(".minuty-cell.limit-8-kursow")
+        .forEach(
+            el=>el.classList.remove("limit-8-kursow")
+        );
+
+    tabliczka.style.removeProperty("--szerokosc-8-kursow");
+}
+
+
+function ustawNaturalnyUklad184(tabliczka){
+
+    wyczyscEtapy184(tabliczka);
+
+    tabliczka.classList.remove(
+        "tryb-kompaktowy"
+    );
+
+    tabliczka
+        .querySelectorAll(".dzien")
+        .forEach(
+            dzien=>{
+                dzien.style.width="";
+                dzien.style.minWidth="";
+                dzien.style.maxWidth="";
+            }
+        );
+}
+
+
+function ustawSzerokoscDniaPowszedniego184(
+    tabliczka,
+    szerokosc
+){
+
+    wyczyscEtapy184(tabliczka);
+
+    tabliczka.classList.add(
+        "tryb-kompaktowy"
+    );
+
+    oznaczDzienPowszedniDoKompaktu(
+        tabliczka
+    );
+
+    tabliczka.classList.add(
+        szerokosc===250
+            ? "etap-250"
+            : "etap-225"
+    );
+
+    dopasujRozkladyWTrybieKompaktowym(
+        tabliczka
+    );
+
+    const powszedni=
+        tabliczka.querySelector(
+            ".dzien.dzien-powszedni-kompakt"
+        );
+
+    if(powszedni){
+        powszedni.style.width=szerokosc+"px";
+        powszedni.style.minWidth=szerokosc+"px";
+        powszedni.style.maxWidth=szerokosc+"px";
+    }
+
+    void tabliczka.offsetWidth;
+
+    if(
+        typeof wyrownajWysokosciGodzinMiedzyDniami==="function"
+    ){
+        wyrownajWysokosciGodzinMiedzyDniami(
+            tabliczka
+        );
+    }
+}
+
+
+function zastosujEtapyRozkladu184(){
+
+    const tabliczka=
+        document.querySelector(
+            "#wynik .tabliczka"
+        );
+
+    if(!tabliczka){
+        return;
+    }
+
+    /*
+       ETAP 1 — NATURALNY UKŁAD.
+       Najpierw próbujemy zmieścić wszystko bez zawijania minut.
+    */
+    ustawNaturalnyUklad184(
+        tabliczka
+    );
+
+    dopasujKolumnyTrasy();
+
+    requestAnimationFrame(
+        ()=>{
+
+            if(
+                !czyRozkladNachodziNaListePrzystankow(
+                    tabliczka
+                )
+            ){
+                return;
+            }
+
+            /*
+               ETAP 2 — 250 px
+            */
+            ustawSzerokoscDniaPowszedniego184(
+                tabliczka,
+                250
+            );
+
+            dopasujKolumnyTrasy();
+
+            requestAnimationFrame(
+                ()=>{
+
+                    const p250=
+                        tabliczka.querySelector(
+                            ".dzien.dzien-powszedni-kompakt"
+                        );
+
+                    if(p250){
+                        p250.style.width="250px";
+                        p250.style.minWidth="250px";
+                        p250.style.maxWidth="250px";
+                    }
+
+                    if(
+                        typeof wyrownajWysokosciGodzinMiedzyDniami==="function"
+                    ){
+                        wyrownajWysokosciGodzinMiedzyDniami(
+                            tabliczka
+                        );
+                    }
+
+                    requestAnimationFrame(
+                        ()=>{
+
+                            if(
+                                !czyRozkladNachodziNaListePrzystankow(
+                                    tabliczka
+                                )
+                            ){
+                                return;
+                            }
+
+                            /*
+                               ETAP 3 — 225 px
+                            */
+                            ustawSzerokoscDniaPowszedniego184(
+                                tabliczka,
+                                225
+                            );
+
+                            dopasujKolumnyTrasy();
+
+                            requestAnimationFrame(
+                                ()=>{
+
+                                    const p225=
+                                        tabliczka.querySelector(
+                                            ".dzien.dzien-powszedni-kompakt"
+                                        );
+
+                                    if(p225){
+                                        p225.style.width="225px";
+                                        p225.style.minWidth="225px";
+                                        p225.style.maxWidth="225px";
+                                    }
+
+                                    if(
+                                        typeof wyrownajWysokosciGodzinMiedzyDniami==="function"
+                                    ){
+                                        wyrownajWysokosciGodzinMiedzyDniami(
+                                            tabliczka
+                                        );
+                                    }
+
+                                    requestAnimationFrame(
+                                        ()=>{
+
+                                            /*
+                                               ETAP 4 — 2 STRONY.
+                                               Dopiero jeśli 225 px
+                                               nadal nie rozwiązało kolizji.
+                                            */
+                                            if(
+                                                czyRozkladNachodziNaListePrzystankow(
+                                                    tabliczka
+                                                )
+                                            ){
+                                                zastosujTrybDwochTabliczekJesliPotrzeba();
+                                            }
+                                        }
+                                    );
+                                }
+                            );
+                        }
+                    );
+                }
+            );
+        }
+    );
+}
+
 function zastosujTrybKompaktowyJesliPotrzeba(){
 
     const tabliczka=
@@ -13777,6 +13999,9 @@ function zastosujTrybDwochTabliczekJesliPotrzeba(){
     if(
         !tabliczka.classList.contains(
             "tryb-kompaktowy"
+        )||
+        !tabliczka.classList.contains(
+            "etap-225"
         )||
         !czyRozkladNachodziNaListePrzystankow(
             tabliczka
@@ -15169,17 +15394,8 @@ function ustawLimit8Kursow181(
 
 
 function przeliczLimitKursow181(){
-
-    document
-        .querySelectorAll(
-            ".tabliczka"
-        )
-        .forEach(
-            tabliczka=>
-                ustawLimit8Kursow181(
-                    tabliczka
-                )
-        );
+    /* v184: zastąpione etapami 1 wiersz -> 250 -> 225 -> 2 strony */
+    return;
 }
 
 function poprawPierwszyPasazerski180(
