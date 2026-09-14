@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 180
+     WERSJA: 181
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2072,6 +2072,32 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     overflow: hidden !important;
 }
 
+
+/* =========================================================
+   WERSJA 181 — AUTOMATYCZNIE 9 LUB 8 KURSÓW NA GODZINĘ
+   ========================================================= */
+
+/*
+   Tryb awaryjny włącza JS dopiero wtedy, gdy wariant z 9 kursami
+   nie mieści całej tabliczki na jednej stronie.
+
+   Nie zwężamy samych pól minut. Zachowują swoją normalną szerokość.
+   Ograniczamy jedynie szerokość obszaru minut tak, żeby w jednym
+   rzędzie mogło znaleźć się maksymalnie 8 pozycji.
+*/
+.tabliczka.max-8-kursow .minuty-cell {
+    flex-wrap: wrap !important;
+}
+
+/*
+   Wartość szerokości jest ustawiana przez JS na podstawie
+   faktycznej szerokości pojedynczej .minuta i odstępów.
+*/
+.tabliczka.max-8-kursow .minuty-cell.limit-8-kursow {
+    width: var(--szerokosc-8-kursow) !important;
+    max-width: var(--szerokosc-8-kursow) !important;
+}
+
 </style>
 </head>
 
@@ -2134,12 +2160,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 180
+   WERSJA: 181
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "180";
+const WERSJA_TABLICZKI = "181";
 console.log(
-    "FWTP Tabliczka — wersja 180 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 181 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -14820,6 +14846,255 @@ function dopasujSzerokoscKolumnyDoJednowyrazowych177(
    WIDOCZNY przystanek pasażerski w danej ciągłej trasie.
    ========================================================= */
 
+
+/* =========================================================
+   WERSJA 181 — 9 KURSÓW, A GDY SIĘ NIE MIEŚCI -> 8
+   ========================================================= */
+
+function czyTabliczkaMiesciSiePionowo181(
+    tabliczka
+){
+
+    if(!tabliczka){
+        return true;
+    }
+
+    /*
+       Porównujemy faktyczną zawartość z wysokością samej kartki.
+       Uwzględniamy zarówno scrollHeight tabliczki, jak i elementy,
+       które mogą wizualnie wystawać poniżej jej obrysu.
+    */
+    const rect=
+        tabliczka.getBoundingClientRect();
+
+    let najnizszy=
+        rect.top;
+
+    tabliczka
+        .querySelectorAll(
+            ".rozklady-grid, .dzien, .godzina-row, .legenda, .trasa-columns, .panel-prawy, .panel-lewy"
+        )
+        .forEach(
+            el=>{
+
+                const r=
+                    el.getBoundingClientRect();
+
+                if(r.bottom>najnizszy){
+                    najnizszy=
+                        r.bottom;
+                }
+            }
+        );
+
+    const wystajeGeometrycznie=
+        najnizszy>
+        rect.bottom+1;
+
+    const wystajeScroll=
+        tabliczka.scrollHeight>
+        tabliczka.clientHeight+1;
+
+    return !(
+        wystajeGeometrycznie||
+        wystajeScroll
+    );
+}
+
+
+function ustawLimit8Kursow181(
+    tabliczka
+){
+
+    if(!tabliczka){
+        return;
+    }
+
+    /*
+       Najpierw zawsze sprawdzamy układ normalny.
+    */
+    tabliczka.classList.remove(
+        "max-8-kursow"
+    );
+
+    tabliczka
+        .querySelectorAll(
+            ".minuty-cell.limit-8-kursow"
+        )
+        .forEach(
+            cell=>
+                cell.classList.remove(
+                    "limit-8-kursow"
+                )
+        );
+
+    tabliczka.style.removeProperty(
+        "--szerokosc-8-kursow"
+    );
+
+    /*
+       Wymuszamy przeliczenie układu.
+    */
+    void tabliczka.offsetHeight;
+
+    if(
+        czyTabliczkaMiesciSiePionowo181(
+            tabliczka
+        )
+    ){
+        return;
+    }
+
+    const pierwszaMinuta=
+        tabliczka.querySelector(
+            ".minuty-cell .minuta"
+        );
+
+    if(!pierwszaMinuta){
+        return;
+    }
+
+    const minutaRect=
+        pierwszaMinuta.getBoundingClientRect();
+
+    const minutaStyle=
+        getComputedStyle(
+            pierwszaMinuta
+        );
+
+    const szerMinuty=
+        Math.max(
+            1,
+            minutaRect.width+
+            parseFloat(
+                minutaStyle.marginLeft||0
+            )+
+            parseFloat(
+                minutaStyle.marginRight||0
+            )
+        );
+
+    const przykladowaCell=
+        pierwszaMinuta.closest(
+            ".minuty-cell"
+        );
+
+    const cellStyle=
+        getComputedStyle(
+            przykladowaCell
+        );
+
+    const gap=
+        parseFloat(
+            cellStyle.columnGap||
+            cellStyle.gap||
+            0
+        )||0;
+
+    const paddingL=
+        parseFloat(
+            cellStyle.paddingLeft||0
+        )||0;
+
+    const paddingR=
+        parseFloat(
+            cellStyle.paddingRight||0
+        )||0;
+
+    /*
+       Dokładnie miejsce na 8 normalnych pozycji minutowych.
+       Nie ściskamy ich.
+    */
+    const szerokosc8=
+        Math.ceil(
+            paddingL+
+            paddingR+
+            szerMinuty*8+
+            gap*7+
+            1
+        );
+
+    tabliczka.style.setProperty(
+        "--szerokosc-8-kursow",
+        szerokosc8+"px"
+    );
+
+    tabliczka.classList.add(
+        "max-8-kursow"
+    );
+
+    /*
+       Limit stosujemy tylko do tabel, w których rzeczywiście
+       występuje co najmniej 9 kursów/minut w którejś godzinie.
+       Mniejsze tabele nie są niepotrzebnie zwężane.
+    */
+    tabliczka
+        .querySelectorAll(
+            ".dzien"
+        )
+        .forEach(
+            dzien=>{
+
+                const ma9LubWiecej=
+                    Array.from(
+                        dzien.querySelectorAll(
+                            ".godzina-row"
+                        )
+                    )
+                    .some(
+                        row=>
+                            row.querySelectorAll(
+                                ".minuty-cell .minuta"
+                            ).length>=9
+                    );
+
+                if(!ma9LubWiecej){
+                    return;
+                }
+
+                dzien
+                    .querySelectorAll(
+                        ".minuty-cell"
+                    )
+                    .forEach(
+                        cell=>
+                            cell.classList.add(
+                                "limit-8-kursow"
+                            )
+                    );
+            }
+        );
+
+    void tabliczka.offsetHeight;
+
+    /*
+       Po zmianie liczby pozycji w rzędzie uruchamiamy istniejące
+       wyrównanie wysokości tych samych godzin między dniami.
+    */
+    if(
+        typeof wyrownajWysokosciGodzinMiedzyDniami==="function"
+    ){
+        wyrownajWysokosciGodzinMiedzyDniami(
+            tabliczka
+        );
+    }
+}
+
+
+function przeliczLimitKursow181(){
+
+    document
+        .querySelectorAll(
+            ".tabliczka"
+        )
+        .forEach(
+            tabliczka=>
+                ustawLimit8Kursow181(
+                    tabliczka
+                )
+        );
+}
+
 function poprawPierwszyPasazerski180(
     root=document
 ){
@@ -15173,6 +15448,48 @@ window.addEventListener(
     ()=>{
         requestAnimationFrame(
             odswiezPierwszyPasazerski180
+        );
+    }
+);
+
+
+
+/* =========================================================
+   WERSJA 181 — KOŃCOWE PRZELICZENIE 9 -> 8
+   ========================================================= */
+
+window.addEventListener(
+    "load",
+    ()=>{
+        requestAnimationFrame(
+            ()=>{
+                requestAnimationFrame(
+                    ()=>{
+                        przeliczLimitKursow181();
+
+                        setTimeout(
+                            przeliczLimitKursow181,
+                            120
+                        );
+                    }
+                );
+            }
+        );
+    }
+);
+
+window.addEventListener(
+    "resize",
+    ()=>{
+        requestAnimationFrame(
+            ()=>{
+                przeliczLimitKursow181();
+
+                setTimeout(
+                    przeliczLimitKursow181,
+                    80
+                );
+            }
         );
     }
 );
