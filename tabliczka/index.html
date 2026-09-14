@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 170
+     WERSJA: 171
      BAZA: 169
      DATA: 2026-09-14
      ========================================================= -->
@@ -1945,6 +1945,66 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     min-width: 24px !important;
 }
 
+
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 171
+   POPRAWKI:
+   1. Jednowyrazowe nazwy przystanków zawsze w jednej linii.
+   2. Jeżeli dana godzina w D ma 2 wiersze minut,
+      ta sama godzina w C ma identyczną wysokość.
+   ========================================================= */
+
+/*
+   JS dodaje klasę .nazwa-jednowyrazowa wyłącznie nazwom,
+   które po trimowaniu nie zawierają żadnej spacji.
+   Takiej nazwy nie wolno ściskać ani zawijać.
+*/
+.trasa-nazwa.nazwa-jednowyrazowa {
+    white-space: nowrap !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+
+    width: max-content !important;
+    min-width: max-content !important;
+    max-width: none !important;
+
+    flex-shrink: 0 !important;
+}
+
+/*
+   Jednowyrazowy przystanek zachowuje normalną wysokość 1 wiersza.
+*/
+.trasa-stop:has(.trasa-nazwa.nazwa-jednowyrazowa) {
+    min-height: 16.5px !important;
+    height: 16.5px !important;
+}
+
+/*
+   Jeżeli wcześniej został mu nadany .zawijaj,
+   jednowyrazowa nazwa i tak pozostaje w jednej linii.
+*/
+.trasa-nazwa.nazwa-jednowyrazowa.zawijaj {
+    white-space: nowrap !important;
+    width: max-content !important;
+    min-width: max-content !important;
+    max-width: none !important;
+}
+
+/*
+   Wyrównanie godzin C/D.
+   Klasa jest nakładana parami przez JS.
+*/
+.godzina-row.wiersz-dwuliniowy-cd {
+    min-height: 32px !important;
+    height: 32px !important;
+}
+
+.godzina-row.wiersz-dwuliniowy-cd .minuty-cell {
+    min-height: 32px !important;
+    height: 32px !important;
+    align-content: flex-start !important;
+}
+
 </style>
 </head>
 
@@ -2007,10 +2067,10 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 170
+   WERSJA: 171
    BAZA: 169
    ========================================================= */
-const WERSJA_TABLICZKI = "170";
+const WERSJA_TABLICZKI = "171";
 console.log("FWTP Tabliczka — wersja " + WERSJA_TABLICZKI + " (baza 169)");
 </script>
 
@@ -14379,7 +14439,312 @@ function dopasujKolumnyTrasy() {
 
 
 
+
+/* =========================================================
+   WERSJA 171 — JEDNOWYRAZOWE NAZWY PRZYSTANKÓW
+   ========================================================= */
+
+function oznaczJednowyrazoweNazwyPrzystankow(
+    root=document
+){
+
+    root
+        .querySelectorAll(
+            ".trasa-nazwa"
+        )
+        .forEach(
+            nazwa=>{
+
+                const tekst=
+                    (
+                        nazwa.textContent||
+                        ""
+                    )
+                    .replace(
+                        /\s+/g,
+                        " "
+                    )
+                    .trim();
+
+                const jednowyrazowa=
+                    tekst!==""&&
+                    !tekst.includes(" ");
+
+                nazwa.classList.toggle(
+                    "nazwa-jednowyrazowa",
+                    jednowyrazowa
+                );
+
+                /*
+                   Jednowyrazowej nazwy nie traktujemy jako
+                   nazwy przeznaczonej do zawinięcia.
+                */
+                if(jednowyrazowa){
+                    nazwa.classList.remove(
+                        "zawijaj"
+                    );
+                }
+            }
+        );
+}
+
+
+/* =========================================================
+   WERSJA 171 — WYRÓWNANIE GODZIN C / D
+   =========================================================
+   Jeśli minuty w godzinie X w D układają się w 2 wierszach,
+   godzina X w C dostaje dokładnie taką samą wysokość.
+   ========================================================= */
+
+function wyrownajDwulinioweGodzinyCDoD(
+    tabliczka
+){
+
+    if(!tabliczka){
+        return;
+    }
+
+    const dni=
+        Array.from(
+            tabliczka.querySelectorAll(
+                ".dzien"
+            )
+        );
+
+    if(dni.length<2){
+        return;
+    }
+
+    /*
+       Usuwamy wyłącznie klasy nadane przez tę funkcję.
+    */
+    tabliczka
+        .querySelectorAll(
+            ".godzina-row.wiersz-dwuliniowy-cd"
+        )
+        .forEach(
+            row=>
+                row.classList.remove(
+                    "wiersz-dwuliniowy-cd"
+                )
+        );
+
+    /*
+       W układzie z trzema tabelami:
+       A/B = pierwsza,
+       C   = przedostatnia,
+       D   = ostatnia.
+
+       W układzie z dwiema tabelami:
+       C = pierwsza,
+       D = druga.
+    */
+    const dzienC=
+        dni[
+            dni.length-2
+        ];
+
+    const dzienD=
+        dni[
+            dni.length-1
+        ];
+
+    if(
+        !dzienC||
+        !dzienD||
+        dzienC===dzienD
+    ){
+        return;
+    }
+
+    const pobierzGodzine=
+        row=>{
+
+            /*
+               Najpierw próbujemy typowych klas kolumny godziny.
+            */
+            const komorka=
+                row.querySelector(
+                    ".godzina, .godzina-cell, .hour, .godz"
+                );
+
+            let tekst=
+                (
+                    komorka?.textContent||
+                    ""
+                )
+                .trim();
+
+            /*
+               Fallback: pierwsza komórka / pierwszy element w wierszu.
+            */
+            if(!tekst){
+                tekst=
+                    (
+                        row.firstElementChild?.textContent||
+                        ""
+                    )
+                    .trim();
+            }
+
+            const m=
+                tekst.match(
+                    /(?:^|\D)([0-2]?\d)(?:\D|$)/
+                );
+
+            return m
+                ? String(
+                    parseInt(
+                        m[1],
+                        10
+                    )
+                )
+                : "";
+        };
+
+    const mapaC=
+        new Map();
+
+    dzienC
+        .querySelectorAll(
+            ".godzina-row"
+        )
+        .forEach(
+            row=>{
+
+                const godzina=
+                    pobierzGodzine(
+                        row
+                    );
+
+                if(godzina){
+                    mapaC.set(
+                        godzina,
+                        row
+                    );
+                }
+            }
+        );
+
+    dzienD
+        .querySelectorAll(
+            ".godzina-row"
+        )
+        .forEach(
+            rowD=>{
+
+                const minutyD=
+                    rowD.querySelector(
+                        ".minuty-cell"
+                    );
+
+                if(!minutyD){
+                    return;
+                }
+
+                /*
+                   Wykrywamy prawdziwe 2 wiersze po wysokości zawartości.
+                   Typowy pojedynczy wiersz ma około 16 px.
+                */
+                const dwuwiersz=
+                    minutyD.scrollHeight>20||
+                    rowD.scrollHeight>20;
+
+                if(!dwuwiersz){
+                    return;
+                }
+
+                const godzina=
+                    pobierzGodzine(
+                        rowD
+                    );
+
+                if(!godzina){
+                    return;
+                }
+
+                rowD.classList.add(
+                    "wiersz-dwuliniowy-cd"
+                );
+
+                const rowC=
+                    mapaC.get(
+                        godzina
+                    );
+
+                if(rowC){
+                    rowC.classList.add(
+                        "wiersz-dwuliniowy-cd"
+                    );
+                }
+            }
+        );
+}
+
+
+/*
+   Jedno wspólne przeliczenie po renderze / zmianie szerokości.
+*/
+function zastosujPoprawkiWersji171(){
+
+    document
+        .querySelectorAll(
+            ".tabliczka"
+        )
+        .forEach(
+            tabliczka=>{
+
+                oznaczJednowyrazoweNazwyPrzystankow(
+                    tabliczka
+                );
+
+                /*
+                   Najpierw oznaczenie nazw, potem jeszcze raz
+                   istniejące obliczenie zawijania, żeby kod bazowy
+                   mógł dopasować pozostałe — wielowyrazowe — nazwy.
+                */
+                const columns=
+                    tabliczka.querySelector(
+                        ".trasa-columns"
+                    );
+
+                if(
+                    columns&&
+                    typeof ustawZawijanieNazwTrasy==="function"
+                ){
+                    ustawZawijanieNazwTrasy(
+                        columns
+                    );
+
+                    /*
+                       Funkcja bazowa mogła ponownie dodać .zawijaj,
+                       więc jednowyrazowe nazwy jeszcze raz zabezpieczamy.
+                    */
+                    oznaczJednowyrazoweNazwyPrzystankow(
+                        tabliczka
+                    );
+                }
+
+                wyrownajDwulinioweGodzinyCDoD(
+                    tabliczka
+                );
+            }
+        );
+}
+
+
 function ustawZawijanieNazwTrasy(columns){
+
+    /*
+       v171:
+       Jednowyrazowe nazwy są zawsze 1-liniowe.
+       Oznaczamy je przed dalszym mierzeniem.
+    */
+    oznaczJednowyrazoweNazwyPrzystankow(
+        columns||document
+    );
+
+
 
     if(!columns){
         return;
@@ -14423,6 +14788,35 @@ function ustawZawijanieNazwTrasy(columns){
         }
     );
 }
+
+
+
+/* =========================================================
+   FWTP — TABLICZKA, WERSJA 171
+   Końcowe przeliczenie po pełnym renderze strony.
+   ========================================================= */
+
+window.addEventListener(
+    "load",
+    ()=>{
+        requestAnimationFrame(
+            ()=>{
+                requestAnimationFrame(
+                    zastosujPoprawkiWersji171
+                );
+            }
+        );
+    }
+);
+
+window.addEventListener(
+    "resize",
+    ()=>{
+        requestAnimationFrame(
+            zastosujPoprawkiWersji171
+        );
+    }
+);
 
 </script>
 
