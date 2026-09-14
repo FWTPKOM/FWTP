@@ -10386,6 +10386,112 @@ function listaWydluzeniaBezPowtorzonegoKranca(
 }
 
 
+
+function czyDokladnyAktywnyJestWWydluzeniu(){
+
+    const baza=
+        kierunekBazowy()
+            ?.przystanki||
+        [];
+
+    const aktywny=
+        baza[
+            aktualnyPrzystanek
+        ];
+
+    if(!aktywny){
+        return false;
+    }
+
+    const dane=
+        daneTrasWydluzonych();
+
+    if(
+        !Array.isArray(
+            dane?.wydluzenia
+        )||
+        !dane.wydluzenia.length
+    ){
+        return false;
+    }
+
+    const nazwa=
+        normalizuj(
+            aktywny?.nazwa
+        );
+
+    const nr=
+        String(
+            aktywny?.nr||""
+        ).trim();
+
+    for(
+        const wariant
+        of dane.wydluzenia
+    ){
+
+        /*
+         * Używamy dokładnie TEJ SAMEJ listy, która jest później
+         * renderowana w sekcji "Trasa w kursach ...".
+         *
+         * To ważne dla SADYBY:
+         * powtórzony kraniec SADYBA jest z wydłużenia usuwany,
+         * więc SADYBA nadal może być aktywna w części podstawowej.
+         */
+        const lista=
+            listaWydluzeniaBezPowtorzonegoKranca(
+                wariant,
+                dane.baza
+            );
+
+        const maDokladny=
+            lista.some(
+                element=>{
+
+                    const p=
+                        element?.p||
+                        element;
+
+                    /*
+                     * Najpierw dokładny indeks, jeśli jest dostępny.
+                     */
+                    if(
+                        Number(
+                            element?.index
+                        )===
+                        Number(
+                            aktualnyPrzystanek
+                        )
+                    ){
+                        return true;
+                    }
+
+                    /*
+                     * Potem dokładna nazwa + numer słupka.
+                     * Nie dopasowujemy po samej nazwie.
+                     */
+                    return(
+                        normalizuj(
+                            p?.nazwa
+                        )===
+                            nazwa&&
+                        String(
+                            p?.nr||""
+                        ).trim()===
+                            nr
+                    );
+                }
+            );
+
+        if(maDokladny){
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
 function renderWydluzeniaTrasy(){
 
     const dane=
@@ -11187,15 +11293,32 @@ function renderTrasaKolumna(
                        niezależnie od tego, jak lista wariantów została
                        później przefiltrowana.
                     */
+                    /*
+                       Jeżeli dokładnie wybrany przystanek jest
+                       renderowany w sekcji wydłużenia, nie wolno
+                       jednocześnie zaznaczać wcześniejszego wpisu
+                       o tej samej nazwie w trasie podstawowej.
+
+                       Przykład:
+                       WIERNA 02 -> aktywna tylko druga WIERNA
+                       w sekcji do ELSNEROWA.
+
+                       SADYBA na granicy wydłużenia pozostaje bez zmian,
+                       ponieważ powtórzona SADYBA jest usuwana z listy
+                       wydłużenia przez listaWydluzeniaBezPowtorzonegoKranca().
+                    */
                     const wybrany=
+                        !czyDokladnyAktywnyJestWWydluzeniu()&&
                         (
-                            Number(index)===
-                            Number(aktualnyPrzystanek)
-                        )||
-                        (
-                            awaryjnaPozycjaPoczatkuWariantu>=0&&
-                            pozycjaWidoczna===
-                                awaryjnaPozycjaPoczatkuWariantu
+                            (
+                                Number(index)===
+                                Number(aktualnyPrzystanek)
+                            )||
+                            (
+                                awaryjnaPozycjaPoczatkuWariantu>=0&&
+                                pozycjaWidoczna===
+                                    awaryjnaPozycjaPoczatkuWariantu
+                            )
                         );
 
                     if(
