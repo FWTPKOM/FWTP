@@ -8775,21 +8775,6 @@ function usunPowtorzenieNaGranicyWariantow(
             continue;
         }
 
-        /*
-           Rozróżniamy:
-           - prawdziwe dwa przystanki w środku trasy,
-           - sztuczne powtórzenie powstałe dlatego, że jeden
-             z wpisów jest początkiem/końcem innego kursu.
-
-           Przykład 126:
-           dwa MARCELIN / OS. MARYWILSKA w środku trasy
-           => oba zostają.
-
-           Przykład 170:
-           PKP ZACISZE-WILNO jako zwykły punkt pełnej trasy
-           + PKP jako początek/koniec kursu skróconego
-           => pokazujemy tylko jeden.
-        */
         const taSamaNazwa=
             normalizuj(
                 poprzedni?.p?.nazwa
@@ -8798,49 +8783,11 @@ function usunPowtorzenieNaGranicyWariantow(
                 element?.p?.nazwa
             );
 
-        /*
-           Najważniejsze rozróżnienie:
-
-           Jeżeli ISTNIEJE choć jeden pełny przebieg, który ma
-           oba wystąpienia tej samej nazwy, są to naprawdę dwa
-           różne punkty trasy i obu potrzebujemy.
-
-           Jeżeli żaden pełny przebieg nie ma obu, oznacza to,
-           że jeden wpis należy do jednych kursów, a drugi do
-           innych kursów. Na tabliczce nie wolno wtedy tworzyć
-           wrażenia, że jeden kurs przejeżdża tę nazwę dwa razy.
-        */
-        const jedenKursMaOba=
-            taSamaNazwa&&
-            czyJedenPelnyPrzebiegMaObaPrzystanki(
-                poprzedni,
-                element
-            );
-
-        const tenSamPrzystanek=
-            taSamaNazwa&&
-            !jedenKursMaOba;
-
-        if(!tenSamPrzystanek){
+        if(!taSamaNazwa){
 
             wynik.push(
                 element
             );
-
-            continue;
-        }
-
-        /*
-           Aktywny wpis ma zawsze pierwszeństwo.
-        */
-        if(
-            element?.index===
-            aktualnyPrzystanek
-        ){
-            wynik[
-                wynik.length-1
-            ]=
-                element;
 
             continue;
         }
@@ -8855,39 +8802,75 @@ function usunPowtorzenieNaGranicyWariantow(
                 element
             );
 
-        /*
-           170:
-           PKP nr 1 = wszystkie pełne przebiegi e+l
-           PKP nr 2 = tylko e
-
-           W rzeczywistej trasie do ELSNEROWA PKP występuje raz.
-           Drugi wpis jest jedynie punktem, w którym po tym
-           przystanku odpada e albo l i zaczyna się inny odcinek.
-        */
-        if(
-            czyStanWariantuJestPodzbiorem(
-                stanAktualny,
+        const kluczPoprzedni=
+            kluczStanuTrasy(
                 stanPoprzedni
-            )
-        ){
-            continue;
-        }
+            );
 
-        /*
-           Jeżeli stany są identyczne, również nie pokazujemy
-           dwóch kolejnych identycznych nazw.
-        */
-        if(
+        const kluczAktualny=
             kluczStanuTrasy(
                 stanAktualny
-            )===
-            kluczStanuTrasy(
-                stanPoprzedni
-            )
+            );
+
+        /*
+         * KLUCZOWA ZASADA:
+         *
+         * Jeśli dwa KOLEJNE wpisy mają tę samą nazwę i właśnie
+         * pomiędzy nimi zmienia się stan wariantu, drugi wpis
+         * nie oznacza ponownego przejazdu przez ten sam przystanek.
+         *
+         * Jest to tylko granica odcinków:
+         *
+         *   WIERNA
+         *   PL. OSTREJ BRAMY
+         *   PKP ZACISZE-WILNO
+         *   [zmiana: dalej tylko l]
+         *   PKP ZACISZE-WILNO   <- NIE pokazujemy drugi raz
+         *   PL. OSTREJ BRAMY
+         *   WIERNA
+         *   LNIANA
+         *   ELSNERÓW
+         *
+         * Dzięki temu linia 170 pokazuje PKP ZACISZE-WILNO raz.
+         *
+         * Jednocześnie dla linii 126:
+         * - dwa MARCELIN,
+         * - dwa OS. MARYWILSKA
+         *
+         * pozostają, jeżeli między nimi NIE zmienia się stan trasy.
+         */
+        if(
+            kluczPoprzedni!==
+            kluczAktualny
         ){
+
+            /*
+             * Jeżeli drugi wpis jest dokładnie aktywnym przystankiem,
+             * zachowujemy aktywny obiekt zamiast poprzedniego,
+             * ale nadal tylko JEDEN wiersz.
+             */
+            if(
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
+            ){
+                wynik[
+                    wynik.length-1
+                ]=
+                    element;
+            }
+
             continue;
         }
 
+        /*
+         * Ten sam stan trasy = to mogą być dwa rzeczywiste
+         * wystąpienia tej samej nazwy w jednym przebiegu.
+         * Nie usuwamy ich tutaj.
+         */
         wynik.push(
             element
         );
