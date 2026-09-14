@@ -2124,6 +2124,21 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     white-space: nowrap !important;
 }
 
+
+/* =========================================================
+   v174 — BRAK SZTUCZNYCH ODSTĘPÓW PRZY JEDNOLINIOWYCH NAZWACH
+   ========================================================= */
+
+.tabliczka.tryb-kompaktowy
+.trasa-stop:not(:has(.trasa-nazwa.zawijaj)) {
+    min-height: 16.5px !important;
+}
+
+.tabliczka.tryb-kompaktowy
+.trasa-stop:has(.trasa-nazwa.zawijaj) {
+    min-height: 33px !important;
+}
+
 </style>
 </head>
 
@@ -12998,12 +13013,21 @@ function renderuj(){
                         requestAnimationFrame(
                             ()=>{
 
-                                wyrownajWysokosciGodzinMiedzyDniami(
-                                    kompaktowaTabliczka
-                                );
+                                przeliczZawijaniePoZmianieSzerokosci();
+
+                                dopasujKolumnyTrasy();
 
                                 requestAnimationFrame(
                                     ()=>{
+
+                                        przeliczZawijaniePoZmianieSzerokosci();
+
+                                        wyrownajWysokosciGodzinMiedzyDniami(
+                                            kompaktowaTabliczka
+                                        );
+
+                                        requestAnimationFrame(
+                                            ()=>{
 
                                         /*
                                            ETAP 2:
@@ -13011,7 +13035,9 @@ function renderuj(){
                                            nachodzi na listę przystanków,
                                            robimy dwie tabliczki.
                                         */
-                                        zastosujTrybDwochTabliczekJesliPotrzeba();
+                                                zastosujTrybDwochTabliczekJesliPotrzeba();
+                                            }
+                                        );
                                     }
                                 );
                             }
@@ -13588,6 +13614,61 @@ function wyrownajWysokosciGodzinMiedzyDniami(
 }
 
 
+
+function przeliczZawijaniePoZmianieSzerokosci(){
+
+    const columns=
+        document.querySelector(
+            "#wynik .trasa-columns"
+        );
+
+    if(!columns){
+        return;
+    }
+
+    /*
+       Najpierw usuwamy stare klasy .zawijaj i mierzymy nazwy
+       już przy OSTATECZNEJ szerokości panelu.
+    */
+    ustawZawijanieNazwTrasy(
+        columns
+    );
+
+    /*
+       Wysokość 33 px ma zostać tylko dla nazw, które po ponownym
+       pomiarze naprawdę wymagają dwóch linii.
+    */
+    columns
+        .querySelectorAll(
+            ".trasa-stop"
+        )
+        .forEach(
+            stop=>{
+
+                const nazwa=
+                    stop.querySelector(
+                        ".trasa-nazwa"
+                    );
+
+                if(!nazwa){
+                    return;
+                }
+
+                if(
+                    nazwa.classList.contains(
+                        "zawijaj"
+                    )
+                ){
+                    stop.style.minHeight="33px";
+                }
+                else{
+                    stop.style.minHeight="16.5px";
+                }
+            }
+        );
+}
+
+
 function zastosujTrybKompaktowyJesliPotrzeba(){
 
     const tabliczka=
@@ -13627,8 +13708,24 @@ function zastosujTrybKompaktowyJesliPotrzeba(){
 
     requestAnimationFrame(
         ()=>{
-            wyrownajWysokosciGodzinMiedzyDniami(
-                tabliczka
+
+            przeliczZawijaniePoZmianieSzerokosci();
+
+            /*
+               Po poprawieniu wysokości nazw jeszcze raz rozdzielamy
+               elementy między kolumny, bo realne wysokości mogły się
+               zmniejszyć.
+            */
+            dopasujKolumnyTrasy();
+
+            requestAnimationFrame(
+                ()=>{
+                    przeliczZawijaniePoZmianieSzerokosci();
+
+                    wyrownajWysokosciGodzinMiedzyDniami(
+                        tabliczka
+                    );
+                }
             );
         }
     );
