@@ -10106,6 +10106,226 @@ function poprawLiteryNaglowkaPoKrancu(
 }
 
 
+
+function daneWybranegoPrzystankuBazowego(){
+
+    const baza=
+        kierunekBazowy()
+            ?.przystanki||
+        [];
+
+    return baza[
+        aktualnyPrzystanek
+    ]||null;
+}
+
+
+function czyToDokladnieWybranyPrzystanek(
+    p
+){
+
+    const wybrany=
+        daneWybranegoPrzystankuBazowego();
+
+    if(
+        !wybrany||
+        !p
+    ){
+        return false;
+    }
+
+    const taSamaNazwa=
+        normalizuj(
+            p?.nazwa
+        )===
+        normalizuj(
+            wybrany?.nazwa
+        );
+
+    if(!taSamaNazwa){
+        return false;
+    }
+
+    const nrP=
+        String(
+            p?.nr||""
+        ).trim();
+
+    const nrWybranego=
+        String(
+            wybrany?.nr||""
+        ).trim();
+
+    /*
+       Jeżeli oba numery są znane, nazwa + numer rozstrzygają
+       jednoznacznie. To naprawia np. WIERNA 02.
+    */
+    if(
+        nrP&&
+        nrWybranego
+    ){
+        return nrP===nrWybranego;
+    }
+
+    /*
+       Jeżeli numeru brakuje po którejś stronie, pozwalamy na
+       dopasowanie po nazwie tylko wtedy, gdy ta nazwa występuje
+       w kierunku bazowym dokładnie raz. To naprawia np. LNIANA.
+    */
+    const baza=
+        kierunekBazowy()
+            ?.przystanki||
+        [];
+
+    const ileTakichNazw=
+        baza.filter(
+            x=>
+                normalizuj(
+                    x?.nazwa
+                )===
+                normalizuj(
+                    wybrany?.nazwa
+                )
+        ).length;
+
+    return ileTakichNazw===1;
+}
+
+
+function pozycjaElementuNaPelnejLiscie(
+    pelnaLista,
+    element,
+    p,
+    index
+){
+
+    /*
+       1. Najpierw dokładnie ten sam obiekt.
+    */
+    const poObiekcie=
+        pelnaLista.indexOf(
+            element
+        );
+
+    if(poObiekcie>=0){
+        return poObiekcie;
+    }
+
+    const nazwa=
+        normalizuj(
+            p?.nazwa
+        );
+
+    const nr=
+        String(
+            p?.nr||""
+        ).trim();
+
+    /*
+       2. Potem NAZWA + NUMER — bez wymagania zgodnego indexu.
+       To jest kluczowe przy trasach złożonych z wariantów, gdzie
+       index po filtrach może już nie odpowiadać temu samemu
+       logicznemu przystankowi.
+    */
+    const dokladne=[];
+
+    pelnaLista.forEach(
+        (x,pozycja)=>{
+
+            if(
+                normalizuj(
+                    x?.p?.nazwa
+                )===
+                    nazwa&&
+                String(
+                    x?.p?.nr||""
+                ).trim()===
+                    nr
+            ){
+                dokladne.push(
+                    pozycja
+                );
+            }
+        }
+    );
+
+    if(dokladne.length===1){
+        return dokladne[0];
+    }
+
+    if(dokladne.length>1){
+
+        /*
+           Przy kilku identycznych nazwach+numerach wybieramy
+           pozycję najbliższą indeksowi źródłowemu.
+        */
+        let najlepsza=
+            dokladne[0];
+
+        let roznica=
+            Math.abs(
+                Number(
+                    pelnaLista[
+                        najlepsza
+                    ]?.index
+                )-
+                Number(index)
+            );
+
+        dokladne
+            .slice(1)
+            .forEach(
+                pozycja=>{
+
+                    const r=
+                        Math.abs(
+                            Number(
+                                pelnaLista[
+                                    pozycja
+                                ]?.index
+                            )-
+                            Number(index)
+                        );
+
+                    if(r<roznica){
+                        najlepsza=
+                            pozycja;
+
+                        roznica=r;
+                    }
+                }
+            );
+
+        return najlepsza;
+    }
+
+    /*
+       3. Fallback po samej nazwie tylko dla nazwy unikalnej.
+    */
+    const poNazwie=
+        pelnaLista
+            .map(
+                (x,pozycja)=>({
+                    x,
+                    pozycja
+                })
+            )
+            .filter(
+                item=>
+                    normalizuj(
+                        item.x?.p?.nazwa
+                    )===
+                    nazwa
+            );
+
+    if(poNazwie.length===1){
+        return poNazwie[0].pozycja;
+    }
+
+    return -1;
+}
+
+
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -10156,44 +10376,18 @@ function renderTrasaKolumna(
                     let stanPoprzedni=null;
 
                     /*
-                       Najpierw identyfikujemy dokładnie TEN SAM
-                       obiekt na finalnej liście. To rozróżnia dwa
-                       przystanki o tej samej nazwie.
-
-                       Slices używane przy podziale na kolumny zachowują
-                       referencje do tych samych elementów, więc jest to
-                       najpewniejsze rozwiązanie.
+                       Pozycję w finalnej liście ustalamy przede wszystkim
+                       po NAZWA + NUMER, a nie po samym indexie.
+                       To odpowiada sposobowi działania zwykłych tras
+                       (np. 126), a jednocześnie rozróżnia WIERNA 02.
                     */
-                    let pozycjaWidoczna=
-                        pelnaLista.indexOf(
-                            element
+                    const pozycjaWidoczna=
+                        pozycjaElementuNaPelnejLiscie(
+                            pelnaLista,
+                            element,
+                            p,
+                            index
                         );
-
-                    /*
-                       Awaryjny fallback, gdy element został odtworzony
-                       jako nowy obiekt.
-                    */
-                    if(pozycjaWidoczna<0){
-
-                        pozycjaWidoczna=
-                            pelnaLista.findIndex(
-                                x=>
-                                    Number(x?.index)===
-                                        Number(index)&&
-                                    normalizuj(
-                                        x?.p?.nazwa
-                                    )===
-                                        normalizuj(
-                                            p?.nazwa
-                                        )&&
-                                    String(
-                                        x?.p?.nr||""
-                                    ).trim()===
-                                        String(
-                                            p?.nr||""
-                                        ).trim()
-                            );
-                    }
 
                     if(
                         pozycjaWidoczna>0
@@ -10211,6 +10405,9 @@ function renderTrasaKolumna(
                     }
 
                     const przed=
+                        !czyToDokladnieWybranyPrzystanek(
+                            p
+                        )&&
                         aktywnaPozycjaWyswietlana>=0&&
                         pozycjaWidoczna>=0&&
                         pozycjaWidoczna<
@@ -10244,9 +10441,14 @@ function renderTrasaKolumna(
                         );
 
                     const wybrany=
-                        aktywnaPozycjaWyswietlana>=0&&
-                        pozycjaWidoczna===
-                            aktywnaPozycjaWyswietlana;
+                        czyToDokladnieWybranyPrzystanek(
+                            p
+                        )||
+                        (
+                            aktywnaPozycjaWyswietlana>=0&&
+                            pozycjaWidoczna===
+                                aktywnaPozycjaWyswietlana
+                        );
 
                     if(
                         czyBiezacyPrzystanekDwukierunkowy()
