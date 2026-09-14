@@ -11961,6 +11961,48 @@ function dopasujKolumnyTrasy() {
 
                 let overflow=false;
 
+                const dostepna=
+                    columns.clientHeight-
+                    parseFloat(
+                        styl.paddingTop||0
+                    )-
+                    parseFloat(
+                        styl.paddingBottom||0
+                    )-
+                    1;
+
+                /*
+                   Rzeczywista wysokość każdego elementu po zawinięciu.
+                   Nie korzystamy już z jego absolutnej pozycji w jednej
+                   długiej kolumnie.
+                */
+                const wysokosci=
+                    dzieci.map(
+                        dziecko=>{
+
+                            const rect=
+                                dziecko
+                                    .getBoundingClientRect();
+
+                            const css=
+                                getComputedStyle(
+                                    dziecko
+                                );
+
+                            return(
+                                rect.height+
+                                parseFloat(
+                                    css.marginTop||0
+                                )+
+                                parseFloat(
+                                    css.marginBottom||0
+                                )
+                            );
+                        }
+                    );
+
+                let sumaKolumny=0;
+
                 for(
                     let i=0;
                     i<dzieci.length;
@@ -11970,100 +12012,53 @@ function dopasujKolumnyTrasy() {
                     const dziecko=
                         dzieci[i];
 
+                    const wysokosc=
+                        Math.max(
+                            0,
+                            wysokosci[i]||0
+                        );
+
                     /*
-                       Sprawdzamy, czy ten REALNIE wyrenderowany
-                       element mieści się w aktualnej kolumnie.
+                       Jeśli to nagłówek wariantu, pilnujemy aby
+                       razem z nim zmieścił się przynajmniej pierwszy
+                       przystanek tej sekcji.
                     */
-                    const rect=
+                    let wymagane=
+                        wysokosc;
+
+                    if(
                         dziecko
-                            .getBoundingClientRect();
+                            ?.classList
+                            ?.contains(
+                                "trasa-separator"
+                            )&&
+                        i+1<dzieci.length
+                    ){
+                        wymagane+=
+                            Math.max(
+                                0,
+                                wysokosci[i+1]||0
+                            );
+                    }
 
-                    const topPierwszego=
-                        dzieci[
-                            grupy[
-                                grupy.length-1
-                            ].length
-                                ? i-
-                                    grupy[
-                                        grupy.length-1
-                                    ].length
-                                : i
-                        ]
-                        ?.getBoundingClientRect()
-                        .top;
-
-                    const realnaWysokoscOdPoczatku=
-                        topPierwszego!==undefined
-                            ? rect.bottom-
-                                topPierwszego
-                            : rect.height;
-
-                    const dostepna=
-                        columns.clientHeight-
-                        parseFloat(
-                            styl.paddingTop||0
-                        )-
-                        parseFloat(
-                            styl.paddingBottom||0
-                        )-
-                        2;
-
-                    /*
-                       Jeżeli bieżący element już nie mieści się,
-                       zaczynamy następną kolumnę.
-                    */
                     if(
                         grupy[
                             grupy.length-1
                         ].length>0&&
-                        realnaWysokoscOdPoczatku>
+                        sumaKolumny+
+                            wymagane>
                             dostepna
                     ){
 
-                        /*
-                           Nie zostawiamy samego nagłówka/separatora
-                           na dole poprzedniej kolumny.
-                        */
-                        const poprzedniIndex=
-                            i-1;
-
                         if(
-                            poprzedniIndex>=0&&
-                            dzieci[
-                                poprzedniIndex
-                            ]?.classList?.contains(
-                                "trasa-separator"
-                            )&&
-                            grupy[
-                                grupy.length-1
-                            ].length>1
-                        ){
-                            const przeniesiony=
-                                grupy[
-                                    grupy.length-1
-                                ].pop();
-
-                            if(
-                                grupy.length<
-                                ileKolumn
-                            ){
-                                grupy.push(
-                                    [
-                                        przeniesiony
-                                    ]
-                                );
-                            }
-                            else{
-                                overflow=true;
-                            }
-                        }
-                        else if(
                             grupy.length<
                             ileKolumn
                         ){
                             grupy.push(
                                 []
                             );
+
+                            sumaKolumny=0;
                         }
                         else{
                             overflow=true;
@@ -12075,6 +12070,9 @@ function dopasujKolumnyTrasy() {
                     ].push(
                         wszystkieHtml[i]
                     );
+
+                    sumaKolumny+=
+                        wysokosc;
                 }
 
                 /*
