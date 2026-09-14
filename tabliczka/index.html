@@ -963,6 +963,31 @@
             min-height: 33px;
         }
 
+        /*
+         * Wydłużenie ma teraz ten sam stan aktywny/minięty
+         * co zwykła lista przystanków.
+         */
+        .trasa-extra-stop.przed,
+        .trasa-extra-stop.przed .trasa-nazwa,
+        .trasa-extra-stop.przed .trasa-czas,
+        .trasa-extra-stop.przed .trasa-nz {
+            color:#777;
+        }
+
+        .trasa-extra-stop.przed .trasa-os::before,
+        .trasa-extra-stop.przed .trasa-os::after {
+            background:#777;
+        }
+
+        .trasa-extra-stop.wybrany {
+            color:#111;
+        }
+
+        .trasa-extra-stop.wybrany .trasa-nazwa {
+            transform:scaleY(1.30);
+            transform-origin:left center;
+        }
+
         /* =========================================================
            DRUK
            ========================================================= */
@@ -9719,6 +9744,16 @@ function renderWydluzeniaTrasy(){
         return"";
     }
 
+    const bazaKierunku=
+        kierunekBazowy()
+            ?.przystanki||
+        [];
+
+    const wybranyBazowy=
+        bazaKierunku[
+            aktualnyPrzystanek
+        ]||null;
+
     return dane.wydluzenia
         .map(
             wariant=>{
@@ -9736,22 +9771,149 @@ function renderWydluzeniaTrasy(){
                         dane.baza
                     );
 
+                /*
+                 * =================================================
+                 * AKTYWNY PRZYSTANEK W WYDŁUŻENIU
+                 * =================================================
+                 *
+                 * To jest odpowiednik logiki działającej w zwykłej
+                 * liście (np. linia 126).
+                 *
+                 * Najpierw dokładny index z URL, potem nazwa+nr,
+                 * a przy unikalnej nazwie sama nazwa.
+                 */
+                let aktywnaPozycja=
+                    przystankiWydluzenia.findIndex(
+                        element=>
+                            Number(
+                                element?.index
+                            )===
+                            Number(
+                                aktualnyPrzystanek
+                            )
+                    );
+
+                if(
+                    aktywnaPozycja<0&&
+                    wybranyBazowy
+                ){
+
+                    const nazwaWybranego=
+                        normalizuj(
+                            wybranyBazowy?.nazwa
+                        );
+
+                    const nrWybranego=
+                        String(
+                            wybranyBazowy?.nr||""
+                        ).trim();
+
+                    aktywnaPozycja=
+                        przystankiWydluzenia.findIndex(
+                            element=>{
+
+                                const p=
+                                    element?.p||
+                                    element;
+
+                                return(
+                                    normalizuj(
+                                        p?.nazwa
+                                    )===
+                                        nazwaWybranego&&
+                                    String(
+                                        p?.nr||""
+                                    ).trim()===
+                                        nrWybranego
+                                );
+                            }
+                        );
+
+                    /*
+                       Jeżeli nazwa jest na wydłużeniu tylko raz,
+                       numer nie musi blokować poprawnego dopasowania.
+                       To zabezpiecza LNIANA.
+                    */
+                    if(aktywnaPozycja<0){
+
+                        const poNazwie=
+                            przystankiWydluzenia
+                                .map(
+                                    (element,pozycja)=>({
+                                        element,
+                                        pozycja
+                                    })
+                                )
+                                .filter(
+                                    item=>
+                                        normalizuj(
+                                            (
+                                                item.element?.p||
+                                                item.element
+                                            )?.nazwa
+                                        )===
+                                        nazwaWybranego
+                                );
+
+                        if(poNazwie.length===1){
+                            aktywnaPozycja=
+                                poNazwie[0].pozycja;
+                        }
+                    }
+                }
+
                 const wiersze=
                     przystankiWydluzenia
                         .map(
-                            element=>{
+                            (element,pozycja)=>{
 
                                 const p=
                                     element.p;
 
-                                const czas=
-                                    czasWariantuNaPrzystanku(
-                                        wariant.litera,
-                                        element
-                                    );
+                                const przed=
+                                    aktywnaPozycja>=0&&
+                                    pozycja<
+                                        aktywnaPozycja;
+
+                                const wybrany=
+                                    aktywnaPozycja>=0&&
+                                    pozycja===
+                                        aktywnaPozycja;
+
+                                let czas=null;
+
+                                /*
+                                   Dokładnie jak w zwykłej liście:
+                                   - przed aktywnym: bez czasu,
+                                   - aktywny: 0,
+                                   - po aktywnym: normalny czas.
+                                */
+                                if(!przed){
+
+                                    if(wybrany){
+                                        czas=0;
+                                    }
+                                    else{
+                                        czas=
+                                            czasWariantuNaPrzystanku(
+                                                wariant.litera,
+                                                element
+                                            );
+                                    }
+                                }
 
                                 return(
                                     '<li class="trasa-extra-stop'+
+                                    (
+                                        przed
+                                            ? ' przed'
+                                            : ''
+                                    )+
+                                    (
+                                        wybrany
+                                            ? ' wybrany'
+                                            : ''
+                                    )+
                                     (
                                         czyNZ(p)
                                             ? ' nz'
@@ -9769,10 +9931,20 @@ function renderWydluzeniaTrasy(){
                                     '</span>'+
                                     '<span class="trasa-os"></span>'+
                                     '<span class="trasa-nazwa">'+
-                                    escapeHtml(
-                                        String(
-                                            p?.nazwa||""
-                                        ).toUpperCase()
+                                    (
+                                        wybrany
+                                            ? '<span class="trasa-nazwa-aktywna">'+
+                                              escapeHtml(
+                                                  String(
+                                                      p?.nazwa||""
+                                                  ).toUpperCase()
+                                              )+
+                                              '</span>'
+                                            : escapeHtml(
+                                                  String(
+                                                      p?.nazwa||""
+                                                  ).toUpperCase()
+                                              )
                                     )+
                                     '</span>'+
                                     '<span class="trasa-nz">'+
