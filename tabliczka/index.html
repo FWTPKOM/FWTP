@@ -1938,6 +1938,57 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     min-width: 24px !important;
 }
 
+
+/* =========================================================
+   v170 — WIĘCEJ MIEJSCA NA LISTĘ PRZYSTANKÓW
+   ========================================================= */
+
+.tabliczka.tryb-kompaktowy.trasa-2-kol {
+    --lewa: 57%;
+    --prawa: 43%;
+}
+
+.tabliczka.tryb-kompaktowy.trasa-3-kol {
+    --lewa: 53%;
+    --prawa: 47%;
+}
+
+/* Jednoliniowy przystanek zostaje jednoliniowy.
+   Tylko .zawijaj może dostać 2 linie. */
+.tabliczka.tryb-kompaktowy .trasa-nazwa:not(.zawijaj) {
+    white-space: nowrap !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+}
+
+.tabliczka.tryb-kompaktowy .trasa-stop:not(:has(.trasa-nazwa.zawijaj)) {
+    min-height: 16.5px !important;
+}
+
+
+/* =========================================================
+   v170 — RÓWNE WYSOKOŚCI GODZIN WE WSZYSTKICH DNIACH
+   =========================================================
+   Jeżeli dana godzina w którymkolwiek dniu ma minuty w 2 wierszach,
+   ta sama godzina we wszystkich pozostałych tabelach ma dostać
+   taką samą wysokość.
+   ========================================================= */
+
+.tabliczka.tryb-kompaktowy .godzina-row.wiersz-dwuliniowy {
+    min-height: 32px !important;
+    height: 32px !important;
+}
+
+.tabliczka.tryb-kompaktowy .godzina-row.wiersz-dwuliniowy .godzina-cell {
+    min-height: 32px !important;
+    height: 32px !important;
+}
+
+.tabliczka.tryb-kompaktowy .godzina-row.wiersz-dwuliniowy .minuty-cell {
+    min-height: 32px !important;
+    height: 32px !important;
+}
+
 </style>
 </head>
 
@@ -12800,22 +12851,34 @@ function renderuj(){
                         */
                         dopasujKolumnyTrasy();
 
-                        dopasujRozkladyWTrybieKompaktowym(
+                        const kompaktowaTabliczka=
                             document.querySelector(
                                 "#wynik .tabliczka"
-                            )
+                            );
+
+                        dopasujRozkladyWTrybieKompaktowym(
+                            kompaktowaTabliczka
                         );
 
                         requestAnimationFrame(
                             ()=>{
 
-                                /*
-                                   ETAP 2:
-                                   tylko jeśli wersja kompaktowa NADAL
-                                   nachodzi na listę przystanków,
-                                   robimy dwie tabliczki jak w przykładzie PDF.
-                                */
-                                zastosujTrybDwochTabliczekJesliPotrzeba();
+                                wyrownajWysokosciGodzinMiedzyDniami(
+                                    kompaktowaTabliczka
+                                );
+
+                                requestAnimationFrame(
+                                    ()=>{
+
+                                        /*
+                                           ETAP 2:
+                                           tylko jeśli wersja kompaktowa NADAL
+                                           nachodzi na listę przystanków,
+                                           robimy dwie tabliczki.
+                                        */
+                                        zastosujTrybDwochTabliczekJesliPotrzeba();
+                                    }
+                                );
                             }
                         );
                     }
@@ -13292,6 +13355,119 @@ function dopasujRozkladyWTrybieKompaktowym(
 }
 
 
+
+function wyrownajWysokosciGodzinMiedzyDniami(
+    tabliczka
+){
+
+    if(!tabliczka){
+        return;
+    }
+
+    const dni=
+        Array.from(
+            tabliczka.querySelectorAll(
+                ".rozklady-grid > .dzien"
+            )
+        );
+
+    if(!dni.length){
+        return;
+    }
+
+    const mapa=
+        new Map();
+
+    dni.forEach(
+        dzien=>{
+
+            dzien
+                .querySelectorAll(
+                    ".godzina-row"
+                )
+                .forEach(
+                    row=>{
+
+                        row.classList.remove(
+                            "wiersz-dwuliniowy"
+                        );
+
+                        const godzina=
+                            String(
+                                row
+                                    .querySelector(
+                                        ".godzina-cell"
+                                    )
+                                    ?.textContent||
+                                ""
+                            )
+                            .trim();
+
+                        if(!godzina){
+                            return;
+                        }
+
+                        if(!mapa.has(godzina)){
+                            mapa.set(
+                                godzina,
+                                []
+                            );
+                        }
+
+                        mapa.get(godzina).push(
+                            row
+                        );
+                    }
+                );
+        }
+    );
+
+    mapa.forEach(
+        rows=>{
+
+            let potrzebaDwoch=false;
+
+            rows.forEach(
+                row=>{
+
+                    const minuty=
+                        row.querySelector(
+                            ".minuty-cell"
+                        );
+
+                    if(!minuty){
+                        return;
+                    }
+
+                    /*
+                       Jeżeli zawartość jest wyższa niż pojedynczy wiersz,
+                       to znaczy, że minuty zawinęły się do 2 linii.
+                    */
+                    const h=
+                        Math.max(
+                            minuty.scrollHeight,
+                            minuty.getBoundingClientRect().height
+                        );
+
+                    if(h>18){
+                        potrzebaDwoch=true;
+                    }
+                }
+            );
+
+            if(potrzebaDwoch){
+                rows.forEach(
+                    row=>
+                        row.classList.add(
+                            "wiersz-dwuliniowy"
+                        )
+                );
+            }
+        }
+    );
+}
+
+
 function zastosujTrybKompaktowyJesliPotrzeba(){
 
     const tabliczka=
@@ -13327,6 +13503,14 @@ function zastosujTrybKompaktowyJesliPotrzeba(){
 
     dopasujRozkladyWTrybieKompaktowym(
         tabliczka
+    );
+
+    requestAnimationFrame(
+        ()=>{
+            wyrownajWysokosciGodzinMiedzyDniami(
+                tabliczka
+            );
+        }
     );
 
     return true;
