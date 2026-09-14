@@ -8540,148 +8540,72 @@ function czyElementJestPoczatkiemLubKoncemKursu(
 
     if(
         !element||
-        !element.p||
-        !Number.isInteger(
-            Number(
-                element.index
-            )
-        )
+        !element.p
     ){
         return false;
     }
 
-    const kierunekBazowyDane=
-        kierunekBazowy();
+    /*
+       WAŻNE:
+       Nie sprawdzamy już WSZYSTKICH kursów linii.
 
-    const przystanki=
-        kierunekBazowyDane?.przystanki||
-        [];
+       Wcześniej np. przystanek mógł zostać uznany za kraniec tylko
+       dlatego, że jakiś kurs zaczynał się w środku trasy. To psuło
+       przypadek linii 170.
 
-    const indeks=
-        Number(
-            element.index
-        );
+       Do rozróżniania:
+       - prawdziwego przystanku w środku trasy,
+       - punktu końcowo/początkowego wariantu,
 
-    if(
-        indeks<0||
-        indeks>=przystanki.length
-    ){
-        return false;
-    }
+       bierzemy tylko reprezentatywne PEŁNE PRZEBIEGI używane już
+       przez logikę wariantów na liście przystanków.
+    */
+    const przebiegi=
+        danePrzebiegowWariantowych();
 
-    const p=
-        element.p;
-
-    const kursyTutaj=
-        [];
-
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(
-        rozklad=>{
-
-            const przystanek=
-                znajdzPrzystanekWRozkladzie(
-                    rozklad,
-                    aktualnyKierunek,
-                    p
-                );
-
-            (
-                przystanek?.kursy||
-                []
-            ).forEach(
-                kurs=>{
-
-                    if(
-                        czasNaMinuty(
-                            kurs?.czas
-                        )===null
-                    ){
-                        return;
-                    }
-
-                    kursyTutaj.push({
-                        numer:String(
-                            kurs?.numer||""
-                        ),
-                        wariant:String(
-                            kurs?.wariant||""
-                        ),
-                        symbol:
-                            symbolDnia(
-                                kurs
-                            )
-                    });
-                }
-            );
-        }
-    );
-
-    if(!kursyTutaj.length){
+    if(!przebiegi.length){
         return false;
     }
 
     for(
-        const ref
-        of kursyTutaj
+        const przebieg
+        of przebiegi
     ){
+
+        const kurs=
+            przebieg?.kurs;
+
+        if(
+            !kurs||
+            !kursMaPrzystanek(
+                kurs,
+                element
+            )
+        ){
+            continue;
+        }
+
+        /*
+           Wyznaczamy pierwszy i ostatni element tego konkretnego
+           pełnego przebiegu na tej samej pełnej osi trasy, z której
+           korzysta logika wariantów.
+        */
+        const pelna=
+            listaPelnejTrasyDoWyswietlenia();
 
         const indeksy=[];
 
-        przystanki.forEach(
-            (przystanekTrasy,i)=>{
+        pelna.forEach(
+            (x,pozycja)=>{
 
-                let maTenKurs=false;
-
-                (
-                    daneLinii?.rozkłady||
-                    []
-                ).some(
-                    rozklad=>{
-
-                        const pp=
-                            znajdzPrzystanekWRozkladzie(
-                                rozklad,
-                                aktualnyKierunek,
-                                przystanekTrasy
-                            );
-
-                        const znaleziony=
-                            (
-                                pp?.kursy||
-                                []
-                            ).some(
-                                kurs=>
-                                    String(
-                                        kurs?.numer||""
-                                    )===
-                                        ref.numer&&
-                                    String(
-                                        kurs?.wariant||""
-                                    )===
-                                        ref.wariant&&
-                                    symbolDnia(
-                                        kurs
-                                    )===
-                                        ref.symbol&&
-                                    czasNaMinuty(
-                                        kurs?.czas
-                                    )!==null
-                            );
-
-                        if(znaleziony){
-                            maTenKurs=true;
-                        }
-
-                        return maTenKurs;
-                    }
-                );
-
-                if(maTenKurs){
+                if(
+                    kursMaPrzystanek(
+                        kurs,
+                        x
+                    )
+                ){
                     indeksy.push(
-                        i
+                        pozycja
                     );
                 }
             }
@@ -8691,10 +8615,76 @@ function czyElementJestPoczatkiemLubKoncemKursu(
             continue;
         }
 
+        const pozycjaElementu=
+            pelna.indexOf(
+                element
+            );
+
+        /*
+           Jeżeli obiekt został odtworzony po drodze, dopasowujemy
+           dokładnie po nazwa + numer + wystąpienie.
+        */
+        let pozycja=
+            pozycjaElementu;
+
+        if(pozycja<0){
+
+            const nazwa=
+                normalizuj(
+                    element?.p?.nazwa
+                );
+
+            const nr=
+                String(
+                    element?.p?.nr||""
+                ).trim();
+
+            const wystapienie=
+                numerWystapieniaPrzystankuWBazie(
+                    element
+                );
+
+            let licznik=0;
+
+            pozycja=
+                pelna.findIndex(
+                    x=>{
+
+                        if(
+                            normalizuj(
+                                x?.p?.nazwa
+                            )!==
+                                nazwa||
+                            String(
+                                x?.p?.nr||""
+                            ).trim()!==
+                                nr
+                        ){
+                            return false;
+                        }
+
+                        if(
+                            licznik===
+                            wystapienie
+                        ){
+                            return true;
+                        }
+
+                        licznik++;
+
+                        return false;
+                    }
+                );
+        }
+
+        if(pozycja<0){
+            continue;
+        }
+
         if(
-            indeks===
+            pozycja===
                 indeksy[0]||
-            indeks===
+            pozycja===
                 indeksy[
                     indeksy.length-1
                 ]
