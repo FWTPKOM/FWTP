@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 186
+     WERSJA: 187
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2159,6 +2159,19 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     max-width: none !important;
 }
 
+
+/* =========================================================
+   WERSJA 187 — PODWÓJNY WIERSZ = DOKŁADNIE 32 PX
+   ========================================================= */
+.tabliczka.tryb-kompaktowy .godzina-row.wiersz-dwuliniowy,
+.tabliczka.tryb-kompaktowy .godzina-row.wiersz-dwuliniowy .godzina-cell,
+.tabliczka.tryb-kompaktowy .godzina-row.wiersz-dwuliniowy .minuty-cell {
+    height: 32px !important;
+    min-height: 32px !important;
+    max-height: 32px !important;
+    box-sizing: border-box !important;
+}
+
 </style>
 </head>
 
@@ -2221,12 +2234,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 186
+   WERSJA: 187
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "186";
+const WERSJA_TABLICZKI = "187";
 console.log(
-    "FWTP Tabliczka — wersja 186 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 187 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -13538,112 +13551,49 @@ function dopasujRozkladyWTrybieKompaktowym(
 function wyrownajWysokosciGodzinMiedzyDniami(
     tabliczka
 ){
+    if(!tabliczka){ return; }
 
-    if(!tabliczka){
-        return;
-    }
+    const mapa=new Map();
 
-    const dni=
-        Array.from(
-            tabliczka.querySelectorAll(
-                ".rozklady-grid > .dzien"
-            )
-        );
+    tabliczka
+        .querySelectorAll(".rozklady-grid > .dzien .godzina-row")
+        .forEach(row=>{
+            row.classList.remove("wiersz-dwuliniowy");
 
-    if(!dni.length){
-        return;
-    }
+            const g=String(
+                row.querySelector(".godzina-cell")?.textContent||""
+            ).trim();
 
-    const mapa=
-        new Map();
+            if(!g){ return; }
+            if(!mapa.has(g)){ mapa.set(g,[]); }
+            mapa.get(g).push(row);
+        });
 
-    dni.forEach(
-        dzien=>{
+    void tabliczka.offsetHeight;
 
-            dzien
-                .querySelectorAll(
-                    ".godzina-row"
-                )
-                .forEach(
-                    row=>{
+    mapa.forEach(rows=>{
+        let podwojny=false;
 
-                        row.classList.remove(
-                            "wiersz-dwuliniowy"
-                        );
+        rows.forEach(row=>{
+            const minuty=row.querySelector(".minuty-cell");
+            if(!minuty){ return; }
 
-                        const godzina=
-                            String(
-                                row
-                                    .querySelector(
-                                        ".godzina-cell"
-                                    )
-                                    ?.textContent||
-                                ""
-                            )
-                            .trim();
-
-                        if(!godzina){
-                            return;
-                        }
-
-                        if(!mapa.has(godzina)){
-                            mapa.set(
-                                godzina,
-                                []
-                            );
-                        }
-
-                        mapa.get(godzina).push(
-                            row
-                        );
-                    }
-                );
-        }
-    );
-
-    mapa.forEach(
-        rows=>{
-
-            let potrzebaDwoch=false;
-
-            rows.forEach(
-                row=>{
-
-                    const minuty=
-                        row.querySelector(
-                            ".minuty-cell"
-                        );
-
-                    if(!minuty){
-                        return;
-                    }
-
-                    /*
-                       Jeżeli zawartość jest wyższa niż pojedynczy wiersz,
-                       to znaczy, że minuty zawinęły się do 2 linii.
-                    */
-                    const h=
-                        Math.max(
-                            minuty.scrollHeight,
-                            minuty.getBoundingClientRect().height
-                        );
-
-                    if(h>18){
-                        potrzebaDwoch=true;
-                    }
-                }
-            );
-
-            if(potrzebaDwoch){
-                rows.forEach(
-                    row=>
-                        row.classList.add(
-                            "wiersz-dwuliniowy"
-                        )
-                );
+            /*
+               Normalny wiersz ma 16 px.
+               Jeżeli zawartość minut potrzebuje więcej niż 18 px,
+               traktujemy godzinę jako dwuwierszową.
+            */
+            if(minuty.scrollHeight>18){
+                podwojny=true;
             }
+        });
+
+        if(podwojny){
+            rows.forEach(row=>{
+                row.classList.add("wiersz-dwuliniowy");
+            });
         }
-    );
+    });
 }
 
 
@@ -15854,6 +15804,26 @@ window.addEventListener(
     }
 );
 
+
+/* WERSJA 187 — końcowa synchronizacja wysokości godzin */
+function synchronizujGodziny187(){
+    document.querySelectorAll(".tabliczka.tryb-kompaktowy").forEach(tab=>{
+        wyrownajWysokosciGodzinMiedzyDniami(tab);
+        requestAnimationFrame(()=>{
+            wyrownajWysokosciGodzinMiedzyDniami(tab);
+        });
+    });
+}
+
+window.addEventListener("load",()=>{
+    requestAnimationFrame(()=>{
+        requestAnimationFrame(synchronizujGodziny187);
+    });
+});
+
+window.addEventListener("resize",()=>{
+    requestAnimationFrame(synchronizujGodziny187);
+});
 </script>
 
 </body>
