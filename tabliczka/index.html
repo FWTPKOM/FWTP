@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 316
+     WERSJA: 317
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -17271,6 +17271,129 @@ function literyTejSamejGalezi313(stan,galaz){
 }
 
 
+
+function literyKursowNaAktywnymPrzystanku317(){
+
+    const wynik=
+        new Set();
+
+    const aktywny=
+        typeof aktywnyFizycznyPrzystanek276==="function"
+            ? aktywnyFizycznyPrzystanek276()
+            : wybranyFizycznyPrzystanek262;
+
+    if(!aktywny){
+        return wynik;
+    }
+
+    const rozklad=
+        typeof rozkladBazowyDlaWybranejDaty272==="function"
+            ? rozkladBazowyDlaWybranejDaty272()
+            : null;
+
+    const kierunek=
+        rozklad?.kierunki?.[
+            aktualnyKierunek
+        ];
+
+    if(!kierunek){
+        return wynik;
+    }
+
+    const idx=
+        (kierunek.przystanki||[])
+            .findIndex(
+                p=>
+                    czyTenSamPrzystanekPoNazwieINumerze(
+                        p,
+                        aktywny
+                    )
+            );
+
+    if(idx<0){
+        return wynik;
+    }
+
+    /*
+       Bierzemy rzeczywiste kursy aktywnego dnia i sprawdzamy,
+       które z nich mają czas na dokładnie tym fizycznym słupku.
+       Litera jest pobierana z kursu, nie z katalogu tras wszystkich dni.
+    */
+    for(
+        const kurs of
+        (kierunek.kursy||[])
+    ){
+
+        let maTenPrzystanek=false;
+
+        if(
+            Array.isArray(kurs?.czasy)&&
+            idx<kurs.czasy.length
+        ){
+            const czas=
+                kurs.czasy[idx];
+
+            maTenPrzystanek=
+                czas!==null&&
+                typeof czas!=="undefined"&&
+                String(czas).trim()!=="";
+        }
+
+        if(!maTenPrzystanek){
+            continue;
+        }
+
+        const litera=
+            String(
+                kurs?.wariant||
+                kurs?.litera||
+                ""
+            )
+                .trim()
+                .toLowerCase();
+
+        if(litera){
+            wynik.add(
+                litera
+            );
+        }
+    }
+
+    return wynik;
+}
+
+
+function filtrujLiteryNaglowkaDlaAktywnego317(
+    litery
+){
+
+    const dostepne=
+        literyKursowNaAktywnymPrzystanku317();
+
+    /*
+       Jeśli aktywny rozkład nie zwrócił liter, nie wymyślamy ich
+       z katalogu wszystkich dni.
+    */
+    return (
+        Array.from(
+            litery||
+            []
+        )
+            .map(
+                x=>
+                    String(x||"")
+                        .trim()
+                        .toLowerCase()
+            )
+            .filter(
+                x=>
+                    x&&
+                    dostepne.has(x)
+            )
+    );
+}
+
+
 function renderSeparator304(stan){
 
     if(!stan){
@@ -17299,6 +17422,27 @@ function renderSeparator304(stan){
         Array.isArray(stan.litery)&&
         stan.litery.length
     ){
+
+        /*
+           317:
+           Nagłówek ma opisywać tylko kursy, które rzeczywiście
+           zatrzymują się na aktualnie wybranym fizycznym przystanku
+           w aktywnym dniu. Np. na TORUŃSKIEJ nie pokażemy "a",
+           jeśli w tabeli tego przystanku nie ma żadnego kursu a.
+        */
+        const litery317=
+            filtrujLiteryNaglowkaDlaAktywnego317(
+                stan.litery
+            );
+
+        if(!litery317.length){
+            return"";
+        }
+
+        stan={
+            ...stan,
+            litery:litery317
+        };
 
         const galaz316=
             galezieWewnetrzne302()
