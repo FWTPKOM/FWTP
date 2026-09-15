@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 251
+     WERSJA: 252
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3749,12 +3749,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 251
+   WERSJA: 252
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "251";
+const WERSJA_TABLICZKI = "252";
 console.log(
-    "FWTP Tabliczka — wersja 251 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 252 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -4980,10 +4980,13 @@ function sygnaturaKierunku251(kierunek){
     )
     .map(
         p=>
-            [
-                normTrasy251(p?.nazwa),
-                String(p?.nr||"").trim()
-            ].join("|")
+            /*
+               v252:
+               numer słupka nie decyduje o przebiegu.
+               Ten sam przystanek z innym numerem w innym
+               rodzaju dnia nadal jest tym samym punktem trasy.
+            */
+            normTrasy251(p?.nazwa)
     )
     .join(">");
 }
@@ -5067,12 +5070,91 @@ function nowaLitera251(zajete){
     return"";
 }
 
+
+/* =========================================================
+   v252 — LOGICZNE WSPÓLNE PRZYSTANKI
+
+   Wariant dnia opisuje różnicę PRZEBIEGU, nie numer słupka.
+   Przystanki wspólne (np. KS POLONEZ, PKP TORUŃSKA)
+   pozostają wspólną osią trasy nawet wtedy, gdy ich "nr"
+   różni się między dniem powszednim a weekendem.
+
+   Przystanek występujący tylko w jednym przebiegu (np. TORUŃSKA)
+   pozostaje natomiast częścią odpowiedniego wariantu i dostaje
+   normalny środkowy opis "Trasa w kursach „x”".
+   ========================================================= */
+
+function kluczLogiczny252(p){
+    const nazwa=normTrasy251(p?.nazwa);
+    const lp=String(p?.lp??"").trim();
+    return nazwa+"|"+(lp ? "LP:"+lp : "");
+}
+
+function oznaczWspolnePrzystanki252(){
+
+    const rozklady=
+        Array.isArray(daneLinii?.rozkłady)
+            ? daneLinii.rozkłady
+            : [];
+
+    const mapy=[];
+
+    rozklady.forEach(
+        r=>{
+            const kierunki=[];
+            (r?.kierunki||[]).forEach(
+                (k,ki)=>{
+                    const set=new Set();
+                    (k?.przystanki||[])
+                        .filter(
+                            p=>
+                                String(p?.typ||"STOP")
+                                    .trim()
+                                    .toUpperCase()!=="TECH"
+                        )
+                        .forEach(
+                            p=>set.add(
+                                kluczLogiczny252(p)
+                            )
+                        );
+                    kierunki[ki]=set;
+                }
+            );
+            mapy.push(kierunki);
+        }
+    );
+
+    rozklady.forEach(
+        (r,ri)=>
+            (r?.kierunki||[]).forEach(
+                (k,ki)=>
+                    (k?.przystanki||[]).forEach(
+                        p=>{
+                            const key=kluczLogiczny252(p);
+                            let ile=0;
+                            mapy.forEach(
+                                mk=>{
+                                    if(mk?.[ki]?.has(key)){
+                                        ile++;
+                                    }
+                                }
+                            );
+                            p._wspolnyMiedzyDniami252=
+                                ile>1;
+                        }
+                    )
+            )
+    );
+}
+
 function zastosujWariantyRoznychDni251(){
 
     const rozklady=
         Array.isArray(daneLinii?.rozkłady)
             ? daneLinii.rozkłady
             : [];
+
+    oznaczWspolnePrzystanki252();
 
     if(rozklady.length<2){
         return;
@@ -11426,15 +11508,29 @@ function daneKursowAktywnego206(){
             info.punkty.forEach(
                 pkt=>{
 
+                    /*
+                       v252:
+                       przy scalaniu różnych rodzajów dni numer
+                       słupka nie może rozdzielać wspólnego przystanku.
+                       Najpierw nazwa + LP; numer tylko jako fallback.
+                    */
+                    const lp252=
+                        String(
+                            pkt.p?.lp??
+                            ""
+                        ).trim();
+
                     const para=
                         [
                             normalizujNazwe208(
                                 pkt.p?.nazwa
                             ),
-                            String(
-                                pkt.p?.nr||
-                                ""
-                            ).trim()
+                            lp252
+                                ? "LP:"+lp252
+                                : "NR:"+String(
+                                    pkt.p?.nr||
+                                    ""
+                                ).trim()
                         ].join("|");
 
                     const nrWyst=
