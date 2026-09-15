@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 272
+     WERSJA: 273
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -4659,36 +4659,20 @@ document.addEventListener(
                 "change",
                 async function(){
 
-                    /*
-                       =====================================================
-                       WERSJA 271
-                       =====================================================
-
-                       W v270 lista <select> została przywrócona z v201,
-                       ale obsługa kliknięcia została omyłkowo pozostawiona
-                       z v266-v269.
-
-                       Dropdown ma teraz:
-                           option.value = rzeczywisty index przystanku
-
-                       dlatego NIE wolno tutaj wywoływać
-                       listaWyboruPrzystankow262(), bo tej funkcji po
-                       przywróceniu logiki v201 już nie ma.
-
-                       Kliknięcie ma działać dokładnie jak w v201:
-                           aktualnyPrzystanek = Number(this.value)
-                    */
-
-                    const nowyPrzystanek=
+                    const wyborIndex=
                         Number(
                             this.value
                         );
 
-                    if(
-                        !Number.isInteger(
-                            nowyPrzystanek
-                        )
-                    ){
+                    const lista=
+                        listaWszystkichFizycznychPrzystankow273();
+
+                    const wybrany=
+                        lista[
+                            wyborIndex
+                        ];
+
+                    if(!wybrany){
                         return;
                     }
 
@@ -4696,16 +4680,54 @@ document.addEventListener(
                         "Zmiana przystanku...",
                         ()=>{
 
-                            aktualnyPrzystanek=
-                                nowyPrzystanek;
+                            /*
+                               Najważniejsze w v273:
+                               zachowujemy dokładny fizyczny słupek
+                               niezależnie od wybranej daty.
+                            */
+                            wybranyFizycznyPrzystanek262={
+                                ...wybrany.p,
+                                key:wybrany.key,
+                                wyborIndex273:wyborIndex
+                            };
+
+                            if(
+                                typeof przystanekNazwaURL267!=="undefined"
+                            ){
+                                przystanekNazwaURL267=
+                                    String(
+                                        wybrany.p?.nazwa||""
+                                    );
+                            }
+
+                            if(
+                                typeof przystanekNrURL267!=="undefined"
+                            ){
+                                przystanekNrURL267=
+                                    String(
+                                        wybrany.p?.nr||""
+                                    );
+                            }
 
                             /*
-                               Czyścimy pozostałość po mechanizmie
-                               fizycznego/logicznego przystanku z v262+.
-                               Od tej chwili źródłem wyboru jest dokładny
-                               indeks z kierunekBazowy(), jak w v201.
+                               Szukamy dokładnie NAZWA + NR
+                               w trasie wybranego dnia.
+                               Brak = -1, bez podmieniania na inny numer.
                             */
-                            wybranyFizycznyPrzystanek262=null;
+                            const rozkladDnia=
+                                rozkladBazowyDlaWybranejDaty272();
+
+                            const znaleziony=
+                                znajdzFizycznyPrzystanekWRozkladzie273(
+                                    rozkladDnia,
+                                    aktualnyKierunek,
+                                    wybranyFizycznyPrzystanek262
+                                );
+
+                            aktualnyPrzystanek=
+                                znaleziony
+                                    ? znaleziony.index
+                                    : -1;
 
                             zapiszURL();
                         }
@@ -7175,6 +7197,156 @@ function kierunekBazowy(){
 }
 
 
+/*
+   =========================================================
+   WERSJA 273 — STAŁA LISTA WSZYSTKICH FIZYCZNYCH PRZYSTANKÓW
+   =========================================================
+
+   Lista w polu wyboru NIE zależy już od daty.
+
+   Zasady:
+   1. zbieramy przystanki ze WSZYSTKICH rozkładów dla aktualnego kierunku,
+   2. fizyczny przystanek identyfikuje dokładnie NAZWA + NR,
+   3. METRO BRÓDNO 03 i METRO BRÓDNO 05 pozostają osobnymi pozycjami,
+   4. KS POLONEZ 01 i KS POLONEZ 03 pozostają osobnymi pozycjami,
+   5. PKP TORUŃSKA 01 i PKP TORUŃSKA 03 pozostają osobnymi pozycjami,
+   6. zmiana daty NIE usuwa wybranego fizycznego przystanku,
+   7. data decyduje dopiero o tym, czy na tym słupku są kursy.
+
+   option.value nie jest już traktowane jako "indeks trasy dnia".
+   Jest indeksem stabilnej listy wyboru. Dokładny fizyczny słupek
+   przechowujemy w wybranyFizycznyPrzystanek262.
+   ========================================================= */
+
+function kluczFizycznegoPrzystanku273(p){
+
+    return(
+        normalizuj(
+            p?.nazwa
+        )+
+        "|"+
+        String(
+            p?.nr||""
+        ).trim()
+    );
+}
+
+
+function listaWszystkichFizycznychPrzystankow273(){
+
+    const wynik=[];
+    const dodane=new Set();
+
+    /*
+       Jako pierwszą bierzemy najpełniejszą rzeczywistą trasę.
+       Dzięki temu zwykłe przystanki zachowują naturalną kolejność.
+    */
+    const bazowy=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    const dodajListe=
+        lista=>{
+
+            (
+                Array.isArray(lista)
+                    ? lista
+                    : []
+            ).forEach(
+                (p,indexZrodlowy)=>{
+
+                    const key=
+                        kluczFizycznegoPrzystanku273(
+                            p
+                        );
+
+                    if(
+                        !key||
+                        dodane.has(key)
+                    ){
+                        return;
+                    }
+
+                    dodane.add(key);
+
+                    wynik.push({
+                        p,
+                        key,
+                        indexZrodlowy
+                    });
+                }
+            );
+        };
+
+    dodajListe(
+        bazowy?.przystanki
+    );
+
+    /*
+       Potem dokładamy słupki istniejące tylko w innych
+       rozkładach / rodzajach dnia.
+    */
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            dodajListe(
+                rozklad
+                    ?.kierunki
+                    ?.[aktualnyKierunek]
+                    ?.przystanki
+            );
+        }
+    );
+
+    return wynik;
+}
+
+
+function znajdzFizycznyPrzystanekWRozkladzie273(
+    rozklad,
+    kierunekIndex,
+    fizyczny
+){
+
+    if(!fizyczny){
+        return null;
+    }
+
+    const lista=
+        rozklad
+            ?.kierunki
+            ?.[kierunekIndex]
+            ?.przystanki||
+        [];
+
+    const key=
+        kluczFizycznegoPrzystanku273(
+            fizyczny
+        );
+
+    const index=
+        lista.findIndex(
+            p=>
+                kluczFizycznegoPrzystanku273(
+                    p
+                )===key
+        );
+
+    if(index<0){
+        return null;
+    }
+
+    return{
+        p:lista[index],
+        index
+    };
+}
+
+
 function wypelnijPrzystanki(){
 
     const select=
@@ -7182,25 +7354,49 @@ function wypelnijPrzystanki(){
             "przystanekSelect"
         );
 
-    const k=
-        kierunekBazowy();
-
     const lista=
-        k?.przystanki||
-        [];
+        listaWszystkichFizycznychPrzystankow273();
 
+    /*
+       Zapamiętujemy dotychczas wybrany fizyczny słupek.
+       To jest ważne przy zmianie daty.
+    */
+    let szukanyKey=
+        wybranyFizycznyPrzystanek262
+            ? kluczFizycznegoPrzystanku273(
+                wybranyFizycznyPrzystanek262
+            )
+            : "";
+
+    /*
+       Obsługa bezpośredniego URL z nazwą + numerem.
+    */
     if(
-        aktualnyPrzystanek<0||
-        aktualnyPrzystanek>=
-            lista.length
+        !szukanyKey&&
+        typeof przystanekNazwaURL267!=="undefined"&&
+        typeof przystanekNrURL267!=="undefined"&&
+        (
+            przystanekNazwaURL267||
+            przystanekNrURL267
+        )
     ){
-        aktualnyPrzystanek=0;
+        szukanyKey=
+            normalizuj(
+                przystanekNazwaURL267
+            )+
+            "|"+
+            String(
+                przystanekNrURL267||""
+            ).trim();
     }
 
     select.innerHTML="";
 
     lista.forEach(
-        (p,index)=>{
+        (element,index)=>{
+
+            const p=
+                element.p;
 
             const option=
                 document.createElement(
@@ -7210,26 +7406,147 @@ function wypelnijPrzystanki(){
             option.value=
                 String(index);
 
+            option.dataset.key=
+                element.key;
+
+            option.dataset.nazwa=
+                String(
+                    p?.nazwa||""
+                );
+
+            option.dataset.nr=
+                String(
+                    p?.nr||""
+                );
+
             option.textContent=
                 String(
-                    p.nazwa||""
+                    p?.nazwa||""
                 )+
                 " "+
                 String(
-                    p.nr||""
+                    p?.nr||""
                 );
 
-            select.appendChild(option);
+            select.appendChild(
+                option
+            );
         }
     );
 
     select.disabled=
         !lista.length;
 
+    if(!lista.length){
+        aktualnyPrzystanek=0;
+        wybranyFizycznyPrzystanek262=null;
+        return;
+    }
+
+    let wyborIndex=-1;
+
+    if(szukanyKey){
+
+        wyborIndex=
+            lista.findIndex(
+                element=>
+                    element.key===
+                    szukanyKey
+            );
+    }
+
+    /*
+       Stary URL idx zachowujemy jako fallback.
+       Jeżeli nie znamy jeszcze fizycznego słupka, próbujemy
+       odczytać przystanek o tym indeksie z trasy właściwej
+       dla bieżącej daty, a następnie odnaleźć go w stałej liście.
+    */
+    if(wyborIndex<0){
+
+        const kierunekDnia=
+            kierunekBazowy();
+
+        const pPoIdx=
+            kierunekDnia
+                ?.przystanki
+                ?.[aktualnyPrzystanek];
+
+        if(pPoIdx){
+
+            const keyPoIdx=
+                kluczFizycznegoPrzystanku273(
+                    pPoIdx
+                );
+
+            wyborIndex=
+                lista.findIndex(
+                    element=>
+                        element.key===
+                        keyPoIdx
+                );
+        }
+    }
+
+    if(wyborIndex<0){
+        wyborIndex=0;
+    }
+
     select.value=
         String(
-            aktualnyPrzystanek
+            wyborIndex
         );
+
+    const wybrany=
+        lista[
+            wyborIndex
+        ];
+
+    wybranyFizycznyPrzystanek262={
+        ...wybrany.p,
+        key:wybrany.key,
+        wyborIndex273:wyborIndex
+    };
+
+    /*
+       aktualnyPrzystanek musi być indeksem na RZECZYWISTEJ
+       trasie bieżącego dnia, jeśli ten fizyczny słupek tam istnieje.
+
+       Jeśli w tym dniu go nie ma, ustawiamy -1.
+       Dzięki temu nie podmieniamy np. PKP TORUŃSKA 01
+       na PKP TORUŃSKA 03.
+    */
+    const rozkladDnia=
+        rozkladBazowyDlaWybranejDaty272();
+
+    const znalezionyDnia=
+        znajdzFizycznyPrzystanekWRozkladzie273(
+            rozkladDnia,
+            aktualnyKierunek,
+            wybranyFizycznyPrzystanek262
+        );
+
+    aktualnyPrzystanek=
+        znalezionyDnia
+            ? znalezionyDnia.index
+            : -1;
+
+    if(
+        typeof przystanekNazwaURL267!=="undefined"
+    ){
+        przystanekNazwaURL267=
+            String(
+                wybrany.p?.nazwa||""
+            );
+    }
+
+    if(
+        typeof przystanekNrURL267!=="undefined"
+    ){
+        przystanekNrURL267=
+            String(
+                wybrany.p?.nr||""
+            );
+    }
 }
 
 
