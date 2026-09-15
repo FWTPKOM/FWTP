@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 254
+     WERSJA: 255
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3688,6 +3688,18 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     font-weight: 400 !important;
 }
 </style>
+
+<style>
+.tabliczka .koniec-skroconych-255{
+    display:block;
+    margin-left:0;
+    margin-top:0;
+    font-size:8px;
+    line-height:9px;
+    font-weight:400;
+    white-space:nowrap;
+}
+</style>
 </head>
 
 <body>
@@ -3749,12 +3761,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 254
+   WERSJA: 255
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "254";
+const WERSJA_TABLICZKI = "255";
 console.log(
-    "FWTP Tabliczka — wersja 254 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 255 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -5259,6 +5271,25 @@ function rozdzielSpecjalneLiteryMiedzyDniami254(){
 
                 w.litera=
                     nowa;
+
+                /*
+                   v255:
+                   opis musi być różny od powszedniego Z.
+                   Inaczej kanonicznaLiteraWariantu() scalałaby
+                   identyczne opisy i z powrotem pokazywała Z
+                   zamiast nowej litery C.
+                */
+                w.opis=
+                    String(
+                        w?.opis||
+                        ""
+                    ).trim()+
+                    " ("+
+                    nazwaRodzajuDnia251(
+                        r?.nazwa
+                    )+
+                    ")";
+
                 w._osobnaLiteraDnia254=
                     true;
             }
@@ -6803,6 +6834,60 @@ function znajdzPrzystanekWRozkladzieDlaElementu(
         );
 
     if(!pasujace.length){
+
+        /*
+           v255:
+           Przy porównywaniu przebiegów różnych rodzajów dni
+           ten sam logiczny przystanek może mieć inny numer słupka.
+
+           Przykłady 134:
+           - KS POLONEZ,
+           - PKP TORUŃSKA.
+
+           Jeżeli dokładne NAZWA+NR nie istnieje, ale w danym
+           rozkładzie jest dokładnie jedno wystąpienie tej nazwy,
+           traktujemy je jako ten sam punkt wspólnej trasy.
+        */
+        const poNazwie=
+            k.przystanki.filter(
+                p=>
+                    normalizuj(
+                        p?.nazwa
+                    )===
+                    nazwa
+            );
+
+        if(poNazwie.length===1){
+            return poNazwie[0];
+        }
+
+        /*
+           Przy kilku identycznych nazwach próbujemy jeszcze LP.
+           To zabezpiecza linie, w których ta sama nazwa naprawdę
+           występuje kilka razy na jednym przebiegu.
+        */
+        const lp=
+            String(
+                bazaP?.lp??
+                ""
+            ).trim();
+
+        if(lp){
+            const poLp=
+                poNazwie.filter(
+                    p=>
+                        String(
+                            p?.lp??
+                            ""
+                        ).trim()===
+                        lp
+                );
+
+            if(poLp.length===1){
+                return poLp[0];
+            }
+        }
+
         return null;
     }
 
@@ -9926,8 +10011,20 @@ function czyKursPomijanyPrzyTrasie(kurs){
        gdzie ich rzeczywisty przebieg się oddziela lub kończy.
        Nadal pomijamy kursy zjazdowe do zajezdni.
     */
+    /*
+       v255:
+       Kurs skrócony nie tworzy osobnego geometrycznego odcinka
+       przed swoim końcem — jedzie tą samą trasą co właściwy
+       przebieg. Nie może więc powodować np.
+       "Trasa w kursach z, b" przed KS POLONEZ.
+
+       Jego litera nadal pozostaje:
+       - przy minucie,
+       - w legendzie,
+       - przy punkcie końcowym (dodawane niżej przez v255).
+    */
     if(
-        /zajezdni/i
+        /skrócon|tylko do|zajezdni/i
             .test(opis)
     ){
         return true;
@@ -20009,6 +20106,196 @@ window.addEventListener(
             );
         }
     }
+);
+
+
+/* =========================================================
+   v255 — OZNACZENIE KOŃCA KURSÓW SKRÓCONYCH NA LIŚCIE TRASY
+   ========================================================= */
+
+function konceKursowSkroconych255(){
+
+    const wynik=new Map();
+
+    (daneLinii?.rozkłady||[])
+        .forEach(
+            rozklad=>{
+
+                const mapaOpisow=
+                    new Map(
+                        (rozklad?.warianty||[])
+                            .map(
+                                w=>[
+                                    String(w?.litera||"").trim().toUpperCase(),
+                                    String(w?.opis||"").trim()
+                                ]
+                            )
+                    );
+
+                const kierunek=
+                    rozklad?.kierunki?.[
+                        aktualnyKierunek
+                    ];
+
+                if(!kierunek){
+                    return;
+                }
+
+                const kursy=new Map();
+
+                (kierunek?.przystanki||[])
+                    .forEach(
+                        (p,index)=>
+                            (p?.kursy||[])
+                                .forEach(
+                                    k=>{
+                                        const lit=
+                                            String(
+                                                k?.wariant||
+                                                ""
+                                            ).trim().toUpperCase();
+
+                                        const opis=
+                                            mapaOpisow.get(lit)||
+                                            "";
+
+                                        if(
+                                            !lit||
+                                            !/skrócon|tylko do/i.test(opis)
+                                        ){
+                                            return;
+                                        }
+
+                                        const nr=
+                                            String(k?.numer||"");
+
+                                        const old=
+                                            kursy.get(nr);
+
+                                        if(
+                                            !old||
+                                            index>old.index
+                                        ){
+                                            kursy.set(
+                                                nr,
+                                                {
+                                                    index,
+                                                    p,
+                                                    litera:lit
+                                                }
+                                            );
+                                        }
+                                    }
+                                )
+                    );
+
+                kursy.forEach(
+                    x=>{
+                        const key=
+                            normTrasy251(
+                                x.p?.nazwa
+                            );
+
+                        if(!wynik.has(key)){
+                            wynik.set(
+                                key,
+                                new Set()
+                            );
+                        }
+
+                        wynik.get(key)
+                            .add(
+                                x.litera.toLowerCase()
+                            );
+                    }
+                );
+            }
+        );
+
+    return wynik;
+}
+
+function oznaczKonceSkroconych255(root=document){
+
+    const konce=
+        konceKursowSkroconych255();
+
+    if(!konce.size){
+        return;
+    }
+
+    root.querySelectorAll(
+        ".tabliczka .trasa-stop"
+    ).forEach(
+        stop=>{
+
+            const nazwaEl=
+                stop.querySelector(
+                    ".trasa-nazwa, .trasa-nazwa-aktywna"
+                );
+
+            if(!nazwaEl){
+                return;
+            }
+
+            const nazwa=
+                normTrasy251(
+                    nazwaEl.textContent
+                );
+
+            const litery=
+                konce.get(nazwa);
+
+            if(
+                !litery||
+                !litery.size||
+                stop.querySelector(
+                    ".koniec-skroconych-255"
+                )
+            ){
+                return;
+            }
+
+            const info=
+                document.createElement(
+                    "div"
+                );
+
+            info.className=
+                "koniec-skroconych-255";
+
+            info.textContent=
+                "Koniec kursów "+
+                [...litery]
+                    .sort()
+                    .map(
+                        l=>'„'+l+'”'
+                    )
+                    .join(", ");
+
+            stop.appendChild(info);
+        }
+    );
+}
+
+function zaplanujKonceSkroconych255(){
+    requestAnimationFrame(
+        ()=>
+            requestAnimationFrame(
+                ()=>
+                    oznaczKonceSkroconych255(
+                        document
+                    )
+            )
+    );
+}
+
+window.addEventListener(
+    "load",
+    ()=>setTimeout(
+        zaplanujKonceSkroconych255,
+        250
+    )
 );
 
 </script>
