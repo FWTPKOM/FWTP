@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 271
+     WERSJA: 272
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -6948,7 +6948,226 @@ function kierunkiAktywneDlaBiezacegoPrzystanku(){
 
 
 
+/*
+   =========================================================
+   WERSJA 272 — KIERUNEK BAZOWY Z WŁAŚCIWEGO RODZAJU DNIA
+   =========================================================
+
+   WERSJA 271 poprawnie rozróżniała dwa fizyczne przystanki
+   o tej samej nazwie (np. METRO BRÓDNO 03 i 05), ponieważ
+   korzystała z rzeczywistych indeksów listy.
+
+   Problem:
+   znajdzNajpelniejszyKierunek() wybierał jedną trasę bazową
+   dla wszystkich dni. Dla linii 134 oznaczało to, że lista
+   wyboru nie musiała odpowiadać trasie obowiązującej w
+   wybranym dniu.
+
+   Przykład z 134.json:
+   - dzień powszedni:
+       KS POLONEZ 01
+       PKP TORUŃSKA 03
+   - sobota / niedziela / święto:
+       KS POLONEZ 03
+       METRO BRÓDNO 03
+       METRO BRÓDNO 05
+       PKP TORUŃSKA 01
+
+   Od v272 kierunekBazowy() najpierw wybiera ROZKŁAD
+   odpowiadający wybranej dacie, a dopiero z niego bierze
+   rzeczywistą listę przystanków.
+
+   Dzięki temu:
+   - zachowujemy prawdziwe indeksy,
+   - METRO BRÓDNO 03 i 05 nadal są osobne,
+   - w sobotę pojawia się KS POLONEZ 03,
+   - w sobotę pojawia się PKP TORUŃSKA 01.
+   ========================================================= */
+
+function czyNazwaRozkladuPasujeDoDnia272(nazwa,data){
+
+    const s=
+        String(
+            nazwa||""
+        )
+        .toLocaleLowerCase("pl-PL")
+        .replace(/\u00a0/g," ")
+        .replace(/\s+/g," ")
+        .trim();
+
+    const dzien=
+        data instanceof Date
+            ? data.getDay()
+            : -1;
+
+    const sobota=
+        dzien===6;
+
+    const niedziela=
+        dzien===0;
+
+    const weekend=
+        sobota||
+        niedziela;
+
+    const maSobote=
+        s.includes("sobot");
+
+    const maNiedziele=
+        s.includes("niedziel");
+
+    const maSwieto=
+        s.includes("świę")||
+        s.includes("swiet");
+
+    const maPonPiat=
+        (
+            s.includes("poniedział")||
+            s.includes("poniedzial")
+        )&&
+        s.includes("piąt")||
+        s.includes("piat");
+
+    const maRoboczy=
+        s.includes("powszed")||
+        s.includes("robocz");
+
+    if(sobota){
+
+        /*
+           Najwyżej punktujemy rozkład jawnie zawierający soboty.
+           "W SOBOTY, NIEDZIELE I ŚWIĘTA" pasuje tutaj idealnie.
+        */
+        return maSobote;
+    }
+
+    if(niedziela){
+
+        return(
+            maNiedziele||
+            maSwieto
+        );
+    }
+
+    /*
+       Poniedziałek–piątek.
+       Odrzucamy rozkłady weekendowe.
+    */
+    if(
+        maSobote||
+        maNiedziele
+    ){
+        return false;
+    }
+
+    if(
+        maPonPiat||
+        maRoboczy
+    ){
+        return true;
+    }
+
+    /*
+       Nazwa typu "OD PONIEDZIAŁKU DO PIĄTKU OPRÓCZ ŚWIĄT"
+       zostanie złapana przez maPonPiat. Ten fallback jest dla
+       prostszych nazw, które nie zawierają słów weekendowych.
+    */
+    return !maSwieto;
+}
+
+
+function rozkladBazowyDlaWybranejDaty272(){
+
+    const rozklady=
+        Array.isArray(
+            daneLinii?.rozkłady
+        )
+            ? daneLinii.rozkłady
+            : [];
+
+    if(!rozklady.length){
+        return null;
+    }
+
+    const pasujace=
+        rozklady.filter(
+            r=>
+                czyNazwaRozkladuPasujeDoDnia272(
+                    r?.nazwa,
+                    wybranaData
+                )
+        );
+
+    /*
+       Jeżeli kilka rozkładów pasuje do tego samego rodzaju dnia,
+       wybieramy ten, który rzeczywiście ma dany kierunek i ma
+       najwięcej przystanków. Nie mieszamy jednak tras z innym
+       rodzajem dnia.
+    */
+    let najlepszy=null;
+    let najlepszaDlugosc=-1;
+
+    pasujace.forEach(
+        r=>{
+
+            const k=
+                Array.isArray(
+                    r?.kierunki
+                )
+                    ? r.kierunki[
+                        aktualnyKierunek
+                    ]
+                    : null;
+
+            const dlugosc=
+                Array.isArray(
+                    k?.przystanki
+                )
+                    ? k.przystanki.length
+                    : -1;
+
+            if(dlugosc>najlepszaDlugosc){
+                najlepszy=r;
+                najlepszaDlugosc=dlugosc;
+            }
+        }
+    );
+
+    if(najlepszy){
+        return najlepszy;
+    }
+
+    /*
+       Bezpieczny fallback dla nietypowo nazwanych rozkładów.
+       Nie zmienia dotychczasowego działania innych linii.
+    */
+    return null;
+}
+
+
 function kierunekBazowy(){
+
+    const rozkladDnia=
+        rozkladBazowyDlaWybranejDaty272();
+
+    const kierunekDnia=
+        Array.isArray(
+            rozkladDnia?.kierunki
+        )
+            ? rozkladDnia.kierunki[
+                aktualnyKierunek
+            ]
+            : null;
+
+    if(
+        kierunekDnia&&
+        Array.isArray(
+            kierunekDnia.przystanki
+        )&&
+        kierunekDnia.przystanki.length
+    ){
+        return kierunekDnia;
+    }
 
     return znajdzNajpelniejszyKierunek(
         aktualnyKierunek
