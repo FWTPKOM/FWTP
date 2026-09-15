@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 258
+     WERSJA: 259
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3761,12 +3761,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 258
+   WERSJA: 259
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "258";
+const WERSJA_TABLICZKI = "259";
 console.log(
-    "FWTP Tabliczka — wersja 258 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 259 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -5764,7 +5764,178 @@ async function wczytajLinie(){
    KIERUNKI
    ========================================================= */
 
+
+/* =========================================================
+   v259 — WSPÓLNA LISTA WYBORU PRZYSTANKÓW
+
+   Dla różnych przebiegów zależnych od dnia nie wybieramy już
+   jednego "najdłuższego" rozkładu. Tworzymy jedną logiczną listę
+   zawierającą przystanki ze wszystkich rodzajów dni.
+
+   Brakujący odcinek jest wstawiany przed pierwszym następnym
+   wspólnym przystankiem. Numer słupka nie rozdziela wspólnego
+   punktu; licznik wystąpień chroni prawdziwe powtórzenia nazw.
+   ========================================================= */
+
+function wspolnyKierunekDni259(index){
+
+    const kierunki=
+        (daneLinii?.rozkłady||[])
+            .map(
+                r=>
+                    Array.isArray(r?.kierunki)
+                        ? r.kierunki[index]
+                        : null
+            )
+            .filter(
+                k=>
+                    k&&
+                    Array.isArray(k?.przystanki)
+            );
+
+    if(!kierunki.length){
+        return null;
+    }
+
+    if(kierunki.length===1){
+        return kierunki[0];
+    }
+
+    function seq259(k){
+
+        const occ=new Map();
+
+        return (k?.przystanki||[])
+            .map(
+                p=>{
+
+                    const nazwa=
+                        normalizujNazwe208(
+                            p?.nazwa
+                        );
+
+                    const nrWyst=
+                        (occ.get(nazwa)||0)+1;
+
+                    occ.set(
+                        nazwa,
+                        nrWyst
+                    );
+
+                    return{
+                        p,
+                        key:
+                            nazwa+
+                            "|occ:"+
+                            nrWyst
+                    };
+                }
+            );
+    }
+
+    let wynik=[
+        ...seq259(
+            kierunki[0]
+        )
+    ];
+
+    for(let n=1;n<kierunki.length;n++){
+
+        const seq=
+            seq259(
+                kierunki[n]
+            );
+
+        let i=0;
+
+        while(i<seq.length){
+
+            if(
+                wynik.some(
+                    x=>x.key===seq[i].key
+                )
+            ){
+                i++;
+                continue;
+            }
+
+            const dodatkowe=[];
+
+            while(
+                i<seq.length&&
+                !wynik.some(
+                    x=>x.key===seq[i].key
+                )
+            ){
+                dodatkowe.push(
+                    seq[i]
+                );
+                i++;
+            }
+
+            if(!dodatkowe.length){
+                continue;
+            }
+
+            if(i<seq.length){
+
+                const anchorKey=
+                    seq[i].key;
+
+                const gdzie=
+                    wynik.findIndex(
+                        x=>x.key===anchorKey
+                    );
+
+                if(gdzie>=0){
+                    wynik.splice(
+                        gdzie,
+                        0,
+                        ...dodatkowe
+                    );
+                }
+                else{
+                    wynik.push(
+                        ...dodatkowe
+                    );
+                }
+            }
+            else{
+                wynik.push(
+                    ...dodatkowe
+                );
+            }
+        }
+    }
+
+    return{
+        ...kierunki[0],
+        przystanki:
+            wynik.map(
+                x=>x.p
+            ),
+        _wspolnyKierunekDni259:true
+    };
+}
+
 function znajdzNajpelniejszyKierunek(index){
+
+    /*
+       v259:
+       w trybie różnych tras lista wyboru i indeksy korzystają
+       z jednej wspólnej osi wszystkich rodzajów dni.
+    */
+    if(trybRoznychTrasDni256){
+
+        const wspolny=
+            wspolnyKierunekDni259(
+                index
+            );
+
+        if(wspolny){
+            return wspolny;
+        }
+    }
 
     let najlepszy=null;
     let ile=-1;
@@ -11788,6 +11959,42 @@ function daneKursowAktywnego206(){
                                 ).trim()===
                                 lpAktywnego253
                         );
+                }
+            }
+
+            /*
+               v259:
+               element wspólnej listy może pochodzić z innego rodzaju
+               dnia i mieć tam inny numer/LP. Jeśli nazwa w konkretnym
+               przebiegu występuje dokładnie raz, jest to jednoznacznie
+               ten sam logiczny przystanek.
+            */
+            if(
+                aktywnyPos<0&&
+                trybRoznychTrasDni256
+            ){
+
+                const poNazwie259=
+                    lista
+                        .map(
+                            (p,index)=>({
+                                p,
+                                index
+                            })
+                        )
+                        .filter(
+                            x=>
+                                normalizujNazwe208(
+                                    x.p?.nazwa
+                                )===
+                                normalizujNazwe208(
+                                    aktywnyBaza?.nazwa
+                                )
+                        );
+
+                if(poNazwie259.length===1){
+                    aktywnyPos=
+                        poNazwie259[0].index;
                 }
             }
 
