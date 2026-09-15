@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 311
+     WERSJA: 312
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -15088,44 +15088,6 @@ function wstawGalezieWPrzebieg304(lista){
         wynik.splice(rejoinIndex,0,...blok);
     }
 
-    const aktywna=
-        aktywnaGalaz311();
-
-    if(aktywna){
-
-        const aktywny=
-            typeof aktywnyFizycznyPrzystanek276==="function"
-                ? aktywnyFizycznyPrzystanek276()
-                : wybranyFizycznyPrzystanek262;
-
-        const aktywnaNazwa=
-            logicznaNazwaPrzystanku298(
-                aktywny
-            );
-
-        /*
-           Znajdujemy aktywny przystanek w już zbudowanej gałęzi.
-           Usuwamy wszystko sprzed niego. Dzięki temu, będąc np.
-           na SUWALSKIEJ / METRZE BRÓDNO / PELCOWIŹNIE, nie pokazujemy
-           ponownie KS POLONEZ ani miejsca rozdzielenia, które jest za nami.
-        */
-        const iAktywny=
-            wynik.findIndex(
-                e=>
-                    e?._galaz304&&
-                    logicznaNazwaPrzystanku298(
-                        e?.p||e
-                    )===aktywnaNazwa
-            );
-
-        if(iAktywny>0){
-            wynik.splice(
-                0,
-                iAktywny
-            );
-        }
-    }
-
     return wynik;
 }
 
@@ -17017,14 +16979,9 @@ function czyOstatniWidocznyPrzystanek210(
 
 
 
-function czyAktywnyJestWTejSamejGalęzi309(stan){
+function aktywnyJestWewnatrzGalezi312(galaz){
 
-    if(
-        !stan||
-        stan.typ!=="wariant"||
-        !Array.isArray(stan.litery)||
-        !stan.litery.length
-    ){
+    if(!galaz){
         return false;
     }
 
@@ -17046,103 +17003,81 @@ function czyAktywnyJestWTejSamejGalęzi309(stan){
         return false;
     }
 
-    const szukaneLitery=
+    return (
+        (galaz?.przystanki||[])
+            .some(
+                element=>
+                    logicznaNazwaPrzystanku298(
+                        element?.p||element
+                    )===aktywnaNazwa
+            )
+    );
+}
+
+
+function stanNalezyDoAktywnejGalezi312(stan){
+
+    if(
+        !stan||
+        stan.typ!=="wariant"||
+        !Array.isArray(stan.litery)||
+        !stan.litery.length
+    ){
+        return false;
+    }
+
+    const litery=
         new Set(
             stan.litery
                 .map(
-                    l=>
-                        String(l||"")
+                    x=>
+                        String(x||"")
                             .trim()
                             .toLowerCase()
                 )
                 .filter(Boolean)
         );
 
-    return katalogPrzebiegowWszystkichDni300()
-        .some(
-            grupa=>{
-
-                const literyGrupy=
-                    Array.from(
-                        grupa?.litery||
-                        []
-                    )
-                    .map(
-                        l=>
-                            String(l||"")
-                                .trim()
-                                .toLowerCase()
-                    );
-
-                const taSamaGrupa=
-                    literyGrupy.some(
-                        l=>
-                            szukaneLitery.has(l)
-                    );
-
-                if(!taSamaGrupa){
-                    return false;
-                }
-
-                const nazwy=
-                    (grupa?.przebieg||[])
-                        .map(x=>x.nazwa);
-
-                return nazwy.includes(
-                    aktywnaNazwa
-                );
-            }
-        );
-}
-
-
-
-function aktywnaGalaz311(){
-
-    const aktywny=
-        typeof aktywnyFizycznyPrzystanek276==="function"
-            ? aktywnyFizycznyPrzystanek276()
-            : wybranyFizycznyPrzystanek262;
-
-    if(!aktywny){
-        return null;
-    }
-
-    const nazwa=
-        logicznaNazwaPrzystanku298(
-            aktywny
-        );
-
-    if(!nazwa){
-        return null;
-    }
-
     return (
         galezieWewnetrzne302()
-            .find(
-                galaz=>
-                    (galaz?.przystanki||[])
-                        .some(
-                            x=>
-                                logicznaNazwaPrzystanku298(
-                                    x?.p||x
-                                )===nazwa
+            .some(
+                galaz=>{
+
+                    if(
+                        !aktywnyJestWewnatrzGalezi312(
+                            galaz
                         )
-            )||
-        null
+                    ){
+                        return false;
+                    }
+
+                    return (
+                        (galaz?.litery||[])
+                            .some(
+                                x=>
+                                    litery.has(
+                                        String(x||"")
+                                            .trim()
+                                            .toLowerCase()
+                                    )
+                            )
+                    );
+                }
+            )
     );
 }
 
 
-function czyUkrycSeparatorWspolnejTrasy311(){
+function aktywnyJestWJakiejkolwiekGalezi312(){
 
-    /*
-       Jeśli jesteśmy już na gałęzi, nie trzeba po jej zakończeniu
-       pisać "Trasa we wszystkich kursach". Od tego miejsca schemat
-       ma po prostu przejść do dalszej wspólnej trasy.
-    */
-    return Boolean(
-        aktywnaGalaz311()
+    return (
+        galezieWewnetrzne302()
+            .some(
+                galaz=>
+                    aktywnyJestWewnatrzGalezi312(
+                        galaz
+                    )
+            )
     );
 }
 
@@ -17155,8 +17090,13 @@ function renderSeparator304(stan){
 
     if(stan.typ==="wszystkie"){
 
+        /*
+           Po przejechaniu rozjazdu nie trzeba również pisać
+           "Trasa we wszystkich kursach". Nie usuwamy jednak żadnego
+           przystanku ani żadnej gałęzi.
+        */
         if(
-            czyUkrycSeparatorWspolnejTrasy311()
+            aktywnyJestWJakiejkolwiekGalezi312()
         ){
             return"";
         }
@@ -17177,13 +17117,12 @@ function renderSeparator304(stan){
     ){
 
         /*
-           309:
-           Jeżeli aktualnie wybrany przystanek leży już w tej gałęzi,
-           nie pokazujemy nagłówka "Trasa w kursach ...".
-           Pasażer znajduje się już za miejscem rozdzielenia.
+           312:
+           Jesteśmy już wewnątrz tej odnogi, więc nie trzeba ponownie
+           pisać "Trasa w kursach ...". Sama odnoga pozostaje bez zmian.
         */
         if(
-            czyAktywnyJestWTejSamejGalęzi309(
+            stanNalezyDoAktywnejGalezi312(
                 stan
             )
         ){
@@ -17850,7 +17789,6 @@ function renderTrasaKolumna(
                         separator+
                         '<li class="trasa-stop'+
                         (
-                            !element?._galaz304&&
                             czyOstatniWidocznyPrzystanek210(
                                 fragment,
                                 element
@@ -17891,13 +17829,11 @@ function renderTrasaKolumna(
                                 : ''
                         )+
                         (
-                            !element?._galaz304&&
                             index===pierwszyIndexTrasy
                                 ? ' kraniec-poczatek'
                                 : ''
                         )+
                         (
-                            !element?._galaz304&&
                             index===ostatniIndexTrasy
                                 ? ' kraniec-koniec'
                                 : ''
