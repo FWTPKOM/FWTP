@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 206
+     WERSJA: 207
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2361,12 +2361,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 206
+   WERSJA: 207
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "206";
+const WERSJA_TABLICZKI = "207";
 console.log(
-    "FWTP Tabliczka — wersja 206 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 207 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -9291,7 +9291,18 @@ function daneKursowAktywnego206(){
             aktualnyPrzystanek
         );
 
+    const baza=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    const aktywnyBaza=
+        baza?.przystanki?.[
+            aktywnyIndex
+        ];
+
     if(
+        !aktywnyBaza||
         !Number.isInteger(
             aktywnyIndex
         )
@@ -9299,13 +9310,13 @@ function daneKursowAktywnego206(){
         return null;
     }
 
-    const klucze=
+    const wszystkieKlucze=
         new Set();
 
     const warianty=
         new Set();
 
-    const rozklady=[];
+    const przebiegi=[];
 
     (
         daneLinii?.rozkłady||
@@ -9325,54 +9336,36 @@ function daneKursowAktywnego206(){
                 [];
 
             /*
-               Najpierw próbujemy DOKŁADNIE index z URL.
-               To jest kluczowe dla 401:
-               index 6 = PKP URSUS 21,
-               index 7 = PKP URSUS 05.
+               Aktywny słupek identyfikujemy po DOKŁADNEJ parze
+               NAZWA + NR, a nie po pozycji w wariantowym przebiegu.
             */
-            let aktywny=
-                lista[
-                    aktywnyIndex
-                ];
+            const aktywnyPos=
+                lista.findIndex(
+                    p=>
+                        normalizujNazwe(
+                            p?.nazwa
+                        )===
+                        normalizujNazwe(
+                            aktywnyBaza?.nazwa
+                        )&&
+                        String(
+                            p?.nr||
+                            ""
+                        ).trim()===
+                        String(
+                            aktywnyBaza?.nr||
+                            ""
+                        ).trim()
+                );
 
-            /*
-               Fallback tylko gdy konkretny rozkład ma inną długość.
-               Nadal wymagamy dokładnej nazwy + numeru słupka.
-            */
-            if(!aktywny){
-
-                const baza=
-                    znajdzNajpelniejszyKierunek(
-                        aktualnyKierunek
-                    );
-
-                const wzorzec=
-                    baza?.przystanki?.[
-                        aktywnyIndex
-                    ];
-
-                if(wzorzec){
-
-                    aktywny=
-                        lista.find(
-                            p=>
-                                normalizujNazwe(
-                                    p?.nazwa
-                                )===
-                                normalizujNazwe(
-                                    wzorzec?.nazwa
-                                )&&
-                                String(
-                                    p?.nr||
-                                    ""
-                                ).trim()===
-                                String(
-                                    wzorzec?.nr||
-                                    ""
-                                ).trim()
-                        );
-                }
+            if(aktywnyPos<0){
+                return;
             }
+
+            const aktywny=
+                lista[
+                    aktywnyPos
+                ];
 
             const aktywneKursy=
                 (
@@ -9400,7 +9393,7 @@ function daneKursowAktywnego206(){
             aktywneKursy.forEach(
                 kurs=>{
 
-                    klucze.add(
+                    wszystkieKlucze.add(
                         kluczKursu206(
                             kurs
                         )
@@ -9420,60 +9413,163 @@ function daneKursowAktywnego206(){
                 }
             );
 
-            rozklady.push({
-                rozklad,
-                lista,
-                lokalneKlucze
-            });
-        }
-    );
+            /*
+               Tworzymy dokładny przebieg tych kursów w KOLEJNOŚCI
+               występującej w konkretnym rozkładzie.
 
-    if(!klucze.size){
-        return null;
-    }
+               Dzięki temu:
+               PKP URSUS 21 -> ... -> PKP URSUS 05 -> ... -> METRO SŁUŻEW
+               pozostaje dokładnie w takiej kolejności.
+            */
+            const punkty=[];
 
-    /*
-       Indeksy obsługiwane przez TE SAME kursy, które odjeżdżają
-       z aktywnego słupka.
-    */
-    const obslugiwane=
-        new Set();
+            lista.forEach(
+                (p,pos)=>{
 
-    let istniejePrzedAktywnym=false;
+                    if(pos<aktywnyPos){
+                        return;
+                    }
 
-    rozklady.forEach(
-        info=>{
-
-            info.lista.forEach(
-                (p,index)=>{
-
-                    const maTenKurs=
+                    const kursyTutaj=
                         (
                             p?.kursy||
                             []
-                        ).some(
+                        )
+                        .filter(
                             kurs=>
-                                info.lokalneKlucze.has(
+                                lokalneKlucze.has(
                                     kluczKursu206(
                                         kurs
                                     )
                                 )
                         );
 
-                    if(!maTenKurs){
+                    if(!kursyTutaj.length){
                         return;
                     }
 
-                    if(
-                        index<
-                        aktywnyIndex
-                    ){
-                        istniejePrzedAktywnym=true;
-                    }
+                    punkty.push({
+                        p,
+                        pos,
+                        kursy:kursyTutaj
+                    });
+                }
+            );
 
-                    obslugiwane.add(
-                        index
+            if(punkty.length){
+                przebiegi.push({
+                    rozklad,
+                    lista,
+                    aktywnyPos,
+                    punkty
+                });
+            }
+        }
+    );
+
+    if(
+        !wszystkieKlucze.size||
+        !przebiegi.length
+    ){
+        return null;
+    }
+
+    /*
+       Sprawdzamy, czy te same kursy istnieją przed aktywnym słupkiem.
+       Jeżeli nie — aktywny jest rzeczywistym początkiem pasażerskim.
+    */
+    let istniejePrzedAktywnym=false;
+
+    przebiegi.forEach(
+        info=>{
+
+            for(
+                let i=0;
+                i<info.aktywnyPos;
+                i++
+            ){
+                const ma=
+                    (
+                        info.lista[i]?.kursy||
+                        []
+                    ).some(
+                        kurs=>
+                            wszystkieKlucze.has(
+                                kluczKursu206(
+                                    kurs
+                                )
+                            )
                     );
+
+                if(ma){
+                    istniejePrzedAktywnym=true;
+                    break;
+                }
+            }
+        }
+    );
+
+    /*
+       Łączymy punkty z rozkładów. Klucz zawiera nazwę, numer słupka
+       i numer wystąpienia tej samej pary, więc dwa PKP URSUS
+       nie zostaną sklejone.
+    */
+    const punktyMap=
+        new Map();
+
+    przebiegi.forEach(
+        info=>{
+
+            const wystapienia=
+                new Map();
+
+            info.punkty.forEach(
+                pkt=>{
+
+                    const para=
+                        [
+                            normalizujNazwe(
+                                pkt.p?.nazwa
+                            ),
+                            String(
+                                pkt.p?.nr||
+                                ""
+                            ).trim()
+                        ].join("|");
+
+                    const nrWyst=
+                        (
+                            wystapienia.get(
+                                para
+                            )||
+                            0
+                        )+1;
+
+                    wystapienia.set(
+                        para,
+                        nrWyst
+                    );
+
+                    const key=
+                        para+
+                        "|occ:"+
+                        nrWyst;
+
+                    if(
+                        !punktyMap.has(
+                            key
+                        )
+                    ){
+                        punktyMap.set(
+                            key,
+                            {
+                                p:pkt.p,
+                                key,
+                                kolejnosc:
+                                    punktyMap.size
+                            }
+                        );
+                    }
                 }
             );
         }
@@ -9481,13 +9577,16 @@ function daneKursowAktywnego206(){
 
     return{
         aktywnyIndex,
-        klucze,
+        aktywnyBaza,
+        klucze:wszystkieKlucze,
         warianty,
-        obslugiwane,
+        przebiegi,
+        punkty:[
+            ...punktyMap.values()
+        ],
         istniejePrzedAktywnym
     };
 }
-
 
 function czyAktywnyJestPoczatkiem206(){
 
@@ -9526,48 +9625,28 @@ function trasaZDokladnychKursow206(
     }
 
     /*
-       Używamy pełnej osi v197, a nie już przyciętego wyniku,
-       bo wcześniejsze filtry mogły usunąć właściwy drugi słupek
-       o tej samej nazwie.
+       NIE korzystamy już z indeksów pełnej osi.
+       Zwracamy przebieg kursów bezpośrednio z JSON.
+
+       index nadajemy technicznie od aktualnego indeksu w górę,
+       aby renderer zachował:
+       - aktywny pierwszy punkt,
+       - minuty przejazdu,
+       - kolejność,
+       - powtarzające się nazwy.
     */
-    const pelna=
-        listaPelnejTrasyDoWyswietlenia();
-
-    const wynik=
-        pelna.filter(
-            element=>{
-
-                const index=
-                    Number(
-                        element?.index
-                    );
-
-                if(
-                    !Number.isInteger(
-                        index
-                    )
-                ){
-                    return false;
-                }
-
-                if(
-                    index<
-                    dane.aktywnyIndex
-                ){
-                    return false;
-                }
-
-                return dane.obslugiwane.has(
-                    index
-                );
-            }
-        );
-
-    return wynik.length
-        ? wynik
-        : lista||[];
+    return dane.punkty.map(
+        (pkt,i)=>({
+            p:pkt.p,
+            index:
+                Number(
+                    aktualnyPrzystanek
+                )+i,
+            _kursowy207:true,
+            _kursowyKey:pkt.key
+        })
+    );
 }
-
 
 function aktywnyMaWariant206(
     litera
@@ -9595,48 +9674,36 @@ function kierunekZDokladnychKursow206(){
     const dane=
         daneKursowAktywnego206();
 
-    if(!dane){
+    if(
+        !dane||
+        !dane.punkty?.length
+    ){
         return"";
     }
 
-    const kierunek=
-        znajdzNajpelniejszyKierunek(
-            aktualnyKierunek
-        );
+    for(
+        let i=
+            dane.punkty.length-1;
+        i>=0;
+        i--
+    ){
+        const p=
+            dane.punkty[i]?.p;
 
-    const lista=
-        kierunek?.przystanki||
-        [];
-
-    let ostatni="";
-
-    lista.forEach(
-        (p,index)=>{
-
-            if(
-                index<
-                dane.aktywnyIndex||
-                !dane.obslugiwane.has(
-                    index
-                )||
-                typPrzystankuTrasy(
-                    p
-                )==="TECH"
-            ){
-                return;
-            }
-
-            ostatni=
-                String(
-                    p?.nazwa||
-                    ""
-                ).trim();
+        if(
+            typPrzystankuTrasy(
+                p
+            )!=="TECH"
+        ){
+            return String(
+                p?.nazwa||
+                ""
+            ).trim();
         }
-    );
+    }
 
-    return ostatni;
+    return"";
 }
-
 
 function usunPrzyszlePrzystankiBezMinuty(
     lista
@@ -12198,6 +12265,131 @@ function poprawLiteryNaglowkaPoKrancu(
         symbolJedzieDoKierunku+
         "”"
     );
+}
+
+
+
+function czasElementuKursowego207(
+    element
+){
+    if(
+        !element?._kursowy207
+    ){
+        return null;
+    }
+
+    const dane=
+        daneKursowAktywnego206();
+
+    if(!dane){
+        return null;
+    }
+
+    let najlepszy=null;
+
+    dane.przebiegi.forEach(
+        info=>{
+
+            info.punkty.forEach(
+                pkt=>{
+
+                    if(
+                        normalizujNazwe(
+                            pkt.p?.nazwa
+                        )!==
+                        normalizujNazwe(
+                            element.p?.nazwa
+                        )||
+                        String(
+                            pkt.p?.nr||
+                            ""
+                        ).trim()!==
+                        String(
+                            element.p?.nr||
+                            ""
+                        ).trim()
+                    ){
+                        return;
+                    }
+
+                    pkt.kursy.forEach(
+                        kurs=>{
+
+                            const m=
+                                czasNaMinuty(
+                                    kurs?.czas
+                                );
+
+                            if(
+                                m!==null&&
+                                (
+                                    najlepszy===null||
+                                    m<najlepszy
+                                )
+                            ){
+                                najlepszy=m;
+                            }
+                        }
+                    );
+                }
+            );
+        }
+    );
+
+    if(najlepszy===null){
+        return null;
+    }
+
+    /*
+       czasDowolnegoKursuNaPrzystanku zwraca czas przejazdu względem
+       aktywnego. Tu wyliczamy analogicznie z pierwszego aktywnego czasu.
+    */
+    let startMin=null;
+
+    dane.przebiegi.forEach(
+        info=>{
+
+            const pierwszy=
+                info.punkty[0];
+
+            (
+                pierwszy?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    const m=
+                        czasNaMinuty(
+                            kurs?.czas
+                        );
+
+                    if(
+                        m!==null&&
+                        (
+                            startMin===null||
+                            m<startMin
+                        )
+                    ){
+                        startMin=m;
+                    }
+                }
+            );
+        }
+    );
+
+    if(startMin===null){
+        return null;
+    }
+
+    let roznica=
+        najlepszy-
+        startMin;
+
+    if(roznica<0){
+        roznica+=24*60;
+    }
+
+    return roznica;
 }
 
 
