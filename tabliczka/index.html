@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 259
+     WERSJA: 260
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3761,12 +3761,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 259
+   WERSJA: 260
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "259";
+const WERSJA_TABLICZKI = "260";
 console.log(
-    "FWTP Tabliczka — wersja 259 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 260 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -6757,6 +6757,22 @@ function kierunkiAktywneDlaBiezacegoPrzystanku(){
 
 
 function kierunekBazowy(){
+
+    /*
+       v260:
+       select przystanków dla różnej trasy dnia musi korzystać
+       dokładnie z tej samej wspólnej osi co analiza kursów.
+    */
+    if(trybRoznychTrasDni256){
+        const wspolny260=
+            wspolnyKierunekDni259(
+                aktualnyKierunek
+            );
+        if(wspolny260){
+            return wspolny260;
+        }
+    }
+
 
     return znajdzNajpelniejszyKierunek(
         aktualnyKierunek
@@ -11859,10 +11875,26 @@ function daneKursowAktywnego206(){
             aktualnyPrzystanek
         );
 
+    /*
+       v260:
+       w trybie różnych tras aktywny przystanek zawsze odczytujemy
+       ze wspólnej osi A+B. Dzięki temu indeks wybrany w select nie
+       zostanie później zinterpretowany jako indeks pojedynczego
+       rozkładu.
+    */
     const baza=
-        znajdzNajpelniejszyKierunek(
-            aktualnyKierunek
-        );
+        trybRoznychTrasDni256
+            ? (
+                wspolnyKierunekDni259(
+                    aktualnyKierunek
+                )||
+                znajdzNajpelniejszyKierunek(
+                    aktualnyKierunek
+                )
+            )
+            : znajdzNajpelniejszyKierunek(
+                aktualnyKierunek
+            );
 
     const aktywnyBaza=
         baza?.przystanki?.[
@@ -11933,6 +11965,45 @@ function daneKursowAktywnego206(){
                dokładnego NAZWA+NR, ale jeśli go nie ma, dopasowujemy
                NAZWA+LP. Dzięki temu kursy weekendowe są widoczne
                także na wspólnym przystanku z innym numerem.
+            */
+            /*
+               v260:
+               po odcinku wariantowym LP może być przesunięte.
+               Najpierw więc dopasowujemy po unikalnej nazwie.
+               To jest kluczowe dla KS POLONEZ i PKP TORUŃSKA.
+            */
+            if(
+                aktywnyPos<0&&
+                trybRoznychTrasDni256
+            ){
+
+                const poNazwie260=
+                    lista
+                        .map(
+                            (p,index)=>({
+                                p,
+                                index
+                            })
+                        )
+                        .filter(
+                            x=>
+                                normalizujNazwe208(
+                                    x.p?.nazwa
+                                )===
+                                normalizujNazwe208(
+                                    aktywnyBaza?.nazwa
+                                )
+                        );
+
+                if(poNazwie260.length===1){
+                    aktywnyPos=
+                        poNazwie260[0].index;
+                }
+            }
+
+            /*
+               LP zostaje jako dalszy fallback, potrzebny przy
+               powtarzających się nazwach.
             */
             if(aktywnyPos<0){
 
