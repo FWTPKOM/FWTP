@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 286
+     WERSJA: 287
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -11541,12 +11541,13 @@ function danePrzebiegowWariantowych(){
 
 
 /* =========================================================
-   WERSJA 286 — BAZA 285
+   WERSJA 287 — BAZA 285
    =========================================================
-   Dodano brakującą drugą gałąź:
-   Trasa w kursach „b”, „c”
+   Naprawa brakującej gałęzi b,c:
+   tym razem przystanki są faktycznie pobierane z drugiego
+   rzeczywistego przebiegu w JSON i wstawiane do listy.
 
-   Nie zmieniono obsługi fizycznych przystanków ani rozkładów.
+   Nie zmieniono obsługi wyboru fizycznego przystanku.
    ========================================================= */
 
 /* =========================================================
@@ -11574,6 +11575,16 @@ function korektaStanuTrasy134_285(
         return stan;
     }
 
+    if(
+        element?._galaz134BC287
+    ){
+        return{
+            typ:"wariant",
+            litery:["b","c"]
+        };
+    }
+
+
     const nazwa=
         String(element.p.nazwa||"")
             .normalize("NFD")
@@ -11595,45 +11606,6 @@ function korektaStanuTrasy134_285(
         return{
             typ:"wariant",
             litery:["a","z"]
-        };
-    }
-
-
-    /*
-       WERSJA 286:
-       weekendowa gałąź b,c musi być osobnym przebiegiem.
-       Są to przystanki występujące pomiędzy rozdzieleniem za
-       KS POLONEZ a ponownym połączeniem na PKP TORUŃSKA.
-
-       Dla 134 są to:
-       SUWALSKA,
-       METRO BRÓDNO (oba wystąpienia),
-       ŚW. HIERONIMA,
-       BAZYLIAŃSKA,
-       PELCOWIZNA.
-
-       Nadajemy im stan wariantu b,c, dzięki czemu istniejący
-       renderer utworzy osobny nagłówek:
-       "Trasa w kursach „b”, „c”".
-    */
-    const wariantBC286=
-        new Set([
-            "SUWALSKA",
-            "METRO BRODNO",
-            "SW. HIERONIMA",
-            "SW HIERONIMA",
-            "BAZYLIANSKA",
-            "PELCOWIZNA"
-        ]);
-
-    if(
-        wariantBC286.has(
-            nazwa
-        )
-    ){
-        return{
-            typ:"wariant",
-            litery:["b","c"]
         };
     }
 
@@ -14508,6 +14480,227 @@ function usunKolejnePowtorzeniaNazwyWDwukierunkowym(
 }
 
 
+
+/* =========================================================
+   WERSJA 287 — RZECZYWISTA DRUGA GAŁĄŹ TRASY 134
+   =========================================================
+   Baza: działająca wersja 285.
+
+   Poprzednio próbowaliśmy nadać stan b,c przystankom, których
+   w ogóle nie było w finalnej liście. Dlatego nic się nie
+   pojawiało.
+
+   Teraz:
+   - szukamy w JSON rzeczywistego kierunku 134 zawierającego
+     KS POLONEZ -> ... -> PKP TORUŃSKA,
+   - bierzemy fizyczne przystanki POMIĘDZY nimi,
+   - dokładamy je do finalnej listy po TORUŃSKIEJ,
+   - oznaczamy je jako gałąź b,c,
+   - PKP TORUŃSKA pozostaje pierwszym wspólnym przystankiem.
+   ========================================================= */
+
+function normalizujNazwe287(tekst){
+    return String(tekst||"")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g,"")
+        .replace(/\s+/g," ")
+        .trim()
+        .toUpperCase();
+}
+
+
+function galazBC134_287(){
+
+    const nrLinii=
+        String(
+            daneLinii?.linia||
+            numerLinii||
+            ""
+        ).trim();
+
+    if(nrLinii!=="134"){
+        return[];
+    }
+
+    let najlepsza=[];
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const kierunek=
+                Array.isArray(
+                    rozklad?.kierunki
+                )
+                    ? rozklad.kierunki[
+                        aktualnyKierunek
+                    ]
+                    : null;
+
+            const lista=
+                kierunek?.przystanki||
+                [];
+
+            if(!lista.length){
+                return;
+            }
+
+            const iKS=
+                lista.findIndex(
+                    p=>
+                        normalizujNazwe287(
+                            p?.nazwa
+                        )==="KS POLONEZ"
+                );
+
+            const iPKP=
+                lista.findIndex(
+                    (p,i)=>
+                        i>iKS&&
+                        normalizujNazwe287(
+                            p?.nazwa
+                        )==="PKP TORUNSKA"
+                );
+
+            if(
+                iKS<0||
+                iPKP<=iKS+1
+            ){
+                return;
+            }
+
+            const srodek=
+                lista
+                    .slice(
+                        iKS+1,
+                        iPKP
+                    )
+                    .filter(
+                        p=>{
+                            const n=
+                                normalizujNazwe287(
+                                    p?.nazwa
+                                );
+
+                            /*
+                               TORUŃSKA należy do gałęzi a,z,
+                               więc nie może wejść do b,c.
+                            */
+                            return(
+                                n!=="TORUNSKA"&&
+                                String(
+                                    p?.typ||""
+                                )
+                                .trim()
+                                .toUpperCase()!=="TECH"
+                            );
+                        }
+                    );
+
+            /*
+               Interesuje nas odmienna trasa, a nie przypadkowy
+               rozkład zawierający tylko ten sam wspólny odcinek.
+            */
+            if(
+                srodek.length>
+                najlepsza.length
+            ){
+                najlepsza=
+                    srodek.map(
+                        (p,pozycja)=>({
+                            p,
+                            /*
+                               Nie używamy tego indeksu jako tożsamości
+                               wybranego przystanku. To tylko element
+                               prezentacyjny drugiej gałęzi.
+                            */
+                            index:
+                                iKS+
+                                1+
+                                pozycja,
+                            _galaz134BC287:true
+                        })
+                    );
+            }
+        }
+    );
+
+    return najlepsza;
+}
+
+
+function dolaczGalazBC134_287(lista){
+
+    if(
+        !Array.isArray(lista)||
+        !lista.length
+    ){
+        return lista;
+    }
+
+    const nrLinii=
+        String(
+            daneLinii?.linia||
+            numerLinii||
+            ""
+        ).trim();
+
+    if(nrLinii!=="134"){
+        return lista;
+    }
+
+    const galaz=
+        galazBC134_287();
+
+    if(!galaz.length){
+        return lista;
+    }
+
+    const wynik=
+        Array.from(lista);
+
+    const iTorunska=
+        wynik.findIndex(
+            element=>
+                normalizujNazwe287(
+                    element?.p?.nazwa
+                )==="TORUNSKA"
+        );
+
+    const iPKP=
+        wynik.findIndex(
+            (element,i)=>
+                i>iTorunska&&
+                normalizujNazwe287(
+                    element?.p?.nazwa
+                )==="PKP TORUNSKA"
+        );
+
+    if(
+        iTorunska<0||
+        iPKP<0
+    ){
+        return lista;
+    }
+
+    /*
+       Wstawiamy drugą gałąź dokładnie:
+       TORUŃSKA
+       [b,c]
+       PKP TORUŃSKA
+    */
+    wynik.splice(
+        iPKP,
+        0,
+        ...galaz
+    );
+
+    return wynik;
+}
+
+
 function __bezCache_listaTrasyDoWyswietlenia(){
 
     const baza=
@@ -14691,7 +14884,9 @@ function __bezCache_listaTrasyDoWyswietlenia(){
             );
     }
 
-    return wynik;
+    return dolaczGalazBC134_287(
+        wynik
+    );
 }
 
 function listaTrasyDoWyswietlenia(){
