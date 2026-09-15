@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 227
+     WERSJA: 228
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3190,12 +3190,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 227
+   WERSJA: 228
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "227";
+const WERSJA_TABLICZKI = "228";
 console.log(
-    "FWTP Tabliczka — wersja 227 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 228 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -15470,13 +15470,19 @@ function czyRozkladNachodziNaListePrzystankow(
        Wizualnie tabela nadal się mieści, dlatego nie schodzimy
        od razu do 270/246 dla różnicy do 1.5 px.
     */
-    const tolerancjaKolizji227=
-        1.5;
+    /*
+       v228:
+       .rozklady-wrap ma już szerokość zgodną z faktycznie
+       wyrenderowanymi tabelami. Zostawiamy tylko 0.25 px
+       na typowe różnice subpikselowe.
+    */
+    const tolerancjaKolizji228=
+        0.25;
 
     return(
         wrapRect.right>
         panelRect.right+
-        tolerancjaKolizji227
+        tolerancjaKolizji228
     );
 }
 
@@ -15968,16 +15974,85 @@ function przeliczWrap194(
     }
 
     /*
-       Usuwamy ewentualne szerokości inline pozostawione
-       przez wcześniejsze obliczenia i pozwalamy fit-content
-       policzyć szerokość na nowo.
+       v228:
+       Samo width:fit-content potrafiło zachować szerokość
+       INTRINSICzną zawartości minut, nawet kiedy widoczna tabela
+       miała już np. 294.5 px.
+
+       Efekt:
+       - na ekranie 294.5 px mieściło się prawidłowo,
+       - ale .rozklady-wrap raportował większy right,
+       - kod błędnie przechodził do 270, a potem czasem 246 px.
+
+       Nadal badamy .rozklady-wrap — zgodnie z dotychczasową logiką —
+       ale jego szerokość ustawiamy na RZECZYWISTĄ szerokość
+       wyrenderowanych tabel .dzien.
     */
+
     wrap.style.width="";
     wrap.style.minWidth="";
     wrap.style.maxWidth="";
 
     grid.style.width="";
     grid.style.minWidth="";
+
+    void grid.offsetWidth;
+
+    const dni=
+        Array.from(
+            grid.children
+        ).filter(
+            el=>
+                el.classList&&
+                el.classList.contains("dzien")
+        );
+
+    if(!dni.length){
+        return;
+    }
+
+    const gridRect=
+        grid.getBoundingClientRect();
+
+    let prawa=
+        gridRect.left;
+
+    dni.forEach(
+        dzien=>{
+            const rect=
+                dzien.getBoundingClientRect();
+
+            if(rect.right>prawa){
+                prawa=rect.right;
+            }
+        }
+    );
+
+    const rzeczywistaSzerokosc=
+        Math.max(
+            0,
+            prawa-gridRect.left
+        );
+
+    /*
+       Ustawiamy dokładnie to, co rzeczywiście widać.
+       Dzięki temu ręczne 294.5 px i automatyczne 294.5 px
+       są mierzone identycznie.
+    */
+    grid.style.width=
+        rzeczywistaSzerokosc+"px";
+
+    grid.style.minWidth=
+        rzeczywistaSzerokosc+"px";
+
+    wrap.style.width=
+        rzeczywistaSzerokosc+"px";
+
+    wrap.style.minWidth=
+        rzeczywistaSzerokosc+"px";
+
+    wrap.style.maxWidth=
+        rzeczywistaSzerokosc+"px";
 
     void wrap.offsetWidth;
 }
