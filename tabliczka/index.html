@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 327
+     WERSJA: 328
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -12189,7 +12189,7 @@ function danePrzebiegowWariantowych(){
 
 
 
-function galezieWewnetrzne302(){
+function __bez328_galezieWewnetrzne302(){
 
     if(
         cachePrzebiegow306.dane===daneLinii&&
@@ -12208,6 +12208,132 @@ function galezieWewnetrzne302(){
 
     return wynik;
 }
+
+
+function galezieWewnetrzne302(){
+
+    const surowe=
+        __bez328_galezieWewnetrzne302();
+
+    const rozklady=
+        daneLinii?.rozkłady||
+        daneLinii?.rozklady||
+        [];
+
+    const aJestBezPodjazdow=
+        rozklady.some(
+            rozklad=>
+                (
+                    rozklad?.warianty||
+                    []
+                ).some(
+                    wariant=>
+                        String(
+                            wariant?.litera||
+                            ""
+                        )
+                            .trim()
+                            .toUpperCase()==="A"&&
+                        /bez\s+podjazd/i.test(
+                            String(
+                                wariant?.opis||
+                                ""
+                            )
+                        )
+                )
+        );
+
+    let wynik=
+        (surowe||[]).filter(
+            galaz=>{
+
+                const litery=
+                    Array.from(
+                        galaz?.litery||
+                        []
+                    )
+                        .map(
+                            x=>
+                                String(x||"")
+                                    .trim()
+                                    .toLowerCase()
+                        )
+                        .filter(Boolean);
+
+                /*
+                   A = przebieg bazowy bez podjazdów.
+                   Nie robimy z niego dodatkowej syntetycznej odnogi.
+                   Dzięki temu TORUŃSKA pozostaje na osi przebiegu A,
+                   tak jak w pierwszym kierunku 134.
+                */
+                if(
+                    aJestBezPodjazdow&&
+                    litery.length===1&&
+                    litery[0]==="a"
+                ){
+                    return false;
+                }
+
+                return true;
+            }
+        );
+
+    /*
+       Ten sam wariant B może być wykryty z dwóch rozkładów dni.
+       To nadal jedna odnoga. Łączymy tylko całe obiekty gałęzi o tych
+       samych granicach i literach. NIE deduplikujemy przystanków wewnątrz,
+       więc dwa METRO BRÓDNO pozostają dwa razy.
+    */
+    const mapa=new Map();
+
+    for(const galaz of wynik){
+
+        const litery=
+            Array.from(
+                galaz?.litery||
+                []
+            )
+                .map(
+                    x=>
+                        String(x||"")
+                            .trim()
+                            .toLowerCase()
+                )
+                .filter(Boolean)
+                .sort();
+
+        const klucz=[
+            String(galaz?.splitNazwa||""),
+            String(galaz?.rejoinNazwa||""),
+            litery.join(",")
+        ].join("|");
+
+        const poprzednia=
+            mapa.get(klucz);
+
+        if(
+            !poprzednia||
+            (
+                galaz?.przystanki||
+                []
+            ).length>
+            (
+                poprzednia?.przystanki||
+                []
+            ).length
+        ){
+            mapa.set(
+                klucz,
+                galaz
+            );
+        }
+    }
+
+    return Array.from(
+        mapa.values()
+    );
+}
+
 
 
 function __bezCache_galezieWewnetrzne302(){
