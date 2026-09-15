@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 305
+     WERSJA: 306
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -11842,7 +11842,48 @@ function kluczPrzebieguBezDaty300(kursRef){
 }
 
 
+
+let cachePrzebiegow306={
+    dane:null,
+    kierunek:null,
+    katalog:null,
+    galezie:null
+};
+
+function wyczyscCachePrzebiegow306(){
+
+    cachePrzebiegow306={
+        dane:null,
+        kierunek:null,
+        katalog:null,
+        galezie:null
+    };
+}
+
+
 function katalogPrzebiegowWszystkichDni300(){
+
+    if(
+        cachePrzebiegow306.dane===daneLinii&&
+        cachePrzebiegow306.kierunek===aktualnyKierunek&&
+        Array.isArray(cachePrzebiegow306.katalog)
+    ){
+        return cachePrzebiegow306.katalog;
+    }
+
+    const wynik=
+        __bezCache_katalogPrzebiegowWszystkichDni300();
+
+    cachePrzebiegow306.dane=daneLinii;
+    cachePrzebiegow306.kierunek=aktualnyKierunek;
+    cachePrzebiegow306.katalog=wynik;
+    cachePrzebiegow306.galezie=null;
+
+    return wynik;
+}
+
+
+function __bezCache_katalogPrzebiegowWszystkichDni300(){
 
     const grupy = new Map();
 
@@ -11958,6 +11999,27 @@ function danePrzebiegowWariantowych(){
 
 function galezieWewnetrzne302(){
 
+    if(
+        cachePrzebiegow306.dane===daneLinii&&
+        cachePrzebiegow306.kierunek===aktualnyKierunek&&
+        Array.isArray(cachePrzebiegow306.galezie)
+    ){
+        return cachePrzebiegow306.galezie;
+    }
+
+    const wynik=
+        __bezCache_galezieWewnetrzne302();
+
+    cachePrzebiegow306.dane=daneLinii;
+    cachePrzebiegow306.kierunek=aktualnyKierunek;
+    cachePrzebiegow306.galezie=wynik;
+
+    return wynik;
+}
+
+
+function __bezCache_galezieWewnetrzne302(){
+
     const grupy=katalogPrzebiegowWszystkichDni300();
     if(grupy.length<2) return[];
 
@@ -12029,7 +12091,47 @@ function galezieWewnetrzne302(){
 }
 
 
+
+let cacheStanowTrasy306=new Map();
+
+function wyczyscCacheStanowTrasy306(){
+
+    cacheStanowTrasy306.clear();
+}
+
+
 function stanLogicznyPrzystanku302(element){
+
+    const nazwa=
+        logicznaNazwaPrzystanku298(
+            element?.p||
+            element
+        );
+
+    const klucz=[
+        aktualnyKierunek,
+        nazwa
+    ].join("|");
+
+    if(cacheStanowTrasy306.has(klucz)){
+        return cacheStanowTrasy306.get(klucz);
+    }
+
+    const wynik=
+        __bezCache_stanLogicznyPrzystanku302(
+            element
+        );
+
+    cacheStanowTrasy306.set(
+        klucz,
+        wynik
+    );
+
+    return wynik;
+}
+
+
+function __bezCache_stanLogicznyPrzystanku302(element){
 
     const nazwa=logicznaNazwaPrzystanku298(element?.p||element);
     const grupy=katalogPrzebiegowWszystkichDni300();
@@ -12083,6 +12185,69 @@ function kluczStanuTrasy(stan){
         .slice()
         .sort()
         .join(",")
+    );
+}
+
+
+
+function czyTylkoKoniecCzesciPrzebiegow306(
+    poprzedniElement,
+    aktualnyElement
+){
+
+    const poprzednia=
+        logicznaNazwaPrzystanku298(
+            poprzedniElement?.p||
+            poprzedniElement
+        );
+
+    const aktualna=
+        logicznaNazwaPrzystanku298(
+            aktualnyElement?.p||
+            aktualnyElement
+        );
+
+    if(!poprzednia||!aktualna){
+        return false;
+    }
+
+    const grupy=
+        katalogPrzebiegowWszystkichDni300();
+
+    let jedzieDalej=false;
+    let konczySie=false;
+
+    for(const grupa of grupy){
+
+        const nazwy=
+            (grupa?.przebieg||[])
+                .map(x=>x.nazwa);
+
+        const i=
+            nazwy.indexOf(
+                poprzednia
+            );
+
+        if(i<0){
+            continue;
+        }
+
+        if(
+            i+1<nazwy.length&&
+            nazwy[i+1]===aktualna
+        ){
+            jedzieDalej=true;
+        }
+        else if(
+            i===nazwy.length-1
+        ){
+            konczySie=true;
+        }
+    }
+
+    return(
+        jedzieDalej&&
+        konczySie
     );
 }
 
@@ -17152,7 +17317,14 @@ function renderTrasaKolumna(
                             ? ''
                             : (
                                 stanPoprzedni===null||
-                                przed
+                                przed||
+                                (
+                                    poprzedniElement&&
+                                    czyTylkoKoniecCzesciPrzebiegow306(
+                                        poprzedniElement,
+                                        element
+                                    )
+                                )
                                     ? ''
                                     : naglowekZmianyTrasy(
                                         stanPoprzedni,
@@ -20928,22 +21100,69 @@ function dopasujKolumnyTrasy() {
 
     let najlepszyPodzial=null;
 
-    for(
-        let k=1;
-        k<lista.length;
-        k++
-    ){
+    /*
+       306: zamiast renderować całą tabliczkę dla każdego możliwego
+       punktu podziału, testujemy tylko kilka kandydatów.
+    */
+    const kandydaci=new Set();
 
-        const pierwszaLista=
-            lista.slice(
-                0,
-                k
-            );
+    const polowa=
+        Math.max(
+            1,
+            Math.min(
+                lista.length-1,
+                Math.ceil(lista.length/2)
+            )
+        );
 
-        const drugaLista=
-            lista.slice(
-                k
-            );
+    [
+        polowa-4,
+        polowa-3,
+        polowa-2,
+        polowa-1,
+        polowa,
+        polowa+1,
+        polowa+2,
+        polowa+3,
+        polowa+4
+    ].forEach(
+        k=>{
+            if(k>0&&k<lista.length){
+                kandydaci.add(k);
+            }
+        }
+    );
+
+    /*
+       Dodajemy również miejsca logicznych separatorów.
+       Zwykle właśnie tam wygląda najlepiej przejście do kolumny 2.
+    */
+    lista.forEach(
+        (element,i)=>{
+            if(
+                (
+                    element?._separator304||
+                    element?.separator
+                )&&
+                i>0&&
+                i<lista.length
+            ){
+                kandydaci.add(i);
+                if(i+1<lista.length){
+                    kandydaci.add(i+1);
+                }
+            }
+        }
+    );
+
+    const uporzadkowane=
+        Array.from(kandydaci)
+            .sort((a,b)=>a-b);
+
+    for(const k of uporzadkowane){
+
+        const pierwszaLista=lista.slice(0,k);
+        const drugaLista=lista.slice(k);
 
         columns.innerHTML=
             renderTrasaKolumna(
@@ -20967,13 +21186,7 @@ function dopasujKolumnyTrasy() {
                 true
             );
 
-        ustawZawijanieNazwTrasy(
-            columns
-        );
-
-        /*
-           Wymuszamy przeliczenie layoutu przed pomiarem.
-        */
+        ustawZawijanieNazwTrasy(columns);
         void columns.offsetHeight;
 
         const kolumnyTest=
@@ -20995,15 +21208,7 @@ function dopasujKolumnyTrasy() {
             kolumnyTest[1].scrollHeight<=
             columns.clientHeight+1;
 
-        if(
-            miesciPierwsza&&
-            miesciDruga
-        ){
-            /*
-               Zapamiętujemy kolejne poprawne k.
-               Ostatecznie zostanie największe, czyli pierwsza
-               kolumna będzie wypełniona możliwie najbardziej.
-            */
+        if(miesciPierwsza&&miesciDruga){
             najlepszyPodzial=k;
         }
     }
