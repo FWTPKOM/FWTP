@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 228
+     WERSJA: 229
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3128,6 +3128,33 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     flex-wrap: nowrap !important;
 }
 
+
+
+/* =========================================================
+   WERSJA 229 — LEGENDA POD LISTĄ PRZYSTANKÓW
+   gdy legenda w lewym panelu wychodzi poza dolną krawędź tabliczki
+   ========================================================= */
+
+.tabliczka .legenda.legenda-przeniesiona-229 {
+    max-width: none !important;
+    width: auto !important;
+    margin: 5px 7px 0 7px !important;
+    padding: 5px 0 0 0 !important;
+    border-top: 1px solid #111 !important;
+    box-sizing: border-box !important;
+    transform: none !important;
+    font-size: 14px !important;
+    line-height: 1.15 !important;
+}
+
+.tabliczka .legenda.legenda-przeniesiona-229 .legenda-wiersz {
+    margin-top: 2px !important;
+}
+
+.tabliczka .trasa-kol > .legenda.legenda-przeniesiona-229 {
+    grid-column: 1 / -1;
+}
+
 </style>
 </head>
 
@@ -3190,12 +3217,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 228
+   WERSJA: 229
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "228";
+const WERSJA_TABLICZKI = "229";
 console.log(
-    "FWTP Tabliczka — wersja 228 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 229 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -15231,10 +15258,207 @@ function renderuj(){
                4. jeśli nadal nie -> dwie strony.
             */
             zastosujEtapyRozkladu184();
+
+            /*
+               v229: po zakończeniu przeliczeń szerokości sprawdzamy,
+               czy legenda nadal mieści się na dole strony.
+            */
+            zaplanujLegende229(
+                document.querySelector(
+                    "#wynik .tabliczka"
+                )
+            );
         });
     });
 
     poprawPierwszyAktywnyPrzystanek();
+}
+
+
+
+/* =========================================================
+   WERSJA 229 — PRZENOSZENIE LEGENDY POD OSTATNI PRZYSTANEK
+   ========================================================= */
+
+function przywrocLegendeDoLewegoPanelu229(
+    tabliczka
+){
+    if(!tabliczka){
+        return;
+    }
+
+    const legenda=
+        tabliczka.querySelector(
+            ".legenda.legenda-przeniesiona-229"
+        );
+
+    const panelLewy=
+        tabliczka.querySelector(
+            ".panel-lewy"
+        );
+
+    const etykieta=
+        panelLewy?.querySelector(
+            ".etykieta-przystanku"
+        );
+
+    if(
+        !legenda||
+        !panelLewy||
+        !etykieta
+    ){
+        return;
+    }
+
+    legenda.classList.remove(
+        "legenda-przeniesiona-229"
+    );
+
+    panelLewy.insertBefore(
+        legenda,
+        etykieta
+    );
+}
+
+
+function przeniesLegendeJesliWychodziPozaStrone229(
+    tabliczka
+){
+    if(!tabliczka){
+        return;
+    }
+
+    /*
+       Najpierw zawsze mierzymy legendę w jej normalnym miejscu.
+       Dzięki temu ponowne przeliczenia nie pozostawiają jej po prawej
+       stronie, jeśli po zmianie układu znowu mieści się na dole.
+    */
+    przywrocLegendeDoLewegoPanelu229(
+        tabliczka
+    );
+
+    const legenda=
+        tabliczka.querySelector(
+            ".panel-lewy > .legenda"
+        );
+
+    if(!legenda){
+        return;
+    }
+
+    const tabRect=
+        tabliczka.getBoundingClientRect();
+
+    const legRect=
+        legenda.getBoundingClientRect();
+
+    /*
+       Przenosimy dopiero wtedy, gdy rzeczywisty dół legendy
+       wychodzi poza dolną krawędź tabliczki.
+    */
+    if(
+        legRect.bottom<=
+        tabRect.bottom-1
+    ){
+        return;
+    }
+
+    const kolumny=
+        Array.from(
+            tabliczka.querySelectorAll(
+                ".panel-prawy .trasa-kol"
+            )
+        );
+
+    if(!kolumny.length){
+        return;
+    }
+
+    /*
+       Wybieramy tę kolumnę trasy, w której znajduje się najniżej
+       położony widoczny przystanek. Legenda trafia bezpośrednio
+       pod ostatni przystanek całej listy.
+    */
+    let docelowaKolumna=null;
+    let najnizszyDol=-Infinity;
+
+    kolumny.forEach(
+        kolumna=>{
+
+            const widoczne=
+                Array.from(
+                    kolumna.querySelectorAll(
+                        ".trasa-stop, .trasa-extra-stop"
+                    )
+                )
+                .filter(
+                    stop=>{
+                        const styl=
+                            getComputedStyle(
+                                stop
+                            );
+
+                        const rect=
+                            stop.getBoundingClientRect();
+
+                        return(
+                            styl.display!=="none"&&
+                            styl.visibility!=="hidden"&&
+                            rect.height>0
+                        );
+                    }
+                );
+
+            if(!widoczne.length){
+                return;
+            }
+
+            const dol=
+                Math.max(
+                    ...widoczne.map(
+                        stop=>
+                            stop.getBoundingClientRect().bottom
+                    )
+                );
+
+            if(dol>najnizszyDol){
+                najnizszyDol=dol;
+                docelowaKolumna=kolumna;
+            }
+        }
+    );
+
+    if(!docelowaKolumna){
+        return;
+    }
+
+    legenda.classList.add(
+        "legenda-przeniesiona-229"
+    );
+
+    /*
+       Append po wszystkich listach/sekcjach w tej kolumnie:
+       dokładnie pod ostatnim przystankiem.
+    */
+    docelowaKolumna.appendChild(
+        legenda
+    );
+}
+
+
+function zaplanujLegende229(
+    tabliczka
+){
+    requestAnimationFrame(
+        ()=>
+            requestAnimationFrame(
+                ()=>{
+                    przeniesLegendeJesliWychodziPozaStrone229(
+                        tabliczka
+                    );
+                }
+            )
+    );
 }
 
 
@@ -16574,6 +16798,14 @@ function zastosujTrybDwochTabliczekJesliPotrzeba(){
        Po usunięciu części dni poprawiamy szerokości weekendu jeszcze raz.
     */
     wyrownajSzerokoscWeekendow();
+
+    /*
+       v229: po ewentualnym podziale na strony ponownie sprawdzamy legendę
+       na pierwszej tabliczce, gdzie znajduje się lista przystanków.
+    */
+    zaplanujLegende229(
+        tabliczka
+    );
 }
 
 
