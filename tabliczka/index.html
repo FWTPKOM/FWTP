@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 202
+     WERSJA: 203
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2361,12 +2361,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 202
+   WERSJA: 203
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "202";
+const WERSJA_TABLICZKI = "203";
 console.log(
-    "FWTP Tabliczka — wersja 202 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 203 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -3863,23 +3863,12 @@ function nazwaKierunku(
     kierunekIndex=aktualnyKierunek
 ){
 
-    /*
-       WERSJA 202 — KIERUNEK PASAŻERSKI
-
-       Jeżeli wybrany przystanek należy do tego kierunku, kierunek
-       wyznaczamy z kursów faktycznie dostępnych na tym przystanku.
-       Ostatni osiągany przystanek TECH nigdy nie jest nazwą kierunku.
-
-       401 / PKP URSUS 21:
-       dostępne M/T -> ostatni pasażerski METRO SŁUŻEW,
-       a nie techniczny BACHA i nie wariantowe METRO STOKŁOSY.
-    */
     if(
         Number(kierunekIndex)===
         Number(aktualnyKierunek)
     ){
         const kursy=
-            kursyDokladnegoAktywnego202();
+            kursyDokladnegoAktywnego203();
 
         const lista=
             Array.isArray(k?.przystanki)
@@ -3924,10 +3913,6 @@ function nazwaKierunku(
         }
     }
 
-    /*
-       Fallback dla kierunku, którego aktualnie nie analizujemy:
-       ostatni pasażerski (nie-TECH) przystanek.
-    */
     const lista=
         Array.isArray(k?.przystanki)
             ? k.przystanki
@@ -7196,6 +7181,141 @@ function statystykaKursowPrzystankuTrasy(p){
 }
 
 
+
+/* =========================================================
+   FWTP 203 — KURSY DOKŁADNIE WYBRANEGO SŁUPKA
+   BAZA: v197
+   ========================================================= */
+
+function kursyDokladnegoAktywnego203(){
+
+    const kierunek=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    const aktywny=
+        kierunek?.przystanki?.[
+            Number(
+                aktualnyPrzystanek
+            )
+        ];
+
+    if(!aktywny){
+        return[];
+    }
+
+    const mapa=
+        new Map();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const p=
+                znajdzDokladnyPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    aktywny
+                );
+
+            (
+                p?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    const ref={
+                        numer:String(
+                            kurs?.numer||
+                            ""
+                        ).trim(),
+                        wariant:String(
+                            kurs?.wariant||
+                            ""
+                        ).trim(),
+                        symbol:symbolDnia(kurs),
+                        brygada:String(
+                            kurs?.brygada||
+                            ""
+                        ).trim(),
+                        _kierunekIndex:
+                            Number(
+                                aktualnyKierunek
+                            )
+                    };
+
+                    const key=[
+                        ref.numer,
+                        ref.wariant,
+                        ref.symbol,
+                        ref.brygada
+                    ].join("|");
+
+                    mapa.set(
+                        key,
+                        ref
+                    );
+                }
+            );
+        }
+    );
+
+    return[
+        ...mapa.values()
+    ];
+}
+
+
+function aktywnyMaWariant203(
+    litera
+){
+    const szukana=
+        String(
+            litera||
+            ""
+        )
+        .trim()
+        .toUpperCase();
+
+    return kursyDokladnegoAktywnego203()
+        .some(
+            kurs=>
+                String(
+                    kurs?.wariant||
+                    ""
+                )
+                .trim()
+                .toUpperCase()===
+                    szukana
+        );
+}
+
+
+function aktywnyKursObslugujeElement203(
+    element
+){
+    return kursyDokladnegoAktywnego203()
+        .some(
+            kurs=>
+                kursMaPrzystanek(
+                    kurs,
+                    element
+                )
+        );
+}
+
+
 function usunDuplikatyTylkoOdKursowSkroconych(lista){
 
     const wynik=[];
@@ -7256,6 +7376,39 @@ function usunDuplikatyTylkoOdKursowSkroconych(lista){
                 x=>
                     x.stat.normalne>0
             );
+
+        /*
+           WERSJA 203
+
+           Zanim zastosujemy starą regułę v197, sprawdzamy trasę
+           RZECZYWISTYCH kursów odjeżdżających z wybranego słupka.
+
+           401 / PKP URSUS 21:
+             METRO SŁUŻEW 01 = pełne kursy A/E
+             METRO SŁUŻEW 04 = kursy M/T z PKP URSUS 21
+
+           Dla tabliczki PKP URSUS 21 trzeba więc zachować
+           METRO SŁUŻEW 04, bo właśnie tam dojeżdżają kursy
+           widoczne na tej tabliczce.
+        */
+        const obslugiwaneZAktywnego=
+            grupa.filter(
+                element=>
+                    aktywnyKursObslugujeElement203(
+                        element
+                    )
+            );
+
+        if(
+            obslugiwaneZAktywnego.length===1
+        ){
+            wynik.push(
+                obslugiwaneZAktywnego[0]
+            );
+
+            i=j;
+            continue;
+        }
 
         /*
            Usuwamy powtórzenie TYLKO w bezpiecznym przypadku:
@@ -9196,8 +9349,12 @@ function przytnijInneGaleziePrzedPoczatkiemWariantu(
     const pozycja=
         lista.findIndex(
             element=>
-                element.index===
-                aktualnyPrzystanek
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
         );
 
     if(pozycja<0){
@@ -9325,160 +9482,10 @@ function usunPowtorzenieNazwyPrzedAktywnym(
 
 
 
-
-/* =========================================================
-   WERSJA 202 — TRASA WYNIKA Z KURSÓW NA AKTYWNYM PRZYSTANKU
-   BAZA: CZYSTA v197
-   ========================================================= */
-
-function kursyDokladnegoAktywnego202(){
-
-    const baza=
-        kierunekBazowy();
-
-    const p=
-        baza?.przystanki?.[
-            aktualnyPrzystanek
-        ];
-
-    const wynik=
-        new Map();
-
-    if(!p){
-        return[];
-    }
-
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(
-        rozklad=>{
-
-            const rp=
-                znajdzDokladnyPrzystanekWRozkladzie(
-                    rozklad,
-                    aktualnyKierunek,
-                    p
-                );
-
-            (
-                rp?.kursy||
-                []
-            ).forEach(
-                kurs=>{
-
-                    if(
-                        czasNaMinuty(
-                            kurs?.czas
-                        )===null
-                    ){
-                        return;
-                    }
-
-                    const ref={
-                        numer:String(
-                            kurs?.numer||
-                            ""
-                        ).trim(),
-                        wariant:String(
-                            kurs?.wariant||
-                            ""
-                        ).trim(),
-                        symbol:symbolDnia(kurs),
-                        brygada:String(
-                            kurs?.brygada||
-                            ""
-                        ).trim(),
-                        _kierunekIndex:
-                            Number(
-                                aktualnyKierunek
-                            )
-                    };
-
-                    const key=[
-                        ref.numer,
-                        ref.wariant,
-                        ref.symbol,
-                        ref.brygada
-                    ].join("|");
-
-                    wynik.set(
-                        key,
-                        ref
-                    );
-                }
-            );
-        }
-    );
-
-    return[
-        ...wynik.values()
-    ];
-}
-
-
-function aktywnyMaWariant202(
-    litera
-){
-    const szukana=
-        String(
-            litera||
-            ""
-        )
-        .trim()
-        .toUpperCase();
-
-    if(!szukana){
-        return false;
-    }
-
-    return kursyDokladnegoAktywnego202()
-        .some(
-            kurs=>
-                String(
-                    kurs?.wariant||
-                    ""
-                )
-                .trim()
-                .toUpperCase()===
-                    szukana
-        );
-}
-
-
-function elementObslugiwanyZAktywnego202(
-    element
-){
-    if(!element){
-        return false;
-    }
-
-    return kursyDokladnegoAktywnego202()
-        .some(
-            kurs=>
-                kursMaPrzystanek(
-                    kurs,
-                    element
-                )
-        );
-}
-
-
-/*
-   Usuwa tylko tę część PRZED aktywnym przystankiem,
-   której żaden kurs dostępny na aktywnym słupku nie obsługuje.
-
-   To jest wspólna reguła dla:
-   - 131 / SADYBA 05: kursy A nie obsługują WILANOWA przed Sadybą,
-     więc wcześniejsze WILANÓW/KOSIARZY/ŁOWCZA/WIERTNICZA znikają;
-   - 401 / PKP URSUS 21: kursy M/T zaczynają się na PKP URSUS 21,
-     więc URSUS-NIEDŹWIADEK ... LALKI znikają.
-
-   Nie ma żadnego wyjątku wpisanego na numer linii.
-*/
-function przytnijPoczatekPoKursachAktywnego202(
+function usunPrzyszlePrzystankiBezMinuty(
     lista
 ){
+
     if(
         !Array.isArray(lista)||
         !lista.length
@@ -9495,70 +9502,6 @@ function przytnijPoczatekPoKursachAktywnego202(
                 Number(
                     aktualnyPrzystanek
                 )
-        );
-
-    if(aktywnyPos<=0){
-        return lista;
-    }
-
-    const kursy=
-        kursyDokladnegoAktywnego202();
-
-    if(!kursy.length){
-        return lista;
-    }
-
-    /*
-       Szukamy ostatniego wcześniejszego elementu, który rzeczywiście
-       należy do któregoś kursu odjeżdżającego z aktywnego słupka.
-       Jeżeli nie ma żadnego — aktywny jest początkiem pasażerskim.
-    */
-    let ostatniWspolnyPrzed=-1;
-
-    for(
-        let i=0;
-        i<aktywnyPos;
-        i++
-    ){
-        if(
-            kursy.some(
-                kurs=>
-                    kursMaPrzystanek(
-                        kurs,
-                        lista[i]
-                    )
-            )
-        ){
-            ostatniWspolnyPrzed=i;
-        }
-    }
-
-    if(ostatniWspolnyPrzed<0){
-        return lista.slice(
-            aktywnyPos
-        );
-    }
-
-    return lista;
-}
-
-
-function usunPrzyszlePrzystankiBezMinuty(
-    lista
-){
-
-    if(
-        !Array.isArray(lista)||
-        !lista.length
-    ){
-        return lista||[];
-    }
-
-    const aktywnyPos=
-        lista.findIndex(
-            element=>
-                element?.index===
-                aktualnyPrzystanek
         );
 
     if(aktywnyPos<0){
@@ -10262,17 +10205,6 @@ function __bezCache_listaTrasyDoWyswietlenia(){
         );
 
     /*
-       v202:
-       dopiero PO całej sprawdzonej logice v197 ustalamy,
-       czy aktywny przystanek jest rzeczywistym początkiem kursów.
-       Dzięki temu nie zmieniamy działania SADYBA 05 / 131.
-    */
-    wynik=
-        przytnijPoczatekPoKursachAktywnego202(
-            wynik
-        );
-
-    /*
        =========================================================
        FALLBACK DLA DOKŁADNEGO AKTYWNEGO PRZYSTANKU
        =========================================================
@@ -10396,6 +10328,41 @@ function __bezCache_listaTrasyDoWyswietlenia(){
                 }
             );
         }
+    }
+
+
+    /*
+       WERSJA 203 — KOŃCOWA KONTROLA PRZYSZŁEJ TRASY.
+
+       Jeżeli aktywny punkt jest obecny na finalnej liście,
+       wszystko PO nim musi należeć do co najmniej jednego
+       rzeczywistego kursu odjeżdżającego z tego słupka.
+
+       Nie ingerujemy w przystanki przed aktywnym — za ich odcięcie
+       odpowiada istniejący mechanizm v197 dla początku wariantu,
+       który teraz poprawnie porównuje indeksy jako Number().
+    */
+    const aktywnyPos203=
+        wynik.findIndex(
+            element=>
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
+        );
+
+    if(aktywnyPos203>=0){
+
+        wynik=
+            wynik.filter(
+                (element,pos)=>
+                    pos<=aktywnyPos203||
+                    aktywnyKursObslugujeElement203(
+                        element
+                    )
+            );
     }
 
     return wynik;
@@ -11647,16 +11614,13 @@ function renderWydluzeniaTrasy(){
                     .toLowerCase();
 
                 /*
-                   v202:
-                   gałąź wariantowa może być pokazana tylko wtedy,
-                   gdy na AKTYWNYM przystanku istnieje kurs tego wariantu.
-
-                   401 / PKP URSUS 21 ma M/T, ale nie ma E,
-                   więc "Trasa w kursach e" nie jest renderowana.
+                   WERSJA 203:
+                   jeżeli na wybranym słupku nie odjeżdża żaden kurs
+                   tego wariantu, nie pokazujemy jego dodatkowej trasy.
                 */
                 if(
                     litera&&
-                    !aktywnyMaWariant202(
+                    !aktywnyMaWariant203(
                         litera
                     )
                 ){
