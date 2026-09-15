@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 193
+     WERSJA: 194
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2222,6 +2222,38 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     min-width: 24px !important;
 }
 
+
+/* =========================================================
+   FWTP — WERSJA 194
+   .rozklady-wrap DOPASOWANY DO RZECZYWISTYCH TABEL
+   ========================================================= */
+
+.tabliczka .rozklady-wrap {
+    width: fit-content !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    flex: 0 0 auto !important;
+    align-self: flex-start !important;
+}
+
+.tabliczka .rozklady-grid {
+    width: fit-content !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    justify-content: flex-start !important;
+}
+
+/*
+   W etapach 246 / 225 wrap nadal dopasowuje się dokładnie
+   do sumy rzeczywistych tabel typu dnia.
+*/
+.tabliczka.etap-246 .rozklady-wrap,
+.tabliczka.etap-225 .rozklady-wrap {
+    width: fit-content !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+}
+
 </style>
 </head>
 
@@ -2284,12 +2316,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 193
+   WERSJA: 194
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "193";
+const WERSJA_TABLICZKI = "194";
 console.log(
-    "FWTP Tabliczka — wersja 193 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 194 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -13316,83 +13348,42 @@ function czyRozkladNachodziNaListePrzystankow(
         return false;
     }
 
+    const wrap=
+        tabliczka.querySelector(
+            ".rozklady-wrap"
+        );
+
     const panel=
         tabliczka.querySelector(
             ".panel-lewy"
         );
 
-    const dni=
-        Array.from(
-            tabliczka.querySelectorAll(
-                ".rozklady-grid > .dzien"
-            )
-        )
-        .filter(
-            dzien=>{
-
-                const style=
-                    getComputedStyle(
-                        dzien
-                    );
-
-                return(
-                    style.display!=="none"&&
-                    style.visibility!=="hidden"
-                );
-            }
-        );
-
     if(
-        !panel||
-        !dni.length
+        !wrap||
+        !panel
     ){
         return false;
     }
+
+    const wrapRect=
+        wrap.getBoundingClientRect();
 
     const panelRect=
         panel.getBoundingClientRect();
 
     /*
-       WERSJA 193:
-       NIE mierzymy już:
-       - .rozklady-wrap
-       - .rozklady-grid
-       - ich scrollWidth
+       WERSJA 194:
+       ponownie badamy .rozklady-wrap.
 
-       Te kontenery mogą być szersze niż faktyczne ramki tabel,
-       co dokładnie widać w DevTools jako niebieski obszar
-       wystający za ostatni typ dnia.
+       Różnica jest taka, że .rozklady-wrap nie jest już
+       rozciągnięty na pusty obszar panelu — CSS width:fit-content
+       powoduje, że kończy się przy rzeczywistym końcu tabel.
 
-       Mierzymy wyłącznie rzeczywiste .dzien.
-    */
-    let prawaKrawedzRozkladu=
-        -Infinity;
-
-    dni.forEach(
-        dzien=>{
-
-            const rect=
-                dzien.getBoundingClientRect();
-
-            if(
-                rect.right>
-                prawaKrawedzRozkladu
-            ){
-                prawaKrawedzRozkladu=
-                    rect.right;
-            }
-        }
-    );
-
-    /*
-       Rozkład uznajemy za niemieszczący się dopiero wtedy,
-       gdy RAMKA ostatniej rzeczywistej tabeli wychodzi poza
-       dostępny panel lewy.
-
-       Niebieski zapas .rozklady-wrap nie ma już znaczenia.
+       Jeśli więc prawa krawędź wrap wchodzi poza panel lewy,
+       rozkład naprawdę nachodzi na listę przystanków.
     */
     return(
-        prawaKrawedzRozkladu>
+        wrapRect.right>
         panelRect.right-1
     );
 }
@@ -13855,71 +13846,42 @@ function dopasuj9KursowDo246px191(
 
 
 /* =========================================================
-   WERSJA 193 — DIAGNOSTYKA RZECZYWISTEJ SZEROKOŚCI TABEL
+   WERSJA 194 — PRZELICZENIE SZEROKOŚCI .rozklady-wrap
    ========================================================= */
-function diagnostykaSzerokosciRozkladu193(
+function przeliczWrap194(
     tabliczka
 ){
     if(!tabliczka){
         return;
     }
 
-    const panel=
-        tabliczka.querySelector(
-            ".panel-lewy"
-        );
-
     const wrap=
         tabliczka.querySelector(
             ".rozklady-wrap"
         );
 
-    const dni=
-        Array.from(
-            tabliczka.querySelectorAll(
-                ".rozklady-grid > .dzien"
-            )
+    const grid=
+        tabliczka.querySelector(
+            ".rozklady-grid"
         );
 
-    if(
-        !panel||
-        !dni.length
-    ){
+    if(!wrap||!grid){
         return;
     }
 
-    const panelRect=
-        panel.getBoundingClientRect();
+    /*
+       Usuwamy ewentualne szerokości inline pozostawione
+       przez wcześniejsze obliczenia i pozwalamy fit-content
+       policzyć szerokość na nowo.
+    */
+    wrap.style.width="";
+    wrap.style.minWidth="";
+    wrap.style.maxWidth="";
 
-    const wrapRect=
-        wrap?.getBoundingClientRect();
+    grid.style.width="";
+    grid.style.minWidth="";
 
-    const ostatniaPrawa=
-        Math.max(
-            ...dni.map(
-                d=>
-                    d.getBoundingClientRect().right
-            )
-        );
-
-    console.log(
-        "FWTP v193 — pomiar rozkładu:",
-        {
-            panelPrawa:
-                panelRect.right,
-            wrapPrawa:
-                wrapRect?.right,
-            rzeczywistaPrawaTabel:
-                ostatniaPrawa,
-            zapasWrap:
-                wrapRect
-                    ? wrapRect.right-ostatniaPrawa
-                    : 0,
-            nachodzi:
-                ostatniaPrawa>
-                panelRect.right-1
-        }
-    );
+    void wrap.offsetWidth;
 }
 
 function zastosujEtapyRozkladu184(){
@@ -13945,6 +13907,10 @@ function zastosujEtapyRozkladu184(){
 
     requestAnimationFrame(
         ()=>{
+
+            przeliczWrap194(
+                tabliczka
+            );
 
             if(
                 !czyRozkladNachodziNaListePrzystankow(
@@ -14045,6 +14011,10 @@ function zastosujEtapyRozkladu184(){
                                                Dopiero jeśli 225 px
                                                nadal nie rozwiązało kolizji.
                                             */
+                                            przeliczWrap194(
+                                                tabliczka
+                                            );
+
                                             if(
                                                 czyRozkladNachodziNaListePrzystankow(
                                                     tabliczka
@@ -16062,25 +16032,6 @@ window.addEventListener("load",()=>{
 window.addEventListener("resize",()=>{
     requestAnimationFrame(synchronizujGodziny187);
 });
-
-/* WERSJA 193 — diagnostyka po pełnym ułożeniu strony */
-window.addEventListener(
-    "load",
-    ()=>{
-        setTimeout(
-            ()=>{
-                document
-                    .querySelectorAll(
-                        ".tabliczka"
-                    )
-                    .forEach(
-                        diagnostykaSzerokosciRozkladu193
-                    );
-            },
-            200
-        );
-    }
-);
 </script>
 
 </body>
