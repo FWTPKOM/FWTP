@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 267
+     WERSJA: 268
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -4211,7 +4211,29 @@ let przystanekNrURL267=
         parametry.get("przystanekNr")||""
     ).trim();
 
-console.log("v267: identyfikacja fizycznego przystanku = logiczny indeks + NAZWA + NR w URL");
+console.log("v268: parametr idx z URL jest indeksem przystanku w trasie właściwej dla wybranej daty; następnie jest zamieniany na dokładne NAZWA + NR");
+
+/*
+   WERSJA 268
+
+   Bardzo ważne:
+   parametr przystanek=idx:X przychodzący np. ze strony linii NIE JEST
+   indeksem wspólnej/scalonej osi v259. Jest indeksem przystanku na trasie
+   rozkładu właściwego dla daty z URL.
+
+   Przykład linii 134, 2026-09-19 (sobota):
+   idx:21 oznacza 22. pozycję sobotniej trasy, a nie 22. pozycję trasy
+   roboczej ani wspólnej osi.
+*/
+let indeksPrzystankuZURL268=
+    pobierzIndeksPrzystanku();
+
+let trzebaRozwiazacIndeksZURL268=
+    !przystanekNazwaURL267&&
+    !przystanekNrURL267&&
+    String(
+        parametry.get("przystanek")||""
+    ).startsWith("idx:");
 
 
 let wybranaData=
@@ -4576,6 +4598,10 @@ document.addEventListener(
                     ){
                         aktualnyKierunek=0;
                         aktualnyPrzystanek=0;
+                        wybranyFizycznyPrzystanek262=null;
+                        trzebaRozwiazacIndeksZURL268=false;
+                        przystanekNazwaURL267="";
+                        przystanekNrURL267="";
                     }
 
                     aktualnaLinia=
@@ -4616,6 +4642,9 @@ document.addEventListener(
 
                             aktualnyPrzystanek=0;
                             wybranyFizycznyPrzystanek262=null;
+                            trzebaRozwiazacIndeksZURL268=false;
+                            przystanekNazwaURL267="";
+                            przystanekNrURL267="";
 
                             wypelnijPrzystanki();
                             zapiszURL();
@@ -7065,6 +7094,133 @@ function listaWyboruPrzystankow262(){
     return wynik;
 }
 
+
+/* =========================================================
+   WERSJA 268 — IDX Z URL -> FIZYCZNY PRZYSTANEK DLA DATY
+   ========================================================= */
+
+function rozkladWlasciwyDlaDaty268(){
+
+    const rozklady=
+        daneLinii?.rozkłady||[];
+
+    if(!rozklady.length){
+        return null;
+    }
+
+    const dzien=
+        wybranaData instanceof Date
+            ? wybranaData.getDay()
+            : new Date(wybranaData).getDay();
+
+    const normalizujOpis268=tekst=>
+        String(tekst||"")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g,"")
+            .toUpperCase();
+
+    /*
+       Najpierw szukamy rozkładu zgodnego z dniem tygodnia.
+       To jest potrzebne m.in. dla 134, gdzie przebieg roboczy
+       i weekendowy mają inne przystanki i inne numery słupków.
+    */
+    if(dzien===6){
+
+        const sobota=
+            rozklady.find(r=>{
+                const n=normalizujOpis268(r?.nazwa);
+                return n.includes("SOBOT");
+            });
+
+        if(sobota){
+            return sobota;
+        }
+
+        const weekend=
+            rozklady.find(r=>{
+                const n=normalizujOpis268(r?.nazwa);
+                return(
+                    n.includes("NIEDZIEL")||
+                    n.includes("SWIET")||
+                    n.includes("WEEKEND")
+                );
+            });
+
+        if(weekend){
+            return weekend;
+        }
+    }
+
+    if(dzien===0){
+
+        const niedziela=
+            rozklady.find(r=>{
+                const n=normalizujOpis268(r?.nazwa);
+                return(
+                    n.includes("NIEDZIEL")||
+                    n.includes("SWIET")||
+                    n.includes("WEEKEND")
+                );
+            });
+
+        if(niedziela){
+            return niedziela;
+        }
+    }
+
+    if(dzien>=1&&dzien<=5){
+
+        const roboczy=
+            rozklady.find(r=>{
+                const n=normalizujOpis268(r?.nazwa);
+                return(
+                    n.includes("PONIEDZIAL")||
+                    n.includes("PIAT")||
+                    n.includes("POWSZED")||
+                    n.includes("ROBOCZ")
+                );
+            });
+
+        if(roboczy){
+            return roboczy;
+        }
+    }
+
+    return rozklady[0]||null;
+}
+
+
+function fizycznyPrzystanekZIndeksuURL268(){
+
+    if(!trzebaRozwiazacIndeksZURL268){
+        return null;
+    }
+
+    const rozklad=
+        rozkladWlasciwyDlaDaty268();
+
+    const lista=
+        rozklad?.kierunki?.[
+            aktualnyKierunek
+        ]?.przystanki||[];
+
+    const indeks=
+        Number(
+            indeksPrzystankuZURL268
+        );
+
+    if(
+        !Number.isInteger(indeks)||
+        indeks<0||
+        indeks>=lista.length
+    ){
+        return null;
+    }
+
+    return lista[indeks]||null;
+}
+
+
 function wypelnijPrzystanki(){
 
     const select=
@@ -7174,6 +7330,62 @@ function wypelnijPrzystanki(){
 
     let indeksDoWyboru=
         -1;
+
+    /*
+       WERSJA 268:
+       jeżeli link przyszedł wyłącznie z przystanek=idx:X,
+       najpierw odczytujemy X z trasy właściwej dla DATY.
+       Dopiero znaleziony fizyczny przystanek NAZWA + NR
+       mapujemy na wspólną listę wyboru.
+    */
+    if(
+        !wybranyFizycznyPrzystanek262&&
+        trzebaRozwiazacIndeksZURL268
+    ){
+
+        const fizyczny268=
+            fizycznyPrzystanekZIndeksuURL268();
+
+        if(fizyczny268){
+
+            const nazwa268=
+                normalizujNazwe208(
+                    fizyczny268?.nazwa
+                );
+
+            const nr268=
+                String(
+                    fizyczny268?.nr||""
+                ).trim();
+
+            indeksDoWyboru=
+                lista.findIndex(
+                    element=>
+                        normalizujNazwe208(
+                            element?.p?.nazwa
+                        )===nazwa268&&
+                        String(
+                            element?.p?.nr||""
+                        ).trim()===nr268
+                );
+
+            if(indeksDoWyboru>=0){
+                przystanekNazwaURL267=
+                    String(
+                        fizyczny268?.nazwa||""
+                    ).trim();
+
+                przystanekNrURL267=
+                    nr268;
+
+                /*
+                   Rozwiązujemy stary idx tylko raz. Od tej chwili
+                   źródłem prawdy jest dokładny fizyczny słupek.
+                */
+                trzebaRozwiazacIndeksZURL268=false;
+            }
+        }
+    }
 
     /*
        WERSJA 267:
