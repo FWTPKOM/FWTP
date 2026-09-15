@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 265
+     WERSJA: 266
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -4606,60 +4606,48 @@ document.addEventListener(
                 "change",
                 async function(){
 
-                    const nowyPrzystanek=
+                    const indeksWyboru266=
                         Number(
                             this.value
                         );
 
-                    const k=
-                        kierunekBazowy();
+                    const lista266=
+                        listaWyboruPrzystankow262();
 
-                    const p=
-                        k?.przystanki?.[
-                            nowyPrzystanek
-                        ]||
-                        null;
+                    const wybrany266=
+                        lista266[
+                            indeksWyboru266
+                        ];
 
                     await przerysujTabliczkeZLoaderem(
                         "Zmiana przystanku...",
                         ()=>{
 
-                            aktualnyPrzystanek=
-                                nowyPrzystanek;
+                            if(wybrany266){
 
-                            /*
-                               WERSJA 265
+                                /*
+                                   WERSJA 266
 
-                               Select ponownie wskazuje bezpośrednio indeks
-                               przystanku w kierunku bazowym, tak jak w
-                               działającej wersji 246.
+                                   aktualnyPrzystanek = logiczny punkt
+                                   wspólnej osi trasy.
 
-                               Jednocześnie zachowujemy dokładny fizyczny
-                               słupek NAZWA + NR dla nowszej logiki tras
-                               różnych w zależności od dnia.
+                                   wybranyFizycznyPrzystanek262 =
+                                   dokładny fizyczny słupek NAZWA + NR.
 
-                               Dzięki temu wybranie np.:
-                               "NAZWA 01" nie pobierze rozkładu "NAZWA 02".
-                            */
-                            if(p){
+                                   Dzięki temu np. dla linii 134:
+                                   KS POLONEZ 01 i KS POLONEZ 03
+                                   oraz PKP TORUŃSKA 03 i PKP TORUŃSKA 01
+                                   pozostają osobnymi pozycjami.
+                                */
+                                aktualnyPrzystanek=
+                                    wybrany266.logicznyIndex;
+
                                 wybranyFizycznyPrzystanek262={
-                                    ...p,
-                                    key:
-                                        normalizuj(
-                                            p?.nazwa
-                                        )+
-                                        "|"+
-                                        String(
-                                            p?.nr||
-                                            ""
-                                        ).trim(),
+                                    ...wybrany266.p,
+                                    key:wybrany266.key,
                                     logicznyIndex:
-                                        nowyPrzystanek
+                                        wybrany266.logicznyIndex
                                 };
-                            }
-                            else{
-                                wybranyFizycznyPrzystanek262=
-                                    null;
                             }
 
                             zapiszURL();
@@ -6997,30 +6985,36 @@ function wypelnijPrzystanki(){
 
     /*
        =========================================================
-       WERSJA 265
-       DOBÓR PRZYSTANKU = DOKŁADNIE NAZWA + NUMER
+       WERSJA 266
+       PEŁNA LISTA PRZYSTANKÓW ZE WSZYSTKICH WARIANTÓW
+       + DOKŁADNE NAZWA + NUMER
        =========================================================
 
-       Przywrócona została zasada z działającej wersji 246:
-       wartość <option> jest bezpośrednio indeksem przystanku
-       w kierunku bazowym.
+       v265 pokazywała tylko przystanki z kierunku bazowego.
+       Przez to znikały fizyczne słupki występujące wyłącznie
+       w innym rodzaju dnia / wariancie.
 
-       Nie używamy tutaj pośredniego indeksu listy fizycznych
-       przystanków, ponieważ mógł on wskazać inny logiczny wpis
-       i w efekcie pobrać rozkład dla niewłaściwego numeru słupka.
+       Dla linii 134 JSON zawiera m.in.:
+       - KS POLONEZ 01
+       - KS POLONEZ 03
+       - PKP TORUŃSKA 03
+       - PKP TORUŃSKA 01
 
-       Nowsza zmienna wybranyFizycznyPrzystanek262 nadal jest
-       ustawiana, ale zawsze na TEN SAM przystanek, który użytkownik
-       rzeczywiście widzi i wybiera w select:
-           NAZWA + NR.
+       Od v266 lista jest budowana przez
+       listaWyboruPrzystankow262(), czyli ze wszystkich rozkładów.
+
+       Każdy wpis zachowuje osobno:
+       - nazwę,
+       - numer,
+       - logicznyIndex,
+       - key = NAZWA|NR.
+
+       Dzięki temu rozkład jest później dobierany do dokładnie
+       wybranego fizycznego słupka.
     */
 
-    const k=
-        kierunekBazowy();
-
     const lista=
-        k?.przystanki||
-        [];
+        listaWyboruPrzystankow262();
 
     if(!lista.length){
         select.innerHTML="";
@@ -7029,28 +7023,20 @@ function wypelnijPrzystanki(){
         return;
     }
 
-    if(
-        aktualnyPrzystanek<0||
-        aktualnyPrzystanek>=
-            lista.length
-    ){
-        aktualnyPrzystanek=0;
-    }
-
     select.innerHTML="";
 
     lista.forEach(
-        (p,index)=>{
+        (element,index)=>{
+
+            const p=
+                element?.p||
+                {};
 
             const option=
                 document.createElement(
                     "option"
                 );
 
-            /*
-               Najważniejsza zmiana v265:
-               value = prawdziwy indeks w kierunku bazowym.
-            */
             option.value=
                 String(index);
 
@@ -7065,6 +7051,18 @@ function wypelnijPrzystanki(){
                     p?.nr||
                     ""
                 ).trim();
+
+            option.dataset.logicznyIndex=
+                String(
+                    element?.logicznyIndex??
+                    ""
+                );
+
+            option.dataset.key=
+                String(
+                    element?.key||
+                    ""
+                );
 
             option.textContent=
                 String(
@@ -7085,43 +7083,107 @@ function wypelnijPrzystanki(){
 
     select.disabled=false;
 
-    select.value=
-        String(
-            aktualnyPrzystanek
-        );
+    let indeksDoWyboru=
+        -1;
 
     /*
-       Synchronizacja dokładnego fizycznego słupka.
-
-       To jest istotne dla funkcji, które w nowszych wersjach
-       wyszukują kursy po dokładnej parze NAZWA + NR.
+       Jeżeli użytkownik wybrał już konkretny słupek,
+       zachowujemy dokładnie NAZWA + NR.
     */
-    const aktywny=
-        lista[
-            aktualnyPrzystanek
-        ]||
-        null;
+    if(
+        wybranyFizycznyPrzystanek262
+    ){
 
-    if(aktywny){
+        const keyAktywnego=
+            String(
+                wybranyFizycznyPrzystanek262.key||
+                (
+                    normalizujNazwe208(
+                        wybranyFizycznyPrzystanek262?.nazwa
+                    )+
+                    "|"+
+                    String(
+                        wybranyFizycznyPrzystanek262?.nr||
+                        ""
+                    ).trim()
+                )
+            );
+
+        indeksDoWyboru=
+            lista.findIndex(
+                element=>
+                    String(
+                        element?.key||
+                        ""
+                    )===
+                    keyAktywnego&&
+                    Number(
+                        element?.logicznyIndex
+                    )===
+                    Number(
+                        aktualnyPrzystanek
+                    )
+            );
+
+        if(indeksDoWyboru<0){
+            indeksDoWyboru=
+                lista.findIndex(
+                    element=>
+                        String(
+                            element?.key||
+                            ""
+                        )===
+                        keyAktywnego
+                );
+        }
+    }
+
+    /*
+       Pierwsze wejście / URL bez zapamiętanego fizycznego słupka:
+       wybieramy pierwszy wpis należący do logicznego punktu.
+    */
+    if(indeksDoWyboru<0){
+
+        indeksDoWyboru=
+            lista.findIndex(
+                element=>
+                    Number(
+                        element?.logicznyIndex
+                    )===
+                    Number(
+                        aktualnyPrzystanek
+                    )
+            );
+    }
+
+    if(indeksDoWyboru<0){
+        indeksDoWyboru=0;
+    }
+
+    const aktywnyElement=
+        lista[
+            indeksDoWyboru
+        ];
+
+    if(aktywnyElement){
+
+        aktualnyPrzystanek=
+            Number(
+                aktywnyElement.logicznyIndex
+            );
 
         wybranyFizycznyPrzystanek262={
-            ...aktywny,
+            ...aktywnyElement.p,
             key:
-                normalizuj(
-                    aktywny?.nazwa
-                )+
-                "|"+
-                String(
-                    aktywny?.nr||
-                    ""
-                ).trim(),
+                aktywnyElement.key,
             logicznyIndex:
-                aktualnyPrzystanek
+                aktywnyElement.logicznyIndex
         };
-    }
-    else{
-        wybranyFizycznyPrzystanek262=
-            null;
+
+        select.value=
+            String(
+                indeksDoWyboru
+            );
     }
 }
 
