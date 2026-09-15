@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 317
+     WERSJA: 318
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -15178,11 +15178,133 @@ function aktywnyJestNaGalezi316(
 }
 
 
+
+function czyFizycznyPrzystanekMozePojechacGalezia318(
+    galaz
+){
+
+    const aktywny=
+        typeof aktywnyFizycznyPrzystanek276==="function"
+            ? aktywnyFizycznyPrzystanek276()
+            : wybranyFizycznyPrzystanek262;
+
+    if(!aktywny||!galaz){
+        return true;
+    }
+
+    const nazwyGalezi=
+        new Set(
+            (galaz?.przystanki||[])
+                .map(
+                    e=>
+                        logicznaNazwaPrzystanku298(
+                            e?.p||e
+                        )
+                )
+                .filter(Boolean)
+        );
+
+    if(!nazwyGalezi.size){
+        return true;
+    }
+
+    let znalezionoDokladnySlupek=false;
+    let znalezionoPrzebiegGalezi=false;
+
+    for(
+        const rozklad of
+        (daneLinii?.rozklady||[])
+    ){
+
+        const kierunek=
+            rozklad?.kierunki?.[
+                aktualnyKierunek
+            ];
+
+        if(!kierunek){
+            continue;
+        }
+
+        const przystanki=
+            kierunek.przystanki||
+            [];
+
+        const indeksAktywnego=
+            przystanki.findIndex(
+                p=>
+                    czyTenSamPrzystanekPoNazwieINumerze(
+                        p,
+                        aktywny
+                    )
+            );
+
+        if(indeksAktywnego<0){
+            continue;
+        }
+
+        znalezionoDokladnySlupek=true;
+
+        /*
+           Liczy się tylko dalsza część trasy od dokładnie wybranego
+           fizycznego słupka. Przystanki odnogi, które są już za nami,
+           nie mogą powodować uznania odnogi za dostępną.
+        */
+        const dalszeNazwy=
+            przystanki
+                .slice(
+                    indeksAktywnego+1
+                )
+                .map(
+                    p=>
+                        logicznaNazwaPrzystanku298(
+                            p
+                        )
+                );
+
+        if(
+            dalszeNazwy.some(
+                n=>
+                    nazwyGalezi.has(n)
+            )
+        ){
+            znalezionoPrzebiegGalezi=true;
+            break;
+        }
+    }
+
+    /*
+       Jeśli dokładnego słupka nie znaleźliśmy, niczego nie zgadujemy.
+       Jeśli znaleźliśmy, gałąź wolno pokazać tylko wtedy, gdy naprawdę
+       występuje dalej po tym słupku w co najmniej jednym rozkładzie.
+    */
+    return (
+        !znalezionoDokladnySlupek||
+        znalezionoPrzebiegGalezi
+    );
+}
+
+
 function wstawGalezieWPrzebieg304(lista){
 
     const wynik=[...(lista||[])];
 
     for(const galaz of galezieWewnetrzne302()){
+
+        /*
+           318:
+           Nie pokazuj odnogi, której nie da się osiągnąć z dokładnie
+           wybranego fizycznego przystanku.
+           Przykład: KS POLONEZ 01 ma już określony rzeczywisty przebieg,
+           więc nie może dostać odnogi b/c, której ten słupek nie obsługuje.
+        */
+        if(
+            !czyFizycznyPrzystanekMozePojechacGalezia318(
+                galaz
+            )
+        ){
+            continue;
+        }
+
 
         /*
            316:
@@ -17422,6 +17544,47 @@ function renderSeparator304(stan){
         Array.isArray(stan.litery)&&
         stan.litery.length
     ){
+
+        const galaz318=
+            galezieWewnetrzne302()
+                .find(
+                    g=>{
+
+                        const literyStanu=
+                            new Set(
+                                stan.litery
+                                    .map(
+                                        x=>
+                                            String(x||"")
+                                                .trim()
+                                                .toLowerCase()
+                                    )
+                            );
+
+                        return Array.from(
+                            g?.litery||
+                            []
+                        )
+                            .some(
+                                x=>
+                                    literyStanu.has(
+                                        String(x||"")
+                                            .trim()
+                                            .toLowerCase()
+                                    )
+                            );
+                    }
+                );
+
+        if(
+            galaz318&&
+            !czyFizycznyPrzystanekMozePojechacGalezia318(
+                galaz318
+            )
+        ){
+            return"";
+        }
+
 
         /*
            317:
