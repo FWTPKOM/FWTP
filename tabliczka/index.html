@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 198
+     WERSJA: 199
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2361,12 +2361,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 198
+   WERSJA: 199
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "198";
+const WERSJA_TABLICZKI = "199";
 console.log(
-    "FWTP Tabliczka — wersja 198 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 199 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -10383,57 +10383,165 @@ function __bezCache_listaTrasyDoWyswietlenia(){
 
 
     /*
-       WERSJA 198 — przypadek typu 401 / PKP URSUS 21.
+       =========================================================
+       WERSJA 199 — RZECZYWISTE PRZYCIĘCIE TRASY
+       401 / PKP URSUS 21
+       =========================================================
 
-       1. Jeżeli aktywny słupek jest rzeczywistym początkiem kursów,
-          nie pokazujemy wcześniejszej, już miniętej części osi.
-       2. NIE usuwamy późniejszego ponownego przejazdu przez ten sam
-          PKP URSUS — ma zostać drugi raz, jeśli kurs rzeczywiście
-          przez niego jedzie.
-       3. Lista kończy się na najdalszym przystanku osiąganym przez
-          rzeczywiste kursy wychodzące z aktywnego słupka.
-          Jeżeli wszystkie kursy kończą na METRO SŁUŻEW, nic za
-          METRO SŁUŻEW nie jest pokazywane.
+       v198 próbowała wywnioskować początek przez analizę wszystkich
+       kursów. W 401 wcześniejsza część osi nadal była przez to
+       uznawana za część kursu i nie została odcięta.
+
+       Teraz wykorzystujemy dwie rzeczy, które są jednoznaczne:
+
+       A. Jeżeli dokładnie ten sam słupek NAZWA + NUMER występuje
+          jeszcze raz DALEJ w tym kierunku, a wybrany jest jego
+          wcześniejszy egzemplarz, traktujemy wybrany punkt jako
+          początek pasażerskiej pętli. Wszystko przed nim usuwamy,
+          ale późniejszego powtórzenia NIE usuwamy.
+
+          401:
+          PKP URSUS 21 [aktywny/start]
+          ...
+          PKP URSUS 21 [drugi przejazd]  <- zostaje
+
+       B. Koniec listy wyznaczamy z czasyTrasy(), czyli z faktycznie
+          wybranego kursu używanego do liczenia czasów przejazdu.
+          Ostatni indeks z niepustym czasem jest ostatnim przystankiem
+          tego kursu.
+
+          Dzięki temu, jeśli wszystkie widoczne kursy kończą się na
+          METRO SŁUŻEW, lista kończy się na METRO SŁUŻEW i nie pokazuje
+          NOSKOWSKIEGO / NOWOURSYNOWSKIEJ / SGGW itd.
     */
-    const analiza198=
-        analizaTrasyOdAktywnego198(
-            baza
-        );
 
-    if(
-        analiza198.jestPoczatkiem
-    ){
-        const posAktywnego=
-            wynik.findIndex(
-                element=>
-                    Number(
-                        element?.index
-                    )===
-                    Number(
-                        aktualnyPrzystanek
-                    )
+    const bazaKierunku199=
+        kierunekBazowy()
+            ?.przystanki||
+        [];
+
+    const aktywnyP199=
+        bazaKierunku199[
+            Number(
+                aktualnyPrzystanek
+            )
+        ]||
+        null;
+
+    if(aktywnyP199){
+
+        const nazwa199=
+            normalizuj(
+                aktywnyP199?.nazwa
             );
 
-        if(posAktywnego>0){
-            wynik=
-                wynik.slice(
-                    posAktywnego
+        const nr199=
+            String(
+                aktywnyP199?.nr||
+                ""
+            ).trim();
+
+        const maTenSamDokladnySlupPozniej199=
+            bazaKierunku199.some(
+                (p,i)=>
+                    i>
+                        Number(
+                            aktualnyPrzystanek
+                        )&&
+                    normalizuj(
+                        p?.nazwa
+                    )===
+                        nazwa199&&
+                    String(
+                        p?.nr||
+                        ""
+                    ).trim()===
+                        nr199
+            );
+
+        if(
+            maTenSamDokladnySlupPozniej199
+        ){
+            const pozycjaAktywnego199=
+                wynik.findIndex(
+                    element=>
+                        Number(
+                            element?.index
+                        )===
+                        Number(
+                            aktualnyPrzystanek
+                        )
                 );
+
+            if(
+                pozycjaAktywnego199>0
+            ){
+                /*
+                   UWAGA:
+                   slice() odcina WYŁĄCZNIE wcześniejszą część.
+                   Drugie PKP URSUS znajdujące się później zostaje.
+                */
+                wynik=
+                    wynik.slice(
+                        pozycjaAktywnego199
+                    );
+            }
         }
     }
 
+    /*
+       Rzeczywisty koniec wybranego kursu.
+       czasyTrasy() ma wartości tylko tam, gdzie wybrany kurs
+       faktycznie dociera.
+    */
+    const czasy199=
+        czasyTrasy();
+
+    let ostatniObslugiwanyIndex199=
+        -1;
+
+    czasy199.forEach(
+        (czas,index)=>{
+            if(
+                czas!==null&&
+                czas!==undefined
+            ){
+                ostatniObslugiwanyIndex199=
+                    index;
+            }
+        }
+    );
+
     if(
-        Number.isInteger(
-            analiza198.maxIndex
-        )
+        ostatniObslugiwanyIndex199>=
+            Number(
+                aktualnyPrzystanek
+            )
     ){
         wynik=
             wynik.filter(
-                element=>
-                    Number(
-                        element?.index
-                    )<=
-                    analiza198.maxIndex
+                element=>{
+
+                    const idx=
+                        Number(
+                            element?.index
+                        );
+
+                    /*
+                       Elementy bez prawidłowego indeksu zostawiamy,
+                       żeby nie uszkodzić separatorów/wariantów.
+                    */
+                    if(
+                        !Number.isInteger(idx)
+                    ){
+                        return true;
+                    }
+
+                    return(
+                        idx<=
+                        ostatniObslugiwanyIndex199
+                    );
+                }
             );
     }
 
