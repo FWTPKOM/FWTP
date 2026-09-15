@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 249
+     WERSJA: 250
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3688,6 +3688,25 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     font-weight: 400 !important;
 }
 </style>
+
+<style>
+/* v250 — syntetyczny wariant dnia wygląda jak istniejące oznaczenia */
+.tabliczka .wariant-dnia-250{
+    display:inline-block;
+    margin-left:1px;
+    font-size:.72em;
+    line-height:1;
+    vertical-align:super;
+    font-weight:700;
+}
+.tabliczka .wariant-dnia-opis-250{
+    display:block;
+    font-size:8px;
+    line-height:9px;
+    font-weight:400;
+    white-space:nowrap;
+}
+</style>
 </head>
 
 <body>
@@ -3749,12 +3768,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 249
+   WERSJA: 250
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "249";
+const WERSJA_TABLICZKI = "250";
 console.log(
-    "FWTP Tabliczka — wersja 249 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 250 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -4936,170 +4955,6 @@ async function pobierzLinie(
    WCZYTANIE
    ========================================================= */
 
-
-/* =========================================================
-   WERSJA 249 — RÓŻNE TRASY W RÓŻNE DNI = WARIANT TRASY
-   ========================================================= */
-
-function norm249(v){
-    return String(v||"").trim().toLocaleUpperCase("pl-PL").replace(/\s+/g," ");
-}
-
-function kluczStop249(p,index){
-    const lp=String(p?.lp??"").trim();
-    return norm249(p?.nazwa)+"|"+(lp ? "LP:"+lp : "NR:"+String(p?.nr||index).trim());
-}
-
-function przebieg249(k){
-    return (Array.isArray(k?.przystanki)?k.przystanki:[])
-        .filter(p=>String(p?.typ||"STOP").trim().toUpperCase()!=="TECH")
-        .map((p,i)=>kluczStop249(p,i));
-}
-
-function opisDnia249(n){
-    const s=String(n||"").toLocaleLowerCase("pl-PL");
-    if(s.includes("sobot")&&(s.includes("niedziel")||s.includes("świę"))) return "w soboty, niedziele i święta";
-    if(s.includes("sobot")) return "w soboty";
-    if(s.includes("niedziel")||s.includes("świę")) return "w niedziele i święta";
-    if(s.includes("poniedział")||s.includes("piątk")||s.includes("powszed")) return "w dni powszednie";
-    return "w tym rodzaju dnia";
-}
-
-function wolnaLitera249(zajete){
-    for(let c=66;c<=90;c++){
-        const l=String.fromCharCode(c);
-        if(!zajete.has(l)){
-            zajete.add(l);
-            return l;
-        }
-    }
-    return "";
-}
-
-function dodajWariantyTrasZaleznychOdDnia249(){
-
-    const rozklady=Array.isArray(daneLinii?.rozkłady)?daneLinii.rozkłady:[];
-    if(rozklady.length<2) return;
-
-    const maxK=Math.max(0,...rozklady.map(r=>Array.isArray(r?.kierunki)?r.kierunki.length:0));
-
-    for(let ki=0;ki<maxK;ki++){
-
-        /*
-           Nie dotykamy kierunku, który ma już własny system wariantów.
-           Dzięki temu 131, 401, 126 itd. zachowują dotychczasową logikę.
-        */
-        let maWlasne=false;
-
-        for(const r of rozklady){
-            if(Array.isArray(r?.warianty)&&r.warianty.length){
-                maWlasne=true;
-                break;
-            }
-
-            const k=r?.kierunki?.[ki];
-            for(const p of (Array.isArray(k?.przystanki)?k.przystanki:[])){
-                if((p?.kursy||[]).some(x=>String(x?.wariant||"").trim())){
-                    maWlasne=true;
-                    break;
-                }
-            }
-            if(maWlasne) break;
-        }
-
-        if(maWlasne) continue;
-
-        const wpisy=[];
-
-        rozklady.forEach((r,ri)=>{
-            const k=r?.kierunki?.[ki];
-            if(!k) return;
-
-            const p=przebieg249(k);
-            if(!p.length) return;
-
-            wpisy.push({
-                rozklad:r,
-                rozkladIndex:ri,
-                kierunek:k,
-                przebieg:p,
-                sygnatura:p.join(">")
-            });
-        });
-
-        if(wpisy.length<2) continue;
-
-        const unikalne=[...new Set(wpisy.map(x=>x.sygnatura))];
-        if(unikalne.length<2) continue;
-
-        /* pierwszy rozkład (zwykle dzień powszedni) = przebieg podstawowy */
-        const baza=wpisy[0];
-        const bazaSet=new Set(baza.przebieg);
-        const zajete=new Set(["A"]);
-        const literySygnatur=new Map();
-
-        for(const wpis of wpisy.slice(1)){
-
-            if(wpis.sygnatura===baza.sygnatura) continue;
-
-            let litera=literySygnatur.get(wpis.sygnatura);
-
-            if(!litera){
-                litera=wolnaLitera249(zajete);
-                if(!litera) continue;
-                literySygnatur.set(wpis.sygnatura,litera);
-            }
-
-            const dodatkowe=[];
-
-            (wpis.kierunek?.przystanki||[]).forEach((p,i)=>{
-                if(String(p?.typ||"STOP").trim().toUpperCase()==="TECH") return;
-
-                if(!bazaSet.has(kluczStop249(p,i))){
-                    const n=String(p?.nazwa||"").trim();
-                    if(n&&!dodatkowe.includes(n)) dodatkowe.push(n);
-                }
-            });
-
-            const kiedy=opisDnia249(wpis.rozklad?.nazwa);
-
-            /*
-               Słowo "przez" jest celowe — istniejący mechanizm wariantów
-               rozpoznaje taki opis jako rzeczywisty wariant przebiegu.
-            */
-            const opis=dodatkowe.length
-                ? "kurs przez "+dodatkowe.join(", ")+" ("+kiedy+")"
-                : "kurs przez odmienny przebieg ("+kiedy+")";
-
-            if(!Array.isArray(wpis.rozklad.warianty)){
-                wpis.rozklad.warianty=[];
-            }
-
-            wpis.rozklad.warianty.push({
-                litera,
-                opis,
-                _wariantDnia249:true
-            });
-
-            /*
-               Ta sama litera trafia do każdego wystąpienia każdego kursu
-               w tym kierunku. Dzięki temu automatycznie działa:
-               - litera przy minucie,
-               - legenda,
-               - "Trasa w kursach „b”" na liście przystanków.
-            */
-            (wpis.kierunek?.przystanki||[]).forEach(p=>{
-                (p?.kursy||[]).forEach(kurs=>{
-                    if(!String(kurs?.wariant||"").trim()){
-                        kurs.wariant=litera;
-                        kurs._wariantDnia249=true;
-                    }
-                });
-            });
-        }
-    }
-}
-
 async function wczytajLinie(){
 
     pokazLoaderTabliczki();
@@ -5134,12 +4989,6 @@ async function wczytajLinie(){
                 aktualnaLinia,
                 wybranaData
             );
-
-        /*
-           v249: wykonujemy to od razu po pobraniu JSON-u,
-           zanim powstaną cache kierunków, kursów, wariantów i trasy.
-        */
-        dodajWariantyTrasZaleznychOdDnia249();
 
         ustawLoaderTabliczki(
             45,
@@ -19407,6 +19256,153 @@ window.addEventListener(
         }
     }
 );
+
+
+/* =========================================================
+   WERSJA 250 — WARIANT PRZEBIEGU ZALEŻNY OD RODZAJU DNIA
+   Renderowany niezależnie od wariantów zapisanych w JSON.
+   ========================================================= */
+
+function norm250(v){
+    return String(v||"").trim().toLocaleUpperCase("pl-PL").replace(/\s+/g," ");
+}
+
+function stopKey250(p,i){
+    const lp=String(p?.lp??"").trim();
+    return norm250(p?.nazwa)+"|"+(lp ? "LP:"+lp : "NR:"+String(p?.nr||i).trim());
+}
+
+function route250(k){
+    return (Array.isArray(k?.przystanki)?k.przystanki:[])
+        .filter(p=>String(p?.typ||"STOP").toUpperCase()!=="TECH")
+        .map((p,i)=>stopKey250(p,i));
+}
+
+function dayRouteVariants250(){
+    const rs=Array.isArray(daneLinii?.rozkłady)?daneLinii.rozkłady:[];
+    const rows=[];
+
+    rs.forEach((r,ri)=>{
+        const k=r?.kierunki?.[aktualnyKierunek];
+        if(!k) return;
+        const seq=route250(k);
+        if(seq.length) rows.push({r,ri,k,seq,sig:seq.join(">")});
+    });
+
+    if(rows.length<2) return [];
+
+    const base=rows[0];
+    const baseSet=new Set(base.seq);
+    const map=new Map();
+    let code="B".charCodeAt(0);
+    const out=[];
+
+    for(const x of rows.slice(1)){
+        if(x.sig===base.sig) continue;
+
+        let letter=map.get(x.sig);
+        if(!letter){
+            letter=String.fromCharCode(code++);
+            map.set(x.sig,letter);
+        }
+
+        const diff=[];
+        (x.k?.przystanki||[]).forEach((p,i)=>{
+            if(String(p?.typ||"STOP").toUpperCase()==="TECH") return;
+            const key=stopKey250(p,i);
+            if(!baseSet.has(key)){
+                diff.push({
+                    key,
+                    nazwa:String(p?.nazwa||"").trim(),
+                    nr:String(p?.nr||"").trim(),
+                    lp:String(p?.lp??"").trim()
+                });
+            }
+        });
+
+        out.push({
+            rozkladIndex:x.ri,
+            letter,
+            diff,
+            courseNumbers:new Set(
+                (x.k?.przystanki||[])
+                    .flatMap(p=>Array.isArray(p?.kursy)?p.kursy:[])
+                    .map(c=>String(c?.numer||"").trim())
+                    .filter(Boolean)
+            )
+        });
+    }
+
+    return out;
+}
+
+function decorateDayVariants250(root=document){
+    const variants=dayRouteVariants250();
+    if(!variants.length) return;
+
+    /*
+      1. Litera przy minutach.
+      Istniejący HTML minut przechowuje numer kursu w data-* w różnych
+      wersjach kodu; obsługujemy najczęstsze nazwy i fallback po tekście.
+    */
+    root.querySelectorAll(".tabliczka .minuta").forEach(el=>{
+        const nr=String(
+            el.dataset.numer||
+            el.dataset.kurs||
+            el.dataset.course||
+            el.getAttribute("data-numer-kursu")||
+            ""
+        ).trim();
+
+        if(!nr) return;
+
+        const v=variants.find(v=>v.courseNumbers.has(nr));
+        if(!v) return;
+
+        if(!el.querySelector(".wariant-dnia-250")){
+            const s=document.createElement("span");
+            s.className="symbol wariant-dnia-250";
+            s.textContent=v.letter.toLowerCase();
+            el.appendChild(s);
+        }
+    });
+
+    /*
+      2. Oznaczenie odmiennych przystanków na wspólnej liście trasy.
+      Dopisujemy identyczny typ informacji jak przy zwykłych wariantach:
+      "Trasa w kursach „b”".
+    */
+    const stops=Array.from(root.querySelectorAll(".tabliczka .trasa-stop"));
+
+    for(const v of variants){
+        for(const d of v.diff){
+            for(const el of stops){
+                const nameEl=el.querySelector(".trasa-nazwa");
+                const name=norm250(nameEl?nameEl.textContent:el.textContent);
+                if(name!==norm250(d.nazwa)) continue;
+
+                if(!el.querySelector(".wariant-dnia-opis-250")){
+                    const z=document.createElement("span");
+                    z.className="wariant-dnia-opis-250";
+                    z.textContent=' Trasa w kursach „'+v.letter.toLowerCase()+'”';
+                    el.appendChild(z);
+                }
+            }
+        }
+    }
+}
+
+function scheduleDayVariantDecoration250(){
+    requestAnimationFrame(()=>{
+        requestAnimationFrame(()=>{
+            const root=document.querySelector("#wynik");
+            if(root) decorateDayVariants250(root);
+        });
+    });
+}
+
+window.addEventListener("load",()=>setTimeout(scheduleDayVariantDecoration250,250));
+document.addEventListener("change",()=>setTimeout(scheduleDayVariantDecoration250,50));
 
 </script>
 
