@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 268
+     WERSJA: 269
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -4679,9 +4679,15 @@ document.addEventListener(
                             if(wybrany266){
 
                                 /*
-                                   WERSJA 266
+                                   WERSJA 269
 
-                                   aktualnyPrzystanek = logiczny punkt
+                                   aktualnyPrzystanek = rzeczywisty indeks
+                                   wybranego przystanku dla bieżącej trasy.
+
+                                   Dawne v262-v268 używały wspólnego punktu.
+                                   To sklejało m.in. METRO BRÓDNO 03 i 05.
+
+                                   aktualnyPrzystanek = rzeczywisty punkt
                                    wspólnej osi trasy.
 
                                    wybranyFizycznyPrzystanek262 =
@@ -6943,157 +6949,179 @@ function kierunekBazowy(){
 
 function listaWyboruPrzystankow262(){
 
-    const logiczny=
-        wspolnyKierunekDni259(
-            aktualnyKierunek
-        );
+    /*
+       =========================================================
+       WERSJA 269 — PRZYWRÓCENIE ZASADY Z WERSJI 201
+       =========================================================
 
-    const logiczne=
-        logiczny?.przystanki||
-        [];
+       W wersji 201 select był budowany z RZECZYWISTEJ listy
+       przystanków i każdy element miał własny indeks trasy.
 
-    if(
-        !trybRoznychTrasDni256||
-        !logiczne.length
-    ){
-        return logiczne.map(
-            (p,index)=>({
-                p,
-                logicznyIndex:index,
-                key:
-                    normalizujNazwe208(p?.nazwa)+
-                    "|"+
-                    String(p?.nr||"").trim()
-            })
-        );
-    }
+       To jest kluczowe dla takich przypadków jak:
+       - METRO BRÓDNO 03
+       - METRO BRÓDNO 05
+
+       Nie wolno ich sprowadzać do jednego "logicznegoIndex",
+       bo są to dwa różne fizyczne przystanki występujące
+       kolejno na tej samej trasie.
+
+       v262-v268 grupowały przystanki najpierw po wspólnej osi
+       i dopiero potem dodawały numery fizyczne. W efekcie dwa
+       różne przystanki mogły dostać TEN SAM logicznyIndex.
+
+       Od v269:
+       1. podstawą kolejności jest trasa właściwa dla wybranej daty,
+       2. każdy przystanek zachowuje swój PRAWDZIWY indeks,
+       3. NAZWA + NR nadal jednoznacznie identyfikuje słupek,
+       4. przystanki z innych rodzajów dnia są dopisywane,
+          ale nie mogą nadpisać indeksów trasy bieżącego dnia.
+    */
 
     const wynik=[];
+    const dodane=new Set();
+
+    const rozkladDaty=
+        rozkladWlasciwyDlaDaty268();
+
+    const listaDaty=
+        rozkladDaty?.kierunki?.[
+            aktualnyKierunek
+        ]?.przystanki||[];
 
     /*
-       v263:
-       globalny zbiór rzeczywistych przystanków już dodanych do selecta.
-       Klucz = NAZWA + NR.
-
-       Dzięki temu:
-       - PKP TORUŃSKA 03 i PKP TORUŃSKA 01 pozostają osobno,
-       - ale METRO BRÓDNO 03 nie pojawi się drugi raz,
-       - analogicznie PARK KASKADA 06/01 i METRO MARYMONT 11/17.
+       Najpierw dokładna trasa wybranej daty.
+       To odtwarza zachowanie v201 dla aktywnego dnia.
     */
-    const dodaneFizyczne263=
-        new Set();
+    listaDaty.forEach(
+        (p,index)=>{
 
-    logiczne.forEach(
-        (lp,logicznyIndex)=>{
-
-            const nazwa=
+            const key=
                 normalizujNazwe208(
-                    lp?.nazwa
-                );
+                    p?.nazwa
+                )+
+                "|"+
+                String(
+                    p?.nr||""
+                ).trim();
 
-            const znalezione=[];
-            const widziane=new Set();
+            wynik.push({
+                p,
+                logicznyIndex:index,
+                routeIndex:index,
+                key,
+                zBiezacejDaty:true
+            });
 
-            (daneLinii?.rozkłady||[])
-                .forEach(
-                    r=>{
+            dodane.add(key);
+        }
+    );
 
-                        const lista=
-                            r?.kierunki?.[
-                                aktualnyKierunek
-                            ]?.przystanki||
-                            [];
+    /*
+       Następnie dokładamy fizyczne słupki występujące tylko
+       w innych rodzajach dnia / wariantach.
 
-                        lista.forEach(
-                            p=>{
+       Dla nich próbujemy znaleźć najlepszy indeks po nazwie
+       w trasie bieżącej daty. Jeżeli tej nazwy nie ma, używamy
+       rzeczywistego indeksu z trasy źródłowej.
 
-                                if(
-                                    normalizujNazwe208(
-                                        p?.nazwa
-                                    )!==nazwa
-                                ){
-                                    return;
-                                }
+       Najważniejsze: elementy już obecne na trasie bieżącej daty
+       NIGDY nie są grupowane ani podmieniane.
+    */
+    (daneLinii?.rozkłady||[])
+        .forEach(
+            r=>{
 
-                                const key=
-                                    nazwa+
-                                    "|"+
-                                    String(
-                                        p?.nr||
-                                        ""
-                                    ).trim();
+                const lista=
+                    r?.kierunki?.[
+                        aktualnyKierunek
+                    ]?.przystanki||[];
 
-                                if(widziane.has(key)){
-                                    return;
-                                }
+                lista.forEach(
+                    (p,indexZrodlowy)=>{
 
-                                widziane.add(key);
+                        const nazwa=
+                            normalizujNazwe208(
+                                p?.nazwa
+                            );
 
-                                znalezione.push({
-                                    p,
-                                    logicznyIndex,
-                                    key
-                                });
-                            }
-                        );
-                    }
-                );
+                        const nr=
+                            String(
+                                p?.nr||""
+                            ).trim();
 
-            if(znalezione.length){
+                        const key=
+                            nazwa+
+                            "|"+
+                            nr;
 
-                znalezione.forEach(
-                    el=>{
-
-                        if(
-                            dodaneFizyczne263.has(
-                                el.key
-                            )
-                        ){
+                        if(dodane.has(key)){
                             return;
                         }
 
-                        dodaneFizyczne263.add(
-                            el.key
-                        );
+                        /*
+                           Jeżeli w trasie bieżącej daty występuje ta sama
+                           nazwa tylko raz, alternatywny numer traktujemy
+                           jako odpowiednik tego miejsca.
 
-                        wynik.push(
-                            el
-                        );
+                           Jeżeli nazwa występuje kilka razy (np. podwójny
+                           METRO BRÓDNO), NIE sklejamy ich ze sobą.
+                           Zachowujemy indeks źródłowy.
+                        */
+                        const poNazwie=
+                            listaDaty
+                                .map(
+                                    (x,i)=>({
+                                        x,
+                                        i
+                                    })
+                                )
+                                .filter(
+                                    el=>
+                                        normalizujNazwe208(
+                                            el.x?.nazwa
+                                        )===nazwa
+                                );
+
+                        let indeks=
+                            indexZrodlowy;
+
+                        if(poNazwie.length===1){
+                            indeks=
+                                poNazwie[0].i;
+                        }
+
+                        wynik.push({
+                            p,
+                            logicznyIndex:indeks,
+                            routeIndex:indexZrodlowy,
+                            key,
+                            zBiezacejDaty:false
+                        });
+
+                        dodane.add(key);
                     }
                 );
             }
-            else{
-
-                const fallbackKey263=
-                    nazwa+
-                    "|"+
-                    String(
-                        lp?.nr||
-                        ""
-                    ).trim();
-
-                if(
-                    !dodaneFizyczne263.has(
-                        fallbackKey263
-                    )
-                ){
-                    dodaneFizyczne263.add(
-                        fallbackKey263
-                    );
-
-                    wynik.push({
-                        p:lp,
-                        logicznyIndex,
-                        key:fallbackKey263
-                    });
-                }
-            }
-        }
-    );
+        );
 
     return wynik;
 }
 
+
+/* =========================================================
+   WERSJA 269
+   =========================================================
+   Przywrócono najważniejszą zasadę z WERSJI 201:
+   indeks przystanku nie może być wspólnym indeksem nazwy.
+
+   Dwa kolejne przystanki o tej samej nazwie, np.
+   METRO BRÓDNO 03 i METRO BRÓDNO 05,
+   pozostają dwoma osobnymi indeksami trasy.
+
+   WERSJA 201 była oparta bezpośrednio na indeksie elementu
+   z rzeczywistej listy kierunku. v269 ponownie zachowuje tę
+   właściwość, jednocześnie pozostawiając obsługę różnych tras dni.
+   ========================================================= */
 
 /* =========================================================
    WERSJA 268 — IDX Z URL -> FIZYCZNY PRZYSTANEK DLA DATY
@@ -7230,9 +7258,9 @@ function wypelnijPrzystanki(){
 
     /*
        =========================================================
-       WERSJA 266
-       PEŁNA LISTA PRZYSTANKÓW ZE WSZYSTKICH WARIANTÓW
-       + DOKŁADNE NAZWA + NUMER
+       WERSJA 269
+       RZECZYWISTA LISTA DLA WYBRANEJ DATY + POZOSTAŁE WARIANTY
+       + DOKŁADNE NAZWA + NUMER + RZECZYWISTY INDEKS
        =========================================================
 
        v265 pokazywała tylko przystanki z kierunku bazowego.
