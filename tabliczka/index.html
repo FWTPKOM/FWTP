@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 269
+     WERSJA: 270
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -4742,6 +4742,15 @@ document.addEventListener(
 
 
 /* =========================================================
+   WERSJA 270 — IDENTYFIKACJA PRZYSTANKÓW Z WERSJI 201
+   =========================================================
+   Różne numery słupków NIE są już uznawane za ten sam przystanek.
+   idx oznacza bezpośrednio pozycję w najpełniejszym kierunku.
+   Dopasowanie kursów między rozkładami odbywa się wyłącznie po
+   dokładnym zestawie NAZWA + NR, z rozróżnieniem wystąpienia.
+   ========================================================= */
+
+/* =========================================================
    DATA / URL
    ========================================================= */
 
@@ -4846,6 +4855,10 @@ function zapiszURL(){
         "idx:"+
         aktualnyPrzystanek
     );
+
+    // WERSJA 270: jak w v201, idx jest bezpośrednim indeksem bazy.
+    url.searchParams.delete("przystanekNazwa");
+    url.searchParams.delete("przystanekNr");
 
     /*
        WERSJA 267:
@@ -6924,328 +6937,9 @@ function kierunkiAktywneDlaBiezacegoPrzystanku(){
 
 function kierunekBazowy(){
 
-    /*
-       v260:
-       select przystanków dla różnej trasy dnia musi korzystać
-       dokładnie z tej samej wspólnej osi co analiza kursów.
-    */
-    if(trybRoznychTrasDni256){
-        const wspolny260=
-            wspolnyKierunekDni259(
-                aktualnyKierunek
-            );
-        if(wspolny260){
-            return wspolny260;
-        }
-    }
-
-
     return znajdzNajpelniejszyKierunek(
         aktualnyKierunek
     );
-}
-
-
-
-function listaWyboruPrzystankow262(){
-
-    /*
-       =========================================================
-       WERSJA 269 — PRZYWRÓCENIE ZASADY Z WERSJI 201
-       =========================================================
-
-       W wersji 201 select był budowany z RZECZYWISTEJ listy
-       przystanków i każdy element miał własny indeks trasy.
-
-       To jest kluczowe dla takich przypadków jak:
-       - METRO BRÓDNO 03
-       - METRO BRÓDNO 05
-
-       Nie wolno ich sprowadzać do jednego "logicznegoIndex",
-       bo są to dwa różne fizyczne przystanki występujące
-       kolejno na tej samej trasie.
-
-       v262-v268 grupowały przystanki najpierw po wspólnej osi
-       i dopiero potem dodawały numery fizyczne. W efekcie dwa
-       różne przystanki mogły dostać TEN SAM logicznyIndex.
-
-       Od v269:
-       1. podstawą kolejności jest trasa właściwa dla wybranej daty,
-       2. każdy przystanek zachowuje swój PRAWDZIWY indeks,
-       3. NAZWA + NR nadal jednoznacznie identyfikuje słupek,
-       4. przystanki z innych rodzajów dnia są dopisywane,
-          ale nie mogą nadpisać indeksów trasy bieżącego dnia.
-    */
-
-    const wynik=[];
-    const dodane=new Set();
-
-    const rozkladDaty=
-        rozkladWlasciwyDlaDaty268();
-
-    const listaDaty=
-        rozkladDaty?.kierunki?.[
-            aktualnyKierunek
-        ]?.przystanki||[];
-
-    /*
-       Najpierw dokładna trasa wybranej daty.
-       To odtwarza zachowanie v201 dla aktywnego dnia.
-    */
-    listaDaty.forEach(
-        (p,index)=>{
-
-            const key=
-                normalizujNazwe208(
-                    p?.nazwa
-                )+
-                "|"+
-                String(
-                    p?.nr||""
-                ).trim();
-
-            wynik.push({
-                p,
-                logicznyIndex:index,
-                routeIndex:index,
-                key,
-                zBiezacejDaty:true
-            });
-
-            dodane.add(key);
-        }
-    );
-
-    /*
-       Następnie dokładamy fizyczne słupki występujące tylko
-       w innych rodzajach dnia / wariantach.
-
-       Dla nich próbujemy znaleźć najlepszy indeks po nazwie
-       w trasie bieżącej daty. Jeżeli tej nazwy nie ma, używamy
-       rzeczywistego indeksu z trasy źródłowej.
-
-       Najważniejsze: elementy już obecne na trasie bieżącej daty
-       NIGDY nie są grupowane ani podmieniane.
-    */
-    (daneLinii?.rozkłady||[])
-        .forEach(
-            r=>{
-
-                const lista=
-                    r?.kierunki?.[
-                        aktualnyKierunek
-                    ]?.przystanki||[];
-
-                lista.forEach(
-                    (p,indexZrodlowy)=>{
-
-                        const nazwa=
-                            normalizujNazwe208(
-                                p?.nazwa
-                            );
-
-                        const nr=
-                            String(
-                                p?.nr||""
-                            ).trim();
-
-                        const key=
-                            nazwa+
-                            "|"+
-                            nr;
-
-                        if(dodane.has(key)){
-                            return;
-                        }
-
-                        /*
-                           Jeżeli w trasie bieżącej daty występuje ta sama
-                           nazwa tylko raz, alternatywny numer traktujemy
-                           jako odpowiednik tego miejsca.
-
-                           Jeżeli nazwa występuje kilka razy (np. podwójny
-                           METRO BRÓDNO), NIE sklejamy ich ze sobą.
-                           Zachowujemy indeks źródłowy.
-                        */
-                        const poNazwie=
-                            listaDaty
-                                .map(
-                                    (x,i)=>({
-                                        x,
-                                        i
-                                    })
-                                )
-                                .filter(
-                                    el=>
-                                        normalizujNazwe208(
-                                            el.x?.nazwa
-                                        )===nazwa
-                                );
-
-                        let indeks=
-                            indexZrodlowy;
-
-                        if(poNazwie.length===1){
-                            indeks=
-                                poNazwie[0].i;
-                        }
-
-                        wynik.push({
-                            p,
-                            logicznyIndex:indeks,
-                            routeIndex:indexZrodlowy,
-                            key,
-                            zBiezacejDaty:false
-                        });
-
-                        dodane.add(key);
-                    }
-                );
-            }
-        );
-
-    return wynik;
-}
-
-
-/* =========================================================
-   WERSJA 269
-   =========================================================
-   Przywrócono najważniejszą zasadę z WERSJI 201:
-   indeks przystanku nie może być wspólnym indeksem nazwy.
-
-   Dwa kolejne przystanki o tej samej nazwie, np.
-   METRO BRÓDNO 03 i METRO BRÓDNO 05,
-   pozostają dwoma osobnymi indeksami trasy.
-
-   WERSJA 201 była oparta bezpośrednio na indeksie elementu
-   z rzeczywistej listy kierunku. v269 ponownie zachowuje tę
-   właściwość, jednocześnie pozostawiając obsługę różnych tras dni.
-   ========================================================= */
-
-/* =========================================================
-   WERSJA 268 — IDX Z URL -> FIZYCZNY PRZYSTANEK DLA DATY
-   ========================================================= */
-
-function rozkladWlasciwyDlaDaty268(){
-
-    const rozklady=
-        daneLinii?.rozkłady||[];
-
-    if(!rozklady.length){
-        return null;
-    }
-
-    const dzien=
-        wybranaData instanceof Date
-            ? wybranaData.getDay()
-            : new Date(wybranaData).getDay();
-
-    const normalizujOpis268=tekst=>
-        String(tekst||"")
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g,"")
-            .toUpperCase();
-
-    /*
-       Najpierw szukamy rozkładu zgodnego z dniem tygodnia.
-       To jest potrzebne m.in. dla 134, gdzie przebieg roboczy
-       i weekendowy mają inne przystanki i inne numery słupków.
-    */
-    if(dzien===6){
-
-        const sobota=
-            rozklady.find(r=>{
-                const n=normalizujOpis268(r?.nazwa);
-                return n.includes("SOBOT");
-            });
-
-        if(sobota){
-            return sobota;
-        }
-
-        const weekend=
-            rozklady.find(r=>{
-                const n=normalizujOpis268(r?.nazwa);
-                return(
-                    n.includes("NIEDZIEL")||
-                    n.includes("SWIET")||
-                    n.includes("WEEKEND")
-                );
-            });
-
-        if(weekend){
-            return weekend;
-        }
-    }
-
-    if(dzien===0){
-
-        const niedziela=
-            rozklady.find(r=>{
-                const n=normalizujOpis268(r?.nazwa);
-                return(
-                    n.includes("NIEDZIEL")||
-                    n.includes("SWIET")||
-                    n.includes("WEEKEND")
-                );
-            });
-
-        if(niedziela){
-            return niedziela;
-        }
-    }
-
-    if(dzien>=1&&dzien<=5){
-
-        const roboczy=
-            rozklady.find(r=>{
-                const n=normalizujOpis268(r?.nazwa);
-                return(
-                    n.includes("PONIEDZIAL")||
-                    n.includes("PIAT")||
-                    n.includes("POWSZED")||
-                    n.includes("ROBOCZ")
-                );
-            });
-
-        if(roboczy){
-            return roboczy;
-        }
-    }
-
-    return rozklady[0]||null;
-}
-
-
-function fizycznyPrzystanekZIndeksuURL268(){
-
-    if(!trzebaRozwiazacIndeksZURL268){
-        return null;
-    }
-
-    const rozklad=
-        rozkladWlasciwyDlaDaty268();
-
-    const lista=
-        rozklad?.kierunki?.[
-            aktualnyKierunek
-        ]?.przystanki||[];
-
-    const indeks=
-        Number(
-            indeksPrzystankuZURL268
-        );
-
-    if(
-        !Number.isInteger(indeks)||
-        indeks<0||
-        indeks>=lista.length
-    ){
-        return null;
-    }
-
-    return lista[indeks]||null;
 }
 
 
@@ -7256,54 +6950,25 @@ function wypelnijPrzystanki(){
             "przystanekSelect"
         );
 
-    /*
-       =========================================================
-       WERSJA 269
-       RZECZYWISTA LISTA DLA WYBRANEJ DATY + POZOSTAŁE WARIANTY
-       + DOKŁADNE NAZWA + NUMER + RZECZYWISTY INDEKS
-       =========================================================
-
-       v265 pokazywała tylko przystanki z kierunku bazowego.
-       Przez to znikały fizyczne słupki występujące wyłącznie
-       w innym rodzaju dnia / wariancie.
-
-       Dla linii 134 JSON zawiera m.in.:
-       - KS POLONEZ 01
-       - KS POLONEZ 03
-       - PKP TORUŃSKA 03
-       - PKP TORUŃSKA 01
-
-       Od v266 lista jest budowana przez
-       listaWyboruPrzystankow262(), czyli ze wszystkich rozkładów.
-
-       Każdy wpis zachowuje osobno:
-       - nazwę,
-       - numer,
-       - logicznyIndex,
-       - key = NAZWA|NR.
-
-       Dzięki temu rozkład jest później dobierany do dokładnie
-       wybranego fizycznego słupka.
-    */
+    const k=
+        kierunekBazowy();
 
     const lista=
-        listaWyboruPrzystankow262();
+        k?.przystanki||
+        [];
 
-    if(!lista.length){
-        select.innerHTML="";
-        select.disabled=true;
-        wybranyFizycznyPrzystanek262=null;
-        return;
+    if(
+        aktualnyPrzystanek<0||
+        aktualnyPrzystanek>=
+            lista.length
+    ){
+        aktualnyPrzystanek=0;
     }
 
     select.innerHTML="";
 
     lista.forEach(
-        (element,index)=>{
-
-            const p=
-                element?.p||
-                {};
+        (p,index)=>{
 
             const option=
                 document.createElement(
@@ -7313,321 +6978,26 @@ function wypelnijPrzystanki(){
             option.value=
                 String(index);
 
-            option.dataset.nazwa=
-                String(
-                    p?.nazwa||
-                    ""
-                );
-
-            option.dataset.nr=
-                String(
-                    p?.nr||
-                    ""
-                ).trim();
-
-            option.dataset.logicznyIndex=
-                String(
-                    element?.logicznyIndex??
-                    ""
-                );
-
-            option.dataset.key=
-                String(
-                    element?.key||
-                    ""
-                );
-
             option.textContent=
                 String(
-                    p?.nazwa||
-                    ""
+                    p.nazwa||""
                 )+
                 " "+
                 String(
-                    p?.nr||
-                    ""
+                    p.nr||""
                 );
 
-            select.appendChild(
-                option
-            );
+            select.appendChild(option);
         }
     );
 
-    select.disabled=false;
+    select.disabled=
+        !lista.length;
 
-    let indeksDoWyboru=
-        -1;
-
-    /*
-       WERSJA 268:
-       jeżeli link przyszedł wyłącznie z przystanek=idx:X,
-       najpierw odczytujemy X z trasy właściwej dla DATY.
-       Dopiero znaleziony fizyczny przystanek NAZWA + NR
-       mapujemy na wspólną listę wyboru.
-    */
-    if(
-        !wybranyFizycznyPrzystanek262&&
-        trzebaRozwiazacIndeksZURL268
-    ){
-
-        const fizyczny268=
-            fizycznyPrzystanekZIndeksuURL268();
-
-        if(fizyczny268){
-
-            const nazwa268=
-                normalizujNazwe208(
-                    fizyczny268?.nazwa
-                );
-
-            const nr268=
-                String(
-                    fizyczny268?.nr||""
-                ).trim();
-
-            indeksDoWyboru=
-                lista.findIndex(
-                    element=>
-                        normalizujNazwe208(
-                            element?.p?.nazwa
-                        )===nazwa268&&
-                        String(
-                            element?.p?.nr||""
-                        ).trim()===nr268
-                );
-
-            if(indeksDoWyboru>=0){
-                przystanekNazwaURL267=
-                    String(
-                        fizyczny268?.nazwa||""
-                    ).trim();
-
-                przystanekNrURL267=
-                    nr268;
-
-                /*
-                   Rozwiązujemy stary idx tylko raz. Od tej chwili
-                   źródłem prawdy jest dokładny fizyczny słupek.
-                */
-                trzebaRozwiazacIndeksZURL268=false;
-            }
-        }
-    }
-
-    /*
-       WERSJA 267:
-       przy pierwszym wejściu / odświeżeniu strony najpierw
-       odtwarzamy dokładny fizyczny słupek zapisany w URL.
-
-       Nie wystarcza sam idx, ponieważ jeden logiczny punkt może
-       odpowiadać kilku fizycznym numerom przystanku.
-    */
-    if(
-        !wybranyFizycznyPrzystanek262&&
-        (
-            przystanekNazwaURL267||
-            przystanekNrURL267
-        )
-    ){
-
-        const nazwaZURL267=
-            normalizujNazwe208(
-                przystanekNazwaURL267
-            );
-
-        const nrZURL267=
-            String(
-                przystanekNrURL267||
-                ""
-            ).trim();
-
-        indeksDoWyboru=
-            lista.findIndex(
-                element=>{
-
-                    const p267=
-                        element?.p||
-                        {};
-
-                    const zgodnaNazwa267=
-                        !nazwaZURL267||
-                        normalizujNazwe208(
-                            p267?.nazwa
-                        )===nazwaZURL267;
-
-                    const zgodnyNr267=
-                        !nrZURL267||
-                        String(
-                            p267?.nr||
-                            ""
-                        ).trim()===nrZURL267;
-
-                    const zgodnyLogiczny267=
-                        Number(
-                            element?.logicznyIndex
-                        )===
-                        Number(
-                            aktualnyPrzystanek
-                        );
-
-                    return(
-                        zgodnaNazwa267&&
-                        zgodnyNr267&&
-                        zgodnyLogiczny267
-                    );
-                }
-            );
-
-        /*
-           Awaryjnie szukamy po samej NAZWIE + NR.
-           Jest to potrzebne, gdy wspólna oś trasy zmieniła indeks,
-           ale fizyczny przystanek nadal istnieje w danych.
-        */
-        if(indeksDoWyboru<0){
-            indeksDoWyboru=
-                lista.findIndex(
-                    element=>{
-
-                        const p267=
-                            element?.p||
-                            {};
-
-                        return(
-                            (
-                                !nazwaZURL267||
-                                normalizujNazwe208(
-                                    p267?.nazwa
-                                )===nazwaZURL267
-                            )&&
-                            (
-                                !nrZURL267||
-                                String(
-                                    p267?.nr||
-                                    ""
-                                ).trim()===nrZURL267
-                            )
-                        );
-                    }
-                );
-        }
-    }
-
-    /*
-       Jeżeli użytkownik wybrał już konkretny słupek,
-       zachowujemy dokładnie NAZWA + NR.
-    */
-    if(
-        indeksDoWyboru<0&&
-        wybranyFizycznyPrzystanek262
-    ){
-
-        const keyAktywnego=
-            String(
-                wybranyFizycznyPrzystanek262.key||
-                (
-                    normalizujNazwe208(
-                        wybranyFizycznyPrzystanek262?.nazwa
-                    )+
-                    "|"+
-                    String(
-                        wybranyFizycznyPrzystanek262?.nr||
-                        ""
-                    ).trim()
-                )
-            );
-
-        indeksDoWyboru=
-            lista.findIndex(
-                element=>
-                    String(
-                        element?.key||
-                        ""
-                    )===
-                    keyAktywnego&&
-                    Number(
-                        element?.logicznyIndex
-                    )===
-                    Number(
-                        aktualnyPrzystanek
-                    )
-            );
-
-        if(indeksDoWyboru<0){
-            indeksDoWyboru=
-                lista.findIndex(
-                    element=>
-                        String(
-                            element?.key||
-                            ""
-                        )===
-                        keyAktywnego
-                );
-        }
-    }
-
-    /*
-       Pierwsze wejście / URL bez zapamiętanego fizycznego słupka:
-       wybieramy pierwszy wpis należący do logicznego punktu.
-    */
-    if(indeksDoWyboru<0){
-
-        indeksDoWyboru=
-            lista.findIndex(
-                element=>
-                    Number(
-                        element?.logicznyIndex
-                    )===
-                    Number(
-                        aktualnyPrzystanek
-                    )
-            );
-    }
-
-    if(indeksDoWyboru<0){
-        indeksDoWyboru=0;
-    }
-
-    const aktywnyElement=
-        lista[
-            indeksDoWyboru
-        ];
-
-    if(aktywnyElement){
-
-        aktualnyPrzystanek=
-            Number(
-                aktywnyElement.logicznyIndex
-            );
-
-        wybranyFizycznyPrzystanek262={
-            ...aktywnyElement.p,
-            key:
-                aktywnyElement.key,
-            logicznyIndex:
-                aktywnyElement.logicznyIndex
-        };
-
-        select.value=
-            String(
-                indeksDoWyboru
-            );
-
-        /*
-           Synchronizacja danych v267 używanych przy zapisie URL.
-        */
-        przystanekNazwaURL267=
-            String(
-                aktywnyElement?.p?.nazwa||
-                ""
-            ).trim();
-
-        przystanekNrURL267=
-            String(
-                aktywnyElement?.p?.nr||
-                ""
-            ).trim();
-    }
+    select.value=
+        String(
+            aktualnyPrzystanek
+        );
 }
 
 
@@ -7873,64 +7243,6 @@ function znajdzPrzystanekWRozkladzieDlaElementu(
         );
 
     if(!pasujace.length){
-
-        if(!trybRoznychTrasDni256){
-            return null;
-        }
-
-        /*
-           v255:
-           Przy porównywaniu przebiegów różnych rodzajów dni
-           ten sam logiczny przystanek może mieć inny numer słupka.
-
-           Przykłady 134:
-           - KS POLONEZ,
-           - PKP TORUŃSKA.
-
-           Jeżeli dokładne NAZWA+NR nie istnieje, ale w danym
-           rozkładzie jest dokładnie jedno wystąpienie tej nazwy,
-           traktujemy je jako ten sam punkt wspólnej trasy.
-        */
-        const poNazwie=
-            k.przystanki.filter(
-                p=>
-                    normalizuj(
-                        p?.nazwa
-                    )===
-                    nazwa
-            );
-
-        if(poNazwie.length===1){
-            return poNazwie[0];
-        }
-
-        /*
-           Przy kilku identycznych nazwach próbujemy jeszcze LP.
-           To zabezpiecza linie, w których ta sama nazwa naprawdę
-           występuje kilka razy na jednym przebiegu.
-        */
-        const lp=
-            String(
-                bazaP?.lp??
-                ""
-            ).trim();
-
-        if(lp){
-            const poLp=
-                poNazwie.filter(
-                    p=>
-                        String(
-                            p?.lp??
-                            ""
-                        ).trim()===
-                        lp
-                );
-
-            if(poLp.length===1){
-                return poLp[0];
-            }
-        }
-
         return null;
     }
 
@@ -12718,16 +12030,9 @@ function daneKursowAktywnego206(){
        (np. PKP TORUŃSKA 03) użytego tylko do rysowania osi trasy.
     */
     const aktywnyBaza=
-        (
-            trybRoznychTrasDni256&&
-            wybranyFizycznyPrzystanek262&&
-            wybranyFizycznyPrzystanek262.logicznyIndex===
-                aktywnyIndex
-        )
-            ? wybranyFizycznyPrzystanek262
-            : baza?.przystanki?.[
-                aktywnyIndex
-            ];
+        baza?.przystanki?.[
+            aktywnyIndex
+        ];
 
     if(
         !aktywnyBaza||
