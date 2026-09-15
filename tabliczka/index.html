@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 295
+     WERSJA: 296
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -11424,7 +11424,225 @@ function __bezCache_grupyPrzebiegowTrasy(){
     return grupy;
 }
 
+
+/* =========================================================
+   WERSJA 296 — LOGICZNY PRZEBIEG TRASY
+   =========================================================
+   WAŻNE ROZDZIELENIE TOŻSAMOŚCI:
+
+   1. ROZKŁAD / WYBÓR PRZYSTANKU:
+      dokładne NAZWA + NR — pozostaje z działającej wersji 291.
+
+   2. SCHEMAT / PORÓWNANIE PRZEBIEGÓW:
+      NAZWA przystanku — numer słupka nie rozdziela przebiegu.
+
+   Dzięki temu np.:
+      KS POLONEZ 01 / 02 / 03 -> KS POLONEZ
+      PKP TORUŃSKA 01 / 02 / 03 / 04 -> PKP TORUŃSKA
+
+   w jednym przebiegu są logicznie jednym punktem.
+   ========================================================= */
+
+function nazwaLogicznaPrzystanku296(p){
+
+    return String(
+        p?.nazwa||
+        ""
+    )
+    .normalize("NFD")
+    .replace(
+        /[\u0300-\u036f]/g,
+        ""
+    )
+    .replace(/\s+/g," ")
+    .trim()
+    .toUpperCase();
+}
+
+
+function logicznyPrzebieg296(lista){
+
+    const wynik=[];
+    let poprzednia="";
+
+    (
+        Array.isArray(lista)
+            ? lista
+            : []
+    ).forEach(
+        p=>{
+
+            const nazwa=
+                nazwaLogicznaPrzystanku296(
+                    p
+                );
+
+            if(!nazwa){
+                return;
+            }
+
+            /*
+               Ten sam nazwany przystanek występujący obok siebie
+               pod innym numerem słupka jest jednym punktem przebiegu.
+            */
+            if(nazwa===poprzednia){
+                return;
+            }
+
+            wynik.push(p);
+            poprzednia=nazwa;
+        }
+    );
+
+    return wynik;
+}
+
+
+function kluczLogicznegoPrzebiegu296(lista){
+
+    return logicznyPrzebieg296(
+        lista
+    )
+    .map(
+        p=>
+            nazwaLogicznaPrzystanku296(
+                p
+            )
+    )
+    .join(">");
+}
+
+
+function teSameLogicznePrzebiegi296(
+    listaA,
+    listaB
+){
+
+    return(
+        kluczLogicznegoPrzebiegu296(
+            listaA
+        )===
+        kluczLogicznegoPrzebiegu296(
+            listaB
+        )
+    );
+}
+
+
+
 function grupyPrzebiegowTrasy(){
+
+    const grupy=
+        grupyPrzebiegowTrasy_ORYGINAL_246.apply(
+            this,
+            arguments
+        )||[];
+
+    /*
+       Scal grupy, które po pominięciu numerów słupków mają
+       identyczną sekwencję nazw przystanków.
+       Litery wszystkich kursów z identycznego przebiegu zostają
+       w jednej grupie — np. a+z albo b+c.
+    */
+    const mapa=
+        new Map();
+
+    grupy.forEach(
+        grupa=>{
+
+            const lista=
+                grupa?.przystanki||
+                grupa?.trasa||
+                grupa?.lista||
+                grupa?.kurs?.przystanki||
+                [];
+
+            const klucz=
+                kluczLogicznegoPrzebiegu296(
+                    lista
+                );
+
+            if(!klucz){
+                return;
+            }
+
+            if(!mapa.has(klucz)){
+                mapa.set(
+                    klucz,
+                    {
+                        ...grupa,
+                        litery:[],
+                        warianty:[],
+                        kursy:[]
+                    }
+                );
+            }
+
+            const cel=
+                mapa.get(
+                    klucz
+                );
+
+            const litery=
+                []
+                .concat(
+                    grupa?.litery||
+                    []
+                )
+                .concat(
+                    grupa?.warianty||
+                    []
+                )
+                .concat(
+                    grupa?.litera
+                        ? [grupa.litera]
+                        : []
+                )
+                .map(
+                    x=>
+                        String(x||"")
+                            .trim()
+                            .toLowerCase()
+                )
+                .filter(Boolean);
+
+            cel.litery=
+                Array.from(
+                    new Set([
+                        ...(cel.litery||[]),
+                        ...litery
+                    ])
+                );
+
+            cel.warianty=
+                Array.from(
+                    new Set([
+                        ...(cel.warianty||[]),
+                        ...litery
+                    ])
+                );
+
+            cel.kursy=[
+                ...(cel.kursy||[]),
+                ...(
+                    grupa?.kursy||
+                    (
+                        grupa?.kurs
+                            ? [grupa.kurs]
+                            : []
+                    )
+                )
+            ];
+        }
+    );
+
+    return Array.from(
+        mapa.values()
+    );
+}
+
+
+function grupyPrzebiegowTrasy_ORYGINAL_246(){
 
     return memoTabliczki(
         "grupyPrzebiegowTrasy",
@@ -11541,16 +11759,19 @@ function danePrzebiegowWariantowych(){
 
 
 /* =========================================================
-   WERSJA 295 — BAZA 291
-   =========================================================
-   Nie zmieniamy już rozpoznawania "przystanku początkowego".
+   WERSJA 296
+   BAZA PRZYSTANKÓW: 291
+   LOGIKA PRZEBIEGÓW: 246 + OGÓLNE SCALANIE PO NAZWACH
 
-   Renderowanie działa dokładnie jak w 291, a po wygenerowaniu
-   gotowej kolumny usuwany jest tylko stary blok "b", jeżeli
-   prawidłowy blok "b,c" już istnieje.
+   BRAK wyjątków wpisanych ręcznie dla:
+   - linii 134,
+   - KS POLONEZ,
+   - TORUŃSKA,
+   - PKP TORUŃSKA,
+   - liter a/b/c/z.
 
-   Dzięki temu reguła jest taka sama niezależnie od tego,
-   który przystanek jest wybrany.
+   Schemat porównuje rzeczywiste przebiegi po kolejności NAZW.
+   Rozkład nadal identyfikuje fizyczny przystanek po NAZWA + NR.
    ========================================================= */
 
 /* =========================================================
@@ -11582,88 +11803,10 @@ function danePrzebiegowWariantowych(){
    NIE zmienia przystanków, URL, dat ani tabeli godzin.
    ========================================================= */
 
-function korektaStanuTrasy134_285(
-    element,
-    stan
-){
-
-    const nrLinii=
-        String(
-            daneLinii?.linia||
-            numerLinii||
-            ""
-        ).trim();
-
-    if(
-        nrLinii!=="134"||
-        !element?.p
-    ){
-        return stan;
-    }
-
-    if(
-        element?._galaz134BC287
-    ){
-        return{
-            typ:"wariant",
-            litery:["b","c"]
-        };
-    }
 
 
-    const nazwa=
-        String(element.p.nazwa||"")
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g,"")
-            .replace(/\s+/g," ")
-            .trim()
-            .toUpperCase();
 
-    // OSTATNI wspólny przed rozdzieleniem.
-    if(nazwa==="KS POLONEZ"){
-        return{
-            typ:"wszystkie",
-            litery:[]
-        };
-    }
-
-    // Pierwsza gałąź po KS POLONEZ.
-    if(nazwa==="TORUNSKA"){
-        return{
-            typ:"wariant",
-            litery:["a","z"]
-        };
-    }
-
-    // PIERWSZY wspólny po ponownym połączeniu.
-    if(nazwa==="PKP TORUNSKA"){
-        return{
-            typ:"wszystkie",
-            litery:[]
-        };
-    }
-
-    return stan;
-}
-
-
-function stanTrasyNaPrzystanku(
-    element
-){
-
-    const stan=
-        stanTrasyNaPrzystanku_ORYGINAL_283(
-            element
-        );
-
-    return korektaStanuTrasy134_285(
-        element,
-        stan
-    );
-}
-
-
-function stanTrasyNaPrzystanku_ORYGINAL_283(element){
+function stanTrasyNaPrzystanku(element){
 
     const przebiegi=
         danePrzebiegowWariantowych();
@@ -11749,6 +11892,9 @@ function stanTrasyNaPrzystanku_ORYGINAL_283(element){
         litery:[]
     };
 }
+
+
+
 
 
 function kluczStanuTrasy(stan){
@@ -14525,206 +14671,13 @@ function usunKolejnePowtorzeniaNazwyWDwukierunkowym(
    - PKP TORUŃSKA pozostaje pierwszym wspólnym przystankiem.
    ========================================================= */
 
-function normalizujNazwe287(tekst){
-    return String(tekst||"")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g,"")
-        .replace(/\s+/g," ")
-        .trim()
-        .toUpperCase();
-}
 
 
-function galazBC134_287(){
-
-    const nrLinii=
-        String(
-            daneLinii?.linia||
-            numerLinii||
-            ""
-        ).trim();
-
-    if(nrLinii!=="134"){
-        return[];
-    }
-
-    let najlepsza=[];
-
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(
-        rozklad=>{
-
-            const kierunek=
-                Array.isArray(
-                    rozklad?.kierunki
-                )
-                    ? rozklad.kierunki[
-                        aktualnyKierunek
-                    ]
-                    : null;
-
-            const lista=
-                kierunek?.przystanki||
-                [];
-
-            if(!lista.length){
-                return;
-            }
-
-            const iKS=
-                lista.findIndex(
-                    p=>
-                        normalizujNazwe287(
-                            p?.nazwa
-                        )==="KS POLONEZ"
-                );
-
-            const iPKP=
-                lista.findIndex(
-                    (p,i)=>
-                        i>iKS&&
-                        normalizujNazwe287(
-                            p?.nazwa
-                        )==="PKP TORUNSKA"
-                );
-
-            if(
-                iKS<0||
-                iPKP<=iKS+1
-            ){
-                return;
-            }
-
-            const srodek=
-                lista
-                    .slice(
-                        iKS+1,
-                        iPKP
-                    )
-                    .filter(
-                        p=>{
-                            const n=
-                                normalizujNazwe287(
-                                    p?.nazwa
-                                );
-
-                            /*
-                               TORUŃSKA należy do gałęzi a,z,
-                               więc nie może wejść do b,c.
-                            */
-                            return(
-                                n!=="TORUNSKA"&&
-                                String(
-                                    p?.typ||""
-                                )
-                                .trim()
-                                .toUpperCase()!=="TECH"
-                            );
-                        }
-                    );
-
-            /*
-               Interesuje nas odmienna trasa, a nie przypadkowy
-               rozkład zawierający tylko ten sam wspólny odcinek.
-            */
-            if(
-                srodek.length>
-                najlepsza.length
-            ){
-                najlepsza=
-                    srodek.map(
-                        (p,pozycja)=>({
-                            p,
-                            /*
-                               Nie używamy tego indeksu jako tożsamości
-                               wybranego przystanku. To tylko element
-                               prezentacyjny drugiej gałęzi.
-                            */
-                            index:
-                                iKS+
-                                1+
-                                pozycja,
-                            _galaz134BC287:true
-                        })
-                    );
-            }
-        }
-    );
-
-    return najlepsza;
-}
 
 
-function dolaczGalazBC134_287(lista){
 
-    if(
-        !Array.isArray(lista)||
-        !lista.length
-    ){
-        return lista;
-    }
 
-    const nrLinii=
-        String(
-            daneLinii?.linia||
-            numerLinii||
-            ""
-        ).trim();
 
-    if(nrLinii!=="134"){
-        return lista;
-    }
-
-    const galaz=
-        galazBC134_287();
-
-    if(!galaz.length){
-        return lista;
-    }
-
-    const wynik=
-        Array.from(lista);
-
-    const iTorunska=
-        wynik.findIndex(
-            element=>
-                normalizujNazwe287(
-                    element?.p?.nazwa
-                )==="TORUNSKA"
-        );
-
-    const iPKP=
-        wynik.findIndex(
-            (element,i)=>
-                i>iTorunska&&
-                normalizujNazwe287(
-                    element?.p?.nazwa
-                )==="PKP TORUNSKA"
-        );
-
-    if(
-        iTorunska<0||
-        iPKP<0
-    ){
-        return lista;
-    }
-
-    /*
-       Wstawiamy drugą gałąź dokładnie:
-       TORUŃSKA
-       [b,c]
-       PKP TORUŃSKA
-    */
-    wynik.splice(
-        iPKP,
-        0,
-        ...galaz
-    );
-
-    return wynik;
-}
 
 
 function __bezCache_listaTrasyDoWyswietlenia(){
@@ -16803,161 +16756,7 @@ function czyOstatniWidocznyPrzystanek210(
 }
 
 
-
-/* =========================================================
-   WERSJA 295 — DEDUPLIKACJA b NA FINALNYM HTML
-   =========================================================
-   Baza: działająca wersja 291.
-
-   Zasada:
-   jeżeli w gotowym HTML linii 134 istnieje już:
-       Trasa w kursach „b”, „c”
-   to osobny stary blok:
-       Trasa w kursach „b”
-   jest duplikatem i ma zostać usunięty razem z przystankami
-   należącymi do tego starego bloku.
-
-   Nie sprawdzamy indeksu przystanku i nie zmieniamy danych.
-   ========================================================= */
-function usunStaryDuplikatB134_295(html){
-
-    if(
-        String(
-            daneLinii?.linia||
-            numerLinii||
-            ""
-        ).trim()!=="134"
-    ){
-        return html;
-    }
-
-    const kontener=
-        document.createElement(
-            "div"
-        );
-
-    kontener.innerHTML=
-        String(html||"");
-
-    const norm=t=>
-        String(t||"")
-            .replace(/[„”"]/g,"")
-            .replace(/\\s+/g," ")
-            .trim()
-            .toLowerCase();
-
-    const tytuly=
-        Array.from(
-            kontener.querySelectorAll(
-                ".trasa-separator-title, .trasa-extra-title"
-            )
-        );
-
-    const maBC=
-        tytuly.some(
-            el=>{
-                const t=norm(el.textContent);
-                return(
-                    t.includes("trasa w kursach")&&
-                    /\\bb\\b/.test(t)&&
-                    /\\bc\\b/.test(t)
-                );
-            }
-        );
-
-    if(!maBC){
-        return html;
-    }
-
-    tytuly.forEach(
-        el=>{
-
-            const t=
-                norm(
-                    el.textContent
-                );
-
-            const jestSamoB=
-                t.includes(
-                    "trasa w kursach"
-                )&&
-                /\\bb\\b/.test(t)&&
-                !/\\bc\\b/.test(t)&&
-                !/\\ba\\b/.test(t)&&
-                !/\\bz\\b/.test(t);
-
-            if(!jestSamoB){
-                return;
-            }
-
-            /*
-               W projekcie stary wariant może być:
-               1. całym .trasa-extra,
-               2. separatorem <li> + kolejnymi stopami.
-            */
-            const extra=
-                el.closest(
-                    ".trasa-extra"
-                );
-
-            if(extra){
-                extra.remove();
-                return;
-            }
-
-            const sep=
-                el.closest(
-                    ".trasa-separator"
-                );
-
-            if(!sep){
-                return;
-            }
-
-            let n=
-                sep.nextElementSibling;
-
-            sep.remove();
-
-            while(n){
-
-                const next=
-                    n.nextElementSibling;
-
-                if(
-                    n.classList.contains(
-                        "trasa-separator"
-                    )
-                ){
-                    break;
-                }
-
-                n.remove();
-                n=next;
-            }
-        }
-    );
-
-    return kontener.innerHTML;
-}
-
-
-
-function renderTrasaKolumna(){
-
-    const html=
-        renderTrasaKolumna_ORYGINAL_291.apply(
-            this,
-            arguments
-        );
-
-    return usunStaryDuplikatB134_295(
-        html
-    );
-}
-
-
-function renderTrasaKolumna_ORYGINAL_291(
+function renderTrasaKolumna(
     fragment,
     czasy,
     pierwszyIndexTrasy,
