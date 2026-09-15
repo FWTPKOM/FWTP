@@ -1,4 +1,17 @@
 /* =========================================================
+   WERSJA 300
+
+   POPRAWKA:
+   Schemat wariantów jest liczony z pełnego JSON linii,
+   ze wszystkich typów dni jednocześnie.
+
+   Wybrana data może zmieniać WYŁĄCZNIE odjazdy.
+   Nie może zmieniać katalogu przebiegów trasy.
+
+   Nie ma ręcznych wyjątków dla linii 134.
+   ========================================================= */
+
+/* =========================================================
    WERSJA 299 — WARIANTY NIEZALEŻNE OD DATY
 
    Lista przebiegu zbiera kursy ze WSZYSTKICH rozkładów/dni
@@ -15,7 +28,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 299
+     WERSJA: 300
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -11639,109 +11652,43 @@ function czyToTenKurs298(k,kursRef){
 function rzeczywistyPrzebiegKursu298(kursRef){
 
     if(!kursRef){
-        return[];
+        return [];
     }
 
-    const kierunekIndex=
-        Number.isInteger(
-            kursRef?._kierunekIndex
-        )
-            ? kursRef._kierunekIndex
-            : aktualnyKierunek;
-
-    const rozklady=
-        Number.isInteger(
-            kursRef?._rozkladIndex
-        )
-            ? [
-                daneLinii?.rozkłady?.[
-                    kursRef._rozkladIndex
-                ]
-              ]
-            : (
-                daneLinii?.rozkłady||
-                []
-              );
-
-    let najlepszy=[];
-
-    for(const rozklad of rozklady){
-
-        const kierunek=
-            Array.isArray(
-                rozklad?.kierunki
-            )
-                ? rozklad.kierunki[
-                    kierunekIndex
-                ]
-                : null;
-
-        if(!kierunek){
-            continue;
-        }
-
-        const przebieg=[];
-
-        for(
-            const p of
-            (
-                kierunek?.przystanki||
-                []
-            )
-        ){
-
-            const maKurs=
-                (
-                    p?.kursy||
-                    []
-                ).some(
-                    k=>
-                        czyToTenKurs298(
-                            k,
-                            kursRef
-                        )
-                );
-
-            if(!maKurs){
-                continue;
-            }
-
-            const nazwa=
-                logicznaNazwaPrzystanku298(
-                    p
-                );
-
-            if(!nazwa){
-                continue;
-            }
-
-            /*
-               W schemacie numer słupka nie tworzy nowego
-               przystanku logicznego.
-            */
-            if(
-                przebieg.length&&
-                przebieg[
-                    przebieg.length-1
-                ].nazwa===nazwa
-            ){
-                continue;
-            }
-
-            przebieg.push({
-                nazwa,
-                p
-            });
-        }
-
-        if(
-            przebieg.length>
-            najlepszy.length
-        ){
-            najlepszy=
-                przebieg;
-        }
+    /*
+       W 300 nie ma fallbacku do aktualnego dnia.
+       Kurs musi należeć do konkretnego rozkładu, z którego został pobrany.
+    */
+    if(Number.isInteger(kursRef?._rozkladIndex)){
+        return przebiegKursuBezDaty300(kursRef);
     }
+
+    /*
+       Zgodność ze starszymi wywołaniami:
+       szukamy kursu we wszystkich rozkładach, a nie w aktywnym dniu.
+    */
+    let najlepszy = [];
+
+    (daneLinii?.rozkłady || []).forEach(
+        (rozklad, rozkladIndex) => {
+
+            const ref = {
+                ...kursRef,
+                _rozkladIndex: rozkladIndex,
+                _kierunekIndex:
+                    Number.isInteger(kursRef?._kierunekIndex)
+                        ? kursRef._kierunekIndex
+                        : aktualnyKierunek
+            };
+
+            const przebieg =
+                przebiegKursuBezDaty300(ref);
+
+            if(przebieg.length > najlepszy.length){
+                najlepszy = przebieg;
+            }
+        }
+    );
 
     return najlepszy;
 }
@@ -11779,101 +11726,246 @@ function widocznaLiteraPrzebiegu298(kursRef){
 }
 
 
-function __bezCache_danePrzebiegowWariantowych(){
 
-    const wszystkie=
-        kursyAktualnegoRozkladuDoTrasy();
+/* =========================================================
+   WERSJA 300 — KATALOG PRZEBIEGÓW NIEZALEŻNY OD DATY
+   =========================================================
+   Ta część NIE używa:
+   - aktualnego rozkładu dnia,
+   - wybranej daty,
+   - kierunekBazowy() zależnego od daty,
+   - czyKursZaczynaWSrodkuTrasy() zależnego od bieżącego widoku.
 
-    const grupy=
-        new Map();
+   Czyta bezpośrednio wszystkie dane JSON dla aktualnego kierunku.
+   ========================================================= */
 
-    wszystkie.forEach(
-        kurs=>{
+function wszystkieKursyWszystkichDniDoTrasy300(){
+
+    const wynik = [];
+
+    (daneLinii?.rozkłady || []).forEach(
+        (rozklad, rozkladIndex) => {
+
+            const kierunek =
+                Array.isArray(rozklad?.kierunki)
+                    ? rozklad.kierunki[aktualnyKierunek]
+                    : null;
+
+            if(!kierunek){
+                return;
+            }
+
+            const mapa = new Map();
+
+            (kierunek.przystanki || []).forEach(
+                (p, stopIndex) => {
+
+                    (p?.kursy || []).forEach(
+                        k => {
+
+                            if(czasNaMinuty(k?.czas) === null){
+                                return;
+                            }
+
+                            const numer = String(k?.numer || "");
+                            const wariant = String(k?.wariant || "").trim();
+                            const brygada = String(k?.brygada || "").trim();
+                            const symbol = symbolDnia(k);
+
+                            const key = [
+                                numer,
+                                wariant,
+                                brygada,
+                                symbol
+                            ].join("|");
+
+                            if(!mapa.has(key)){
+                                mapa.set(key, {
+                                    numer,
+                                    wariant,
+                                    brygada,
+                                    symbol,
+                                    _rozkladIndex: rozkladIndex,
+                                    _kierunekIndex: aktualnyKierunek,
+                                    _pierwszyStopIndex: stopIndex
+                                });
+                            }
+                        }
+                    );
+                }
+            );
+
+            mapa.forEach(k => wynik.push(k));
+        }
+    );
+
+    return wynik;
+}
+
+
+function przebiegKursuBezDaty300(kursRef){
+
+    const rozklad =
+        daneLinii?.rozkłady?.[kursRef?._rozkladIndex];
+
+    const kierunek =
+        Array.isArray(rozklad?.kierunki)
+            ? rozklad.kierunki[kursRef?._kierunekIndex]
+            : null;
+
+    if(!kierunek){
+        return [];
+    }
+
+    const wynik = [];
+
+    (kierunek.przystanki || []).forEach(
+        p => {
+
+            const maTenKurs =
+                (p?.kursy || []).some(
+                    k =>
+                        String(k?.numer || "") === String(kursRef?.numer || "") &&
+                        String(k?.wariant || "").trim() === String(kursRef?.wariant || "").trim() &&
+                        String(k?.brygada || "").trim() === String(kursRef?.brygada || "").trim() &&
+                        symbolDnia(k) === kursRef?.symbol &&
+                        czasNaMinuty(k?.czas) !== null
+                );
+
+            if(!maTenKurs){
+                return;
+            }
+
+            const nazwa =
+                logicznaNazwaPrzystanku298(p);
+
+            if(!nazwa){
+                return;
+            }
 
             if(
-                czyKursPomijanyPrzyTrasie(
-                    kurs
-                )
+                wynik.length &&
+                wynik[wynik.length - 1].nazwa === nazwa
             ){
                 return;
             }
 
-            const klucz=
-                kluczRzeczywistegoPrzebiegu298(
-                    kurs
-                );
+            wynik.push({
+                nazwa,
+                p
+            });
+        }
+    );
 
-            if(!klucz){
+    return wynik;
+}
+
+
+function kluczPrzebieguBezDaty300(kursRef){
+
+    return przebiegKursuBezDaty300(kursRef)
+        .map(x => x.nazwa)
+        .join(">");
+}
+
+
+function katalogPrzebiegowWszystkichDni300(){
+
+    const grupy = new Map();
+
+    wszystkieKursyWszystkichDniDoTrasy300().forEach(
+        kurs => {
+
+            const przebieg =
+                przebiegKursuBezDaty300(kurs);
+
+            if(!przebieg.length){
                 return;
             }
 
+            const klucz =
+                przebieg.map(x => x.nazwa).join(">");
+
             if(!grupy.has(klucz)){
-                grupy.set(
+                grupy.set(klucz, {
                     klucz,
-                    {
-                        kursy:[],
-                        litery:new Set()
-                    }
-                );
+                    przebieg,
+                    kursy: [],
+                    litery: new Set()
+                });
             }
 
-            const grupa=
-                grupy.get(klucz);
+            const grupa = grupy.get(klucz);
 
             grupa.kursy.push(kurs);
 
-            const litera=
-                widocznaLiteraPrzebiegu298(
-                    kurs
-                );
+            const litera =
+                String(
+                    kurs?.wariant || ""
+                ).trim();
 
             if(litera){
-                grupa.litery.add(litera);
+                grupa.litery.add(
+                    kanonicznaLiteraWariantu(litera)
+                );
             }
         }
     );
 
-    const wynik=[];
+    return Array.from(grupy.values());
+}
+
+
+function __bezCache_danePrzebiegowWariantowych(){
 
     /*
-       Jedna rzeczywista trasa może należeć do kilku liter.
-       Zostawiamy osobny wpis na każdą literę, ale wszystkie
-       wskazują ten sam reprezentatywny kurs tego przebiegu.
-       Dzięki temu istniejąca logika v246 sama tworzy nagłówki:
-       „a”, „z” / „b”, „c” itd.
+       WERSJA 300:
+       warianty pochodzą z katalogu WSZYSTKICH typów dni.
+       Nie pobieramy tu już kursów przez funkcję zależną od daty.
     */
-    for(const grupa of grupy.values()){
 
-        const kurs=
-            wybierzNajdluzszyKurs(
-                grupa.kursy
-            );
+    const wynik = [];
 
-        if(!kurs){
-            continue;
-        }
+    katalogPrzebiegowWszystkichDni300().forEach(
+        grupa => {
 
-        const litery=
-            Array.from(
-                grupa.litery
-            );
+            /*
+               Do istniejącego renderer'a przekazujemy reprezentanta
+               rzeczywistego przebiegu oraz wszystkie litery należące
+               do tego samego przebiegu.
+            */
+            const kurs =
+                grupa.kursy?.[0];
 
-        if(!litery.length){
-            wynik.push({
-                litera:"",
-                kurs
-            });
-            continue;
-        }
+            if(!kurs){
+                return;
+            }
 
-        litery.forEach(
-            litera=>
+            const litery =
+                Array.from(grupa.litery || []);
+
+            if(!litery.length){
                 wynik.push({
-                    litera,
-                    kurs
-                })
-        );
-    }
+                    litera: "",
+                    kurs,
+                    _przebieg300: grupa.przebieg,
+                    _wszystkieDni300: true
+                });
+                return;
+            }
+
+            litery.forEach(
+                litera => {
+                    wynik.push({
+                        litera,
+                        kurs,
+                        _przebieg300: grupa.przebieg,
+                        _wszystkieDni300: true
+                    });
+                }
+            );
+        }
+    );
 
     return wynik;
 }
