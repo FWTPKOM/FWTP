@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 292
+     WERSJA: 293
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -11541,19 +11541,14 @@ function danePrzebiegowWariantowych(){
 
 
 /* =========================================================
-   WERSJA 292 — BAZA 291
+   WERSJA 293 — BAZA 291
    =========================================================
-   Środek trasy pozostaje dokładnie jak w 291.
+   W 291 środek trasy pozostaje bez zmian.
 
-   Poprawiono tylko przypadek przystanku początkowego linii 134:
-   nie jest drugi raz renderowany dodatkowy blok tej samej trasy.
-
-   Nie zmieniono:
-   - fizycznych przystanków,
-   - nazwa + nr,
-   - gałęzi a,z,
-   - gałęzi b,c,
-   - PKP TORUŃSKA jako miejsca ponownego połączenia.
+   Poprawiono wyłącznie przystanek początkowy:
+   - dokładne rozpoznanie początku przez NAZWA + NR,
+   - stary dodatkowy blok "b" jest wtedy pomijany,
+   - właściwa gałąź "b,c" pozostaje bez zmian.
    ========================================================= */
 
 /* =========================================================
@@ -16143,30 +16138,98 @@ function czyDokladnyAktywnyJestWWydluzeniu(){
 }
 
 
-function renderWydluzeniaTrasy(){
 
-    /*
-       WERSJA 292 — DUPLIKAT NA PRZYSTANKU POCZĄTKOWYM 134
+/* =========================================================
+   WERSJA 293 — POCZĄTKOWY PRZYSTANEK 134
+   =========================================================
+   Baza: wersja 291, w której przebiegi w środku trasy są dobre.
 
-       W 291 przebiegi wewnątrz trasy są już prawidłowe.
-       Na przystanku początkowym stary mechanizm "wydłużeń"
-       tworzył jednak drugi blok dla tej samej fizycznej pozycji.
+   Ten test nie opiera się na indeksie URL.
+   Porównuje dokładny fizyczny przystanek NAZWA + NR z pierwszym
+   przystankiem rzeczywistych kierunków zapisanych w JSON.
+   ========================================================= */
+function czyFizycznyPrzystanekJestPoczatkiem134_293(){
 
-       Jeżeli aktywny fizyczny przystanek jest początkiem kierunku,
-       nie dokładamy dodatkowego bloku wydłużenia. Główna lista
-       wariantów nadal zawiera prawidłowe a,z oraz b,c.
-    */
     if(
         String(
             daneLinii?.linia||
             numerLinii||
             ""
-        ).trim()==="134"&&
-        typeof __bezCache_czyAktywnyPrzystanekJestPoczatkiemSwoichKursow==="function"&&
-        __bezCache_czyAktywnyPrzystanekJestPoczatkiemSwoichKursow()
+        ).trim()!=="134"
     ){
-        return"";
+        return false;
     }
+
+    const aktywny=
+        (
+            typeof aktywnyFizycznyPrzystanek276==="function"
+                ? aktywnyFizycznyPrzystanek276()
+                : wybranyFizycznyPrzystanek262
+        );
+
+    if(!aktywny){
+        return false;
+    }
+
+    const nazwa=
+        String(
+            aktywny?.nazwa||
+            ""
+        )
+        .trim()
+        .toLocaleLowerCase("pl");
+
+    const nr=
+        String(
+            aktywny?.nr||
+            ""
+        ).trim();
+
+    return(
+        (
+            daneLinii?.rozkłady||
+            []
+        ).some(
+            rozklad=>{
+
+                const kierunek=
+                    Array.isArray(
+                        rozklad?.kierunki
+                    )
+                        ? rozklad.kierunki[
+                            aktualnyKierunek
+                        ]
+                        : null;
+
+                const pierwszy=
+                    kierunek?.przystanki?.[0];
+
+                if(!pierwszy){
+                    return false;
+                }
+
+                return(
+                    String(
+                        pierwszy?.nazwa||
+                        ""
+                    )
+                    .trim()
+                    .toLocaleLowerCase("pl")===
+                    nazwa
+                    &&
+                    String(
+                        pierwszy?.nr||
+                        ""
+                    ).trim()===
+                    nr
+                );
+            }
+        )
+    );
+}
+
+
+function renderWydluzeniaTrasy(){
 
     const dane=
         daneTrasWydluzonych();
@@ -16210,7 +16273,11 @@ function renderWydluzeniaTrasy(){
                     ).trim()==="134"&&
                     litera==="b"&&
                     typeof galazBC134_287==="function"&&
-                    galazBC134_287().length
+                    galazBC134_287().length&&
+                    (
+                        typeof czyFizycznyPrzystanekJestPoczatkiem134_293!=="function"||
+                        czyFizycznyPrzystanekJestPoczatkiem134_293()
+                    )
                 ){
                     return"";
                 }
