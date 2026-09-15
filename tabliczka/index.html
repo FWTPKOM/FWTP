@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 200
+     WERSJA: 201
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2361,12 +2361,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 200
+   WERSJA: 201
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "200";
+const WERSJA_TABLICZKI = "201";
 console.log(
-    "FWTP Tabliczka — wersja 200 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 201 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -3858,107 +3858,8 @@ function pobierzKierunki(){
 }
 
 
-function nazwaKierunku(
-    k,
-    kierunekIndex=aktualnyKierunek
-){
+function nazwaKierunku(k){
 
-    /*
-       WERSJA 198 — KIERUNEK PASAŻERSKI
-
-       Pole k.nazwa może wskazywać techniczny koniec osi, np. BACHA
-       na linii 401. Dla pasażera kierunkiem ma być ostatni przystanek,
-       do którego faktycznie istnieje przynajmniej jeden kurs.
-
-       Szukamy więc od końca:
-       - pomijamy TECH,
-       - sprawdzamy, czy w którymkolwiek rozkładzie ten przystanek
-         ma rzeczywisty czas kursu.
-    */
-    const przystanki=
-        Array.isArray(k?.przystanki)
-            ? k.przystanki
-            : [];
-
-    for(
-        let i=przystanki.length-1;
-        i>=0;
-        i--
-    ){
-        const p=
-            przystanki[i];
-
-        if(
-            typPrzystankuTrasy(p)==="TECH"
-        ){
-            continue;
-        }
-
-        let maKurs=false;
-
-        (
-            daneLinii?.rozkłady||
-            []
-        ).some(
-            rozklad=>{
-
-                const kierunek=
-                    Array.isArray(
-                        rozklad?.kierunki
-                    )
-                        ? rozklad.kierunki[
-                            Number(kierunekIndex)
-                        ]
-                        : null;
-
-                if(
-                    !kierunek||
-                    !Array.isArray(
-                        kierunek.przystanki
-                    )
-                ){
-                    return false;
-                }
-
-                const kandydaci=
-                    kierunek.przystanki.filter(
-                        x=>
-                            czyTenSamPrzystanekPoNazwieINumerze(
-                                x,
-                                p
-                            )
-                    );
-
-                maKurs=
-                    kandydaci.some(
-                        pp=>
-                            (
-                                pp?.kursy||
-                                []
-                            ).some(
-                                kurs=>
-                                    czasNaMinuty(
-                                        kurs?.czas
-                                    )!==null
-                            )
-                    );
-
-                return maKurs;
-            }
-        );
-
-        if(maKurs){
-            return String(
-                p?.nazwa||
-                ""
-            ).trim();
-        }
-    }
-
-    /*
-       Fallback dla danych, w których nie da się jeszcze ustalić
-       rzeczywistego końca po kursach.
-    */
     const gotowa=
         String(
             k?.nazwa||
@@ -3970,21 +3871,18 @@ function nazwaKierunku(
         return gotowa;
     }
 
-    const pasazerskie=
-        przystanki.filter(
-            p=>
-                typPrzystankuTrasy(p)!=="TECH"
-        );
+    const p=
+        k?.przystanki||
+        [];
 
-    return pasazerskie.length
+    return p.length
         ? String(
-            pasazerskie[
-                pasazerskie.length-1
-            ]?.nazwa||
+            p[p.length-1].nazwa||
             ""
         )
         : "";
 }
+
 
 function wypelnijKierunki(){
 
@@ -4011,8 +3909,7 @@ function wypelnijKierunki(){
 
             option.textContent=
                 nazwaKierunku(
-                    el.dane,
-                    el.index
+                    el.dane
                 )||
                 "Kierunek "+
                 (el.index+1);
@@ -4150,10 +4047,7 @@ function __bezCache_kierunkiObslugujaceBiezacyPrzystanek(){
                     k.przystanki[index],
                 nazwa:
                     String(
-                        nazwaKierunku(
-                            k,
-                            el.index
-                        )||
+                        nazwaKierunku(k)||
                         ""
                     ).toUpperCase()
             });
@@ -6331,8 +6225,7 @@ function __bezCache_mapaSymboliDwukierunkowych(){
                                         String(
                                             kurs?._kierunekNazwa||
                                             nazwaKierunku(
-                                                znajdzNajpelniejszyKierunek(dir),
-                                                dir
+                                                znajdzNajpelniejszyKierunek(dir)
                                             )||
                                             ""
                                         ).toUpperCase()
@@ -10033,185 +9926,6 @@ function usunKolejnePowtorzeniaNazwyWDwukierunkowym(
 }
 
 
-
-/* =========================================================
-   WERSJA 198 — RZECZYWISTA TRASA OD AKTYWNEGO PRZYSTANKU
-   ========================================================= */
-
-function analizaTrasyOdAktywnego198(
-    baza
-){
-    const lista=
-        Array.isArray(baza)
-            ? baza
-            : [];
-
-    const aktywnyElement=
-        lista.find(
-            element=>
-                Number(
-                    element?.index
-                )===
-                Number(
-                    aktualnyPrzystanek
-                )
-        );
-
-    if(!aktywnyElement){
-        return{
-            jestPoczatkiem:false,
-            maxIndex:null
-        };
-    }
-
-    const kursy=
-        new Map();
-
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(
-        rozklad=>{
-
-            const pp=
-                znajdzPrzystanekWRozkladzieDlaElementu(
-                    rozklad,
-                    aktualnyKierunek,
-                    aktywnyElement
-                );
-
-            (
-                pp?.kursy||
-                []
-            ).forEach(
-                kurs=>{
-
-                    if(
-                        czasNaMinuty(
-                            kurs?.czas
-                        )===null
-                    ){
-                        return;
-                    }
-
-                    const ref={
-                        numer:String(
-                            kurs?.numer||""
-                        ),
-                        wariant:String(
-                            kurs?.wariant||""
-                        ).trim(),
-                        symbol:symbolDnia(kurs),
-                        brygada:String(
-                            kurs?.brygada||""
-                        ).trim(),
-                        _kierunekIndex:
-                            Number(
-                                aktualnyKierunek
-                            )
-                    };
-
-                    const key=[
-                        ref.numer,
-                        ref.wariant,
-                        ref.symbol,
-                        ref.brygada
-                    ].join("|");
-
-                    if(!kursy.has(key)){
-                        kursy.set(
-                            key,
-                            ref
-                        );
-                    }
-                }
-            );
-        }
-    );
-
-    if(!kursy.size){
-        return{
-            jestPoczatkiem:false,
-            maxIndex:null
-        };
-    }
-
-    let zaczynaTutaj=0;
-    let sprawdzone=0;
-    let maxIndex=null;
-
-    for(
-        const ref
-        of kursy.values()
-    ){
-        const obslugiwane=
-            lista.filter(
-                element=>
-                    kursMaPrzystanek(
-                        ref,
-                        element
-                    )
-            );
-
-        if(!obslugiwane.length){
-            continue;
-        }
-
-        sprawdzone++;
-
-        const pierwszy=
-            obslugiwane[0];
-
-        if(
-            Number(
-                pierwszy?.index
-            )===
-            Number(
-                aktualnyPrzystanek
-            )
-        ){
-            zaczynaTutaj++;
-        }
-
-        obslugiwane.forEach(
-            element=>{
-
-                const idx=
-                    Number(
-                        element?.index
-                    );
-
-                if(
-                    Number.isInteger(idx)&&
-                    (
-                        maxIndex===null||
-                        idx>maxIndex
-                    )
-                ){
-                    maxIndex=idx;
-                }
-            }
-        );
-    }
-
-    return{
-        /*
-           Jak przy SADYBA 05: jeśli co najmniej połowa rzeczywistych
-           kursów z tego słupka zaczyna się właśnie tutaj, traktujemy
-           go jako początek pasażerskiej trasy.
-        */
-        jestPoczatkiem:
-            sprawdzone>0&&
-            zaczynaTutaj>0&&
-            zaczynaTutaj>=
-                Math.ceil(
-                    sprawdzone/2
-                ),
-        maxIndex
-    };
-}
-
-
 function __bezCache_listaTrasyDoWyswietlenia(){
 
     const baza=
@@ -10384,179 +10098,127 @@ function __bezCache_listaTrasyDoWyswietlenia(){
 
     /*
        =========================================================
-       WERSJA 199 — RZECZYWISTE PRZYCIĘCIE TRASY
-       401 / PKP URSUS 21
+       WERSJA 201 — FILTR WARIANTÓW NA AKTYWNYM PRZYSTANKU
+       BAZA: CZYSTA v197
        =========================================================
 
-       v198 próbowała wywnioskować początek przez analizę wszystkich
-       kursów. W 401 wcześniejsza część osi nadal była przez to
-       uznawana za część kursu i nie została odcięta.
+       Nie zmieniamy mechanizmu SADYBA 05 / 131.
 
-       Teraz wykorzystujemy dwie rzeczy, które są jednoznaczne:
+       Usuwamy wyłącznie te przyszłe elementy/gałęzie wariantowe,
+       których NIE obsługuje żaden rzeczywisty kurs dostępny
+       na aktualnym przystanku w wybranym rozkładzie.
 
-       A. Jeżeli dokładnie ten sam słupek NAZWA + NUMER występuje
-          jeszcze raz DALEJ w tym kierunku, a wybrany jest jego
-          wcześniejszy egzemplarz, traktujemy wybrany punkt jako
-          początek pasażerskiej pętli. Wszystko przed nim usuwamy,
-          ale późniejszego powtórzenia NIE usuwamy.
-
-          401:
-          PKP URSUS 21 [aktywny/start]
-          ...
-          PKP URSUS 21 [drugi przejazd]  <- zostaje
-
-       B. Koniec listy wyznaczamy z czasyTrasy(), czyli z faktycznie
-          wybranego kursu używanego do liczenia czasów przejazdu.
-          Ostatni indeks z niepustym czasem jest ostatnim przystankiem
-          tego kursu.
-
-          Dzięki temu, jeśli wszystkie widoczne kursy kończą się na
-          METRO SŁUŻEW, lista kończy się na METRO SŁUŻEW i nie pokazuje
-          NOSKOWSKIEGO / NOWOURSYNOWSKIEJ / SGGW itd.
+       Przykład 401 / PKP URSUS 21:
+       jeśli na tym przystanku nie istnieje kurs wariantu „e”,
+       jego METRO STOKŁOSY nie może pojawić się w liście trasy.
     */
-
-    const bazaKierunku199=
-        kierunekBazowy()
-            ?.przystanki||
-        [];
-
-    const aktywnyP199=
-        bazaKierunku199[
-            Number(
-                aktualnyPrzystanek
-            )
-        ]||
-        null;
-
-    if(aktywnyP199){
-
-        const nazwa199=
-            normalizuj(
-                aktywnyP199?.nazwa
-            );
-
-        /*
-           WERSJA 200:
-           dla pętli nie wymagamy już tego samego numeru słupka.
-           Wystarczy, że TA SAMA NAZWA pojawia się ponownie dalej.
-
-           401:
-           PKP URSUS 21 = początek pasażerski,
-           później trasa ponownie przejeżdża przez PKP URSUS.
-           To jest dokładnie układ analogiczny do SADYBA 05 / 131.
-        */
-        const maTaSamaNazwePozniej200=
-            bazaKierunku199.some(
-                (p,i)=>
-                    i>
-                        Number(
-                            aktualnyPrzystanek
-                        )&&
-                    normalizuj(
-                        p?.nazwa
-                    )===
-                        nazwa199
-            );
-
-        if(
-            maTaSamaNazwePozniej200
-        ){
-            const pozycjaAktywnego199=
-                wynik.findIndex(
-                    element=>
-                        Number(
-                            element?.index
-                        )===
-                        Number(
-                            aktualnyPrzystanek
-                        )
-                );
-
-            if(
-                pozycjaAktywnego199>0
-            ){
-                /*
-                   UWAGA:
-                   slice() odcina WYŁĄCZNIE wcześniejszą część.
-                   Drugie PKP URSUS znajdujące się później zostaje.
-                */
-                wynik=
-                    wynik.slice(
-                        pozycjaAktywnego199
-                    );
-            }
-        }
-    }
-
-    /*
-       WERSJA 200 — PO ODCIĘCIU POCZĄTKU URUCHAMIAMY JESZCZE RAZ
-       TĘ SAMĄ LOGIKĘ, KTÓRA DZIAŁA DLA SADYBA 05 / 131.
-
-       Dzięki temu:
-       - zostaje drugi rzeczywisty PKP URSUS,
-       - odpadają obce gałęzie, np. wariant „e” do METRO STOKŁOSY,
-         jeżeli żaden kurs z PKP URSUS 21 nim nie jedzie,
-       - METRO SŁUŻEW zostaje, jeśli kursy „m” rzeczywiście tam jadą.
-    */
-    wynik=
-        usunPrzyszlePrzystankiBezMinuty(
-            wynik
+    const aktywnyElement201=
+        baza.find(
+            element=>
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
         );
 
-    /*
-       Rzeczywisty koniec wybranego kursu.
-       czasyTrasy() ma wartości tylko tam, gdzie wybrany kurs
-       faktycznie dociera.
-    */
-    const czasy199=
-        czasyTrasy();
+    if(aktywnyElement201){
 
-    let ostatniObslugiwanyIndex199=
-        -1;
+        const kursyAktywnego201=[];
 
-    czasy199.forEach(
-        (czas,index)=>{
-            if(
-                czas!==null&&
-                czas!==undefined
-            ){
-                ostatniObslugiwanyIndex199=
-                    index;
-            }
-        }
-    );
+        (
+            daneLinii?.rozkłady||
+            []
+        ).forEach(
+            rozklad=>{
 
-    if(
-        ostatniObslugiwanyIndex199>=
-            Number(
-                aktualnyPrzystanek
-            )
-    ){
-        wynik=
-            wynik.filter(
-                element=>{
-
-                    const idx=
-                        Number(
-                            element?.index
-                        );
-
-                    /*
-                       Elementy bez prawidłowego indeksu zostawiamy,
-                       żeby nie uszkodzić separatorów/wariantów.
-                    */
-                    if(
-                        !Number.isInteger(idx)
-                    ){
-                        return true;
-                    }
-
-                    return(
-                        idx<=
-                        ostatniObslugiwanyIndex199
+                const pp=
+                    znajdzPrzystanekWRozkladzieDlaElementu(
+                        rozklad,
+                        aktualnyKierunek,
+                        aktywnyElement201
                     );
-                }
-            );
+
+                (
+                    pp?.kursy||
+                    []
+                ).forEach(
+                    kurs=>{
+
+                        if(
+                            czasNaMinuty(
+                                kurs?.czas
+                            )===null
+                        ){
+                            return;
+                        }
+
+                        kursyAktywnego201.push({
+                            numer:String(
+                                kurs?.numer||
+                                ""
+                            ),
+                            wariant:String(
+                                kurs?.wariant||
+                                ""
+                            ).trim(),
+                            symbol:symbolDnia(kurs),
+                            brygada:String(
+                                kurs?.brygada||
+                                ""
+                            ).trim(),
+                            _kierunekIndex:
+                                Number(
+                                    aktualnyKierunek
+                                )
+                        });
+                    }
+                );
+            }
+        );
+
+        if(kursyAktywnego201.length){
+
+            wynik=
+                wynik.filter(
+                    element=>{
+
+                        const idx=
+                            Number(
+                                element?.index
+                            );
+
+                        /*
+                           Część do aktywnego przystanku pozostawiamy
+                           dokładnie tak, jak robiła to v197.
+                           To chroni działający przypadek 131.
+                        */
+                        if(
+                            Number.isInteger(idx)&&
+                            idx<=
+                                Number(
+                                    aktualnyPrzystanek
+                                )
+                        ){
+                            return true;
+                        }
+
+                        /*
+                           Przyszły element zostaje tylko wtedy,
+                           gdy przynajmniej jeden kurs dostępny
+                           Z TEGO PRZYSTANKU rzeczywiście go obsługuje.
+                        */
+                        return kursyAktywnego201.some(
+                            kurs=>
+                                kursMaPrzystanek(
+                                    kurs,
+                                    element
+                                )
+                        );
+                    }
+                );
+        }
     }
 
     return wynik;
@@ -12821,17 +12483,6 @@ function renderTrasaKolumna(
                             czas=
                                 czasy[index];
 
-                            /*
-                               WERSJA 200:
-                               w trasie z pętlą / powtórzonym przystankiem
-                               indeks elementu po scaleniu może nie wskazywać
-                               właściwego wystąpienia w czasyTrasy().
-
-                               Dlatego gdy nie ma czasu — a także dla
-                               końcowego punktu rzeczywiście obsługiwanego
-                               przez kurs — liczymy czas bezpośrednio po
-                               kursach wychodzących z aktywnego słupka.
-                            */
                             if(
                                 czas===null||
                                 typeof czas==="undefined"
@@ -13605,8 +13256,7 @@ function renderuj(){
                     escapeHtml(
                         String(
                             nazwaKierunku(
-                                kierunek,
-                                aktualnyKierunek
+                                kierunek
                             )
                         ).toUpperCase()
                     )+
