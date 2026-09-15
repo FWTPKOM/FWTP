@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 230
+     WERSJA: 231
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3176,6 +3176,33 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     bottom: auto !important;
 }
 
+
+
+/* =========================================================
+   WERSJA 231 — LEGENDA JAKO OSTATNI ELEMENT LISTY TRASY
+   ========================================================= */
+
+.tabliczka .panel-prawy .trasa-lista > li.legenda.legenda-przeniesiona-231 {
+    display: block !important;
+    list-style: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 5px 0 0 0 !important;
+    padding: 5px 0 0 0 !important;
+    border-top: 1px solid #000 !important;
+    box-sizing: border-box !important;
+    transform: none !important;
+    position: relative !important;
+    overflow: visible !important;
+    font-size: 14px !important;
+    line-height: 14px !important;
+}
+
+.tabliczka .panel-prawy .trasa-lista > li.legenda.legenda-przeniesiona-231 .legenda-wiersz {
+    margin-top: 2px !important;
+    line-height: 14px !important;
+}
+
 </style>
 </head>
 
@@ -3238,12 +3265,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 230
+   WERSJA: 231
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "230";
+const WERSJA_TABLICZKI = "231";
 console.log(
-    "FWTP Tabliczka — wersja 230 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 231 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -15284,7 +15311,7 @@ function renderuj(){
                v229: po zakończeniu przeliczeń szerokości sprawdzamy,
                czy legenda nadal mieści się na dole strony.
             */
-            zaplanujLegende230(
+            zaplanujLegende231(
                 document.querySelector(
                     "#wynik .tabliczka"
                 )
@@ -15301,7 +15328,7 @@ function renderuj(){
    WERSJA 229 — PRZENOSZENIE LEGENDY POD OSTATNI PRZYSTANEK
    ========================================================= */
 
-function przywrocLegendeDoLewegoPanelu230(
+function przywrocLegendeDoLewegoPanelu231(
     tabliczka
 ){
     if(!tabliczka){
@@ -15310,7 +15337,7 @@ function przywrocLegendeDoLewegoPanelu230(
 
     const legenda=
         tabliczka.querySelector(
-            ".legenda.legenda-przeniesiona-230"
+            ".legenda.legenda-przeniesiona-231"
         );
 
     const panelLewy=
@@ -15327,26 +15354,40 @@ function przywrocLegendeDoLewegoPanelu230(
         return;
     }
 
-    legenda.classList.remove(
-        "legenda-przeniesiona-230",
-        "legenda-przeniesiona-229"
-    );
+    /*
+       W HTML legenda normalnie jest DIV-em.
+       Po przeniesieniu pod trasę zmieniamy ją na LI.
+       Przy powrocie tworzymy z powrotem DIV, aby nie zostawiać
+       niepoprawnej struktury w lewym panelu.
+    */
+    const nowa=
+        document.createElement(
+            "div"
+        );
+
+    nowa.className=
+        "legenda";
+
+    nowa.innerHTML=
+        legenda.innerHTML;
+
+    legenda.remove();
 
     panelLewy.insertBefore(
-        legenda,
+        nowa,
         etykieta
     );
 }
 
 
-function przeniesLegendeJesliWychodziPozaStrone230(
+function przeniesLegendeJesliWychodziPozaStrone231(
     tabliczka
 ){
     if(!tabliczka){
         return;
     }
 
-    przywrocLegendeDoLewegoPanelu230(
+    przywrocLegendeDoLewegoPanelu231(
         tabliczka
     );
 
@@ -15359,120 +15400,117 @@ function przeniesLegendeJesliWychodziPozaStrone230(
         return;
     }
 
-    /*
-       Ważne: sprawdzamy dopiero po ostatecznych wysokościach.
-       Na screenie v229 pomiar następował za wcześnie — przed końcowym
-       wyrównaniem tabel, dlatego legenda była jeszcze uznawana za mieszczącą się.
-    */
     const tabRect=
         tabliczka.getBoundingClientRect();
 
     const legRect=
         legenda.getBoundingClientRect();
 
-    const wychodziDolem=
-        legRect.bottom>
-        tabRect.bottom-1;
-
-    if(!wychodziDolem){
+    if(
+        legRect.bottom<=
+        tabRect.bottom-1
+    ){
         return;
     }
 
-    const kolumny=
+    /*
+       Szukamy NAJNIŻEJ położonego widocznego przystanku,
+       a następnie jego konkretnej listy UL.
+       Legenda będzie ostatnim LI tej listy, więc nie zniknie przez
+       overflow:hidden panelu prawego jak w v230.
+    */
+    const przystanki=
         Array.from(
             tabliczka.querySelectorAll(
-                ".panel-prawy .trasa-kol"
+                ".panel-prawy .trasa-stop, .panel-prawy .trasa-extra-stop"
             )
+        )
+        .filter(
+            stop=>{
+                const cs=
+                    getComputedStyle(
+                        stop
+                    );
+
+                const r=
+                    stop.getBoundingClientRect();
+
+                return(
+                    cs.display!=="none"&&
+                    cs.visibility!=="hidden"&&
+                    r.width>0&&
+                    r.height>0
+                );
+            }
         );
 
-    let docelowa=null;
-    let najnizszy=-Infinity;
+    if(!przystanki.length){
+        return;
+    }
 
-    kolumny.forEach(
-        kolumna=>{
+    let ostatni=
+        przystanki[0];
 
-            const przystanki=
-                Array.from(
-                    kolumna.querySelectorAll(
-                        ".trasa-stop, .trasa-extra-stop"
-                    )
-                )
-                .filter(
-                    stop=>{
-                        const cs=getComputedStyle(stop);
-                        const r=stop.getBoundingClientRect();
-
-                        return(
-                            cs.display!=="none"&&
-                            cs.visibility!=="hidden"&&
-                            r.height>0&&
-                            r.width>0
-                        );
-                    }
-                );
-
-            przystanki.forEach(
-                stop=>{
-                    const dol=
-                        stop.getBoundingClientRect().bottom;
-
-                    if(dol>najnizszy){
-                        najnizszy=dol;
-                        docelowa=kolumna;
-                    }
-                }
-            );
+    przystanki.forEach(
+        stop=>{
+            if(
+                stop.getBoundingClientRect().bottom>
+                ostatni.getBoundingClientRect().bottom
+            ){
+                ostatni=stop;
+            }
         }
     );
 
-    if(!docelowa){
+    const lista=
+        ostatni.closest(
+            ".trasa-lista"
+        );
+
+    if(!lista){
         return;
     }
 
-    legenda.classList.remove(
-        "legenda-przeniesiona-229"
-    );
+    const li=
+        document.createElement(
+            "li"
+        );
 
-    legenda.classList.add(
-        "legenda-przeniesiona-230"
-    );
+    li.className=
+        "legenda legenda-przeniesiona-231";
 
-    /*
-       Dokładnie pod zawartością kolumny z ostatnim przystankiem.
-       Czarna kreska jest border-top legendy.
-    */
-    docelowa.appendChild(
-        legenda
+    li.innerHTML=
+        legenda.innerHTML;
+
+    legenda.remove();
+
+    lista.appendChild(
+        li
     );
 }
 
 
-let timerLegendy230=null;
+let timerLegendy231=null;
 
-function zaplanujLegende230(
+function zaplanujLegende231(
     tabliczka
 ){
     if(!tabliczka){
         return;
     }
 
-    /*
-       requestAnimationFrame nie wystarczał, bo po nim nadal działały
-       funkcje wyrównujące wysokości. Czekamy aż layout się uspokoi,
-       a potem robimy jeszcze dwa RAF-y.
-    */
     clearTimeout(
-        timerLegendy230
+        timerLegendy231
     );
 
-    timerLegendy230=
+    timerLegendy231=
         setTimeout(
             ()=>{
                 requestAnimationFrame(
                     ()=>{
                         requestAnimationFrame(
                             ()=>{
-                                przeniesLegendeJesliWychodziPozaStrone230(
+                                przeniesLegendeJesliWychodziPozaStrone231(
                                     tabliczka
                                 );
                             }
@@ -15480,7 +15518,7 @@ function zaplanujLegende230(
                     }
                 );
             },
-            120
+            140
         );
 }
 
@@ -16828,7 +16866,7 @@ function zastosujTrybDwochTabliczekJesliPotrzeba(){
        v229: po ewentualnym podziale na strony ponownie sprawdzamy legendę
        na pierwszej tabliczce, gdzie znajduje się lista przystanków.
     */
-    zaplanujLegende230(
+    zaplanujLegende231(
         tabliczka
     );
 }
@@ -18693,8 +18731,8 @@ window.addEventListener(
 
 
 
-/* v230 — po późnych zmianach wysokości ponownie sprawdź legendę. */
-const observerLegendy230=
+/* v231 — po późnych zmianach wysokości ponownie sprawdź legendę. */
+const observerLegendy231=
     new MutationObserver(
         ()=>{
             const tabliczka=
@@ -18703,21 +18741,21 @@ const observerLegendy230=
                 );
 
             if(tabliczka){
-                zaplanujLegende230(
+                zaplanujLegende231(
                     tabliczka
                 );
             }
         }
     );
 
-const wynikLegendy230=
+const wynikLegendy231=
     document.getElementById(
         "wynik"
     );
 
-if(wynikLegendy230){
-    observerLegendy230.observe(
-        wynikLegendy230,
+if(wynikLegendy231){
+    observerLegendy231.observe(
+        wynikLegendy231,
         {
             childList:true,
             subtree:true,
@@ -18739,7 +18777,7 @@ window.addEventListener(
             );
 
         if(tabliczka){
-            zaplanujLegende230(
+            zaplanujLegende231(
                 tabliczka
             );
         }
