@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 274
+     WERSJA: 275
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -4714,20 +4714,23 @@ document.addEventListener(
                                w trasie wybranego dnia.
                                Brak = -1, bez podmieniania na inny numer.
                             */
-                            const rozkladDnia=
-                                rozkladBazowyDlaWybranejDaty272();
-
-                            const znaleziony=
-                                znajdzFizycznyPrzystanekWRozkladzie273(
-                                    rozkladDnia,
-                                    aktualnyKierunek,
-                                    wybranyFizycznyPrzystanek262
-                                );
+                            /*
+                               WERSJA 275:
+                               kliknięty słupek może należeć wyłącznie
+                               do soboty/święta, a mimo to ma się
+                               otworzyć również przy dacie roboczej.
+                            */
+                            const kierunekWybranego275=
+                                kierunekZawierajacyWybranyPrzystanek275();
 
                             aktualnyPrzystanek=
-                                znaleziony
-                                    ? znaleziony.index
-                                    : -1;
+                                indeksWybranegoFizycznegoWKierunku275(
+                                    kierunekWybranego275
+                                );
+
+                            if(aktualnyPrzystanek<0){
+                                aktualnyPrzystanek=0;
+                            }
 
                             zapiszURL();
                         }
@@ -7167,7 +7170,161 @@ function rozkladBazowyDlaWybranejDaty272(){
 }
 
 
+/*
+   =========================================================
+   WERSJA 275 — WYBRANY PRZYSTANEK NIE ZALEŻY OD DATY
+   =========================================================
+
+   Jeżeli użytkownik wybierze fizyczny przystanek, który istnieje
+   tylko w innym rodzaju dnia, np.:
+       KS POLONEZ 03
+       PKP TORUŃSKA 01
+
+   to tabliczka ma się NORMALNIE otworzyć również wtedy, gdy
+   aktualnie wybrana data jest dniem powszednim.
+
+   Data nie może decydować, czy przystanek wolno wyświetlić.
+   Data służy wyłącznie do określenia, które kursy obowiązują.
+
+   Dlatego:
+   - najpierw szukamy wybranego NAZWA + NR na trasie bieżącego dnia,
+   - jeżeli go tam nie ma, szukamy rzeczywistej trasy z dowolnego
+     rozkładu, która zawiera dokładnie ten fizyczny słupek,
+   - ta trasa służy do narysowania tabliczki i ustalenia pozycji,
+   - rozkłady poszczególnych dni nadal są liczone osobno.
+   ========================================================= */
+
+function kierunekZawierajacyWybranyPrzystanek275(){
+
+    if(!wybranyFizycznyPrzystanek262){
+        return null;
+    }
+
+    const key=
+        kluczFizycznegoPrzystanku273(
+            wybranyFizycznyPrzystanek262
+        );
+
+    if(!key){
+        return null;
+    }
+
+    /*
+       Najpierw preferujemy trasę wybranego dnia, jeśli rzeczywiście
+       zawiera dokładnie ten słupek.
+    */
+    const rozkladDnia=
+        rozkladBazowyDlaWybranejDaty272();
+
+    const kierunekDnia=
+        rozkladDnia
+            ?.kierunki
+            ?.[aktualnyKierunek];
+
+    if(
+        (
+            kierunekDnia?.przystanki||
+            []
+        ).some(
+            p=>
+                kluczFizycznegoPrzystanku273(p)===
+                key
+        )
+    ){
+        return kierunekDnia;
+    }
+
+    /*
+       Jeśli słupek nie istnieje w wybranym dniu, znajdujemy
+       rzeczywistą trasę z innego rodzaju dnia. Wybieramy najpełniejszą
+       z tras zawierających dokładnie NAZWA + NR.
+    */
+    let najlepszy=null;
+    let najlepszaDlugosc=-1;
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const kierunek=
+                rozklad
+                    ?.kierunki
+                    ?.[aktualnyKierunek];
+
+            const lista=
+                kierunek?.przystanki||
+                [];
+
+            const zawiera=
+                lista.some(
+                    p=>
+                        kluczFizycznegoPrzystanku273(p)===
+                        key
+                );
+
+            if(
+                zawiera&&
+                lista.length>najlepszaDlugosc
+            ){
+                najlepszy=kierunek;
+                najlepszaDlugosc=lista.length;
+            }
+        }
+    );
+
+    return najlepszy;
+}
+
+
+function indeksWybranegoFizycznegoWKierunku275(
+    kierunek
+){
+
+    if(
+        !kierunek||
+        !wybranyFizycznyPrzystanek262
+    ){
+        return -1;
+    }
+
+    const key=
+        kluczFizycznegoPrzystanku273(
+            wybranyFizycznyPrzystanek262
+        );
+
+    return(
+        kierunek.przystanki||
+        []
+    ).findIndex(
+        p=>
+            kluczFizycznegoPrzystanku273(p)===
+            key
+    );
+}
+
+
 function kierunekBazowy(){
+
+    /*
+       WERSJA 275:
+       jeżeli użytkownik wybrał konkretny fizyczny słupek,
+       najważniejsza jest trasa, która TEN SŁUPEK zawiera.
+       Nie ma znaczenia, czy wybrana data należy do tego rozkładu.
+    */
+    const kierunekWybranego=
+        kierunekZawierajacyWybranyPrzystanek275();
+
+    if(
+        kierunekWybranego&&
+        Array.isArray(
+            kierunekWybranego.przystanki
+        )&&
+        kierunekWybranego.przystanki.length
+    ){
+        return kierunekWybranego;
+    }
 
     const rozkladDnia=
         rozkladBazowyDlaWybranejDaty272();
@@ -7515,20 +7672,23 @@ function wypelnijPrzystanki(){
        Dzięki temu nie podmieniamy np. PKP TORUŃSKA 01
        na PKP TORUŃSKA 03.
     */
-    const rozkladDnia=
-        rozkladBazowyDlaWybranejDaty272();
-
-    const znalezionyDnia=
-        znajdzFizycznyPrzystanekWRozkladzie273(
-            rozkladDnia,
-            aktualnyKierunek,
-            wybranyFizycznyPrzystanek262
-        );
+    /*
+       WERSJA 275:
+       indeks ustalamy na trasie, która faktycznie zawiera wybrany
+       fizyczny słupek. Nie ustawiamy już -1 tylko dlatego, że
+       bieżący dzień tej trasy nie obsługuje.
+    */
+    const kierunekWybranego275=
+        kierunekZawierajacyWybranyPrzystanek275();
 
     aktualnyPrzystanek=
-        znalezionyDnia
-            ? znalezionyDnia.index
-            : -1;
+        indeksWybranegoFizycznegoWKierunku275(
+            kierunekWybranego275
+        );
+
+    if(aktualnyPrzystanek<0){
+        aktualnyPrzystanek=0;
+    }
 
     if(
         typeof przystanekNazwaURL267!=="undefined"
@@ -17670,10 +17830,31 @@ function renderuj(){
         kierunek?.przystanki||
         [];
 
-    const p=
+    /*
+       WERSJA 275:
+       aktywnym przystankiem jest dokładnie wybrany fizyczny słupek.
+       Nie blokujemy renderowania tylko dlatego, że nie kursuje on
+       w aktualnie wybranym rodzaju dnia.
+    */
+    let p=
+        wybranyFizycznyPrzystanek262||
         lista[
             aktualnyPrzystanek
         ];
+
+    if(
+        wybranyFizycznyPrzystanek262
+    ){
+        const idx275=
+            indeksWybranegoFizycznegoWKierunku275(
+                kierunek
+            );
+
+        if(idx275>=0){
+            aktualnyPrzystanek=idx275;
+            p=lista[idx275];
+        }
+    }
 
     if(!p){
         pokazBlad(
