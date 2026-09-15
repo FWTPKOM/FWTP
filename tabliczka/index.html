@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 275
+     WERSJA: 276
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -6469,17 +6469,82 @@ function czyTenSamPrzystanekPoNazwieINumerze(
 }
 
 
+
+/* =========================================================
+   WERSJA 276 — JEDNO ŹRÓDŁO PRAWDY DLA AKTYWNEGO SŁUPKA
+   =========================================================
+   Stare funkcje z wersji 200–260 nadal w kilku miejscach
+   odczytywały aktywny słupek przez:
+       najpełniejszaTrasa.przystanki[aktualnyPrzystanek]
+
+   To było źródłem podmiany KS POLONEZ 03 -> 01 oraz
+   PKP TORUŃSKA 01 -> 03.
+
+   Od tej wersji każda poprawiana funkcja pobiera aktywny
+   fizyczny słupek z tego accessor'a.
+   ========================================================= */
+
+function aktywnyFizycznyPrzystanek276(){
+
+    if(
+        wybranyFizycznyPrzystanek262&&
+        (
+            String(
+                wybranyFizycznyPrzystanek262?.nazwa||""
+            ).trim()||
+            String(
+                wybranyFizycznyPrzystanek262?.nr||""
+            ).trim()
+        )
+    ){
+        return wybranyFizycznyPrzystanek262;
+    }
+
+    const kierunek=
+        kierunekBazowy();
+
+    return(
+        kierunek
+            ?.przystanki
+            ?.[aktualnyPrzystanek]||
+        null
+    );
+}
+
+
+function indeksAktywnegoWKierunku276(kierunek){
+
+    const aktywny=
+        aktywnyFizycznyPrzystanek276();
+
+    if(
+        !aktywny||
+        !kierunek
+    ){
+        return -1;
+    }
+
+    return(
+        kierunek.przystanki||
+        []
+    ).findIndex(
+        p=>
+            czyTenSamPrzystanekPoNazwieINumerze(
+                p,
+                aktywny
+            )
+    );
+}
+
+
 function __bezCache_kierunkiObslugujaceBiezacyPrzystanek(){
 
-    const baza=
-        znajdzNajpelniejszyKierunek(
-            aktualnyKierunek
-        );
-
+    /*
+       WERSJA 276:
+       nie odczytujemy już słupka z indeksu najpełniejszej trasy.
+    */
     const p=
-        baza?.przystanki?.[
-            aktualnyPrzystanek
-        ];
+        aktywnyFizycznyPrzystanek276();
 
     if(!p){
         return[];
@@ -6593,18 +6658,17 @@ function drugiKierunekBiezacegoPrzystanku(){
 function __bezCache_czyBiezacyPrzystanekKraniecWiekszosciKursow(){
 
     const kierunek=
-        znajdzNajpelniejszyKierunek(
-            aktualnyKierunek
-        );
+        kierunekBazowy();
 
     const przystanki=
         kierunek?.przystanki||
         [];
 
+    /*
+       WERSJA 276: dokładnie wybrany NAZWA + NR.
+    */
     const aktywny=
-        przystanki[
-            aktualnyPrzystanek
-        ];
+        aktywnyFizycznyPrzystanek276();
 
     if(!aktywny){
         return false;
@@ -11621,10 +11685,13 @@ function czasDowolnegoKursuNaPrzystanku(
     const baza=
         kierunekBazowy();
 
+    /*
+       WERSJA 276:
+       czas trasy liczymy od dokładnie wybranego fizycznego słupka,
+       nie od elementu pod tym samym numerem indeksu w innej trasie.
+    */
     const startP=
-        baza?.przystanki?.[
-            aktualnyPrzystanek
-        ];
+        aktywnyFizycznyPrzystanek276();
 
     if(
         !startP||
@@ -12331,18 +12398,17 @@ function przeniesMinieteGaleziePrzedAktywny(
 function __bezCache_czyAktywnyPrzystanekJestPoczatkiemSwoichKursow(){
 
     const kierunek=
-        znajdzNajpelniejszyKierunek(
-            aktualnyKierunek
-        );
+        kierunekBazowy();
 
     const przystanki=
         kierunek?.przystanki||
         [];
 
+    /*
+       WERSJA 276: dokładnie wybrany NAZWA + NR.
+    */
     const aktywny=
-        przystanki[
-            aktualnyPrzystanek
-        ];
+        aktywnyFizycznyPrzystanek276();
 
     if(!aktywny){
         return false;
@@ -12767,12 +12833,13 @@ function daneKursowAktywnego206(){
                 aktywnyIndex
             ];
 
-    if(
-        !aktywnyBaza||
-        !Number.isInteger(
-            aktywnyIndex
-        )
-    ){
+    /*
+       WERSJA 276:
+       aktywnyIndex nie jest identyfikatorem fizycznego słupka.
+       Dla tras zależnych od dnia może oznaczać inną pozycję.
+       Wystarczy, że mamy dokładny aktywnyBaza = NAZWA + NR.
+    */
+    if(!aktywnyBaza){
         return null;
     }
 
@@ -16384,12 +16451,13 @@ function renderTrasaKolumna(
        liście, a aktywny jest początkiem swoich kursów, wtedy pierwszy
        element finalnej listy o tej samej nazwie traktujemy jako aktywny.
     */
+    /*
+       WERSJA 276:
+       również końcowe składanie listy trasy korzysta z dokładnego
+       fizycznego słupka.
+    */
     const bazaAktywna=
-        kierunekBazowy()
-            ?.przystanki?.[
-                aktualnyPrzystanek
-            ]||
-        null;
+        aktywnyFizycznyPrzystanek276();
 
     const finalMaDokladnyAktywny=
         pelnaLista.some(
@@ -17837,7 +17905,7 @@ function renderuj(){
        w aktualnie wybranym rodzaju dnia.
     */
     let p=
-        wybranyFizycznyPrzystanek262||
+        aktywnyFizycznyPrzystanek276()||
         lista[
             aktualnyPrzystanek
         ];
@@ -17852,7 +17920,16 @@ function renderuj(){
 
         if(idx275>=0){
             aktualnyPrzystanek=idx275;
-            p=lista[idx275];
+
+            /*
+               WERSJA 276:
+               nie nadpisujemy p obiektem z osi/bazy.
+               Etykieta i dane aktywnego słupka pozostają dokładnie
+               takie, jakie wybrał użytkownik.
+            */
+            p=
+                aktywnyFizycznyPrzystanek276()||
+                lista[idx275];
         }
     }
 
