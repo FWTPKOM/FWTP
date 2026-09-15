@@ -1,20 +1,7 @@
-/* =========================================================
-   WERSJA 297 — POPRAWKA BŁĘDU URUCHOMIENIA 296
-
-   - usunięto ostatnie wywołanie dolaczGalazBC134_287()
-   - usunięto ostatni ręczny filtr galazBC134_287()
-   - lista przebiegu wraca bezpośrednio jako "wynik"
-   - brak zależności od ręcznych helperów linii 134
-
-   Nadal:
-   - fizyczny przystanek = NAZWA + NR
-   - przebieg trasy = logiczna kolejność NAZW
-   ========================================================= */
-
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 297
+     WERSJA: 298
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -11437,225 +11424,7 @@ function __bezCache_grupyPrzebiegowTrasy(){
     return grupy;
 }
 
-
-/* =========================================================
-   WERSJA 296 — LOGICZNY PRZEBIEG TRASY
-   =========================================================
-   WAŻNE ROZDZIELENIE TOŻSAMOŚCI:
-
-   1. ROZKŁAD / WYBÓR PRZYSTANKU:
-      dokładne NAZWA + NR — pozostaje z działającej wersji 291.
-
-   2. SCHEMAT / PORÓWNANIE PRZEBIEGÓW:
-      NAZWA przystanku — numer słupka nie rozdziela przebiegu.
-
-   Dzięki temu np.:
-      KS POLONEZ 01 / 02 / 03 -> KS POLONEZ
-      PKP TORUŃSKA 01 / 02 / 03 / 04 -> PKP TORUŃSKA
-
-   w jednym przebiegu są logicznie jednym punktem.
-   ========================================================= */
-
-function nazwaLogicznaPrzystanku296(p){
-
-    return String(
-        p?.nazwa||
-        ""
-    )
-    .normalize("NFD")
-    .replace(
-        /[\u0300-\u036f]/g,
-        ""
-    )
-    .replace(/\s+/g," ")
-    .trim()
-    .toUpperCase();
-}
-
-
-function logicznyPrzebieg296(lista){
-
-    const wynik=[];
-    let poprzednia="";
-
-    (
-        Array.isArray(lista)
-            ? lista
-            : []
-    ).forEach(
-        p=>{
-
-            const nazwa=
-                nazwaLogicznaPrzystanku296(
-                    p
-                );
-
-            if(!nazwa){
-                return;
-            }
-
-            /*
-               Ten sam nazwany przystanek występujący obok siebie
-               pod innym numerem słupka jest jednym punktem przebiegu.
-            */
-            if(nazwa===poprzednia){
-                return;
-            }
-
-            wynik.push(p);
-            poprzednia=nazwa;
-        }
-    );
-
-    return wynik;
-}
-
-
-function kluczLogicznegoPrzebiegu296(lista){
-
-    return logicznyPrzebieg296(
-        lista
-    )
-    .map(
-        p=>
-            nazwaLogicznaPrzystanku296(
-                p
-            )
-    )
-    .join(">");
-}
-
-
-function teSameLogicznePrzebiegi296(
-    listaA,
-    listaB
-){
-
-    return(
-        kluczLogicznegoPrzebiegu296(
-            listaA
-        )===
-        kluczLogicznegoPrzebiegu296(
-            listaB
-        )
-    );
-}
-
-
-
 function grupyPrzebiegowTrasy(){
-
-    const grupy=
-        grupyPrzebiegowTrasy_ORYGINAL_246.apply(
-            this,
-            arguments
-        )||[];
-
-    /*
-       Scal grupy, które po pominięciu numerów słupków mają
-       identyczną sekwencję nazw przystanków.
-       Litery wszystkich kursów z identycznego przebiegu zostają
-       w jednej grupie — np. a+z albo b+c.
-    */
-    const mapa=
-        new Map();
-
-    grupy.forEach(
-        grupa=>{
-
-            const lista=
-                grupa?.przystanki||
-                grupa?.trasa||
-                grupa?.lista||
-                grupa?.kurs?.przystanki||
-                [];
-
-            const klucz=
-                kluczLogicznegoPrzebiegu296(
-                    lista
-                );
-
-            if(!klucz){
-                return;
-            }
-
-            if(!mapa.has(klucz)){
-                mapa.set(
-                    klucz,
-                    {
-                        ...grupa,
-                        litery:[],
-                        warianty:[],
-                        kursy:[]
-                    }
-                );
-            }
-
-            const cel=
-                mapa.get(
-                    klucz
-                );
-
-            const litery=
-                []
-                .concat(
-                    grupa?.litery||
-                    []
-                )
-                .concat(
-                    grupa?.warianty||
-                    []
-                )
-                .concat(
-                    grupa?.litera
-                        ? [grupa.litera]
-                        : []
-                )
-                .map(
-                    x=>
-                        String(x||"")
-                            .trim()
-                            .toLowerCase()
-                )
-                .filter(Boolean);
-
-            cel.litery=
-                Array.from(
-                    new Set([
-                        ...(cel.litery||[]),
-                        ...litery
-                    ])
-                );
-
-            cel.warianty=
-                Array.from(
-                    new Set([
-                        ...(cel.warianty||[]),
-                        ...litery
-                    ])
-                );
-
-            cel.kursy=[
-                ...(cel.kursy||[]),
-                ...(
-                    grupa?.kursy||
-                    (
-                        grupa?.kurs
-                            ? [grupa.kurs]
-                            : []
-                    )
-                )
-            ];
-        }
-    );
-
-    return Array.from(
-        mapa.values()
-    );
-}
-
-
-function grupyPrzebiegowTrasy_ORYGINAL_246(){
 
     return memoTabliczki(
         "grupyPrzebiegowTrasy",
@@ -11730,33 +11499,253 @@ function wybierzNajdluzszyKurs(
 }
 
 
+
+/* =========================================================
+   WERSJA 298 — RZECZYWISTE PRZEBIEGI KURSÓW
+   =========================================================
+   NIE MA wyjątków dla konkretnej linii ani konkretnych liter.
+
+   Rozkład/tabliczka:
+       fizyczny przystanek = NAZWA + NR
+
+   Analiza przebiegu:
+       przystanek logiczny = NAZWA
+
+   Każdy kurs dostaje rzeczywistą sekwencję nazw przystanków
+   na podstawie tego, na których przystankach faktycznie ma czas.
+   Kursy o tej samej sekwencji są jednym przebiegiem.
+   ========================================================= */
+
+function logicznaNazwaPrzystanku298(p){
+
+    return String(p?.nazwa||"")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g,"")
+        .replace(/\s+/g," ")
+        .trim()
+        .toUpperCase();
+}
+
+
+function czyToTenKurs298(k,kursRef){
+
+    return(
+        String(k?.numer||"")===
+            String(kursRef?.numer||"")&&
+        String(k?.wariant||"").trim()===
+            String(kursRef?.wariant||"").trim()&&
+        symbolDnia(k)===
+            kursRef?.symbol&&
+        (
+            !String(kursRef?.brygada||"").trim()||
+            String(k?.brygada||"").trim()===
+                String(kursRef?.brygada||"").trim()
+        )&&
+        czasNaMinuty(k?.czas)!==null
+    );
+}
+
+
+function rzeczywistyPrzebiegKursu298(kursRef){
+
+    if(!kursRef){
+        return[];
+    }
+
+    const kierunekIndex=
+        Number.isInteger(kursRef?._kierunekIndex)
+            ? kursRef._kierunekIndex
+            : aktualnyKierunek;
+
+    let najlepszy=[];
+
+    for(const rozklad of (daneLinii?.rozkłady||[])){
+
+        const kierunek=
+            Array.isArray(rozklad?.kierunki)
+                ? rozklad.kierunki[kierunekIndex]
+                : null;
+
+        if(!kierunek){
+            continue;
+        }
+
+        const przebieg=[];
+
+        for(const p of (kierunek?.przystanki||[])){
+
+            const maKurs=
+                (p?.kursy||[]).some(
+                    k=>czyToTenKurs298(k,kursRef)
+                );
+
+            if(!maKurs){
+                continue;
+            }
+
+            const nazwa=
+                logicznaNazwaPrzystanku298(p);
+
+            if(!nazwa){
+                continue;
+            }
+
+            /*
+               Numery słupków NIE rozdzielają przebiegu.
+               Jeżeli ta sama nazwa wystąpi bezpośrednio ponownie,
+               na schemacie jest jednym punktem.
+            */
+            if(
+                przebieg.length&&
+                przebieg[przebieg.length-1].nazwa===nazwa
+            ){
+                continue;
+            }
+
+            przebieg.push({
+                nazwa,
+                p
+            });
+        }
+
+        if(przebieg.length>najlepszy.length){
+            najlepszy=przebieg;
+        }
+    }
+
+    return najlepszy;
+}
+
+
+function kluczRzeczywistegoPrzebiegu298(kursRef){
+
+    return rzeczywistyPrzebiegKursu298(kursRef)
+        .map(x=>x.nazwa)
+        .join(">");
+}
+
+
+function widocznaLiteraPrzebiegu298(kursRef){
+
+    const poTrasie=
+        literaWariantuPoRzeczywistymPrzebiegu(
+            kursRef
+        );
+
+    const surowa=
+        String(
+            poTrasie||
+            kursRef?.wariant||
+            ""
+        ).trim();
+
+    if(!surowa){
+        return"";
+    }
+
+    return kanonicznaLiteraWariantu(
+        surowa
+    );
+}
+
+
 function __bezCache_danePrzebiegowWariantowych(){
 
+    const wszystkie=
+        kursyAktualnegoRozkladuDoTrasy();
+
     const grupy=
-        grupyPrzebiegowTrasy();
+        new Map();
 
-    const przebiegi=
-        [];
+    wszystkie.forEach(
+        kurs=>{
 
-    for(
-        const grupa
-        of grupy.values()
-    ){
+            if(
+                czyKursPomijanyPrzyTrasie(
+                    kurs
+                )
+            ){
+                return;
+            }
+
+            const klucz=
+                kluczRzeczywistegoPrzebiegu298(
+                    kurs
+                );
+
+            if(!klucz){
+                return;
+            }
+
+            if(!grupy.has(klucz)){
+                grupy.set(
+                    klucz,
+                    {
+                        kursy:[],
+                        litery:new Set()
+                    }
+                );
+            }
+
+            const grupa=
+                grupy.get(klucz);
+
+            grupa.kursy.push(kurs);
+
+            const litera=
+                widocznaLiteraPrzebiegu298(
+                    kurs
+                );
+
+            if(litera){
+                grupa.litery.add(litera);
+            }
+        }
+    );
+
+    const wynik=[];
+
+    /*
+       Jedna rzeczywista trasa może należeć do kilku liter.
+       Zostawiamy osobny wpis na każdą literę, ale wszystkie
+       wskazują ten sam reprezentatywny kurs tego przebiegu.
+       Dzięki temu istniejąca logika v246 sama tworzy nagłówki:
+       „a”, „z” / „b”, „c” itd.
+    */
+    for(const grupa of grupy.values()){
 
         const kurs=
             wybierzNajdluzszyKurs(
                 grupa.kursy
             );
 
-        if(kurs){
-            przebiegi.push({
-                litera:grupa.litera,
+        if(!kurs){
+            continue;
+        }
+
+        const litery=
+            Array.from(
+                grupa.litery
+            );
+
+        if(!litery.length){
+            wynik.push({
+                litera:"",
                 kurs
             });
+            continue;
         }
+
+        litery.forEach(
+            litera=>
+                wynik.push({
+                    litera,
+                    kurs
+                })
+        );
     }
 
-    return przebiegi;
+    return wynik;
 }
 
 function danePrzebiegowWariantowych(){
@@ -11770,22 +11759,6 @@ function danePrzebiegowWariantowych(){
 
 
 
-
-/* =========================================================
-   WERSJA 296
-   BAZA PRZYSTANKÓW: 291
-   LOGIKA PRZEBIEGÓW: 246 + OGÓLNE SCALANIE PO NAZWACH
-
-   BRAK wyjątków wpisanych ręcznie dla:
-   - linii 134,
-   - KS POLONEZ,
-   - TORUŃSKA,
-   - PKP TORUŃSKA,
-   - liter a/b/c/z.
-
-   Schemat porównuje rzeczywiste przebiegi po kolejności NAZW.
-   Rozkład nadal identyfikuje fizyczny przystanek po NAZWA + NR.
-   ========================================================= */
 
 /* =========================================================
    WERSJA 291 — BAZA 287
@@ -11907,7 +11880,92 @@ function stanTrasyNaPrzystanku(element){
 }
 
 
+function stanTrasyNaPrzystanku_ORYGINAL_283(element){
 
+    const przebiegi=
+        danePrzebiegowWariantowych();
+
+    if(!przebiegi.length){
+        return{
+            typ:"wszystkie",
+            litery:[]
+        };
+    }
+
+    const jadace=
+        przebiegi.filter(
+            przebieg=>
+                kursMaPrzystanek(
+                    przebieg.kurs,
+                    element
+                )
+        );
+
+    /*
+       Jeżeli przez dany przystanek jadą WSZYSTKIE pełne przebiegi,
+       jest to wspólna trasa.
+    */
+    if(
+        jadace.length===
+        przebiegi.length
+    ){
+        return{
+            typ:"wszystkie",
+            litery:
+                jadace
+                    .map(
+                        x=>x.litera
+                    )
+                    .filter(Boolean)
+        };
+    }
+
+    /*
+       Jeżeli przystanek obsługuje tylko część pełnych przebiegów,
+       pokazujemy dokładnie te litery.
+
+       Przykłady dla 126:
+       - PŁYTOWA / KUPIECKA -> np. „l”, „p”
+       - PKP ŻERAŃ -> „a”, „o”
+
+       Kurs skrócony "b" nie bierze tu udziału.
+    */
+    const litery=
+        jadace
+            .map(
+                x=>x.litera
+            )
+            .filter(Boolean);
+
+    if(litery.length){
+        return{
+            typ:"wariant",
+            litery
+        };
+    }
+
+    /*
+       Jeżeli został tylko przebieg bez WIDOCZNEJ litery
+       (np. A ukryte przy 1-3 wariantach), nie tworzymy
+       nagłówka "Trasa w kursach".
+
+       Ta sama litera jest więc ukryta zarówno:
+       - przy minutach,
+       - w legendzie,
+       - na liście przystanków.
+    */
+    if(jadace.length){
+        return{
+            typ:"podstawowa",
+            litery:[]
+        };
+    }
+
+    return{
+        typ:"inne",
+        litery:[]
+    };
+}
 
 
 function kluczStanuTrasy(stan){
