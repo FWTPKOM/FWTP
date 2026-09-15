@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 261
+     WERSJA: 262
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3761,12 +3761,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 261
+   WERSJA: 262
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "261";
+const WERSJA_TABLICZKI = "262";
 console.log(
-    "FWTP Tabliczka — wersja 261 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 262 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -4181,6 +4181,14 @@ let aktualnyPrzystanek=
 */
 let trybRoznychTrasDni256=false;
 
+/*
+   v262:
+   lista trasy może scalać różne numery słupków w jeden logiczny punkt,
+   ale SELECT przystanku musi pozwalać wybrać każdy rzeczywisty słupek.
+*/
+let wybranyFizycznyPrzystanek262=null;
+
+
 let wybranaData=
     dataZTekstu(
         parametry.get("data")
@@ -4582,6 +4590,7 @@ document.addEventListener(
                                 nowyKierunek;
 
                             aktualnyPrzystanek=0;
+                            wybranyFizycznyPrzystanek262=null;
 
                             wypelnijPrzystanki();
                             zapiszURL();
@@ -4596,17 +4605,35 @@ document.addEventListener(
                 "change",
                 async function(){
 
-                    const nowyPrzystanek=
+                    const indeksWyboru262=
                         Number(
                             this.value
                         );
+
+                    const lista262=
+                        listaWyboruPrzystankow262();
+
+                    const wybrany262=
+                        lista262[
+                            indeksWyboru262
+                        ];
 
                     await przerysujTabliczkeZLoaderem(
                         "Zmiana przystanku...",
                         ()=>{
 
-                            aktualnyPrzystanek=
-                                nowyPrzystanek;
+                            if(wybrany262){
+
+                                aktualnyPrzystanek=
+                                    wybrany262.logicznyIndex;
+
+                                wybranyFizycznyPrzystanek262={
+                                    ...wybrany262.p,
+                                    key:wybrany262.key,
+                                    logicznyIndex:
+                                        wybrany262.logicznyIndex
+                                };
+                            }
 
                             zapiszURL();
                         }
@@ -6780,6 +6807,116 @@ function kierunekBazowy(){
 }
 
 
+
+function listaWyboruPrzystankow262(){
+
+    const logiczny=
+        wspolnyKierunekDni259(
+            aktualnyKierunek
+        );
+
+    const logiczne=
+        logiczny?.przystanki||
+        [];
+
+    if(
+        !trybRoznychTrasDni256||
+        !logiczne.length
+    ){
+        return logiczne.map(
+            (p,index)=>({
+                p,
+                logicznyIndex:index,
+                key:
+                    normalizujNazwe208(p?.nazwa)+
+                    "|"+
+                    String(p?.nr||"").trim()
+            })
+        );
+    }
+
+    const wynik=[];
+
+    logiczne.forEach(
+        (lp,logicznyIndex)=>{
+
+            const nazwa=
+                normalizujNazwe208(
+                    lp?.nazwa
+                );
+
+            const znalezione=[];
+            const widziane=new Set();
+
+            (daneLinii?.rozkłady||[])
+                .forEach(
+                    r=>{
+
+                        const lista=
+                            r?.kierunki?.[
+                                aktualnyKierunek
+                            ]?.przystanki||
+                            [];
+
+                        lista.forEach(
+                            p=>{
+
+                                if(
+                                    normalizujNazwe208(
+                                        p?.nazwa
+                                    )!==nazwa
+                                ){
+                                    return;
+                                }
+
+                                const key=
+                                    nazwa+
+                                    "|"+
+                                    String(
+                                        p?.nr||
+                                        ""
+                                    ).trim();
+
+                                if(widziane.has(key)){
+                                    return;
+                                }
+
+                                widziane.add(key);
+
+                                znalezione.push({
+                                    p,
+                                    logicznyIndex,
+                                    key
+                                });
+                            }
+                        );
+                    }
+                );
+
+            if(znalezione.length){
+                wynik.push(
+                    ...znalezione
+                );
+            }
+            else{
+                wynik.push({
+                    p:lp,
+                    logicznyIndex,
+                    key:
+                        nazwa+
+                        "|"+
+                        String(
+                            lp?.nr||
+                            ""
+                        ).trim()
+                });
+            }
+        }
+    );
+
+    return wynik;
+}
+
 function wypelnijPrzystanki(){
 
     const select=
@@ -6787,55 +6924,106 @@ function wypelnijPrzystanki(){
             "przystanekSelect"
         );
 
-    const k=
-        kierunekBazowy();
+    const listaWyboru=
+        listaWyboruPrzystankow262();
 
-    const lista=
-        k?.przystanki||
-        [];
-
-    if(
-        aktualnyPrzystanek<0||
-        aktualnyPrzystanek>=
-            lista.length
-    ){
-        aktualnyPrzystanek=0;
+    if(!listaWyboru.length){
+        select.innerHTML="";
+        select.disabled=true;
+        return;
     }
 
     select.innerHTML="";
 
-    lista.forEach(
-        (p,index)=>{
+    listaWyboru.forEach(
+        (el,index)=>{
+
+            const p=el.p;
 
             const option=
                 document.createElement(
                     "option"
                 );
 
+            /*
+               value ma indeks pozycji w liście wyboru.
+               W data-* trzymamy indeks logiczny wspólnej trasy.
+            */
             option.value=
                 String(index);
 
+            option.dataset.logicznyIndex=
+                String(
+                    el.logicznyIndex
+                );
+
+            option.dataset.fizycznyKey=
+                el.key;
+
             option.textContent=
                 String(
-                    p.nazwa||""
+                    p?.nazwa||
+                    ""
                 )+
                 " "+
                 String(
-                    p.nr||""
+                    p?.nr||
+                    ""
                 );
 
             select.appendChild(option);
         }
     );
 
-    select.disabled=
-        !lista.length;
+    let wybranyIndex=
+        listaWyboru.findIndex(
+            el=>
+                wybranyFizycznyPrzystanek262&&
+                el.key===
+                    wybranyFizycznyPrzystanek262.key
+        );
 
+    if(wybranyIndex<0){
+        wybranyIndex=
+            listaWyboru.findIndex(
+                el=>
+                    el.logicznyIndex===
+                    aktualnyPrzystanek
+            );
+    }
+
+    if(wybranyIndex<0){
+        wybranyIndex=0;
+    }
+
+    const wybrany=
+        listaWyboru[
+            wybranyIndex
+        ];
+
+    aktualnyPrzystanek=
+        wybrany.logicznyIndex;
+
+    if(
+        !wybranyFizycznyPrzystanek262||
+        wybranyFizycznyPrzystanek262.key!==
+            wybrany.key
+    ){
+        wybranyFizycznyPrzystanek262={
+            ...wybrany.p,
+            key:wybrany.key,
+            logicznyIndex:
+                wybrany.logicznyIndex
+        };
+    }
+
+    select.disabled=false;
     select.value=
         String(
-            aktualnyPrzystanek
+            wybranyIndex
         );
 }
+
 
 
 /* =========================================================
@@ -11918,10 +12106,23 @@ function daneKursowAktywnego206(){
                 aktualnyKierunek
             );
 
+    /*
+       v262:
+       do wyszukiwania kursów używamy rzeczywiście wybranego słupka,
+       np. PKP TORUŃSKA 01, a nie reprezentanta wspólnego punktu
+       (np. PKP TORUŃSKA 03) użytego tylko do rysowania osi trasy.
+    */
     const aktywnyBaza=
-        baza?.przystanki?.[
-            aktywnyIndex
-        ];
+        (
+            trybRoznychTrasDni256&&
+            wybranyFizycznyPrzystanek262&&
+            wybranyFizycznyPrzystanek262.logicznyIndex===
+                aktywnyIndex
+        )
+            ? wybranyFizycznyPrzystanek262
+            : baza?.przystanki?.[
+                aktywnyIndex
+            ];
 
     if(
         !aktywnyBaza||
