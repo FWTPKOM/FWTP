@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 247
+     WERSJA: 249
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3749,12 +3749,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 247
+   WERSJA: 249
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "247";
+const WERSJA_TABLICZKI = "249";
 console.log(
-    "FWTP Tabliczka — wersja 247 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 249 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -4936,6 +4936,170 @@ async function pobierzLinie(
    WCZYTANIE
    ========================================================= */
 
+
+/* =========================================================
+   WERSJA 249 — RÓŻNE TRASY W RÓŻNE DNI = WARIANT TRASY
+   ========================================================= */
+
+function norm249(v){
+    return String(v||"").trim().toLocaleUpperCase("pl-PL").replace(/\s+/g," ");
+}
+
+function kluczStop249(p,index){
+    const lp=String(p?.lp??"").trim();
+    return norm249(p?.nazwa)+"|"+(lp ? "LP:"+lp : "NR:"+String(p?.nr||index).trim());
+}
+
+function przebieg249(k){
+    return (Array.isArray(k?.przystanki)?k.przystanki:[])
+        .filter(p=>String(p?.typ||"STOP").trim().toUpperCase()!=="TECH")
+        .map((p,i)=>kluczStop249(p,i));
+}
+
+function opisDnia249(n){
+    const s=String(n||"").toLocaleLowerCase("pl-PL");
+    if(s.includes("sobot")&&(s.includes("niedziel")||s.includes("świę"))) return "w soboty, niedziele i święta";
+    if(s.includes("sobot")) return "w soboty";
+    if(s.includes("niedziel")||s.includes("świę")) return "w niedziele i święta";
+    if(s.includes("poniedział")||s.includes("piątk")||s.includes("powszed")) return "w dni powszednie";
+    return "w tym rodzaju dnia";
+}
+
+function wolnaLitera249(zajete){
+    for(let c=66;c<=90;c++){
+        const l=String.fromCharCode(c);
+        if(!zajete.has(l)){
+            zajete.add(l);
+            return l;
+        }
+    }
+    return "";
+}
+
+function dodajWariantyTrasZaleznychOdDnia249(){
+
+    const rozklady=Array.isArray(daneLinii?.rozkłady)?daneLinii.rozkłady:[];
+    if(rozklady.length<2) return;
+
+    const maxK=Math.max(0,...rozklady.map(r=>Array.isArray(r?.kierunki)?r.kierunki.length:0));
+
+    for(let ki=0;ki<maxK;ki++){
+
+        /*
+           Nie dotykamy kierunku, który ma już własny system wariantów.
+           Dzięki temu 131, 401, 126 itd. zachowują dotychczasową logikę.
+        */
+        let maWlasne=false;
+
+        for(const r of rozklady){
+            if(Array.isArray(r?.warianty)&&r.warianty.length){
+                maWlasne=true;
+                break;
+            }
+
+            const k=r?.kierunki?.[ki];
+            for(const p of (Array.isArray(k?.przystanki)?k.przystanki:[])){
+                if((p?.kursy||[]).some(x=>String(x?.wariant||"").trim())){
+                    maWlasne=true;
+                    break;
+                }
+            }
+            if(maWlasne) break;
+        }
+
+        if(maWlasne) continue;
+
+        const wpisy=[];
+
+        rozklady.forEach((r,ri)=>{
+            const k=r?.kierunki?.[ki];
+            if(!k) return;
+
+            const p=przebieg249(k);
+            if(!p.length) return;
+
+            wpisy.push({
+                rozklad:r,
+                rozkladIndex:ri,
+                kierunek:k,
+                przebieg:p,
+                sygnatura:p.join(">")
+            });
+        });
+
+        if(wpisy.length<2) continue;
+
+        const unikalne=[...new Set(wpisy.map(x=>x.sygnatura))];
+        if(unikalne.length<2) continue;
+
+        /* pierwszy rozkład (zwykle dzień powszedni) = przebieg podstawowy */
+        const baza=wpisy[0];
+        const bazaSet=new Set(baza.przebieg);
+        const zajete=new Set(["A"]);
+        const literySygnatur=new Map();
+
+        for(const wpis of wpisy.slice(1)){
+
+            if(wpis.sygnatura===baza.sygnatura) continue;
+
+            let litera=literySygnatur.get(wpis.sygnatura);
+
+            if(!litera){
+                litera=wolnaLitera249(zajete);
+                if(!litera) continue;
+                literySygnatur.set(wpis.sygnatura,litera);
+            }
+
+            const dodatkowe=[];
+
+            (wpis.kierunek?.przystanki||[]).forEach((p,i)=>{
+                if(String(p?.typ||"STOP").trim().toUpperCase()==="TECH") return;
+
+                if(!bazaSet.has(kluczStop249(p,i))){
+                    const n=String(p?.nazwa||"").trim();
+                    if(n&&!dodatkowe.includes(n)) dodatkowe.push(n);
+                }
+            });
+
+            const kiedy=opisDnia249(wpis.rozklad?.nazwa);
+
+            /*
+               Słowo "przez" jest celowe — istniejący mechanizm wariantów
+               rozpoznaje taki opis jako rzeczywisty wariant przebiegu.
+            */
+            const opis=dodatkowe.length
+                ? "kurs przez "+dodatkowe.join(", ")+" ("+kiedy+")"
+                : "kurs przez odmienny przebieg ("+kiedy+")";
+
+            if(!Array.isArray(wpis.rozklad.warianty)){
+                wpis.rozklad.warianty=[];
+            }
+
+            wpis.rozklad.warianty.push({
+                litera,
+                opis,
+                _wariantDnia249:true
+            });
+
+            /*
+               Ta sama litera trafia do każdego wystąpienia każdego kursu
+               w tym kierunku. Dzięki temu automatycznie działa:
+               - litera przy minucie,
+               - legenda,
+               - "Trasa w kursach „b”" na liście przystanków.
+            */
+            (wpis.kierunek?.przystanki||[]).forEach(p=>{
+                (p?.kursy||[]).forEach(kurs=>{
+                    if(!String(kurs?.wariant||"").trim()){
+                        kurs.wariant=litera;
+                        kurs._wariantDnia249=true;
+                    }
+                });
+            });
+        }
+    }
+}
+
 async function wczytajLinie(){
 
     pokazLoaderTabliczki();
@@ -4970,6 +5134,12 @@ async function wczytajLinie(){
                 aktualnaLinia,
                 wybranaData
             );
+
+        /*
+           v249: wykonujemy to od razu po pobraniu JSON-u,
+           zanim powstaną cache kierunków, kursów, wariantów i trasy.
+        */
+        dodajWariantyTrasZaleznychOdDnia249();
 
         ustawLoaderTabliczki(
             45,
@@ -19234,167 +19404,10 @@ window.addEventListener(
             zaplanujLegende237(
                 tabliczka
             );
-            zaplanujPoprawKoniecTrasy247();
         }
     }
 );
 
-
-
-/* =========================================================
-   WERSJA 247 — USUWANIE FAŁSZYWEGO DALSZEGO ODCINKA TRASY
-   ========================================================= */
-
-function poprawKoniecTrasyWedlugKierunku247(tabliczka){
-
-    if(!tabliczka){
-        return;
-    }
-
-    const kierunek=
-        String(
-            kierunekZDokladnychKursow206() || ""
-        ).trim();
-
-    if(!kierunek){
-        return;
-    }
-
-    const norm=s=>
-        String(s||"")
-            .trim()
-            .toLocaleUpperCase("pl-PL");
-
-    const cel=norm(kierunek);
-
-    const stops=
-        Array.from(
-            tabliczka.querySelectorAll(
-                ".panel-prawy .trasa-stop"
-            )
-        ).filter(
-            el=>
-                el.offsetParent!==null &&
-                String(el.dataset.typ||"").toUpperCase()!=="TECH"
-        );
-
-    if(!stops.length){
-        return;
-    }
-
-    /*
-       Szukamy OSTATNIEGO wystąpienia rzeczywistego kierunku.
-       Jest to ważne dla nazw powtarzających się na trasie.
-    */
-    let terminal=null;
-
-    for(const el of stops){
-
-        const nazwaEl=
-            el.querySelector(
-                ".trasa-nazwa"
-            );
-
-        const nazwa=norm(
-            nazwaEl
-                ? nazwaEl.textContent
-                : el.textContent
-        );
-
-        if(nazwa===cel){
-            terminal=el;
-        }
-    }
-
-    if(!terminal){
-        return;
-    }
-
-    let zaTerminalem=false;
-
-    for(const el of stops){
-
-        if(zaTerminalem){
-            /*
-               Nie usuwamy elementu z danych ani z listy wyboru.
-               Ukrywamy tylko błędnie dopisany fragment przebiegu
-               na wydrukowanej tabliczce.
-            */
-            el.style.setProperty(
-                "display",
-                "none",
-                "important"
-            );
-        }
-
-        if(el===terminal){
-            zaTerminalem=true;
-        }
-    }
-
-    /*
-       Rzeczywisty terminal ma styl końca trasy.
-    */
-    const nazwaTerminala=
-        terminal.querySelector(
-            ".trasa-nazwa"
-        );
-
-    if(nazwaTerminala){
-        nazwaTerminala.style.setProperty(
-            "font-weight",
-            "800",
-            "important"
-        );
-    }
-}
-
-function zaplanujPoprawKoniecTrasy247(){
-
-    const tabliczka=
-        document.querySelector(
-            "#wynik .tabliczka"
-        );
-
-    if(!tabliczka){
-        return;
-    }
-
-    requestAnimationFrame(
-        ()=>{
-            requestAnimationFrame(
-                ()=>{
-                    poprawKoniecTrasyWedlugKierunku247(
-                        tabliczka
-                    );
-                }
-            );
-        }
-    );
-}
-
-/*
-   Podpinamy się pod istniejące renderowanie bez ingerowania w jego logikę.
-*/
-document.addEventListener(
-    "change",
-    ()=>{
-        setTimeout(
-            zaplanujPoprawKoniecTrasy247,
-            0
-        );
-    }
-);
-
-window.addEventListener(
-    "load",
-    ()=>{
-        setTimeout(
-            zaplanujPoprawKoniecTrasy247,
-            200
-        );
-    }
-);
 </script>
 
 </body>
