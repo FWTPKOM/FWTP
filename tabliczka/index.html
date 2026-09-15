@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 312
+     WERSJA: 313
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -15088,6 +15088,50 @@ function wstawGalezieWPrzebieg304(lista){
         wynik.splice(rejoinIndex,0,...blok);
     }
 
+
+    /*
+       313:
+       Gdy aktywny przystanek jest już wewnątrz odnogi, punkt,
+       w którym ta odnoga zaczynała się, jest już za nami.
+       Usuwamy WYŁĄCZNIE ten jeden wspólny przystanek przed
+       separatorem (dla 134: KS POLONEZ). Nie przycinamy listy
+       i nie usuwamy żadnego przystanku samej odnogi.
+    */
+    const aktywna313=
+        aktywnaGalaz313();
+
+    if(aktywna313){
+
+        const separatorIndex=
+            wynik.findIndex(
+                e=>
+                    e?._separator304&&
+                    literyTejSamejGalezi313(
+                        e.stan304,
+                        aktywna313
+                    )
+            );
+
+        if(separatorIndex>0){
+
+            const przedSeparatorem=
+                wynik[
+                    separatorIndex-1
+                ];
+
+            if(
+                przedSeparatorem&&
+                !przedSeparatorem._separator304&&
+                !przedSeparatorem._galaz304
+            ){
+                wynik.splice(
+                    separatorIndex-1,
+                    1
+                );
+            }
+        }
+    }
+
     return wynik;
 }
 
@@ -16979,11 +17023,7 @@ function czyOstatniWidocznyPrzystanek210(
 
 
 
-function aktywnyJestWewnatrzGalezi312(galaz){
-
-    if(!galaz){
-        return false;
-    }
+function aktywnaGalaz313(){
 
     const aktywny=
         typeof aktywnyFizycznyPrzystanek276==="function"
@@ -16991,44 +17031,48 @@ function aktywnyJestWewnatrzGalezi312(galaz){
             : wybranyFizycznyPrzystanek262;
 
     if(!aktywny){
-        return false;
+        return null;
     }
 
-    const aktywnaNazwa=
+    const nazwa=
         logicznaNazwaPrzystanku298(
             aktywny
         );
 
-    if(!aktywnaNazwa){
-        return false;
+    if(!nazwa){
+        return null;
     }
 
     return (
-        (galaz?.przystanki||[])
-            .some(
-                element=>
-                    logicznaNazwaPrzystanku298(
-                        element?.p||element
-                    )===aktywnaNazwa
-            )
+        galezieWewnetrzne302()
+            .find(
+                galaz=>
+                    (galaz?.przystanki||[])
+                        .some(
+                            element=>
+                                logicznaNazwaPrzystanku298(
+                                    element?.p||element
+                                )===nazwa
+                        )
+            )||
+        null
     );
 }
 
 
-function stanNalezyDoAktywnejGalezi312(stan){
+function literyTejSamejGalezi313(stan,galaz){
 
     if(
         !stan||
         stan.typ!=="wariant"||
-        !Array.isArray(stan.litery)||
-        !stan.litery.length
+        !galaz
     ){
         return false;
     }
 
     const litery=
         new Set(
-            stan.litery
+            (stan.litery||[])
                 .map(
                     x=>
                         String(x||"")
@@ -17039,43 +17083,13 @@ function stanNalezyDoAktywnejGalezi312(stan){
         );
 
     return (
-        galezieWewnetrzne302()
+        (galaz?.litery||[])
             .some(
-                galaz=>{
-
-                    if(
-                        !aktywnyJestWewnatrzGalezi312(
-                            galaz
-                        )
-                    ){
-                        return false;
-                    }
-
-                    return (
-                        (galaz?.litery||[])
-                            .some(
-                                x=>
-                                    litery.has(
-                                        String(x||"")
-                                            .trim()
-                                            .toLowerCase()
-                                    )
-                            )
-                    );
-                }
-            )
-    );
-}
-
-
-function aktywnyJestWJakiejkolwiekGalezi312(){
-
-    return (
-        galezieWewnetrzne302()
-            .some(
-                galaz=>
-                    aktywnyJestWewnatrzGalezi312(
-                        galaz
+                x=>
+                    litery.has(
+                        String(x||"")
+                            .trim()
+                            .toLowerCase()
                     )
             )
     );
@@ -17090,13 +17104,8 @@ function renderSeparator304(stan){
 
     if(stan.typ==="wszystkie"){
 
-        /*
-           Po przejechaniu rozjazdu nie trzeba również pisać
-           "Trasa we wszystkich kursach". Nie usuwamy jednak żadnego
-           przystanku ani żadnej gałęzi.
-        */
         if(
-            aktywnyJestWJakiejkolwiekGalezi312()
+            aktywnaGalaz313()
         ){
             return"";
         }
@@ -17116,14 +17125,14 @@ function renderSeparator304(stan){
         stan.litery.length
     ){
 
-        /*
-           312:
-           Jesteśmy już wewnątrz tej odnogi, więc nie trzeba ponownie
-           pisać "Trasa w kursach ...". Sama odnoga pozostaje bez zmian.
-        */
+        const aktywna=
+            aktywnaGalaz313();
+
         if(
-            stanNalezyDoAktywnejGalezi312(
-                stan
+            aktywna&&
+            literyTejSamejGalezi313(
+                stan,
+                aktywna
             )
         ){
             return"";
@@ -17789,6 +17798,7 @@ function renderTrasaKolumna(
                         separator+
                         '<li class="trasa-stop'+
                         (
+                            !element?._galaz304&&
                             czyOstatniWidocznyPrzystanek210(
                                 fragment,
                                 element
@@ -17829,11 +17839,13 @@ function renderTrasaKolumna(
                                 : ''
                         )+
                         (
+                            !element?._galaz304&&
                             index===pierwszyIndexTrasy
                                 ? ' kraniec-poczatek'
                                 : ''
                         )+
                         (
+                            !element?._galaz304&&
                             index===ostatniIndexTrasy
                                 ? ' kraniec-koniec'
                                 : ''
