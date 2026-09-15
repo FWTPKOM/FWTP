@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 287
+     WERSJA: 288
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -11541,6 +11541,14 @@ function danePrzebiegowWariantowych(){
 
 
 /* =========================================================
+   WERSJA 288 — BAZA 287
+   =========================================================
+   Usunięto wyłącznie zdublowane drugie wyświetlenie gałęzi b,c.
+   Pierwsza gałąź b,c z 287 pozostaje.
+   Obsługa fizycznych przystanków nie została zmieniona.
+   ========================================================= */
+
+/* =========================================================
    WERSJA 287 — BAZA 285
    =========================================================
    Naprawa brakującej gałęzi b,c:
@@ -16748,6 +16756,126 @@ function czyOstatniWidocznyPrzystanek210(
 }
 
 
+
+function usunPodwojnaGalazBC134_288(kolumna){
+
+    if(
+        !kolumna||
+        String(
+            daneLinii?.linia||
+            numerLinii||
+            ""
+        ).trim()!=="134"
+    ){
+        return;
+    }
+
+    const tytuly=
+        Array.from(
+            kolumna.querySelectorAll(
+                ".trasa-separator-title, .trasa-extra-title"
+            )
+        );
+
+    const norm=t=>
+        String(t||"")
+            .replace(/[„”"]/g,"")
+            .replace(/\s+/g," ")
+            .trim()
+            .toLowerCase();
+
+    const bc=
+        tytuly.filter(
+            el=>{
+                const t=norm(el.textContent);
+                return(
+                    t.includes("trasa w kursach")&&
+                    t.includes("b")&&
+                    t.includes("c")
+                );
+            }
+        );
+
+    /*
+       Jeżeli b,c występuje więcej niż raz, zostawiamy PIERWSZY blok,
+       czyli ten dołączony w 287 zaraz po TORUŃSKIEJ.
+       Usuwamy drugi blok razem z jego przystankami aż do następnego
+       nagłówka trasy. Nie dotykamy "Trasa we wszystkich kursach".
+    */
+    for(let i=1;i<bc.length;i++){
+
+        let start=
+            bc[i].closest(
+                "li, .trasa-extra"
+            );
+
+        if(!start) continue;
+
+        if(
+            start.classList.contains(
+                "trasa-extra"
+            )
+        ){
+            start.remove();
+            continue;
+        }
+
+        let n=start.nextElementSibling;
+        start.remove();
+
+        while(n){
+
+            const next=
+                n.nextElementSibling;
+
+            if(
+                n.classList.contains(
+                    "trasa-separator"
+                )
+            ){
+                break;
+            }
+
+            n.remove();
+            n=next;
+        }
+    }
+}
+
+
+
+/* =========================================================
+   WERSJA 288 — USUNIĘCIE PODWÓJNEJ GAŁĘZI b,c
+   =========================================================
+   W 287 gałąź b,c jest już dołączona do głównej listy przez
+   _galaz134BC287. Stara logika renderera próbowała dodatkowo
+   narysować ją drugi raz jako osobny przebieg.
+
+   Ta funkcja służy WYŁĄCZNIE do prezentacyjnego rozpoznania,
+   że b,c zostało już umieszczone na głównej liście.
+   ========================================================= */
+function czyGalazBC134JuzNaGlownejLiscie288(lista){
+
+    if(
+        String(
+            daneLinii?.linia||
+            numerLinii||
+            ""
+        ).trim()!=="134"
+    ){
+        return false;
+    }
+
+    return(
+        Array.isArray(lista)&&
+        lista.some(
+            element=>
+                element?._galaz134BC287===true
+        )
+    );
+}
+
+
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -17432,6 +17560,19 @@ function renderTrasaKolumna(
         )+
         '</div>'
     );
+
+    /*
+       v288: po zakończeniu renderowania usuń wyłącznie drugi,
+       zdublowany blok b,c. Przystanki i rozkłady pozostają z v287.
+    */
+    requestAnimationFrame(
+        ()=>{
+            usunPodwojnaGalazBC134_288(
+                kolumna
+            );
+        }
+    );
+
 }
 
 
