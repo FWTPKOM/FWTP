@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 192
+     WERSJA: 193
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2284,12 +2284,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 192
+   WERSJA: 193
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "192";
+const WERSJA_TABLICZKI = "193";
 console.log(
-    "FWTP Tabliczka — wersja 192 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 193 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -13321,14 +13321,30 @@ function czyRozkladNachodziNaListePrzystankow(
             ".panel-lewy"
         );
 
-    const grid=
-        tabliczka.querySelector(
-            ".rozklady-grid"
+    const dni=
+        Array.from(
+            tabliczka.querySelectorAll(
+                ".rozklady-grid > .dzien"
+            )
+        )
+        .filter(
+            dzien=>{
+
+                const style=
+                    getComputedStyle(
+                        dzien
+                    );
+
+                return(
+                    style.display!=="none"&&
+                    style.visibility!=="hidden"
+                );
+            }
         );
 
     if(
         !panel||
-        !grid
+        !dni.length
     ){
         return false;
     }
@@ -13336,19 +13352,48 @@ function czyRozkladNachodziNaListePrzystankow(
     const panelRect=
         panel.getBoundingClientRect();
 
-    const gridRect=
-        grid.getBoundingClientRect();
+    /*
+       WERSJA 193:
+       NIE mierzymy już:
+       - .rozklady-wrap
+       - .rozklady-grid
+       - ich scrollWidth
+
+       Te kontenery mogą być szersze niż faktyczne ramki tabel,
+       co dokładnie widać w DevTools jako niebieski obszar
+       wystający za ostatni typ dnia.
+
+       Mierzymy wyłącznie rzeczywiste .dzien.
+    */
+    let prawaKrawedzRozkladu=
+        -Infinity;
+
+    dni.forEach(
+        dzien=>{
+
+            const rect=
+                dzien.getBoundingClientRect();
+
+            if(
+                rect.right>
+                prawaKrawedzRozkladu
+            ){
+                prawaKrawedzRozkladu=
+                    rect.right;
+            }
+        }
+    );
 
     /*
-       2 px tolerancji na linię podziału.
-       Jeśli prawa krawędź tabel wychodzi poza lewy panel,
-       oznacza to dokładnie problem widoczny np. na 523.
+       Rozkład uznajemy za niemieszczący się dopiero wtedy,
+       gdy RAMKA ostatniej rzeczywistej tabeli wychodzi poza
+       dostępny panel lewy.
+
+       Niebieski zapas .rozklady-wrap nie ma już znaczenia.
     */
     return(
-        gridRect.right>
-            panelRect.right-2||
-        grid.scrollWidth>
-            panel.clientWidth-34
+        prawaKrawedzRozkladu>
+        panelRect.right-1
     );
 }
 
@@ -13804,6 +13849,75 @@ function dopasuj9KursowDo246px191(
                     tabliczka
                 );
             }
+        }
+    );
+}
+
+
+/* =========================================================
+   WERSJA 193 — DIAGNOSTYKA RZECZYWISTEJ SZEROKOŚCI TABEL
+   ========================================================= */
+function diagnostykaSzerokosciRozkladu193(
+    tabliczka
+){
+    if(!tabliczka){
+        return;
+    }
+
+    const panel=
+        tabliczka.querySelector(
+            ".panel-lewy"
+        );
+
+    const wrap=
+        tabliczka.querySelector(
+            ".rozklady-wrap"
+        );
+
+    const dni=
+        Array.from(
+            tabliczka.querySelectorAll(
+                ".rozklady-grid > .dzien"
+            )
+        );
+
+    if(
+        !panel||
+        !dni.length
+    ){
+        return;
+    }
+
+    const panelRect=
+        panel.getBoundingClientRect();
+
+    const wrapRect=
+        wrap?.getBoundingClientRect();
+
+    const ostatniaPrawa=
+        Math.max(
+            ...dni.map(
+                d=>
+                    d.getBoundingClientRect().right
+            )
+        );
+
+    console.log(
+        "FWTP v193 — pomiar rozkładu:",
+        {
+            panelPrawa:
+                panelRect.right,
+            wrapPrawa:
+                wrapRect?.right,
+            rzeczywistaPrawaTabel:
+                ostatniaPrawa,
+            zapasWrap:
+                wrapRect
+                    ? wrapRect.right-ostatniaPrawa
+                    : 0,
+            nachodzi:
+                ostatniaPrawa>
+                panelRect.right-1
         }
     );
 }
@@ -15948,6 +16062,25 @@ window.addEventListener("load",()=>{
 window.addEventListener("resize",()=>{
     requestAnimationFrame(synchronizujGodziny187);
 });
+
+/* WERSJA 193 — diagnostyka po pełnym ułożeniu strony */
+window.addEventListener(
+    "load",
+    ()=>{
+        setTimeout(
+            ()=>{
+                document
+                    .querySelectorAll(
+                        ".tabliczka"
+                    )
+                    .forEach(
+                        diagnostykaSzerokosciRozkladu193
+                    );
+            },
+            200
+        );
+    }
+);
 </script>
 
 </body>
