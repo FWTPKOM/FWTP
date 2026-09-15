@@ -1,34 +1,7 @@
-/* =========================================================
-   WERSJA 300
-
-   POPRAWKA:
-   Schemat wariantów jest liczony z pełnego JSON linii,
-   ze wszystkich typów dni jednocześnie.
-
-   Wybrana data może zmieniać WYŁĄCZNIE odjazdy.
-   Nie może zmieniać katalogu przebiegów trasy.
-
-   Nie ma ręcznych wyjątków dla linii 134.
-   ========================================================= */
-
-/* =========================================================
-   WERSJA 299 — WARIANTY NIEZALEŻNE OD DATY
-
-   Lista przebiegu zbiera kursy ze WSZYSTKICH rozkładów/dni
-   dla wybranego kierunku.
-
-   Wybrana data wpływa tylko na odjazdy, nie na to, jakie
-   warianty trasy są widoczne.
-
-   Nadal:
-   - fizyczny przystanek: NAZWA + NR
-   - schemat przebiegu: kolejność NAZW
-   ========================================================= */
-
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 300
+     WERSJA: 301
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -11982,38 +11955,6 @@ function danePrzebiegowWariantowych(){
 
 
 
-/* =========================================================
-   WERSJA 291 — BAZA 287
-   =========================================================
-   Naprawa duplikatu wykonana w jego źródle:
-
-   - zachowana poprawna główna gałąź "b,c" z wersji 287,
-   - zachowane renderWydluzeniaTrasy() i podział kolumn,
-   - pomijany jest WYŁĄCZNIE stary dodatkowy wariant "b"
-     renderowany drugi raz dla linii 134.
-
-   Nie zmieniono obsługi fizycznych przystanków.
-   ========================================================= */
-
-/* =========================================================
-   WERSJA 287 — BAZA 285
-   =========================================================
-   Naprawa brakującej gałęzi b,c:
-   tym razem przystanki są faktycznie pobierane z drugiego
-   rzeczywistego przebiegu w JSON i wstawiane do listy.
-
-   Nie zmieniono obsługi wyboru fizycznego przystanku.
-   ========================================================= */
-
-/* =========================================================
-   WERSJA 285 — KOREKTA GRANIC ROZGAŁĘZIENIA 134
-   BAZA: działająca wersja 283.
-   NIE zmienia przystanków, URL, dat ani tabeli godzin.
-   ========================================================= */
-
-
-
-
 function stanTrasyNaPrzystanku(element){
 
     const przebiegi=
@@ -16393,167 +16334,172 @@ function renderWydluzeniaTrasy(){
         return"";
     }
 
-    return dane.wydluzenia
-        .map(
-            wariant=>{
+    /*
+       Wszystkie istniejące przebiegi są widoczne zawsze.
+       Nie filtrujemy ich według wariantów dostępnych na
+       aktualnie wybranym przystanku ani według wybranej daty.
 
-                const litera=
-                    String(
-                        wariant.litera||""
+       Dodatkowo identyczne przebiegi łączymy w jedną gałąź.
+       Jeżeli np. "b" i "c" jadą dokładnie tak samo, dostajemy:
+           Trasa w kursach „b”, „c”
+       zamiast dwóch osobnych kopii.
+    */
+    const grupy=
+        new Map();
+
+    dane.wydluzenia.forEach(
+        wariant=>{
+
+            const lista=
+                listaWydluzeniaBezPowtorzonegoKranca(
+                    wariant,
+                    dane.baza
+                );
+
+            if(!lista.length){
+                return;
+            }
+
+            const klucz=
+                lista
+                    .map(
+                        element=>
+                            logicznaNazwaPrzystanku298(
+                                element?.p||
+                                element
+                            )
                     )
-                    .trim()
-                    .toLowerCase();
+                    .filter(Boolean)
+                    .join(">");
 
-                /*
-                   v206:
-                   nie pokazujemy bocznej gałęzi wariantu,
-                   którego nie ma w kursach aktywnego słupka.
-                */
-                if(
-                    litera&&
-                    !aktywnyMaWariant206(
-                        litera
-                    )
-                ){
-                    return"";
-                }
+            if(!klucz){
+                return;
+            }
 
-                const przystankiWydluzenia=
-                    listaWydluzeniaBezPowtorzonegoKranca(
-                        wariant,
-                        dane.baza
-                    );
-
-                /*
-                 * Aktywną pozycję liczymy WSPÓLNĄ funkcją.
-                 * Ta sama decyzja jest używana również do tego,
-                 * czy główna lista ma wyłączyć wcześniejszy aktywny wpis.
-                 */
-                const aktywnaPozycja=
-                    pozycjaAktywnegoWWydluzeniu(
-                        wariant,
-                        dane
-                    );
-
-                const wiersze=
-                    przystankiWydluzenia
-                        .map(
-                            (element,pozycja)=>{
-
-                                const p=
-                                    element.p;
-
-                                const przed=
-                                    aktywnaPozycja>=0&&
-                                    pozycja<
-                                        aktywnaPozycja;
-
-                                const wybrany=
-                                    aktywnaPozycja>=0&&
-                                    pozycja===
-                                        aktywnaPozycja;
-
-                                let czas=null;
-
-                                /*
-                                   Dokładnie jak w zwykłej liście:
-                                   - przed aktywnym: bez czasu,
-                                   - aktywny: 0,
-                                   - po aktywnym: normalny czas.
-                                */
-                                if(!przed){
-
-                                    if(wybrany){
-                                        czas=0;
-                                    }
-                                    else{
-                                        czas=
-                                            czasWariantuNaPrzystanku(
-                                                wariant.litera,
-                                                element
-                                            );
-                                    }
-                                }
-
-                                return(
-                                    '<li class="trasa-extra-stop'+
-                                    (
-                                        przed
-                                            ? ' przed'
-                                            : ''
-                                    )+
-                                    (
-                                        wybrany
-                                            ? ' wybrany'
-                                            : ''
-                                    )+
-                                    (
-                                        czyNZ(p)
-                                            ? ' nz'
-                                            : ''
-                                    )+
-                                    '">'+
-                                    '<span class="trasa-czas">'+
-                                    (
-                                        czas===null
-                                            ? ''
-                                            : escapeHtml(
-                                                String(czas)
-                                            )
-                                    )+
-                                    '</span>'+
-                                    '<span class="trasa-os"></span>'+
-                                    '<span class="trasa-nazwa">'+
-                                    (
-                                        wybrany
-                                            ? '<span class="trasa-nazwa-aktywna">'+
-                                              escapeHtml(
-                                                  String(
-                                                      p?.nazwa||""
-                                                  ).toUpperCase()
-                                              )+
-                                              '</span>'
-                                            : escapeHtml(
-                                                  String(
-                                                      p?.nazwa||""
-                                                  ).toUpperCase()
-                                              )
-                                    )+
-                                    '</span>'+
-                                    '<span class="trasa-nz">'+
-                                    (
-                                        czyNZ(p)
-                                            ? 'ż'
-                                            : ''
-                                    )+
-                                    '</span>'+
-                                    '</li>'
-                                );
-                            }
-                        )
-                        .join("");
-
-                if(
-                    !przystankiWydluzenia.length
-                ){
-                    return"";
-                }
-
-                return(
-                    '<div class="trasa-extra">'+
-                    '<div class="trasa-extra-title">'+
-                    'Trasa w kursach „'+
-                    escapeHtml(litera)+
-                    '”'+
-                    '</div>'+
-                    '<ul class="trasa-extra-lista">'+
-                    wiersze+
-                    '</ul>'+
-                    '</div>'
+            if(!grupy.has(klucz)){
+                grupy.set(
+                    klucz,
+                    {
+                        litery:new Set(),
+                        przystanki:lista
+                    }
                 );
             }
-        )
-        .join("");
+
+            const litera=
+                String(
+                    wariant?.litera||
+                    ""
+                )
+                .trim()
+                .toLowerCase();
+
+            if(litera){
+                grupy.get(klucz)
+                    .litery
+                    .add(litera);
+            }
+        }
+    );
+
+    return Array.from(
+        grupy.values()
+    )
+    .map(
+        grupa=>{
+
+            const litery=
+                Array.from(
+                    grupa.litery
+                );
+
+            const tytul=
+                litery
+                    .map(
+                        litera=>
+                            "„"+
+                            escapeHtml(litera)+
+                            "”"
+                    )
+                    .join(", ");
+
+            const wiersze=
+                grupa.przystanki
+                    .map(
+                        element=>{
+
+                            const p=
+                                element?.p||
+                                element;
+
+                            /*
+                               Ta gałąź jest schematem całej linii,
+                               więc jej widoczność nie zależy od dnia.
+                               Czas pokazujemy tylko wtedy, gdy można
+                               go policzyć dla aktualnego widoku.
+                            */
+                            let czas=null;
+
+                            for(const litera of litery){
+
+                                czas=
+                                    czasWariantuNaPrzystanku(
+                                        litera,
+                                        element
+                                    );
+
+                                if(czas!==null){
+                                    break;
+                                }
+                            }
+
+                            return(
+                                '<li class="trasa-extra-stop">'+
+                                '<span class="trasa-czas">'+
+                                (
+                                    czas===null
+                                        ? ''
+                                        : escapeHtml(
+                                            String(czas)
+                                        )
+                                )+
+                                '</span>'+
+                                '<span class="trasa-os"></span>'+
+                                '<span class="trasa-nazwa">'+
+                                escapeHtml(
+                                    String(
+                                        p?.nazwa||
+                                        ""
+                                    ).toUpperCase()
+                                )+
+                                '</span>'+
+                                '<span class="trasa-nz">'+
+                                (
+                                    czyNZ(p)
+                                        ? 'ż'
+                                        : ''
+                                )+
+                                '</span>'+
+                                '</li>'
+                            );
+                        }
+                    )
+                    .join("");
+
+            return(
+                '<div class="trasa-extra">'+
+                '<div class="trasa-extra-title">'+
+                'Trasa w kursach '+
+                tytul+
+                '</div>'+
+                '<ul class="trasa-extra-lista">'+
+                wiersze+
+                '</ul>'+
+                '</div>'
+            );
+        }
+    )
+    .join("");
 }
 
 
