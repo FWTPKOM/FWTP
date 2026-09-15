@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 212
+     WERSJA: 213
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2442,12 +2442,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 212
+   WERSJA: 213
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "212";
+const WERSJA_TABLICZKI = "213";
 console.log(
-    "FWTP Tabliczka — wersja 212 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 213 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -5448,6 +5448,142 @@ function publiczneLiteryWariantowAktualnegoKierunku(){
 
 
 
+
+/* =========================================================
+   WERSJA 213
+   A = „KURS BEZ PODJAZDÓW” I >= 75% KURSÓW NA AKTYWNYM PRZYSTANKU
+
+   Liczymy WYŁĄCZNIE kursy, które są faktycznie dostępne na aktualnie
+   wybranym przystanku i w aktualnie pokazywanych grupach dni.
+   ========================================================= */
+
+function czyOpisABezPodjazdow213(){
+
+    const mapa=
+        mapaWariantow();
+
+    const opis=
+        String(
+            mapa.get("A")||
+            mapa.get("a")||
+            ""
+        )
+        .trim()
+        .toLocaleLowerCase("pl");
+
+    return(
+        opis.includes(
+            "bez podjazd"
+        )
+    );
+}
+
+
+function udzialWariantuANaAktywnymPrzystanku213(){
+
+    const kursy=
+        new Map();
+
+    /*
+       Bierzemy dokładnie te same grupy dni i dokładnie tę samą funkcję
+       pobierania kursów, z której korzysta tabliczka przy minutach.
+       Dzięki temu np. URSUS-NIEDŹWIADEK liczy tylko kursy widoczne
+       właśnie na URSUS-NIEDŹWIADEK, a nie wszystkie kursy linii 401.
+    */
+    dostepneGrupyDni()
+        .slice(
+            0,
+            3
+        )
+        .forEach(
+            grupa=>{
+
+                pobierzKursyDlaSymbolu(
+                    grupa.symbol
+                )
+                .forEach(
+                    kurs=>{
+
+                        const key=[
+                            String(
+                                kurs?._kierunekIndex??
+                                aktualnyKierunek
+                            ),
+                            String(
+                                kurs?.numer||
+                                ""
+                            ).trim(),
+                            String(
+                                kurs?.brygada||
+                                ""
+                            ).trim(),
+                            String(
+                                kurs?.wariant||
+                                ""
+                            ).trim().toUpperCase(),
+                            String(
+                                grupa.symbol||
+                                ""
+                            )
+                        ].join("|");
+
+                        if(
+                            !kursy.has(
+                                key
+                            )
+                        ){
+                            kursy.set(
+                                key,
+                                kurs
+                            );
+                        }
+                    }
+                );
+            }
+        );
+
+    const wszystkie=[
+        ...kursy.values()
+    ];
+
+    if(!wszystkie.length){
+        return 0;
+    }
+
+    const ileA=
+        wszystkie.filter(
+            kurs=>
+                String(
+                    kurs?.wariant||
+                    ""
+                )
+                .trim()
+                .toUpperCase()==="A"
+        ).length;
+
+    return(
+        ileA/
+        wszystkie.length
+    );
+}
+
+
+function czyUkrycWariantANaAktywnymPrzystanku213(){
+
+    if(
+        !czyOpisABezPodjazdow213()
+    ){
+        return false;
+    }
+
+    return(
+        udzialWariantuANaAktywnymPrzystanku213()
+        >=
+        0.75
+    );
+}
+
+
 function czyPokazacWariantJakLiniaHTML(litera){
 
     const znak=
@@ -5486,6 +5622,26 @@ function czyPokazacWariantJakLiniaHTML(litera){
         !literyKierunku.includes(
             znak
         )
+    ){
+        return false;
+    }
+
+    /*
+       WERSJA 213:
+       jeżeli A oznacza „kurs bez podjazdów” i stanowi co najmniej
+       75% kursów FAKTYCZNIE WIDOCZNYCH NA AKTYWNYM PRZYSTANKU,
+       A jest przebiegiem domyślnym.
+
+       Ta funkcja steruje jednocześnie:
+       - literą przy minucie,
+       - literą używaną przez legendę.
+
+       Dzięki temu A znika w obu miejscach bez późniejszego
+       manipulowania DOM-em.
+    */
+    if(
+        znak==="A"&&
+        czyUkrycWariantANaAktywnymPrzystanku213()
     ){
         return false;
     }
@@ -13717,115 +13873,6 @@ function poprawPierwszyAktywnyPrzystanek(){
         });
 }
 
-
-/* =========================================================
-   WERSJA 212 — DOMINUJĄCY WARIANT A „KURS BEZ PODJAZDÓW”
-   ========================================================= */
-
-function czyBezPodjazdow212(txt){
-    return String(txt||"")
-        .toLowerCase()
-        .replace(/\s+/g," ")
-        .includes("bez podjazd");
-}
-
-function opisA212(rozklad){
-    const w=rozklad?.warianty;
-
-    if(Array.isArray(w)){
-        const a=w.find(x=>
-            String(x?.litera||x?.wariant||x?.symbol||x?.id||"")
-                .trim().toUpperCase()==="A"
-        );
-        return String(a?.opis||a?.nazwa||a?.tekst||"");
-    }
-
-    if(w&&typeof w==="object"){
-        const a=w.A||w.a;
-        if(typeof a==="string") return a;
-        return String(a?.opis||a?.nazwa||a?.tekst||"");
-    }
-
-    return "";
-}
-
-function kursyRozkladu212(rozklad){
-    const mapa=new Map();
-
-    (rozklad?.kierunki||[]).forEach(k=>{
-        (k?.przystanki||[]).forEach(p=>{
-            (p?.kursy||[]).forEach(kurs=>{
-                if(czasNaMinuty(kurs?.czas)===null) return;
-
-                const key=[
-                    String(kurs?.numer||"").trim(),
-                    String(kurs?.brygada||"").trim(),
-                    String(kurs?.wariant||"").trim().toUpperCase(),
-                    symbolDnia(kurs)
-                ].join("|");
-
-                if(!mapa.has(key)) mapa.set(key,kurs);
-            });
-        });
-    });
-
-    return [...mapa.values()];
-}
-
-function czyDominujaceABezPodjazdow212(rozklad){
-    if(!czyBezPodjazdow212(opisA212(rozklad))) return false;
-
-    const kursy=kursyRozkladu212(rozklad);
-    if(!kursy.length) return false;
-
-    const ileA=kursy.filter(k=>
-        String(k?.wariant||"").trim().toUpperCase()==="A"
-    ).length;
-
-    return ileA>0 && (ileA/kursy.length)>=0.75;
-}
-
-function ukryjDominujaceA212(){
-    const aktywnyRozklad=(daneLinii?.rozkłady||[]).find(
-        r=>czyDominujaceABezPodjazdow212(r)
-    );
-
-    if(!aktywnyRozklad) return;
-
-    /*
-       Litery wariantu przy minutach.
-       Ukrywamy WYŁĄCZNIE element, którego zawartością jest samo A
-       albo który ma data-wariant=A.
-    */
-    document.querySelectorAll(
-        "[data-wariant], .wariant-litera, .symbol-wariantu, .minuta-wariant"
-    ).forEach(el=>{
-        const litera=String(
-            el.dataset?.wariant||el.textContent||""
-        ).trim().toUpperCase();
-
-        if(litera==="A"){
-            el.style.display="none";
-        }
-    });
-
-    /*
-       Legenda: ukrywamy tylko wiersz A opisany jako „kurs bez podjazdów”.
-    */
-    document.querySelectorAll(
-        ".legenda *, .legenda-wariantow *, .warianty-legenda *, [class*='legenda'] *"
-    ).forEach(el=>{
-        const txt=String(el.textContent||"").trim();
-
-        if(
-            /^A(?:\s|[-–—:=])/i.test(txt) &&
-            czyBezPodjazdow212(txt)
-        ){
-            el.style.display="none";
-        }
-    });
-}
-
 function renderuj(){
 
     /*
@@ -16985,19 +17032,6 @@ window.addEventListener("load",()=>{
 
 window.addEventListener("resize",()=>{
     requestAnimationFrame(synchronizujGodziny187);
-});
-
-/* v212 — filtr uruchamiany po każdej zmianie wyrenderowanej tabliczki. */
-const observerWariantuA212=new MutationObserver(()=>{
-    ukryjDominujaceA212();
-});
-
-document.addEventListener("DOMContentLoaded",()=>{
-    observerWariantuA212.observe(
-        document.body,
-        {childList:true,subtree:true}
-    );
-    ukryjDominujaceA212();
 });
 </script>
 
