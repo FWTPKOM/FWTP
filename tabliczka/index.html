@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 301
+     WERSJA: 302
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -11955,180 +11955,116 @@ function danePrzebiegowWariantowych(){
 
 
 
+
+function galezieWewnetrzne302(){
+
+    const grupy=katalogPrzebiegowWszystkichDni300();
+    if(grupy.length<2) return[];
+
+    const baza=grupy[0];
+    const bazaNazwy=(baza?.przebieg||[]).map(x=>x.nazwa);
+    const mapa=new Map();
+
+    grupy.slice(1).forEach(grupa=>{
+
+        const trasa=(grupa?.przebieg||[]).map(x=>x.nazwa);
+        if(!trasa.length||!bazaNazwy.length) return;
+
+        let prefix=0;
+        while(
+            prefix<trasa.length&&
+            prefix<bazaNazwy.length&&
+            trasa[prefix]===bazaNazwy[prefix]
+        ){
+            prefix++;
+        }
+
+        if(prefix===0||prefix>=trasa.length) return;
+
+        let rejoinTrasa=-1;
+        let rejoinBaza=-1;
+
+        for(let i=prefix;i<trasa.length;i++){
+            const j=bazaNazwy.indexOf(trasa[i],prefix);
+            if(j>=0){
+                rejoinTrasa=i;
+                rejoinBaza=j;
+                break;
+            }
+        }
+
+        /*
+           Bez ponownego połączenia = zwykłe skrócenie,
+           a nie alternatywna gałąź.
+        */
+        if(rejoinTrasa<0||rejoinBaza<0) return;
+
+        const branch=(grupa?.przebieg||[]).slice(prefix,rejoinTrasa);
+        if(!branch.length) return;
+
+        const splitNazwa=trasa[prefix-1];
+        const rejoinNazwa=trasa[rejoinTrasa];
+        const klucz=[
+            splitNazwa,
+            ...branch.map(x=>x.nazwa),
+            rejoinNazwa
+        ].join(">");
+
+        if(!mapa.has(klucz)){
+            mapa.set(klucz,{
+                splitNazwa,
+                rejoinNazwa,
+                przystanki:branch,
+                litery:new Set()
+            });
+        }
+
+        Array.from(grupa?.litery||[]).forEach(l=>{
+            l=String(l||"").trim().toLowerCase();
+            if(l) mapa.get(klucz).litery.add(l);
+        });
+    });
+
+    return Array.from(mapa.values());
+}
+
+
+function stanLogicznyPrzystanku302(element){
+
+    const nazwa=logicznaNazwaPrzystanku298(element?.p||element);
+    const grupy=katalogPrzebiegowWszystkichDni300();
+
+    const jadace=grupy.filter(
+        grupa=>(grupa?.przebieg||[]).some(x=>x.nazwa===nazwa)
+    );
+
+    if(!grupy.length||jadace.length===grupy.length){
+        return{typ:"wszystkie",litery:[]};
+    }
+
+    const litery=new Set();
+
+    jadace.forEach(grupa=>{
+        Array.from(grupa?.litery||[]).forEach(l=>{
+            l=String(l||"").trim().toLowerCase();
+            if(l) litery.add(l);
+        });
+    });
+
+    return{
+        typ:litery.size?"wariant":"podstawowa",
+        litery:Array.from(litery)
+    };
+}
+
+
 function stanTrasyNaPrzystanku(element){
 
-    const przebiegi=
-        danePrzebiegowWariantowych();
-
-    if(!przebiegi.length){
-        return{
-            typ:"wszystkie",
-            litery:[]
-        };
-    }
-
-    const jadace=
-        przebiegi.filter(
-            przebieg=>
-                kursMaPrzystanek(
-                    przebieg.kurs,
-                    element
-                )
-        );
-
-    /*
-       Jeżeli przez dany przystanek jadą WSZYSTKIE pełne przebiegi,
-       jest to wspólna trasa.
-    */
-    if(
-        jadace.length===
-        przebiegi.length
-    ){
-        return{
-            typ:"wszystkie",
-            litery:
-                jadace
-                    .map(
-                        x=>x.litera
-                    )
-                    .filter(Boolean)
-        };
-    }
-
-    /*
-       Jeżeli przystanek obsługuje tylko część pełnych przebiegów,
-       pokazujemy dokładnie te litery.
-
-       Przykłady dla 126:
-       - PŁYTOWA / KUPIECKA -> np. „l”, „p”
-       - PKP ŻERAŃ -> „a”, „o”
-
-       Kurs skrócony "b" nie bierze tu udziału.
-    */
-    const litery=
-        jadace
-            .map(
-                x=>x.litera
-            )
-            .filter(Boolean);
-
-    if(litery.length){
-        return{
-            typ:"wariant",
-            litery
-        };
-    }
-
-    /*
-       Jeżeli został tylko przebieg bez WIDOCZNEJ litery
-       (np. A ukryte przy 1-3 wariantach), nie tworzymy
-       nagłówka "Trasa w kursach".
-
-       Ta sama litera jest więc ukryta zarówno:
-       - przy minutach,
-       - w legendzie,
-       - na liście przystanków.
-    */
-    if(jadace.length){
-        return{
-            typ:"podstawowa",
-            litery:[]
-        };
-    }
-
-    return{
-        typ:"inne",
-        litery:[]
-    };
+    return stanLogicznyPrzystanku302(element);
 }
 
 
-function stanTrasyNaPrzystanku_ORYGINAL_283(element){
 
-    const przebiegi=
-        danePrzebiegowWariantowych();
-
-    if(!przebiegi.length){
-        return{
-            typ:"wszystkie",
-            litery:[]
-        };
-    }
-
-    const jadace=
-        przebiegi.filter(
-            przebieg=>
-                kursMaPrzystanek(
-                    przebieg.kurs,
-                    element
-                )
-        );
-
-    /*
-       Jeżeli przez dany przystanek jadą WSZYSTKIE pełne przebiegi,
-       jest to wspólna trasa.
-    */
-    if(
-        jadace.length===
-        przebiegi.length
-    ){
-        return{
-            typ:"wszystkie",
-            litery:
-                jadace
-                    .map(
-                        x=>x.litera
-                    )
-                    .filter(Boolean)
-        };
-    }
-
-    /*
-       Jeżeli przystanek obsługuje tylko część pełnych przebiegów,
-       pokazujemy dokładnie te litery.
-
-       Przykłady dla 126:
-       - PŁYTOWA / KUPIECKA -> np. „l”, „p”
-       - PKP ŻERAŃ -> „a”, „o”
-
-       Kurs skrócony "b" nie bierze tu udziału.
-    */
-    const litery=
-        jadace
-            .map(
-                x=>x.litera
-            )
-            .filter(Boolean);
-
-    if(litery.length){
-        return{
-            typ:"wariant",
-            litery
-        };
-    }
-
-    /*
-       Jeżeli został tylko przebieg bez WIDOCZNEJ litery
-       (np. A ukryte przy 1-3 wariantach), nie tworzymy
-       nagłówka "Trasa w kursach".
-
-       Ta sama litera jest więc ukryta zarówno:
-       - przy minutach,
-       - w legendzie,
-       - na liście przystanków.
-    */
-    if(jadace.length){
-        return{
-            typ:"podstawowa",
-            litery:[]
-        };
-    }
-
-    return{
-        typ:"inne",
-        litery:[]
-    };
-}
 
 
 function kluczStanuTrasy(stan){
@@ -16327,181 +16263,71 @@ function czyDokladnyAktywnyJestWWydluzeniu(){
 
 function renderWydluzeniaTrasy(){
 
-    const dane=
-        daneTrasWydluzonych();
-
-    if(!dane.wydluzenia.length){
-        return"";
-    }
-
-    /*
-       Wszystkie istniejące przebiegi są widoczne zawsze.
-       Nie filtrujemy ich według wariantów dostępnych na
-       aktualnie wybranym przystanku ani według wybranej daty.
-
-       Dodatkowo identyczne przebiegi łączymy w jedną gałąź.
-       Jeżeli np. "b" i "c" jadą dokładnie tak samo, dostajemy:
-           Trasa w kursach „b”, „c”
-       zamiast dwóch osobnych kopii.
-    */
-    const grupy=
-        new Map();
-
-    dane.wydluzenia.forEach(
-        wariant=>{
-
-            const lista=
-                listaWydluzeniaBezPowtorzonegoKranca(
-                    wariant,
-                    dane.baza
-                );
-
-            if(!lista.length){
-                return;
-            }
-
-            const klucz=
-                lista
-                    .map(
-                        element=>
-                            logicznaNazwaPrzystanku298(
-                                element?.p||
-                                element
-                            )
-                    )
-                    .filter(Boolean)
-                    .join(">");
-
-            if(!klucz){
-                return;
-            }
-
-            if(!grupy.has(klucz)){
-                grupy.set(
-                    klucz,
-                    {
-                        litery:new Set(),
-                        przystanki:lista
-                    }
-                );
-            }
-
-            const litera=
-                String(
-                    wariant?.litera||
-                    ""
-                )
-                .trim()
-                .toLowerCase();
-
-            if(litera){
-                grupy.get(klucz)
-                    .litery
-                    .add(litera);
-            }
-        }
-    );
-
-    return Array.from(
-        grupy.values()
-    )
-    .map(
-        grupa=>{
-
-            const litery=
-                Array.from(
-                    grupa.litery
-                );
-
-            const tytul=
-                litery
-                    .map(
-                        litera=>
-                            "„"+
-                            escapeHtml(litera)+
-                            "”"
-                    )
-                    .join(", ");
-
-            const wiersze=
-                grupa.przystanki
-                    .map(
-                        element=>{
-
-                            const p=
-                                element?.p||
-                                element;
-
-                            /*
-                               Ta gałąź jest schematem całej linii,
-                               więc jej widoczność nie zależy od dnia.
-                               Czas pokazujemy tylko wtedy, gdy można
-                               go policzyć dla aktualnego widoku.
-                            */
-                            let czas=null;
-
-                            for(const litera of litery){
-
-                                czas=
-                                    czasWariantuNaPrzystanku(
-                                        litera,
-                                        element
-                                    );
-
-                                if(czas!==null){
-                                    break;
-                                }
-                            }
-
-                            return(
-                                '<li class="trasa-extra-stop">'+
-                                '<span class="trasa-czas">'+
-                                (
-                                    czas===null
-                                        ? ''
-                                        : escapeHtml(
-                                            String(czas)
-                                        )
-                                )+
-                                '</span>'+
-                                '<span class="trasa-os"></span>'+
-                                '<span class="trasa-nazwa">'+
-                                escapeHtml(
-                                    String(
-                                        p?.nazwa||
-                                        ""
-                                    ).toUpperCase()
-                                )+
-                                '</span>'+
-                                '<span class="trasa-nz">'+
-                                (
-                                    czyNZ(p)
-                                        ? 'ż'
-                                        : ''
-                                )+
-                                '</span>'+
-                                '</li>'
-                            );
-                        }
-                    )
-                    .join("");
-
-            return(
-                '<div class="trasa-extra">'+
-                '<div class="trasa-extra-title">'+
-                'Trasa w kursach '+
-                tytul+
-                '</div>'+
-                '<ul class="trasa-extra-lista">'+
-                wiersze+
-                '</ul>'+
-                '</div>'
-            );
-        }
-    )
-    .join("");
+    return"";
 }
 
+
+
+
+function renderGalezieWewnetrzne302(){
+
+    const galezie=galezieWewnetrzne302();
+    if(!galezie.length) return"";
+
+    return galezie.map(galaz=>{
+
+        const litery=Array.from(galaz.litery||[]);
+        if(!litery.length) return"";
+
+        const tytul=litery
+            .map(l=>"„"+escapeHtml(l)+"”")
+            .join(", ");
+
+        const stops=galaz.przystanki.map(x=>{
+
+            const p=x?.p||x;
+
+            return(
+                '<li class="trasa-extra-stop">'+
+                '<span class="trasa-czas"></span>'+
+                '<span class="trasa-os"></span>'+
+                '<span class="trasa-nazwa">'+
+                escapeHtml(
+                    String(p?.nazwa||x?.nazwa||"").toUpperCase()
+                )+
+                '</span>'+
+                '<span class="trasa-nz">'+
+                (czyNZ(p)?'ż':'')+
+                '</span>'+
+                '</li>'
+            );
+        }).join("");
+
+        return(
+            '<div class="trasa-extra trasa-galaz-wewnetrzna">'+
+            '<div class="trasa-extra-title">'+
+            'Trasa w kursach '+tytul+
+            '</div>'+
+            '<ul class="trasa-extra-lista">'+
+            stops+
+            '</ul>'+
+            '<div class="trasa-extra-title trasa-polaczenie">'+
+            'Trasa we wszystkich kursach'+
+            '</div>'+
+            '<ul class="trasa-extra-lista">'+
+            '<li class="trasa-extra-stop">'+
+            '<span class="trasa-czas"></span>'+
+            '<span class="trasa-os"></span>'+
+            '<span class="trasa-nazwa">'+
+            escapeHtml(String(galaz.rejoinNazwa||"").toUpperCase())+
+            '</span>'+
+            '<span class="trasa-nz"></span>'+
+            '</li>'+
+            '</ul>'+
+            '</div>'
+        );
+    }).join("");
+}
 
 
 function pozycjaAktywnegoNaWyswietlanejTrasie(
@@ -17643,7 +17469,7 @@ function renderTrasaKolumna(
         '</ul>'+
         (
             pokazWydluzenia
-                ? renderWydluzeniaTrasy()
+                ? renderGalezieWewnetrzne302()
                 : ''
         )+
         '</div>'
