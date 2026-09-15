@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 283
+     WERSJA: 284
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -6469,6 +6469,13 @@ function czyTenSamPrzystanekPoNazwieINumerze(
 }
 
 
+
+/* =========================================================
+   WERSJA 284 — BAZA: DZIAŁAJĄCA WERSJA 283
+   =========================================================
+   Nie zmieniono logiki przystanków ani rozkładów.
+   Zmiana dotyczy wyłącznie prezentacji rozgałęzienia listy 134.
+   ========================================================= */
 
 /* =========================================================
    WERSJA 283 — CZYSTA BAZA 277 + LISTA WARIANTOWA Z 246
@@ -16427,6 +16434,223 @@ function czyOstatniWidocznyPrzystanek210(
 }
 
 
+
+/* =========================================================
+   WERSJA 284 — LINIA 134: UKŁAD ROZGAŁĘZIENIA LISTY
+   =========================================================
+   Ta funkcja NIE zmienia przystanku, rozkładu, kierunku ani URL.
+   Działa wyłącznie na gotowej liście DOM po renderowaniu.
+
+   Oczekiwany układ:
+   KS POLONEZ
+   Trasa w kursach „a”, „z”
+   TORUŃSKA
+
+   Trasa w kursach „b”, „c”
+   [przystanki odmiennej trasy]
+
+   Trasa we wszystkich kursach
+   PKP TORUŃSKA
+   ŻERAŃ FSO ...
+   ========================================================= */
+function poprawUkladTrasy134_284(kolumna){
+
+    if(!kolumna) return;
+
+    const numer=
+        String(
+            daneLinii?.linia||
+            numerLinii||
+            ""
+        ).trim();
+
+    if(numer!=="134") return;
+
+    const lista=
+        kolumna.querySelector(
+            ".trasa-lista"
+        );
+
+    if(!lista) return;
+
+    const norm=(tekst)=>
+        String(tekst||"")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g,"")
+            .replace(/\s+/g," ")
+            .trim()
+            .toUpperCase();
+
+    const stopNazwa=(li)=>{
+        const el=
+            li?.querySelector(
+                ".trasa-nazwa"
+            );
+        return norm(
+            el?.textContent||""
+        );
+    };
+
+    const wszystkie=
+        Array.from(
+            lista.children
+        );
+
+    const ks=
+        wszystkie.find(
+            li=>
+                li.classList.contains(
+                    "trasa-stop"
+                )&&
+                stopNazwa(li)==="KS POLONEZ"
+        );
+
+    const torunska=
+        wszystkie.find(
+            li=>
+                li.classList.contains(
+                    "trasa-stop"
+                )&&
+                stopNazwa(li)==="TORUNSKA"
+        );
+
+    const pkp=
+        wszystkie.find(
+            li=>
+                li.classList.contains(
+                    "trasa-stop"
+                )&&
+                stopNazwa(li)==="PKP TORUNSKA"
+        );
+
+    if(
+        !ks||
+        !torunska||
+        !pkp
+    ){
+        return;
+    }
+
+    const separator=(tekst)=>{
+        const li=
+            document.createElement(
+                "li"
+            );
+
+        li.className=
+            "trasa-separator";
+
+        li.innerHTML=
+            '<span class="trasa-separator-title">'+
+            tekst+
+            '</span>';
+
+        return li;
+    };
+
+    /*
+       Usuwamy tylko separatory pomiędzy KS POLONEZ a PKP TORUŃSKA.
+       Samych przystanków NIE ruszamy.
+    */
+    let n=
+        ks.nextElementSibling;
+
+    while(
+        n&&
+        n!==pkp
+    ){
+        const next=
+            n.nextElementSibling;
+
+        if(
+            n.classList.contains(
+                "trasa-separator"
+            )
+        ){
+            n.remove();
+        }
+
+        n=next;
+    }
+
+    /*
+       a,z zaczynają się PO KS POLONEZ,
+       czyli separator bezpośrednio przed TORUŃSKĄ.
+    */
+    lista.insertBefore(
+        separator(
+            'Trasa w kursach „a”, „z”'
+        ),
+        torunska
+    );
+
+    /*
+       b,c — szukamy pierwszego przystanku odmiennej gałęzi
+       pomiędzy TORUŃSKĄ a PKP TORUŃSKA.
+       Jeżeli lista 283 ma go w osobnym .trasa-extra,
+       zostawiamy jego własny blok, a tylko poprawiamy tytuł.
+    */
+    const extra=
+        kolumna.querySelector(
+            ".trasa-extra"
+        );
+
+    if(extra){
+        const t=
+            extra.querySelector(
+                ".trasa-extra-title"
+            );
+
+        if(t){
+            t.textContent=
+                'Trasa w kursach „b”, „c”';
+        }
+    }else{
+        /*
+           Gdy odmienna gałąź jest w tej samej liście,
+           separator b,c ma wejść po TORUŃSKIEJ,
+           przed pierwszym kolejnym przystankiem różnym od PKP.
+        */
+        let pierwszyInny=
+            torunska.nextElementSibling;
+
+        while(
+            pierwszyInny&&
+            (
+                pierwszyInny.classList.contains(
+                    "trasa-separator"
+                )
+            )
+        ){
+            pierwszyInny=
+                pierwszyInny.nextElementSibling;
+        }
+
+        if(
+            pierwszyInny&&
+            pierwszyInny!==pkp
+        ){
+            lista.insertBefore(
+                separator(
+                    'Trasa w kursach „b”, „c”'
+                ),
+                pierwszyInny
+            );
+        }
+    }
+
+    /*
+       PKP TORUŃSKA jest pierwszym ponownie wspólnym przystankiem.
+    */
+    lista.insertBefore(
+        separator(
+            "Trasa we wszystkich kursach"
+        ),
+        pkp
+    );
+}
+
+
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -17111,6 +17335,19 @@ function renderTrasaKolumna(
         )+
         '</div>'
     );
+
+    /*
+       v284: tylko korekta gotowego DOM listy linii 134.
+       Nie wpływa na działające przystanki z v283.
+    */
+    requestAnimationFrame(
+        ()=>{
+            poprawUkladTrasy134_284(
+                kolumna
+            );
+        }
+    );
+
 }
 
 
