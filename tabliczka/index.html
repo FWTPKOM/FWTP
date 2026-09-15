@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 279
+     WERSJA: 280
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -3771,6 +3771,19 @@ console.log(
 </script>
 
 <script>
+/* =========================================================
+   WERSJA 280 — ROZDZIELENIE TRAS 134
+   =========================================================
+   Docelowa kolejność:
+   1. KS POLONEZ pozostaje na wspólnej trasie.
+   2. "Trasa w kursach bez oznaczeń" -> TORUŃSKA.
+   3. "Trasa w kursach „b”" -> odmienna trasa weekendowa.
+   4. "Trasa we wszystkich kursach" -> dopiero PKP TORUŃSKA.
+
+   "kurs bez podjazdów" jest na liście trasy traktowany jako
+   przebieg podstawowy, a nie jako literowy wariant "a".
+   ========================================================= */
+
 /* =========================================================
    WERSJA 279 — PEŁNA LOGIKA LISTY TRASY Z WERSJI 246
    =========================================================
@@ -11276,8 +11289,39 @@ function __bezCache_grupyPrzebiegowTrasy(){
                - na liście przystanków również nie pojawi się
                  "Trasa w kursach „a”".
             */
+            /*
+               WERSJA 280 — LISTA TRASY
+
+               Przebieg opisany jako "kurs bez podjazdów" jest
+               przebiegiem PODSTAWOWYM. Nawet jeżeli przy minutach
+               widoczna jest jego litera (np. "a"), na schemacie
+               trasy nie opisujemy go jako:
+                   Trasa w kursach „a”
+
+               tylko jako:
+                   Trasa w kursach bez oznaczeń
+
+               Dzięki temu dla 134:
+               KS POLONEZ pozostaje jeszcze na części wspólnej,
+               a dopiero przed TORUŃSKĄ zaczyna się rozdzielenie.
+            */
+            const opisOryginalnegoWariantu=
+                String(
+                    mapaWariantow()
+                        .get(
+                            oryginalnaLitera
+                        )||
+                    ""
+                );
+
+            const przebiegBezPodjazdow=
+                /bez\s+podjazd/i.test(
+                    opisOryginalnegoWariantu
+                );
+
             const literaWidoczna=
                 (
+                    !przebiegBezPodjazdow&&
                     literaPoTrasie&&
                     czyPokazacWariantJakLiniaHTML(
                         literaPoTrasie
@@ -11603,13 +11647,45 @@ function naglowekZmianyTrasy(
     }
 
     /*
-       Po odcinku wariantowym napis "Trasa we wszystkich kursach"
-       pojawia się dopiero wtedy, gdy faktycznie wszystkie przebiegi
-       wracają na wspólną trasę.
+       WERSJA 280:
+       wejście z części wspólnej na przebieg podstawowy bez podjazdu
+       musi mieć własny separator.
+
+       Przykład 134:
+           KS POLONEZ
+           Trasa w kursach bez oznaczeń
+           TORUŃSKA
+    */
+    if(
+        aktualny.typ==="podstawowa"&&
+        (
+            !poprzedni||
+            poprzedni.typ!=="podstawowa"
+        )
+    ){
+        return(
+            '<li class="trasa-separator">'+
+            '<span class="trasa-separator-title">'+
+            'Trasa w kursach bez oznaczeń'+
+            '</span>'+
+            '</li>'
+        );
+    }
+
+    /*
+       Po KAŻDYM rozdzielonym odcinku — zarówno literowym wariancie,
+       jak i przebiegu podstawowym "bez oznaczeń" — napis
+       "Trasa we wszystkich kursach" pojawia się dopiero na pierwszym
+       ponownie wspólnym przystanku.
+
+       Dla 134 ma nim być PKP TORUŃSKA, a nie KS POLONEZ.
     */
     if(
         poprzedni&&
-        poprzedni.typ==="wariant"&&
+        (
+            poprzedni.typ==="wariant"||
+            poprzedni.typ==="podstawowa"
+        )&&
         aktualny.typ==="wszystkie"
     ){
         return(
