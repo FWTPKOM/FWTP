@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 281
+     WERSJA: 282
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -3772,41 +3772,27 @@ console.log(
 
 <script>
 /* =========================================================
-   WERSJA 281 — DOKŁADNA LOGIKA ROZDZIELENIA Z WERSJI 246
+   WERSJA 282 — BAZA 279 + GRANICE ROZGAŁĘZIENIA LINII 134
    =========================================================
-   Przywrócony 1:1 mechanizm klasyfikowania przebiegów z v246:
-   - grupowanie przebiegów,
-   - wybór reprezentatywnego kursu,
-   - ustalanie stanu każdego przystanku,
-   - ustalanie liter gałęzi,
-   - generowanie separatorów.
+   NIE jest to kontynuacja 280/281. Plik powstał bezpośrednio z 279.
 
-   Oczekiwany układ dla 134:
+   Układ dla 134:
    KS POLONEZ
    Trasa w kursach „a”, „z”
    TORUŃSKA
+
    Trasa w kursach „b”, „c”
-   [przystanki odmiennego przebiegu]
+   [odmienna trasa weekendowa]
+
    Trasa we wszystkich kursach
    PKP TORUŃSKA
-   [wspólna trasa do końca]
+   ŻERAŃ FSO
+   OS. POTOK
+   ...
+   METRO MARYMONT
 
-   Zachowane pozostają nowsze poprawki dokładnego fizycznego
-   przystanku NAZWA + NR oraz działające rozkłady KS POLONEZ 03
-   i PKP TORUŃSKA 01.
-   ========================================================= */
-
-/* =========================================================
-   WERSJA 280 — ROZDZIELENIE TRAS 134
-   =========================================================
-   Docelowa kolejność:
-   1. KS POLONEZ pozostaje na wspólnej trasie.
-   2. "Trasa w kursach bez oznaczeń" -> TORUŃSKA.
-   3. "Trasa w kursach „b”" -> odmienna trasa weekendowa.
-   4. "Trasa we wszystkich kursach" -> dopiero PKP TORUŃSKA.
-
-   "kurs bez podjazdów" jest na liście trasy traktowany jako
-   przebieg podstawowy, a nie jako literowy wariant "a".
+   KS POLONEZ = ostatni wspólny przed rozdzieleniem.
+   PKP TORUŃSKA = pierwszy wspólny po połączeniu.
    ========================================================= */
 
 /* =========================================================
@@ -11586,10 +11572,106 @@ function kluczStanuTrasy(stan){
 }
 
 
+
+function czyRozgalezienie134_282(){
+
+    const numer=
+        String(
+            daneLinii?.linia||
+            aktualnaLinia||
+            ""
+        ).trim();
+
+    return numer==="134";
+}
+
+
+function specjalnyNaglowek134_282(
+    poprzedni,
+    aktualny,
+    element
+){
+
+    if(
+        !czyRozgalezienie134_282()||
+        !element
+    ){
+        return null;
+    }
+
+    const nazwa=
+        normalizujNazwePrzystanku(
+            element?.p?.nazwa||
+            ""
+        );
+
+    /*
+       KS POLONEZ jest jeszcze częścią wspólną.
+       Separator zaczyna się DOPIERO przed TORUŃSKĄ.
+    */
+    if(
+        nazwa==="TORUŃSKA"||
+        nazwa==="TORUNSKA"
+    ){
+        return(
+            '<li class="trasa-separator">'+
+            '<span class="trasa-separator-title">'+
+            'Trasa w kursach „a”, „z”'+
+            '</span>'+
+            '</li>'
+        );
+    }
+
+    /*
+       PKP TORUŃSKA jest pierwszym przystankiem ponownie wspólnym.
+       Separator "we wszystkich kursach" ma więc stać bezpośrednio
+       PRZED PKP TORUŃSKA, a nie przed ŻERAŃ FSO.
+    */
+    if(
+        nazwa==="PKP TORUŃSKA"||
+        nazwa==="PKP TORUNSKA"
+    ){
+        return(
+            '<li class="trasa-separator">'+
+            '<span class="trasa-separator-title">'+
+            'Trasa we wszystkich kursach'+
+            '</span>'+
+            '</li>'
+        );
+    }
+
+    return null;
+}
+
+
 function naglowekZmianyTrasy(
     poprzedni,
     aktualny
 ){
+
+    /*
+       WERSJA 282:
+       dla linii 134 granice są jednoznaczne:
+       KS POLONEZ | rozdzielenie | TORUŃSKA
+       ...
+       połączenie | PKP TORUŃSKA
+    */
+    const __element282=
+        arguments.length>2
+            ? arguments[2]
+            : null;
+
+    const __specjalny282=
+        specjalnyNaglowek134_282(
+            poprzedni,
+            aktualny,
+            __element282
+        );
+
+    if(__specjalny282!==null){
+        return __specjalny282;
+    }
+
 
     if(!aktualny){
         return"";
