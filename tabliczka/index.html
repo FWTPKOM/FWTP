@@ -1,7 +1,21 @@
+/* =========================================================
+   WERSJA 299 — WARIANTY NIEZALEŻNE OD DATY
+
+   Lista przebiegu zbiera kursy ze WSZYSTKICH rozkładów/dni
+   dla wybranego kierunku.
+
+   Wybrana data wpływa tylko na odjazdy, nie na to, jakie
+   warianty trasy są widoczne.
+
+   Nadal:
+   - fizyczny przystanek: NAZWA + NR
+   - schemat przebiegu: kolejność NAZW
+   ========================================================= */
+
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 298
+     WERSJA: 299
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -10952,79 +10966,155 @@ function czyKursZaczynaWSrodkuTrasy(kursRef){
 
 function __bezCache_kursyAktualnegoRozkladuDoTrasy(){
 
+    /*
+       WERSJA 299
+
+       Schemat trasy NIE może zależeć od wybranej daty ani
+       od typu dnia aktualnie oglądanego na tabliczce.
+
+       Dlatego do analizy przebiegów zbieramy kursy ze WSZYSTKICH
+       rozkładów zapisanych w JSON dla wybranego kierunku.
+
+       Data nadal wpływa na tabelę odjazdów, ale NIE na listę
+       możliwych przebiegów linii.
+    */
+
     const wynik=
         new Map();
 
-    const grupy=
-        dostepneGrupyDni()
-            .slice(
-                0,
-                3
-            );
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        (
+            rozklad,
+            indexRozkladu
+        )=>{
 
-    grupy.forEach(
-        grupa=>{
+            const kierunek=
+                Array.isArray(
+                    rozklad?.kierunki
+                )
+                    ? rozklad.kierunki[
+                        aktualnyKierunek
+                    ]
+                    : null;
 
-            const kursy=
-                pobierzKursyDlaSymbolu(
-                    grupa.symbol
-                );
+            if(!kierunek){
+                return;
+            }
 
-            kursy.forEach(
-                kurs=>{
+            /*
+               Zbieramy każdy kurs występujący w tym kierunku.
+               Ten sam kurs pojawia się przy wielu przystankach,
+               dlatego Map usuwa duplikaty.
+            */
+            (
+                kierunek?.przystanki||
+                []
+            ).forEach(
+                (
+                    p,
+                    indexPrzystanku
+                )=>{
 
-                    if(
-                        czyBiezacyPrzystanekDwukierunkowy()&&
-                        Number(
-                            kurs?._kierunekIndex
-                        )!==
-                        Number(
-                            aktualnyKierunek
-                        )
-                    ){
-                        return;
-                    }
+                    (
+                        p?.kursy||
+                        []
+                    ).forEach(
+                        kurs=>{
 
-                    const key=
-                        kluczKursu(kurs);
+                            if(
+                                czasNaMinuty(
+                                    kurs?.czas
+                                )===null
+                            ){
+                                return;
+                            }
 
-                    const kursRef={
-                        numer:String(
-                            kurs?.numer||""
-                        ),
-                        wariant:String(
-                            kurs?.wariant||""
-                        ).trim(),
-                        symbol:grupa.symbol,
-                        brygada:String(
-                            kurs?.brygada||""
-                        ).trim(),
-                        _kierunekIndex:
-                            Number(
-                                kurs?._kierunekIndex
-                            )
-                    };
+                            const symbol=
+                                symbolDnia(
+                                    kurs
+                                );
 
-                    /*
-                       Kurs rozpoczynający się dopiero w środku trasy
-                       pomijamy przy analizie wariantów.
-                    */
-                    if(
-                        czyKursZaczynaWSrodkuTrasy(
-                            kursRef
-                        )
-                    ){
-                        return;
-                    }
+                            const numer=
+                                String(
+                                    kurs?.numer||
+                                    ""
+                                );
 
-                    if(
-                        !wynik.has(key)
-                    ){
-                        wynik.set(
-                            key,
-                            kursRef
-                        );
-                    }
+                            const wariant=
+                                String(
+                                    kurs?.wariant||
+                                    ""
+                                ).trim();
+
+                            const brygada=
+                                String(
+                                    kurs?.brygada||
+                                    ""
+                                ).trim();
+
+                            /*
+                               Rozkłady różnych typów dnia mogą mieć
+                               ten sam numer kursu. Dlatego identyfikator
+                               zawiera także indeks rozkładu.
+                            */
+                            const key=[
+                                indexRozkladu,
+                                aktualnyKierunek,
+                                numer,
+                                wariant,
+                                symbol,
+                                brygada
+                            ].join("|");
+
+                            if(
+                                wynik.has(
+                                    key
+                                )
+                            ){
+                                return;
+                            }
+
+                            const kursRef={
+                                numer,
+                                wariant,
+                                symbol,
+                                brygada,
+                                _kierunekIndex:
+                                    Number(
+                                        aktualnyKierunek
+                                    ),
+                                _rozkladIndex:
+                                    Number(
+                                        indexRozkladu
+                                    ),
+                                _pierwszyZnalezionyIndex:
+                                    Number(
+                                        indexPrzystanku
+                                    )
+                            };
+
+                            /*
+                               Kurs rozpoczynający się w środku trasy
+                               nie tworzy nowego wariantu przebiegu.
+                               Zachowujemy dotychczasową zasadę.
+                            */
+                            if(
+                                czyKursZaczynaWSrodkuTrasy(
+                                    kursRef
+                                )
+                            ){
+                                return;
+                            }
+
+                            wynik.set(
+                                key,
+                                kursRef
+                            );
+                        }
+                    );
                 }
             );
         }
@@ -11553,17 +11643,37 @@ function rzeczywistyPrzebiegKursu298(kursRef){
     }
 
     const kierunekIndex=
-        Number.isInteger(kursRef?._kierunekIndex)
+        Number.isInteger(
+            kursRef?._kierunekIndex
+        )
             ? kursRef._kierunekIndex
             : aktualnyKierunek;
 
+    const rozklady=
+        Number.isInteger(
+            kursRef?._rozkladIndex
+        )
+            ? [
+                daneLinii?.rozkłady?.[
+                    kursRef._rozkladIndex
+                ]
+              ]
+            : (
+                daneLinii?.rozkłady||
+                []
+              );
+
     let najlepszy=[];
 
-    for(const rozklad of (daneLinii?.rozkłady||[])){
+    for(const rozklad of rozklady){
 
         const kierunek=
-            Array.isArray(rozklad?.kierunki)
-                ? rozklad.kierunki[kierunekIndex]
+            Array.isArray(
+                rozklad?.kierunki
+            )
+                ? rozklad.kierunki[
+                    kierunekIndex
+                ]
                 : null;
 
         if(!kierunek){
@@ -11572,11 +11682,24 @@ function rzeczywistyPrzebiegKursu298(kursRef){
 
         const przebieg=[];
 
-        for(const p of (kierunek?.przystanki||[])){
+        for(
+            const p of
+            (
+                kierunek?.przystanki||
+                []
+            )
+        ){
 
             const maKurs=
-                (p?.kursy||[]).some(
-                    k=>czyToTenKurs298(k,kursRef)
+                (
+                    p?.kursy||
+                    []
+                ).some(
+                    k=>
+                        czyToTenKurs298(
+                            k,
+                            kursRef
+                        )
                 );
 
             if(!maKurs){
@@ -11584,20 +11707,23 @@ function rzeczywistyPrzebiegKursu298(kursRef){
             }
 
             const nazwa=
-                logicznaNazwaPrzystanku298(p);
+                logicznaNazwaPrzystanku298(
+                    p
+                );
 
             if(!nazwa){
                 continue;
             }
 
             /*
-               Numery słupków NIE rozdzielają przebiegu.
-               Jeżeli ta sama nazwa wystąpi bezpośrednio ponownie,
-               na schemacie jest jednym punktem.
+               W schemacie numer słupka nie tworzy nowego
+               przystanku logicznego.
             */
             if(
                 przebieg.length&&
-                przebieg[przebieg.length-1].nazwa===nazwa
+                przebieg[
+                    przebieg.length-1
+                ].nazwa===nazwa
             ){
                 continue;
             }
@@ -11608,8 +11734,12 @@ function rzeczywistyPrzebiegKursu298(kursRef){
             });
         }
 
-        if(przebieg.length>najlepszy.length){
-            najlepszy=przebieg;
+        if(
+            przebieg.length>
+            najlepszy.length
+        ){
+            najlepszy=
+                przebieg;
         }
     }
 
