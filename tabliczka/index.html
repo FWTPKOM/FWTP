@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 328
+     WERSJA: 329
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -12008,13 +12008,14 @@ function przebiegKursuBezDaty300(kursRef){
                 return;
             }
 
-            if(
-                wynik.length &&
-                wynik[wynik.length - 1].nazwa === nazwa
-            ){
-                return;
-            }
-
+            /*
+               329:
+               Nie wolno scalać kolejnych przystanków tylko dlatego,
+               że mają tę samą nazwę. W 134 są kolejno:
+                   METRO BRÓDNO 04
+                   METRO BRÓDNO 10
+               i oba są prawdziwymi punktami przebiegu.
+            */
             wynik.push({
                 nazwa,
                 p
@@ -12189,7 +12190,7 @@ function danePrzebiegowWariantowych(){
 
 
 
-function __bez328_galezieWewnetrzne302(){
+function galezieWewnetrzne302(){
 
     if(
         cachePrzebiegow306.dane===daneLinii&&
@@ -12208,132 +12209,6 @@ function __bez328_galezieWewnetrzne302(){
 
     return wynik;
 }
-
-
-function galezieWewnetrzne302(){
-
-    const surowe=
-        __bez328_galezieWewnetrzne302();
-
-    const rozklady=
-        daneLinii?.rozkłady||
-        daneLinii?.rozklady||
-        [];
-
-    const aJestBezPodjazdow=
-        rozklady.some(
-            rozklad=>
-                (
-                    rozklad?.warianty||
-                    []
-                ).some(
-                    wariant=>
-                        String(
-                            wariant?.litera||
-                            ""
-                        )
-                            .trim()
-                            .toUpperCase()==="A"&&
-                        /bez\s+podjazd/i.test(
-                            String(
-                                wariant?.opis||
-                                ""
-                            )
-                        )
-                )
-        );
-
-    let wynik=
-        (surowe||[]).filter(
-            galaz=>{
-
-                const litery=
-                    Array.from(
-                        galaz?.litery||
-                        []
-                    )
-                        .map(
-                            x=>
-                                String(x||"")
-                                    .trim()
-                                    .toLowerCase()
-                        )
-                        .filter(Boolean);
-
-                /*
-                   A = przebieg bazowy bez podjazdów.
-                   Nie robimy z niego dodatkowej syntetycznej odnogi.
-                   Dzięki temu TORUŃSKA pozostaje na osi przebiegu A,
-                   tak jak w pierwszym kierunku 134.
-                */
-                if(
-                    aJestBezPodjazdow&&
-                    litery.length===1&&
-                    litery[0]==="a"
-                ){
-                    return false;
-                }
-
-                return true;
-            }
-        );
-
-    /*
-       Ten sam wariant B może być wykryty z dwóch rozkładów dni.
-       To nadal jedna odnoga. Łączymy tylko całe obiekty gałęzi o tych
-       samych granicach i literach. NIE deduplikujemy przystanków wewnątrz,
-       więc dwa METRO BRÓDNO pozostają dwa razy.
-    */
-    const mapa=new Map();
-
-    for(const galaz of wynik){
-
-        const litery=
-            Array.from(
-                galaz?.litery||
-                []
-            )
-                .map(
-                    x=>
-                        String(x||"")
-                            .trim()
-                            .toLowerCase()
-                )
-                .filter(Boolean)
-                .sort();
-
-        const klucz=[
-            String(galaz?.splitNazwa||""),
-            String(galaz?.rejoinNazwa||""),
-            litery.join(",")
-        ].join("|");
-
-        const poprzednia=
-            mapa.get(klucz);
-
-        if(
-            !poprzednia||
-            (
-                galaz?.przystanki||
-                []
-            ).length>
-            (
-                poprzednia?.przystanki||
-                []
-            ).length
-        ){
-            mapa.set(
-                klucz,
-                galaz
-            );
-        }
-    }
-
-    return Array.from(
-        mapa.values()
-    );
-}
-
 
 
 function __bezCache_galezieWewnetrzne302(){
@@ -15666,6 +15541,84 @@ function wstawGalezieWPrzebieg304(lista){
             );
 
         if(splitIndex<0||rejoinIndex<0) continue;
+
+        /*
+           329:
+           Przy pierwszym przystanku lista bazowa może już zawierać
+           rzeczywistą odnogę wariantową. Wtedy ponowne wstawienie
+           _galaz304 dawało drugi identyczny blok "Trasa w kursach b".
+
+           Porównujemy pełną sekwencję nazw pomiędzy split i rejoin.
+           Powtórzone nazwy są zachowane, więc:
+               METRO BRÓDNO
+               METRO BRÓDNO
+           musi wystąpić dwa razy.
+        */
+        const oczekiwanaGalaz329=
+            (galaz.przystanki||[])
+                .map(
+                    x=>
+                        logicznaNazwaPrzystanku298(
+                            x?.p||x
+                        )
+                );
+
+        const pomiedzy329=
+            wynik
+                .slice(
+                    splitIndex+1,
+                    rejoinIndex
+                )
+                .filter(
+                    e=>
+                        !e?._separator304
+                )
+                .map(
+                    e=>
+                        logicznaNazwaPrzystanku298(
+                            e?.p||e
+                        )
+                );
+
+        const galazJuzJest329=
+            oczekiwanaGalaz329.length>0&&
+            pomiedzy329.length>=oczekiwanaGalaz329.length&&
+            (()=>{
+
+                for(
+                    let start329=0;
+                    start329<=
+                        pomiedzy329.length-
+                        oczekiwanaGalaz329.length;
+                    start329++
+                ){
+                    let zgodna329=true;
+
+                    for(
+                        let j329=0;
+                        j329<oczekiwanaGalaz329.length;
+                        j329++
+                    ){
+                        if(
+                            pomiedzy329[start329+j329]!==
+                            oczekiwanaGalaz329[j329]
+                        ){
+                            zgodna329=false;
+                            break;
+                        }
+                    }
+
+                    if(zgodna329){
+                        return true;
+                    }
+                }
+
+                return false;
+            })();
+
+        if(galazJuzJest329){
+            continue;
+        }
 
         const litery=Array.from(galaz.litery||[]);
 
