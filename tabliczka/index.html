@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 302
+     WERSJA: 304
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -12088,73 +12088,44 @@ function kluczStanuTrasy(stan){
 
 
 function naglowekZmianyTrasy(
-    poprzedni,
-    aktualny
+    poprzedniStan,
+    nowyStan
 ){
 
-    if(!aktualny){
+    if(!nowyStan){
         return"";
     }
 
-    const poprzedniKlucz=
-        kluczStanuTrasy(
-            poprzedni
-        );
-
-    const aktualnyKlucz=
-        kluczStanuTrasy(
-            aktualny
-        );
-
-    if(
-        poprzedniKlucz===
-        aktualnyKlucz
-    ){
-        return"";
-    }
-
-    if(
-        aktualny.typ==="wariant"&&
-        aktualny.litery.length
-    ){
-
-        const litery=
-            aktualny.litery
-                .map(
-                    litera=>
-                        "„"+
-                        escapeHtml(
-                            String(litera)
-                                .toLowerCase()
-                        )+
-                        "”"
-                )
-                .join(", ");
+    if(nowyStan.typ==="wszystkie"){
 
         return(
             '<li class="trasa-separator">'+
             '<span class="trasa-separator-title">'+
-            'Trasa w kursach '+
-            litery+
+            'Trasa we wszystkich kursach'+
             '</span>'+
             '</li>'
         );
     }
 
-    /*
-       Po odcinku wariantowym napis "Trasa we wszystkich kursach"
-       pojawia się dopiero wtedy, gdy faktycznie wszystkie przebiegi
-       wracają na wspólną trasę.
-    */
-    if(
-        poprzedni&&
-        poprzedni.typ==="wariant"&&
-        aktualny.typ==="wszystkie"
-    ){
+    if(nowyStan.typ==="wariant"){
+
+        const litery=Array.from(
+            new Set(
+                (nowyStan.litery||[])
+                    .map(l=>String(l||"").trim().toLowerCase())
+                    .filter(Boolean)
+            )
+        );
+
+        if(!litery.length) return"";
+
         return(
             '<li class="trasa-separator">'+
             '<span class="trasa-separator-title">'+
-            'Trasa we wszystkich kursach'+
+            'Trasa w kursach '+
+            litery.map(
+                l=>'„'+escapeHtml(l)+'”'
+            ).join(', ')+
             '</span>'+
             '</li>'
         );
@@ -14850,6 +14821,72 @@ function usunKolejnePowtorzeniaNazwyWDwukierunkowym(
 
 
 
+
+function wstawGalezieWPrzebieg304(lista){
+
+    const wynik=[...(lista||[])];
+
+    for(const galaz of galezieWewnetrzne302()){
+
+        const splitIndex=
+            wynik.findIndex(
+                e=>
+                    !e?._separator304&&
+                    logicznaNazwaPrzystanku298(e?.p||e)===
+                    galaz.splitNazwa
+            );
+
+        const rejoinIndex=
+            wynik.findIndex(
+                (e,i)=>
+                    i>splitIndex&&
+                    !e?._separator304&&
+                    logicznaNazwaPrzystanku298(e?.p||e)===
+                    galaz.rejoinNazwa
+            );
+
+        if(splitIndex<0||rejoinIndex<0) continue;
+
+        const litery=Array.from(galaz.litery||[]);
+
+        const blok=[
+            {
+                _separator304:true,
+                stan304:{
+                    typ:"wariant",
+                    litery
+                }
+            },
+            ...galaz.przystanki.map(
+                x=>({
+                    p:x?.p||x,
+                    _galaz304:true,
+                    stan304:{
+                        typ:"wariant",
+                        litery
+                    }
+                })
+            ),
+            {
+                _separator304:true,
+                stan304:{
+                    typ:"wszystkie",
+                    litery:[]
+                }
+            }
+        ];
+
+        /*
+           Wstawiamy bezpośrednio PRZED przystankiem ponownego
+           połączenia. Sam rejoin pozostaje tylko raz.
+        */
+        wynik.splice(rejoinIndex,0,...blok);
+    }
+
+    return wynik;
+}
+
+
 function __bezCache_listaTrasyDoWyswietlenia(){
 
     const baza=
@@ -15033,7 +15070,7 @@ function __bezCache_listaTrasyDoWyswietlenia(){
             );
     }
 
-    return wynik;
+    return wstawGalezieWPrzebieg304(wynik);
 }
 
 function listaTrasyDoWyswietlenia(){
@@ -16271,62 +16308,7 @@ function renderWydluzeniaTrasy(){
 
 function renderGalezieWewnetrzne302(){
 
-    const galezie=galezieWewnetrzne302();
-    if(!galezie.length) return"";
-
-    return galezie.map(galaz=>{
-
-        const litery=Array.from(galaz.litery||[]);
-        if(!litery.length) return"";
-
-        const tytul=litery
-            .map(l=>"„"+escapeHtml(l)+"”")
-            .join(", ");
-
-        const stops=galaz.przystanki.map(x=>{
-
-            const p=x?.p||x;
-
-            return(
-                '<li class="trasa-extra-stop">'+
-                '<span class="trasa-czas"></span>'+
-                '<span class="trasa-os"></span>'+
-                '<span class="trasa-nazwa">'+
-                escapeHtml(
-                    String(p?.nazwa||x?.nazwa||"").toUpperCase()
-                )+
-                '</span>'+
-                '<span class="trasa-nz">'+
-                (czyNZ(p)?'ż':'')+
-                '</span>'+
-                '</li>'
-            );
-        }).join("");
-
-        return(
-            '<div class="trasa-extra trasa-galaz-wewnetrzna">'+
-            '<div class="trasa-extra-title">'+
-            'Trasa w kursach '+tytul+
-            '</div>'+
-            '<ul class="trasa-extra-lista">'+
-            stops+
-            '</ul>'+
-            '<div class="trasa-extra-title trasa-polaczenie">'+
-            'Trasa we wszystkich kursach'+
-            '</div>'+
-            '<ul class="trasa-extra-lista">'+
-            '<li class="trasa-extra-stop">'+
-            '<span class="trasa-czas"></span>'+
-            '<span class="trasa-os"></span>'+
-            '<span class="trasa-nazwa">'+
-            escapeHtml(String(galaz.rejoinNazwa||"").toUpperCase())+
-            '</span>'+
-            '<span class="trasa-nz"></span>'+
-            '</li>'+
-            '</ul>'+
-            '</div>'
-        );
-    }).join("");
+    return"";
 }
 
 
@@ -16939,6 +16921,14 @@ function renderTrasaKolumna(
             .map(
                 (element,lokalny)=>{
 
+                    if(element?._separator304){
+
+                        return naglowekZmianyTrasy(
+                            null,
+                            element.stan304
+                        );
+                    }
+
                     const p=
                         element&&
                         Object.prototype.hasOwnProperty.call(
@@ -16959,9 +16949,11 @@ function renderTrasaKolumna(
                               lokalny;
 
                     const stanAktualny=
-                        stanTrasyNaPrzystanku(
-                            element
-                        );
+                        element?._galaz304
+                            ? element.stan304
+                            : stanTrasyNaPrzystanku(
+                                element
+                            );
 
                     let stanPoprzedni=null;
 
@@ -20821,75 +20813,192 @@ function dopasujKolumnyTrasy() {
     columns.className = "trasa-columns cols-2";
     ustawNaglowekTrasy(2);
 
-    // Do pierwszej kolumny tymczasowo wkładamy wszystko,
-    // aby sprawdzić ile kolejnych przystanków realnie się mieści.
-    columns.innerHTML =
-        renderTrasaKolumna(
-            { start: 0, lista: lista },
-            czasy,
-            pierwszyIndexTrasy,
-            ostatniIndexTrasy,
-            true
-        ) +
-        '<div class="trasa-kol trasa-kol-pusta"></div>';
+    /*
+       WERSJA 303
 
-    ustawZawijanieNazwTrasy(columns);
+       W 302 dodatkowa gałąź b/c była renderowana PO <ul class="trasa-lista">.
+       Stary pomiar liczył tylko wysokość .trasa-lista, więc gałąź nie była
+       uwzględniana przy decyzji o drugiej kolumnie.
 
-    const pierwszaKolumna = columns.querySelector(".trasa-kol");
-    const wiersze = Array.from(
-        pierwszaKolumna?.querySelectorAll(".trasa-stop") || []
-    );
+       Teraz sprawdzamy REALNĄ wysokość obu gotowych kolumn, razem z:
+       - separatorami,
+       - wariantami,
+       - gałęziami alternatywnymi,
+       - "Trasa we wszystkich kursach".
 
-    if (!pierwszaKolumna || !wiersze.length) return;
+       Szukamy największej liczby zwykłych przystanków, którą można zostawić
+       w pierwszej kolumnie, pod warunkiem że DRUGA kolumna razem z całą
+       gałęzią wariantową również mieści się na stronie.
+    */
 
-    const stylKolumny = getComputedStyle(pierwszaKolumna);
-    const paddingBottom = parseFloat(stylKolumny.paddingBottom || 0);
+    let najlepszyPodzial=null;
 
-    const maxDol =
-        pierwszaKolumna.getBoundingClientRect().top +
-        columns.clientHeight -
-        paddingBottom;
+    for(
+        let k=1;
+        k<lista.length;
+        k++
+    ){
 
-    let ileSieMiesci = 0;
+        const pierwszaLista=
+            lista.slice(
+                0,
+                k
+            );
 
-    for (const wiersz of wiersze) {
-        const rect = wiersz.getBoundingClientRect();
+        const drugaLista=
+            lista.slice(
+                k
+            );
 
-        if (rect.bottom <= maxDol + 0.5) {
-            ileSieMiesci++;
-        } else {
-            break;
+        columns.innerHTML=
+            renderTrasaKolumna(
+                {
+                    start:0,
+                    lista:pierwszaLista
+                },
+                czasy,
+                pierwszyIndexTrasy,
+                ostatniIndexTrasy,
+                false
+            )+
+            renderTrasaKolumna(
+                {
+                    start:k,
+                    lista:drugaLista
+                },
+                czasy,
+                pierwszyIndexTrasy,
+                ostatniIndexTrasy,
+                true
+            );
+
+        ustawZawijanieNazwTrasy(
+            columns
+        );
+
+        /*
+           Wymuszamy przeliczenie layoutu przed pomiarem.
+        */
+        void columns.offsetHeight;
+
+        const kolumnyTest=
+            Array.from(
+                columns.querySelectorAll(
+                    ":scope > .trasa-kol"
+                )
+            );
+
+        if(kolumnyTest.length<2){
+            continue;
+        }
+
+        const miesciPierwsza=
+            kolumnyTest[0].scrollHeight<=
+            columns.clientHeight+1;
+
+        const miesciDruga=
+            kolumnyTest[1].scrollHeight<=
+            columns.clientHeight+1;
+
+        if(
+            miesciPierwsza&&
+            miesciDruga
+        ){
+            /*
+               Zapamiętujemy kolejne poprawne k.
+               Ostatecznie zostanie największe, czyli pierwsza
+               kolumna będzie wypełniona możliwie najbardziej.
+            */
+            najlepszyPodzial=k;
         }
     }
 
-    ileSieMiesci = Math.max(
-        1,
-        Math.min(
-            ileSieMiesci,
-            lista.length - 1
-        )
-    );
+    /*
+       Jeżeli istnieje podział, przy którym obie kolumny naprawdę
+       mieszczą się w wysokości tabliczki, renderujemy właśnie go.
+    */
+    if(
+        najlepszyPodzial!==null
+    ){
 
-    const pierwszaLista = lista.slice(0, ileSieMiesci);
-    const drugaLista = lista.slice(ileSieMiesci);
+        const pierwszaLista=
+            lista.slice(
+                0,
+                najlepszyPodzial
+            );
 
-    // Pierwsza kolumna = maksymalnie dużo przystanków.
-    // Druga kolumna = wyłącznie te, które się nie zmieściły.
-    columns.innerHTML =
+        const drugaLista=
+            lista.slice(
+                najlepszyPodzial
+            );
+
+        columns.innerHTML=
+            renderTrasaKolumna(
+                {
+                    start:0,
+                    lista:pierwszaLista
+                },
+                czasy,
+                pierwszyIndexTrasy,
+                ostatniIndexTrasy,
+                false
+            )+
+            renderTrasaKolumna(
+                {
+                    start:najlepszyPodzial,
+                    lista:drugaLista
+                },
+                czasy,
+                pierwszyIndexTrasy,
+                ostatniIndexTrasy,
+                true
+            );
+
+        ustawZawijanieNazwTrasy(
+            columns
+        );
+
+        return;
+    }
+
+    /*
+       Awaryjnie: jeżeli nawet przy wszystkich możliwych punktach
+       podziału dwie kolumny nie wystarczą, pozostawiamy najbardziej
+       równy podział zamiast wypuszczać zawartość poza dół strony.
+    */
+    const awaryjnyPodzial=
+        Math.max(
+            1,
+            Math.min(
+                lista.length-1,
+                Math.ceil(
+                    lista.length/2
+                )
+            )
+        );
+
+    columns.innerHTML=
         renderTrasaKolumna(
             {
-                start: 0,
-                lista: pierwszaLista
+                start:0,
+                lista:
+                    lista.slice(
+                        0,
+                        awaryjnyPodzial
+                    )
             },
             czasy,
             pierwszyIndexTrasy,
             ostatniIndexTrasy,
             false
-        ) +
+        )+
         renderTrasaKolumna(
             {
-                start: ileSieMiesci,
-                lista: drugaLista
+                start:awaryjnyPodzial,
+                lista:
+                    lista.slice(
+                        awaryjnyPodzial
+                    )
             },
             czasy,
             pierwszyIndexTrasy,
@@ -20897,7 +21006,9 @@ function dopasujKolumnyTrasy() {
             true
         );
 
-    ustawZawijanieNazwTrasy(columns);
+    ustawZawijanieNazwTrasy(
+        columns
+    );
 }
 
 
