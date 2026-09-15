@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 213
+     WERSJA: 214
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2380,6 +2380,20 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     height: auto !important;
 }
 
+
+
+/* =========================================================
+   WERSJA 214 — RÓWNA WYSOKOŚĆ TABEL DNI
+   ========================================================= */
+
+/*
+   Wysokość nadaje JS na podstawie najwyższej tabeli w danej karcie.
+   Box-sizing gwarantuje, że obramowania obu tabel kończą się równo.
+*/
+.tabliczka .rozklady-grid > .dzien {
+    box-sizing: border-box !important;
+}
+
 </style>
 </head>
 
@@ -2442,12 +2456,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 213
+   WERSJA: 214
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "213";
+const WERSJA_TABLICZKI = "214";
 console.log(
-    "FWTP Tabliczka — wersja 213 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 214 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -5451,7 +5465,7 @@ function publiczneLiteryWariantowAktualnegoKierunku(){
 
 /* =========================================================
    WERSJA 213
-   A = „KURS BEZ PODJAZDÓW” I >= 75% KURSÓW NA AKTYWNYM PRZYSTANKU
+   A = „KURS BEZ PODJAZDÓW” I >= 55% KURSÓW NA AKTYWNYM PRZYSTANKU
 
    Liczymy WYŁĄCZNIE kursy, które są faktycznie dostępne na aktualnie
    wybranym przystanku i w aktualnie pokazywanych grupach dni.
@@ -5579,7 +5593,7 @@ function czyUkrycWariantANaAktywnymPrzystanku213(){
     return(
         udzialWariantuANaAktywnymPrzystanku213()
         >=
-        0.75
+        0.55
     );
 }
 
@@ -5629,7 +5643,7 @@ function czyPokazacWariantJakLiniaHTML(litera){
     /*
        WERSJA 213:
        jeżeli A oznacza „kurs bez podjazdów” i stanowi co najmniej
-       75% kursów FAKTYCZNIE WIDOCZNYCH NA AKTYWNYM PRZYSTANKU,
+       55% kursów FAKTYCZNIE WIDOCZNYCH NA AKTYWNYM PRZYSTANKU,
        A jest przebiegiem domyślnym.
 
        Ta funkcja steruje jednocześnie:
@@ -13873,6 +13887,87 @@ function poprawPierwszyAktywnyPrzystanek(){
         });
 }
 
+
+/* =========================================================
+   WERSJA 214 — WYRÓWNANIE TABEL „NIE KURSUJE”
+   ========================================================= */
+
+function wyrownajWysokoscTabelDni214(
+    root=document
+){
+    root.querySelectorAll(
+        ".tabliczka .rozklady-grid"
+    ).forEach(
+        grid=>{
+
+            const dni=
+                Array.from(
+                    grid.children
+                )
+                .filter(
+                    el=>
+                        el.classList?.contains(
+                            "dzien"
+                        )
+                );
+
+            if(dni.length<2){
+                return;
+            }
+
+            /*
+               Najpierw zdejmujemy wysokość z poprzedniego renderowania,
+               aby po zmianie przystanku/dnia pomiar był naturalny.
+            */
+            dni.forEach(
+                dzien=>{
+                    dzien.style.height="";
+                    dzien.style.minHeight="";
+                }
+            );
+
+            const max=
+                Math.max(
+                    ...dni.map(
+                        dzien=>
+                            dzien.getBoundingClientRect().height
+                    )
+                );
+
+            if(
+                !Number.isFinite(max)||
+                max<=0
+            ){
+                return;
+            }
+
+            dni.forEach(
+                dzien=>{
+                    dzien.style.height=
+                        max+"px";
+                    dzien.style.minHeight=
+                        max+"px";
+                }
+            );
+        }
+    );
+}
+
+
+function zaplanujWyrownanieTabelDni214(){
+
+    requestAnimationFrame(
+        ()=>
+            requestAnimationFrame(
+                ()=>
+                    wyrownajWysokoscTabelDni214(
+                        document
+                    )
+            )
+    );
+}
+
+
 function renderuj(){
 
     /*
@@ -17033,6 +17128,52 @@ window.addEventListener("load",()=>{
 window.addEventListener("resize",()=>{
     requestAnimationFrame(synchronizujGodziny187);
 });
+
+
+/* v214 — po każdym zakończonym renderowaniu/dopasowaniu wyrównaj tabele dni. */
+let timerWyrownania214=null;
+
+const observerWyrownania214=
+    new MutationObserver(
+        mutations=>{
+
+            /*
+               Zmiana samego style.height wywołuje mutation tylko wtedy,
+               gdy obserwujemy attributes. Obserwujemy wyłącznie childList,
+               więc nie tworzymy pętli.
+            */
+            clearTimeout(
+                timerWyrownania214
+            );
+
+            timerWyrownania214=
+                setTimeout(
+                    zaplanujWyrownanieTabelDni214,
+                    0
+                );
+        }
+    );
+
+document.addEventListener(
+    "DOMContentLoaded",
+    ()=>{
+        observerWyrownania214.observe(
+            document.body,
+            {
+                childList:true,
+                subtree:true
+            }
+        );
+
+        zaplanujWyrownanieTabelDni214();
+    }
+);
+
+window.addEventListener(
+    "resize",
+    zaplanujWyrownanieTabelDni214
+);
+
 </script>
 
 </body>
