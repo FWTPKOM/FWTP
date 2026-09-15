@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 278
+     WERSJA: 279
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -3771,6 +3771,25 @@ console.log(
 </script>
 
 <script>
+/* =========================================================
+   WERSJA 279 — PEŁNA LOGIKA LISTY TRASY Z WERSJI 246
+   =========================================================
+   Przywrócone zostały nie tylko 3 funkcje renderujące, ale cały
+   zmieniony po v246 łańcuch logiki odpowiedzialny za:
+   - budowę listy trasy,
+   - warianty i odcinki dodatkowe,
+   - dwa kierunki,
+   - krańce,
+   - stan przystanków na liście,
+   - renderowanie i dopasowanie listy.
+
+   Zachowane z nowszej wersji:
+   - dokładna identyfikacja fizycznego słupka NAZWA + NR,
+   - poprawne rozróżnienie Metro Bródno 03 / 05,
+   - KS Polonez 03 i PKP Toruńska 01 dla sobót/świąt,
+   - obsługa wybranej daty i dokładnego przystanku.
+   ========================================================= */
+
 
 /* =========================================================
    ZMIENNE
@@ -6566,37 +6585,15 @@ function indeksAktywnegoWKierunku276(kierunek){
 
 function __bezCache_kierunkiObslugujaceBiezacyPrzystanek(){
 
-    /*
-       =========================================================
-       WERSJA 277 — NAPRAWA PUSTEGO ROZKŁADU
-       =========================================================
-
-       To było właściwe źródło pustego rozkładu dla:
-           KS POLONEZ 03
-           PKP TORUŃSKA 01
-
-       Poprzednio ta funkcja sprawdzała KAŻDY kierunek wyłącznie
-       na jednej trasie zwróconej przez znajdzNajpelniejszyKierunek().
-
-       Dla linii 134 najpełniejsza / wspólna trasa mogła zawierać:
-           KS POLONEZ 01
-           PKP TORUŃSKA 03
-
-       więc dokładne:
-           KS POLONEZ 03
-           PKP TORUŃSKA 01
-
-       nie były uznawane za obsługiwane przez żaden kierunek.
-       W efekcie kierunkiAktywneDlaBiezacegoPrzystanku() zwracało []
-       i cała tabela godzin była pusta.
-
-       Od v277 dla każdego kierunku przeglądamy WSZYSTKIE rozkłady
-       i szukamy dokładnego fizycznego słupka NAZWA + NR.
-       Data nie ma wpływu na to, czy słupek istnieje.
-       ========================================================= */
+    const baza=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
 
     const p=
-        aktywnyFizycznyPrzystanek276();
+        baza?.przystanki?.[
+            aktualnyPrzystanek
+        ];
 
     if(!p){
         return[];
@@ -6607,127 +6604,51 @@ function __bezCache_kierunkiObslugujaceBiezacyPrzystanek(){
     const listaKierunkow=
         pobierzKierunki();
 
-    const rozkladDnia=
-        rozkladBazowyDlaWybranejDaty272();
-
     listaKierunkow.forEach(
         el=>{
 
-            const indexKierunku=
-                Number(
+            const k=
+                znajdzNajpelniejszyKierunek(
                     el.index
                 );
 
-            let najlepszy=null;
-
-            /*
-               1. Najpierw próbujemy rzeczywistej trasy wybranego dnia.
-               Jeśli dokładny słupek tam istnieje, używamy jej.
-            */
-            const kDnia=
-                rozkladDnia
-                    ?.kierunki
-                    ?.[indexKierunku];
-
-            if(kDnia){
-
-                const indexDnia=
-                    (
-                        kDnia.przystanki||
-                        []
-                    ).findIndex(
-                        x=>
-                            czyTenSamPrzystanekPoNazwieINumerze(
-                                x,
-                                p
-                            )
-                    );
-
-                if(indexDnia>=0){
-
-                    najlepszy={
-                        kierunek:kDnia,
-                        index:indexDnia
-                    };
-                }
-            }
-
-            /*
-               2. Jeżeli wybrany dzień tego słupka nie obsługuje,
-               przeglądamy WSZYSTKIE rodzaje dnia.
-
-               To pozwala np. w poniedziałek otworzyć KS POLONEZ 03,
-               mimo że ten fizyczny słupek występuje w trasie
-               sobotnio-świątecznej.
-            */
-            if(!najlepszy){
-
-                let najlepszaDlugosc=-1;
-
-                (
-                    daneLinii?.rozkłady||
-                    []
-                ).forEach(
-                    rozklad=>{
-
-                        const k=
-                            rozklad
-                                ?.kierunki
-                                ?.[indexKierunku];
-
-                        if(!k){
-                            return;
-                        }
-
-                        const lista=
-                            k.przystanki||
-                            [];
-
-                        const index=
-                            lista.findIndex(
-                                x=>
-                                    czyTenSamPrzystanekPoNazwieINumerze(
-                                        x,
-                                        p
-                                    )
-                            );
-
-                        if(index<0){
-                            return;
-                        }
-
-                        /*
-                           Jeżeli kilka rozkładów ma dokładnie ten sam
-                           fizyczny słupek, wybieramy najpełniejszą trasę.
-                        */
-                        if(
-                            lista.length>
-                            najlepszaDlugosc
-                        ){
-                            najlepszaDlugosc=
-                                lista.length;
-
-                            najlepszy={
-                                kierunek:k,
-                                index
-                            };
-                        }
-                    }
-                );
-            }
-
-            if(!najlepszy){
+            if(!k){
                 return;
             }
 
-            const k=
-                najlepszy.kierunek;
+            /*
+               KLUCZOWA ZMIANA:
+               drugi kierunek uznajemy za obsługujący TEN SAM
+               przystanek tylko wtedy, gdy zgadza się:
+               - nazwa,
+               - numer przystanku.
 
+               Czyli:
+               SADYBA 05 !== SADYBA 01.
+
+               Dzięki temu:
+               - na SADYBA 05 nie pojawią się kursy do WILANOWA,
+               - na SADYBA 01 mogą się pojawić, jeśli rzeczywiście
+                 ten słupek obsługuje drugi kierunek.
+            */
             const index=
-                najlepszy.index;
+                (
+                    k.przystanki||
+                    []
+                ).findIndex(
+                    x=>
+                        czyTenSamPrzystanekPoNazwieINumerze(
+                            x,
+                            p
+                        )
+                );
+
+            if(index<0){
+                return;
+            }
 
             wynik.push({
-                indexKierunku,
+                indexKierunku:el.index,
                 kierunek:k,
                 indexPrzystanku:index,
                 przystanek:
@@ -6787,17 +6708,18 @@ function drugiKierunekBiezacegoPrzystanku(){
 function __bezCache_czyBiezacyPrzystanekKraniecWiekszosciKursow(){
 
     const kierunek=
-        kierunekBazowy();
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
 
     const przystanki=
         kierunek?.przystanki||
         [];
 
-    /*
-       WERSJA 276: dokładnie wybrany NAZWA + NR.
-    */
     const aktywny=
-        aktywnyFizycznyPrzystanek276();
+        przystanki[
+            aktualnyPrzystanek
+        ];
 
     if(!aktywny){
         return false;
@@ -8051,13 +7973,7 @@ function numerWystapieniaPrzystankuWBazie(element){
     }
 
     const cel=
-        (
-            Number(index)===
-                Number(aktualnyPrzystanek)&&
-            wybranyFizycznyPrzystanek262
-        )
-            ? wybranyFizycznyPrzystanek262
-            : baza[index];
+        baza[index];
 
     const nazwa=
         normalizuj(
@@ -8842,22 +8758,6 @@ function udzialWariantuANaAktywnymPrzystanku213(){
 
 function czyUkrycWariantANaAktywnymPrzystanku213(){
 
-    /*
-       v258:
-       Gdy działa rozszerzenie różnych tras między rodzajami dni,
-       wariant A musi być prezentowany konsekwentnie na CAŁEJ trasie,
-       również po wybraniu przystanku pośredniego.
-
-       Nie stosujemy wtedy starej reguły v213 ukrywającej A przy
-       dużym udziale kursów "bez podjazdów".
-
-       Poza tym trybem zachowanie pozostaje dokładnie jak w v246.
-    */
-    if(trybRoznychTrasDni256){
-        return false;
-    }
-
-
     if(
         !czyOpisABezPodjazdow213()
     ){
@@ -8947,28 +8847,6 @@ function czyPokazacWariantJakLiniaHTML(litera){
 
        B/C/D/... pozostają normalnie widoczne.
     */
-    /*
-       v261:
-       W trybie tras zależnych od rodzaju dnia A musi być publicznym
-       wariantem także na przystankach pośrednich.
-
-       Poprzednio v258 wyłączała tylko regułę 55%, ale niżej nadal
-       działała stara zasada v246:
-           "jeżeli wariantów jest mniej niż 4, ukryj A".
-
-       To właśnie powodowało, że po wybraniu KS POLONEZ albo
-       PKP TORUŃSKA kursy powszednie wariantu A były poprawnie
-       znalezione, ale litera "a" była usuwana przy renderowaniu.
-
-       Dla zwykłych linii nadal obowiązuje dokładnie zasada v246.
-    */
-    if(
-        znak==="A"&&
-        trybRoznychTrasDni256
-    ){
-        return true;
-    }
-
     if(
         znak==="A"&&
         liczbaWariantowKierunku<4
@@ -9104,7 +8982,7 @@ function czyOznaczacWariant(opis){
        na tabliczce.
     */
     return(
-        /skrócon|wydłuż|tylko do|zajezdni|przez|podjazd|trasą obowiązującą/i
+        /skrócon|wydłuż|tylko do|zajezdni|przez|podjazd/i
             .test(
                 String(
                     opis||""
@@ -11305,42 +11183,11 @@ function czyKursPomijanyPrzyTrasie(kurs){
        Zwykły układ pozostaje bez zmian — kursów skróconych
        nie mieszamy do opisów wariantów trasy.
     */
-    /*
-       v254:
-       kursy skrócone biorą udział w analizie listy trasy, bo mają
-       dostać własny napis "Trasa w kursach „z/c”" dokładnie tam,
-       gdzie ich rzeczywisty przebieg się oddziela lub kończy.
-       Nadal pomijamy kursy zjazdowe do zajezdni.
-    */
-    /*
-       v255:
-       Kurs skrócony nie tworzy osobnego geometrycznego odcinka
-       przed swoim końcem — jedzie tą samą trasą co właściwy
-       przebieg. Nie może więc powodować np.
-       "Trasa w kursach z, b" przed KS POLONEZ.
-
-       Jego litera nadal pozostaje:
-       - przy minucie,
-       - w legendzie,
-       - przy punkcie końcowym (dodawane niżej przez v255).
-    */
     if(
-        trybRoznychTrasDni256
+        /skrócon|zajezdni|tylko do/i
+            .test(opis)
     ){
-        if(
-            /skrócon|tylko do|zajezdni/i
-                .test(opis)
-        ){
-            return true;
-        }
-    }
-    else{
-        if(
-            /skrócon|zajezdni|tylko do/i
-                .test(opis)
-        ){
-            return true;
-        }
+        return true;
     }
 
     if(
@@ -11727,26 +11574,6 @@ function naglowekZmianyTrasy(
         return"";
     }
 
-    /*
-       v254:
-       Jeżeli w miejscu rozgałęzienia jedzie tylko przebieg
-       podstawowy, którego litera A jest ukryta, pokazujemy
-       czytelny nagłówek bez sztucznej litery:
-       "Trasa w kursach bez oznaczeń".
-    */
-    if(
-        trybRoznychTrasDni256&&
-        aktualny.typ==="podstawowa"
-    ){
-        return(
-            '<li class="trasa-separator">'+
-            '<span class="trasa-separator-title">'+
-            'Trasa w kursach bez oznaczeń'+
-            '</span>'+
-            '</li>'
-        );
-    }
-
     if(
         aktualny.typ==="wariant"&&
         aktualny.litery.length
@@ -11782,13 +11609,7 @@ function naglowekZmianyTrasy(
     */
     if(
         poprzedni&&
-        (
-            poprzedni.typ==="wariant"||
-            (
-                trybRoznychTrasDni256&&
-                poprzedni.typ==="podstawowa"
-            )
-        )&&
+        poprzedni.typ==="wariant"&&
         aktualny.typ==="wszystkie"
     ){
         return(
@@ -11814,13 +11635,10 @@ function czasDowolnegoKursuNaPrzystanku(
     const baza=
         kierunekBazowy();
 
-    /*
-       WERSJA 276:
-       czas trasy liczymy od dokładnie wybranego fizycznego słupka,
-       nie od elementu pod tym samym numerem indeksu w innej trasie.
-    */
     const startP=
-        aktywnyFizycznyPrzystanek276();
+        baza?.przystanki?.[
+            aktualnyPrzystanek
+        ];
 
     if(
         !startP||
@@ -12527,17 +12345,18 @@ function przeniesMinieteGaleziePrzedAktywny(
 function __bezCache_czyAktywnyPrzystanekJestPoczatkiemSwoichKursow(){
 
     const kierunek=
-        kierunekBazowy();
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
 
     const przystanki=
         kierunek?.przystanki||
         [];
 
-    /*
-       WERSJA 276: dokładnie wybrany NAZWA + NR.
-    */
     const aktywny=
-        aktywnyFizycznyPrzystanek276();
+        przystanki[
+            aktualnyPrzystanek
+        ];
 
     if(!aktywny){
         return false;
@@ -12912,63 +12731,22 @@ function daneKursowAktywnego206(){
             aktualnyPrzystanek
         );
 
-    /*
-       v260:
-       w trybie różnych tras aktywny przystanek zawsze odczytujemy
-       ze wspólnej osi A+B. Dzięki temu indeks wybrany w select nie
-       zostanie później zinterpretowany jako indeks pojedynczego
-       rozkładu.
-    */
     const baza=
-        trybRoznychTrasDni256
-            ? (
-                wspolnyKierunekDni259(
-                    aktualnyKierunek
-                )||
-                znajdzNajpelniejszyKierunek(
-                    aktualnyKierunek
-                )
-            )
-            : znajdzNajpelniejszyKierunek(
-                aktualnyKierunek
-            );
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
 
-    /*
-       v262:
-       do wyszukiwania kursów używamy rzeczywiście wybranego słupka,
-       np. PKP TORUŃSKA 01, a nie reprezentanta wspólnego punktu
-       (np. PKP TORUŃSKA 03) użytego tylko do rysowania osi trasy.
-    */
-    /*
-       =========================================================
-       WERSJA 274 — DOKŁADNY FIZYCZNY PRZYSTANEK
-       =========================================================
-
-       W v273 SELECT poprawnie przechowywał np. KS POLONEZ 03,
-       ale ta funkcja ponownie odczytywała aktywny przystanek
-       z "baza.przystanki[aktywnyIndex]".
-
-       Przy różnych trasach dnia indeks 18 mógł więc wskazać
-       KS POLONEZ 01 z innego rozkładu.
-
-       Jeżeli użytkownik wybrał konkretny fizyczny słupek,
-       TO ON jest źródłem prawdy. Indeks służy tylko do pozycji
-       na trasie bieżącego dnia.
-       ========================================================= */
     const aktywnyBaza=
-        wybranyFizycznyPrzystanek262
-            ? wybranyFizycznyPrzystanek262
-            : baza?.przystanki?.[
-                aktywnyIndex
-            ];
+        baza?.przystanki?.[
+            aktywnyIndex
+        ];
 
-    /*
-       WERSJA 276:
-       aktywnyIndex nie jest identyfikatorem fizycznego słupka.
-       Dla tras zależnych od dnia może oznaczać inną pozycję.
-       Wystarczy, że mamy dokładny aktywnyBaza = NAZWA + NR.
-    */
-    if(!aktywnyBaza){
+    if(
+        !aktywnyBaza||
+        !Number.isInteger(
+            aktywnyIndex
+        )
+    ){
         return null;
     }
 
@@ -13001,7 +12779,7 @@ function daneKursowAktywnego206(){
                Aktywny słupek identyfikujemy po DOKŁADNEJ parze
                NAZWA + NR, a nie po pozycji w wariantowym przebiegu.
             */
-            let aktywnyPos=
+            const aktywnyPos=
                 lista.findIndex(
                     p=>
                         normalizujNazwe208(
@@ -13019,140 +12797,6 @@ function daneKursowAktywnego206(){
                             ""
                         ).trim()
                 );
-
-            /*
-               v253:
-               ten sam logiczny przystanek może mieć inny numer
-               słupka w innym rodzaju dnia. Najpierw nadal wymagamy
-               dokładnego NAZWA+NR, ale jeśli go nie ma, dopasowujemy
-               NAZWA+LP. Dzięki temu kursy weekendowe są widoczne
-               także na wspólnym przystanku z innym numerem.
-            */
-            /*
-               v260:
-               po odcinku wariantowym LP może być przesunięte.
-               Najpierw więc dopasowujemy po unikalnej nazwie.
-               To jest kluczowe dla KS POLONEZ i PKP TORUŃSKA.
-            */
-            if(
-                aktywnyPos<0&&
-                trybRoznychTrasDni256&&
-                !wybranyFizycznyPrzystanek262
-            ){
-
-                const poNazwie260=
-                    lista
-                        .map(
-                            (p,index)=>({
-                                p,
-                                index
-                            })
-                        )
-                        .filter(
-                            x=>
-                                normalizujNazwe208(
-                                    x.p?.nazwa
-                                )===
-                                normalizujNazwe208(
-                                    (
-                                        trybRoznychTrasDni256&&
-                                        wybranyFizycznyPrzystanek262
-                                    )
-                                        ? wybranyFizycznyPrzystanek262.nazwa
-                                        : aktywnyBaza?.nazwa
-                                )
-                        );
-
-                if(poNazwie260.length===1){
-                    aktywnyPos=
-                        poNazwie260[0].index;
-                }
-            }
-
-            /*
-               LP zostaje jako dalszy fallback, potrzebny przy
-               powtarzających się nazwach.
-            */
-            if(
-                aktywnyPos<0&&
-                !(
-                    trybRoznychTrasDni256&&
-                    wybranyFizycznyPrzystanek262
-                )
-            ){
-
-                const lpAktywnego253=
-                    String(
-                        aktywnyBaza?.lp??
-                        ""
-                    ).trim();
-
-                if(lpAktywnego253){
-
-                    aktywnyPos=
-                        lista.findIndex(
-                            p=>
-                                normalizujNazwe208(
-                                    p?.nazwa
-                                )===
-                                normalizujNazwe208(
-                                    (
-                                        trybRoznychTrasDni256&&
-                                        wybranyFizycznyPrzystanek262
-                                    )
-                                        ? wybranyFizycznyPrzystanek262.nazwa
-                                        : aktywnyBaza?.nazwa
-                                )&&
-                                String(
-                                    p?.lp??
-                                    ""
-                                ).trim()===
-                                lpAktywnego253
-                        );
-                }
-            }
-
-            /*
-               v259:
-               element wspólnej listy może pochodzić z innego rodzaju
-               dnia i mieć tam inny numer/LP. Jeśli nazwa w konkretnym
-               przebiegu występuje dokładnie raz, jest to jednoznacznie
-               ten sam logiczny przystanek.
-            */
-            if(
-                aktywnyPos<0&&
-                trybRoznychTrasDni256&&
-                !wybranyFizycznyPrzystanek262
-            ){
-
-                const poNazwie259=
-                    lista
-                        .map(
-                            (p,index)=>({
-                                p,
-                                index
-                            })
-                        )
-                        .filter(
-                            x=>
-                                normalizujNazwe208(
-                                    x.p?.nazwa
-                                )===
-                                normalizujNazwe208(
-                                    (
-                                        trybRoznychTrasDni256&&
-                                        wybranyFizycznyPrzystanek262
-                                    )
-                                        ? wybranyFizycznyPrzystanek262.nazwa
-                                        : aktywnyBaza?.nazwa
-                                )
-                        );
-
-                if(poNazwie259.length===1){
-                    aktywnyPos=
-                        poNazwie259[0].index;
-                }
-            }
 
             if(aktywnyPos<0){
                 return;
@@ -13306,134 +12950,32 @@ function daneKursowAktywnego206(){
     );
 
     /*
-       v257:
-       punktyMap musi istnieć w zakresie całej funkcji, ponieważ jest
-       używane także po zakończeniu if/else.
+       Łączymy punkty z rozkładów. Klucz zawiera nazwę, numer słupka
+       i numer wystąpienia tej samej pary, więc dwa PKP URSUS
+       nie zostaną sklejone.
     */
-    let punktyMap;
+    const punktyMap=
+        new Map();
 
-    if(!trybRoznychTrasDni256){
-
-        /* v256: ORYGINALNE SCALANIE Z WERSJI 246 */
-        /*
-           Łączymy punkty z rozkładów. Klucz zawiera nazwę, numer słupka
-           i numer wystąpienia tej samej pary, więc dwa PKP URSUS
-           nie zostaną sklejone.
-        */
-        punktyMap=
-            new Map();
-
-        przebiegi.forEach(
-            info=>{
-
-                const wystapienia=
-                    new Map();
-
-                info.punkty.forEach(
-                    pkt=>{
-
-                        const para=
-                            [
-                                normalizujNazwe208(
-                                    pkt.p?.nazwa
-                                ),
-                                String(
-                                    pkt.p?.nr||
-                                    ""
-                                ).trim()
-                            ].join("|");
-
-                        const nrWyst=
-                            (
-                                wystapienia.get(
-                                    para
-                                )||
-                                0
-                            )+1;
-
-                        wystapienia.set(
-                            para,
-                            nrWyst
-                        );
-
-                        const key=
-                            para+
-                            "|occ:"+
-                            nrWyst;
-
-                        if(
-                            !punktyMap.has(
-                                key
-                            )
-                        ){
-                            punktyMap.set(
-                                key,
-                                {
-                                    p:pkt.p,
-                                    key,
-                                    kolejnosc:
-                                        punktyMap.size
-                                }
-                            );
-                        }
-                    }
-                );
-            }
-        );
-
-    }
-    else{
-
-        /* v256: ROZSZERZONE SCALANIE TYLKO DLA RÓŻNYCH TRAS DNI */
-        /*
-           v253 — SCALANIE PRZEBIEGÓW DO PUNKTU PONOWNEGO POŁĄCZENIA
-
-           Nie dopisujemy już całego drugiego przebiegu na końcu listy.
-
-           Przykład:
-               wspólna trasa
-               -> odcinek podstawowy
-               -> TORUŃSKA
-               -> [Trasa w kursach „b”]
-               -> odcinek B
-               -> [Trasa we wszystkich kursach]
-               -> PKP TORUŃSKA
-               -> wspólna trasa do końca
-
-           Każdy nowy odcinek z kolejnego rodzaju dnia jest wstawiany
-           PRZED pierwszym następnym wspólnym przystankiem. Dzięki temu
-           PKP TORUŃSKA staje się naturalnym punktem ponownego połączenia,
-           a ŻERAŃ FSO / OS. POTOK / PARK KASKADA itd. nie są powtarzane.
-        */
-
-        function kluczPunktu253(p){
-
-            /*
-               v254:
-               przy porównywaniu przebiegów różnych rodzajów dni
-               wspólny przystanek rozpoznajemy po NAZWIE.
-
-               Nie używamy ani numeru słupka, ani LP, bo po objazdowym
-               fragmencie LP może być przesunięte. Licznik wystąpień
-               poniżej nadal rozróżnia powtarzającą się tę samą nazwę.
-            */
-            return normalizujNazwe208(
-                p?.nazwa
-            );
-        }
-
-        function sekwencjaPunktow253(info){
+    przebiegi.forEach(
+        info=>{
 
             const wystapienia=
                 new Map();
 
-            return info.punkty.map(
+            info.punkty.forEach(
                 pkt=>{
 
                     const para=
-                        kluczPunktu253(
-                            pkt.p
-                        );
+                        [
+                            normalizujNazwe208(
+                                pkt.p?.nazwa
+                            ),
+                            String(
+                                pkt.p?.nr||
+                                ""
+                            ).trim()
+                        ].join("|");
 
                     const nrWyst=
                         (
@@ -13448,124 +12990,30 @@ function daneKursowAktywnego206(){
                         nrWyst
                     );
 
-                    return{
-                        p:pkt.p,
-                        key:
-                            para+
-                            "|occ:"+
-                            nrWyst
-                    };
-                }
-            );
-        }
+                    const key=
+                        para+
+                        "|occ:"+
+                        nrWyst;
 
-        const sekwencje=
-            przebiegi.map(
-                sekwencjaPunktow253
-            );
-
-        let scalone=
-            sekwencje.length
-                ? [...sekwencje[0]]
-                : [];
-
-        /*
-           Wstawiamy tylko te punkty kolejnego przebiegu, których jeszcze
-           nie ma na osi. Jeżeli po nich pojawia się znany już punkt,
-           wstawiamy je bezpośrednio PRZED nim — to punkt ponownego
-           połączenia obu tras.
-        */
-        for(
-            let s=1;
-            s<sekwencje.length;
-            s++
-        ){
-
-            const seq=
-                sekwencje[s];
-
-            let i=0;
-
-            while(i<seq.length){
-
-                const indeksIstniejacego=
-                    scalone.findIndex(
-                        x=>x.key===seq[i].key
-                    );
-
-                if(indeksIstniejacego>=0){
-                    i++;
-                    continue;
-                }
-
-                const brakujace=[];
-
-                while(
-                    i<seq.length&&
-                    !scalone.some(
-                        x=>x.key===seq[i].key
-                    )
-                ){
-                    brakujace.push(
-                        seq[i]
-                    );
-                    i++;
-                }
-
-                if(!brakujace.length){
-                    continue;
-                }
-
-                if(i<seq.length){
-
-                    const anchorKey=
-                        seq[i].key;
-
-                    const anchorIndex=
-                        scalone.findIndex(
-                            x=>x.key===anchorKey
-                        );
-
-                    if(anchorIndex>=0){
-                        scalone.splice(
-                            anchorIndex,
-                            0,
-                            ...brakujace
-                        );
-                    }
-                    else{
-                        scalone.push(
-                            ...brakujace
+                    if(
+                        !punktyMap.has(
+                            key
+                        )
+                    ){
+                        punktyMap.set(
+                            key,
+                            {
+                                p:pkt.p,
+                                key,
+                                kolejnosc:
+                                    punktyMap.size
+                            }
                         );
                     }
                 }
-                else{
-                    scalone.push(
-                        ...brakujace
-                    );
-                }
-            }
+            );
         }
-
-        punktyMap=
-            new Map();
-
-        scalone.forEach(
-            (pkt,index)=>{
-                if(!punktyMap.has(pkt.key)){
-                    punktyMap.set(
-                        pkt.key,
-                        {
-                            p:pkt.p,
-                            key:pkt.key,
-                            kolejnosc:index
-                        }
-                    );
-                }
-            }
-        );
-
-    }
+    );
 
     return{
         aktywnyIndex,
@@ -18053,40 +17501,10 @@ function renderuj(){
         kierunek?.przystanki||
         [];
 
-    /*
-       WERSJA 275:
-       aktywnym przystankiem jest dokładnie wybrany fizyczny słupek.
-       Nie blokujemy renderowania tylko dlatego, że nie kursuje on
-       w aktualnie wybranym rodzaju dnia.
-    */
-    let p=
-        aktywnyFizycznyPrzystanek276()||
+    const p=
         lista[
             aktualnyPrzystanek
         ];
-
-    if(
-        wybranyFizycznyPrzystanek262
-    ){
-        const idx275=
-            indeksWybranegoFizycznegoWKierunku275(
-                kierunek
-            );
-
-        if(idx275>=0){
-            aktualnyPrzystanek=idx275;
-
-            /*
-               WERSJA 276:
-               nie nadpisujemy p obiektem z osi/bazy.
-               Etykieta i dane aktywnego słupka pozostają dokładnie
-               takie, jakie wybrał użytkownik.
-            */
-            p=
-                aktywnyFizycznyPrzystanek276()||
-                lista[idx275];
-        }
-    }
 
     if(!p){
         pokazBlad(
