@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 244
+     WERSJA: 245
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3749,12 +3749,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 244
+   WERSJA: 245
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "244";
+const WERSJA_TABLICZKI = "245";
 console.log(
-    "FWTP Tabliczka — wersja 244 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 245 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -11256,38 +11256,130 @@ function aktywnyMaWariant206(
 
 function kierunekZDokladnychKursow206(){
 
-    const dane=
-        daneKursowAktywnego206();
+    /*
+       v245:
+       Kierunek nagłówka nie może być wyznaczany jako "najkrótszy wspólny
+       koniec" kursów z aktywnego przystanku. Dla przystanku początkowego
+       bierzemy rzeczywiste końce wszystkich kursów obecnych na tym
+       przystanku i wybieramy dominujący koniec pasażerski.
 
-    if(
-        !dane||
-        !dane.punkty?.length
-    ){
-        return"";
-    }
+       Dzięki temu pojedyncze / mniejszościowe kursy skrócone (np. SIELCE)
+       nie zmieniają kierunku całej tabliczki, gdy zasadnicze kursy jadą
+       dalej do ESPERANTO.
+    */
 
-    for(
-        let i=
-            dane.punkty.length-1;
-        i>=0;
-        i--
-    ){
-        const p=
-            dane.punkty[i]?.p;
+    const rozklady=
+        Array.isArray(daneLinii?.["rozkłady"])
+            ? daneLinii["rozkłady"]
+            : [];
 
-        if(
-            typPrzystankuTrasy(
-                p
-            )!=="TECH"
-        ){
-            return String(
-                p?.nazwa||
-                ""
-            ).trim();
+    const liczniki=new Map();
+
+    for(const rozklad of rozklady){
+
+        const kierunki=
+            Array.isArray(rozklad?.kierunki)
+                ? rozklad.kierunki
+                : [];
+
+        const kierunek=
+            kierunki[aktualnyKierunek];
+
+        const lista=
+            Array.isArray(kierunek?.przystanki)
+                ? kierunek.przystanki
+                : [];
+
+        if(!lista.length){
+            continue;
+        }
+
+        let idx=Number.isInteger(wybranyPrzystanekIndex)
+            ? wybranyPrzystanekIndex
+            : -1;
+
+        if(idx<0 || idx>=lista.length){
+            idx=lista.findIndex(
+                (p)=>
+                    String(p?.nazwa||"").trim()===
+                    String(wybranyPrzystanek?.nazwa||"").trim() &&
+                    String(p?.nr||"").trim()===
+                    String(wybranyPrzystanek?.nr||"").trim()
+            );
+        }
+
+        if(idx<0){
+            continue;
+        }
+
+        const aktywny=lista[idx];
+
+        const numery=new Set(
+            (Array.isArray(aktywny?.kursy) ? aktywny.kursy : [])
+                .map(k=>String(k?.numer||"").trim())
+                .filter(Boolean)
+        );
+
+        if(!numery.size){
+            continue;
+        }
+
+        for(const numer of numery){
+
+            let ostatni=null;
+
+            for(let i=idx;i<lista.length;i++){
+
+                const p=lista[i];
+
+                if(typPrzystankuTrasy(p)==="TECH"){
+                    continue;
+                }
+
+                const maKurs=
+                    (Array.isArray(p?.kursy) ? p.kursy : [])
+                        .some(
+                            k=>
+                                String(k?.numer||"").trim()===
+                                numer
+                        );
+
+                if(maKurs){
+                    ostatni=p;
+                }
+            }
+
+            if(ostatni){
+
+                const nazwa=
+                    String(ostatni?.nazwa||"").trim();
+
+                if(nazwa){
+                    liczniki.set(
+                        nazwa,
+                        (liczniki.get(nazwa)||0)+1
+                    );
+                }
+            }
         }
     }
 
-    return"";
+    if(!liczniki.size){
+        return "";
+    }
+
+    let najlepszy="";
+    let max=-1;
+
+    for(const [nazwa,ile] of liczniki){
+
+        if(ile>max){
+            najlepszy=nazwa;
+            max=ile;
+        }
+    }
+
+    return najlepszy;
 }
 
 function usunPrzyszlePrzystankiBezMinuty(
