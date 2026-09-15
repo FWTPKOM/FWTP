@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 253
+     WERSJA: 254
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3749,12 +3749,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 253
+   WERSJA: 254
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "253";
+const WERSJA_TABLICZKI = "254";
 console.log(
-    "FWTP Tabliczka — wersja 253 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 254 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -5085,9 +5085,14 @@ function nowaLitera251(zajete){
    ========================================================= */
 
 function kluczLogiczny252(p){
-    const nazwa=normTrasy251(p?.nazwa);
-    const lp=String(p?.lp??"").trim();
-    return nazwa+"|"+(lp ? "LP:"+lp : "");
+    /*
+       v254: numer słupka i LP nie rozdzielają wspólnego przystanku.
+       To potrzebne np. dla KS POLONEZ i PKP TORUŃSKA po odcinku,
+       na którym liczba wcześniejszych przystanków jest inna.
+    */
+    return normTrasy251(
+        p?.nazwa
+    );
 }
 
 function oznaczWspolnePrzystanki252(){
@@ -5147,6 +5152,188 @@ function oznaczWspolnePrzystanki252(){
     );
 }
 
+
+/* =========================================================
+   v254 — OSOBNE LITERY KURSÓW SPECJALNYCH DLA RÓŻNYCH DNI
+
+   Jeśli np. Z = kurs skrócony występuje zarówno w dzień powszedni,
+   jak i w sobotę/święto, drugi rodzaj dnia dostaje własną literę.
+   Dla 134 przy zajętych A, B i Z będzie to C.
+
+   Zmiana obejmuje:
+   - definicję wariantu,
+   - kursy na wszystkich przystankach,
+   - starszą strukturę godzin/minut, jeśli istnieje.
+   ========================================================= */
+
+function rozdzielSpecjalneLiteryMiedzyDniami254(){
+
+    const rozklady=
+        Array.isArray(daneLinii?.rozkłady)
+            ? daneLinii.rozkłady
+            : [];
+
+    if(rozklady.length<2){
+        return;
+    }
+
+    const literyBazy=
+        new Set(
+            (rozklady[0]?.warianty||[])
+                .map(
+                    w=>
+                        String(
+                            w?.litera||
+                            ""
+                        ).trim().toUpperCase()
+                )
+                .filter(Boolean)
+        );
+
+    const zajete=
+        zajeteLitery251();
+
+    /*
+       B rezerwujemy dla odmiennej pełnej trasy dnia.
+    */
+    zajete.add("B");
+
+    for(let ri=1;ri<rozklady.length;ri++){
+
+        const r=rozklady[ri];
+
+        if(!Array.isArray(r?.warianty)){
+            continue;
+        }
+
+        const zamiany=
+            new Map();
+
+        r.warianty.forEach(
+            w=>{
+
+                const stara=
+                    String(
+                        w?.litera||
+                        ""
+                    ).trim().toUpperCase();
+
+                if(
+                    !stara||
+                    stara==="A"||
+                    !literyBazy.has(stara)
+                ){
+                    return;
+                }
+
+                /*
+                   Rozdzielamy przede wszystkim kursy specjalne:
+                   skrócone, wydłużone, do zajezdni, tylko do...
+                */
+                const opis=
+                    String(
+                        w?.opis||
+                        ""
+                    );
+
+                if(
+                    !/skrócon|wydłuż|zajezdni|tylko do/i
+                        .test(opis)
+                ){
+                    return;
+                }
+
+                const nowa=
+                    nowaLitera251(
+                        zajete
+                    );
+
+                if(!nowa){
+                    return;
+                }
+
+                zamiany.set(
+                    stara,
+                    nowa
+                );
+
+                w.litera=
+                    nowa;
+                w._osobnaLiteraDnia254=
+                    true;
+            }
+        );
+
+        if(!zamiany.size){
+            continue;
+        }
+
+        (r?.kierunki||[])
+            .forEach(
+                k=>
+                    (k?.przystanki||[])
+                        .forEach(
+                            p=>{
+
+                                (p?.kursy||[])
+                                    .forEach(
+                                        kurs=>{
+
+                                            const stara=
+                                                String(
+                                                    kurs?.wariant||
+                                                    ""
+                                                )
+                                                .trim()
+                                                .toUpperCase();
+
+                                            if(
+                                                zamiany.has(
+                                                    stara
+                                                )
+                                            ){
+                                                kurs.wariant=
+                                                    zamiany.get(
+                                                        stara
+                                                    );
+                                            }
+                                        }
+                                    );
+
+                                (p?.godziny||[])
+                                    .forEach(
+                                        g=>
+                                            (g?.minuty||[])
+                                                .forEach(
+                                                    m=>{
+
+                                                        const stara=
+                                                            String(
+                                                                m?.wariant||
+                                                                ""
+                                                            )
+                                                            .trim()
+                                                            .toUpperCase();
+
+                                                        if(
+                                                            zamiany.has(
+                                                                stara
+                                                            )
+                                                        ){
+                                                            m.wariant=
+                                                                zamiany.get(
+                                                                    stara
+                                                                );
+                                                        }
+                                                    }
+                                                )
+                                    );
+                            }
+                        )
+            );
+    }
+}
+
 function zastosujWariantyRoznychDni251(){
 
     const rozklady=
@@ -5168,6 +5355,13 @@ function zastosujWariantyRoznychDni251(){
     ){
         return;
     }
+
+    /*
+       v254:
+       najpierw rozdzielamy np. Z powszednie / Z weekendowe.
+       B pozostaje zarezerwowane dla odmiennego pełnego przebiegu.
+    */
+    rozdzielSpecjalneLiteryMiedzyDniami254();
 
     const zajete=
         zajeteLitery251();
@@ -9725,8 +9919,15 @@ function czyKursPomijanyPrzyTrasie(kurs){
        Zwykły układ pozostaje bez zmian — kursów skróconych
        nie mieszamy do opisów wariantów trasy.
     */
+    /*
+       v254:
+       kursy skrócone biorą udział w analizie listy trasy, bo mają
+       dostać własny napis "Trasa w kursach „z/c”" dokładnie tam,
+       gdzie ich rzeczywisty przebieg się oddziela lub kończy.
+       Nadal pomijamy kursy zjazdowe do zajezdni.
+    */
     if(
-        /skrócon|zajezdni|tylko do/i
+        /zajezdni/i
             .test(opis)
     ){
         return true;
@@ -10116,6 +10317,25 @@ function naglowekZmianyTrasy(
         return"";
     }
 
+    /*
+       v254:
+       Jeżeli w miejscu rozgałęzienia jedzie tylko przebieg
+       podstawowy, którego litera A jest ukryta, pokazujemy
+       czytelny nagłówek bez sztucznej litery:
+       "Trasa w kursach bez oznaczeń".
+    */
+    if(
+        aktualny.typ==="podstawowa"
+    ){
+        return(
+            '<li class="trasa-separator">'+
+            '<span class="trasa-separator-title">'+
+            'Trasa w kursach bez oznaczeń'+
+            '</span>'+
+            '</li>'
+        );
+    }
+
     if(
         aktualny.typ==="wariant"&&
         aktualny.litery.length
@@ -10151,7 +10371,10 @@ function naglowekZmianyTrasy(
     */
     if(
         poprzedni&&
-        poprzedni.typ==="wariant"&&
+        (
+            poprzedni.typ==="wariant"||
+            poprzedni.typ==="podstawowa"
+        )&&
         aktualny.typ==="wszystkie"
     ){
         return(
@@ -11550,23 +11773,18 @@ function daneKursowAktywnego206(){
 
     function kluczPunktu253(p){
 
-        const lp=
-            String(
-                p?.lp??
-                ""
-            ).trim();
+        /*
+           v254:
+           przy porównywaniu przebiegów różnych rodzajów dni
+           wspólny przystanek rozpoznajemy po NAZWIE.
 
-        return[
-            normalizujNazwe208(
-                p?.nazwa
-            ),
-            lp
-                ? "LP:"+lp
-                : "NR:"+String(
-                    p?.nr||
-                    ""
-                ).trim()
-        ].join("|");
+           Nie używamy ani numeru słupka, ani LP, bo po objazdowym
+           fragmencie LP może być przesunięte. Licznik wystąpień
+           poniżej nadal rozróżnia powtarzającą się tę samą nazwę.
+        */
+        return normalizujNazwe208(
+            p?.nazwa
+        );
     }
 
     function sekwencjaPunktow253(info){
