@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 314
+     WERSJA: 315
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -15066,6 +15066,8 @@ function wstawGalezieWPrzebieg304(lista){
                 x=>({
                     p:x?.p||x,
                     _galaz304:true,
+                    _splitNazwa304:galaz.splitNazwa,
+                    _rejoinNazwa304:galaz.rejoinNazwa,
                     stan304:{
                         typ:"wariant",
                         litery
@@ -17176,6 +17178,98 @@ function renderSeparator304(stan){
 }
 
 
+
+function galazJestPrzedAktywnym315(element){
+
+    if(
+        !element?._galaz304||
+        !element?._rejoinNazwa304
+    ){
+        return false;
+    }
+
+    const aktywny=
+        typeof aktywnyFizycznyPrzystanek276==="function"
+            ? aktywnyFizycznyPrzystanek276()
+            : wybranyFizycznyPrzystanek262;
+
+    if(!aktywny){
+        return false;
+    }
+
+    const aktywnaNazwa=
+        logicznaNazwaPrzystanku298(
+            aktywny
+        );
+
+    const rejoin=
+        String(
+            element._rejoinNazwa304||
+            ""
+        );
+
+    if(!aktywnaNazwa||!rejoin){
+        return false;
+    }
+
+    /*
+       Szukamy rzeczywistego przebiegu zawierającego aktywny punkt
+       oraz punkt ponownego połączenia. Jeżeli aktywny leży na nim
+       na rejoin albo dalej, cała alternatywna odnoga jest już za nami.
+    */
+    return katalogPrzebiegowWszystkichDni300()
+        .some(
+            grupa=>{
+
+                const nazwy=
+                    (grupa?.przebieg||[])
+                        .map(x=>x.nazwa);
+
+                const iRejoin=
+                    nazwy.indexOf(
+                        rejoin
+                    );
+
+                const iAktywny=
+                    nazwy.indexOf(
+                        aktywnaNazwa
+                    );
+
+                return(
+                    iRejoin>=0&&
+                    iAktywny>=iRejoin
+                );
+            }
+        );
+}
+
+
+function czyGalazowymJestDokladnieAktywny315(element){
+
+    if(!element?._galaz304){
+        return false;
+    }
+
+    const aktywny=
+        typeof aktywnyFizycznyPrzystanek276==="function"
+            ? aktywnyFizycznyPrzystanek276()
+            : wybranyFizycznyPrzystanek262;
+
+    const p=
+        element?.p||
+        element;
+
+    if(!aktywny||!p){
+        return false;
+    }
+
+    return czyTenSamPrzystanekPoNazwieINumerze(
+        p,
+        aktywny
+    );
+}
+
+
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -17354,14 +17448,18 @@ function renderTrasaKolumna(
                             : element;
 
                     const index=
-                        element&&
-                        Object.prototype.hasOwnProperty.call(
-                            element,
-                            "index"
-                        )
-                            ? element.index
-                            : fragment.start+
-                              lokalny;
+                        element?._galaz304
+                            ? null
+                            : (
+                                element&&
+                                Object.prototype.hasOwnProperty.call(
+                                    element,
+                                    "index"
+                                )
+                                    ? element.index
+                                    : fragment.start+
+                                      lokalny
+                              );
 
                     const stanAktualny=
                         element?._galaz304
@@ -17448,8 +17546,14 @@ function renderTrasaKolumna(
                        ten wiersz.
                     */
                     const przedBazowy=
-                        Number(index)<
-                        Number(aktualnyPrzystanek);
+                        element?._galaz304
+                            ? galazJestPrzedAktywnym315(
+                                element
+                              )
+                            : (
+                                Number(index)<
+                                Number(aktualnyPrzystanek)
+                              );
 
                     /*
                        "przedBazowy" służy dalej do dotychczasowej logiki
@@ -17584,11 +17688,17 @@ function renderTrasaKolumna(
                             pozycjaAktywnegoNaTejTrasie;
 
                     const wybranyDokladny=
-                        (
-                            Number(index)===
-                            Number(aktualnyPrzystanek)
-                        )||
-                        wybranyPoDokladnymSlupku;
+                        element?._galaz304
+                            ? czyGalazowymJestDokladnieAktywny315(
+                                element
+                              )
+                            : (
+                                (
+                                    Number(index)===
+                                    Number(aktualnyPrzystanek)
+                                )||
+                                wybranyPoDokladnymSlupku
+                              );
 
                     /*
                        WAŻNE ROZRÓŻNIENIE:
@@ -17783,7 +17893,9 @@ function renderTrasaKolumna(
                         else{
 
                             czas=
-                                czasy[index];
+                                element?._galaz304
+                                    ? null
+                                    : czasy[index];
 
                             if(
                                 czas===null||
