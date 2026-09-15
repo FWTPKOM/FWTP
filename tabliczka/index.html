@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 201
+     WERSJA: 202
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2361,12 +2361,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 201
+   WERSJA: 202
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "201";
+const WERSJA_TABLICZKI = "202";
 console.log(
-    "FWTP Tabliczka — wersja 201 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 202 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -3858,31 +3858,104 @@ function pobierzKierunki(){
 }
 
 
-function nazwaKierunku(k){
+function nazwaKierunku(
+    k,
+    kierunekIndex=aktualnyKierunek
+){
 
-    const gotowa=
-        String(
-            k?.nazwa||
-            k?.kierunek||
-            ""
-        ).trim();
+    /*
+       WERSJA 202 — KIERUNEK PASAŻERSKI
 
-    if(gotowa){
-        return gotowa;
+       Jeżeli wybrany przystanek należy do tego kierunku, kierunek
+       wyznaczamy z kursów faktycznie dostępnych na tym przystanku.
+       Ostatni osiągany przystanek TECH nigdy nie jest nazwą kierunku.
+
+       401 / PKP URSUS 21:
+       dostępne M/T -> ostatni pasażerski METRO SŁUŻEW,
+       a nie techniczny BACHA i nie wariantowe METRO STOKŁOSY.
+    */
+    if(
+        Number(kierunekIndex)===
+        Number(aktualnyKierunek)
+    ){
+        const kursy=
+            kursyDokladnegoAktywnego202();
+
+        const lista=
+            Array.isArray(k?.przystanki)
+                ? k.przystanki
+                : [];
+
+        let ostatni=null;
+
+        lista.forEach(
+            (p,index)=>{
+
+                if(
+                    typPrzystankuTrasy(p)==="TECH"
+                ){
+                    return;
+                }
+
+                const element={
+                    p,
+                    index
+                };
+
+                if(
+                    kursy.some(
+                        kurs=>
+                            kursMaPrzystanek(
+                                kurs,
+                                element
+                            )
+                    )
+                ){
+                    ostatni=p;
+                }
+            }
+        );
+
+        if(ostatni){
+            return String(
+                ostatni?.nazwa||
+                ""
+            ).trim();
+        }
     }
 
-    const p=
-        k?.przystanki||
-        [];
+    /*
+       Fallback dla kierunku, którego aktualnie nie analizujemy:
+       ostatni pasażerski (nie-TECH) przystanek.
+    */
+    const lista=
+        Array.isArray(k?.przystanki)
+            ? k.przystanki
+            : [];
 
-    return p.length
-        ? String(
-            p[p.length-1].nazwa||
-            ""
-        )
-        : "";
+    for(
+        let i=lista.length-1;
+        i>=0;
+        i--
+    ){
+        if(
+            typPrzystankuTrasy(
+                lista[i]
+            )!=="TECH"
+        ){
+            return String(
+                lista[i]?.nazwa||
+                ""
+            ).trim();
+        }
+    }
+
+    return String(
+        k?.nazwa||
+        k?.kierunek||
+        ""
+    ).trim();
 }
-
 
 function wypelnijKierunki(){
 
@@ -3909,7 +3982,8 @@ function wypelnijKierunki(){
 
             option.textContent=
                 nazwaKierunku(
-                    el.dane
+                    el.dane,
+                    el.index
                 )||
                 "Kierunek "+
                 (el.index+1);
@@ -9251,6 +9325,224 @@ function usunPowtorzenieNazwyPrzedAktywnym(
 
 
 
+
+/* =========================================================
+   WERSJA 202 — TRASA WYNIKA Z KURSÓW NA AKTYWNYM PRZYSTANKU
+   BAZA: CZYSTA v197
+   ========================================================= */
+
+function kursyDokladnegoAktywnego202(){
+
+    const baza=
+        kierunekBazowy();
+
+    const p=
+        baza?.przystanki?.[
+            aktualnyPrzystanek
+        ];
+
+    const wynik=
+        new Map();
+
+    if(!p){
+        return[];
+    }
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const rp=
+                znajdzDokladnyPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    p
+                );
+
+            (
+                rp?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    const ref={
+                        numer:String(
+                            kurs?.numer||
+                            ""
+                        ).trim(),
+                        wariant:String(
+                            kurs?.wariant||
+                            ""
+                        ).trim(),
+                        symbol:symbolDnia(kurs),
+                        brygada:String(
+                            kurs?.brygada||
+                            ""
+                        ).trim(),
+                        _kierunekIndex:
+                            Number(
+                                aktualnyKierunek
+                            )
+                    };
+
+                    const key=[
+                        ref.numer,
+                        ref.wariant,
+                        ref.symbol,
+                        ref.brygada
+                    ].join("|");
+
+                    wynik.set(
+                        key,
+                        ref
+                    );
+                }
+            );
+        }
+    );
+
+    return[
+        ...wynik.values()
+    ];
+}
+
+
+function aktywnyMaWariant202(
+    litera
+){
+    const szukana=
+        String(
+            litera||
+            ""
+        )
+        .trim()
+        .toUpperCase();
+
+    if(!szukana){
+        return false;
+    }
+
+    return kursyDokladnegoAktywnego202()
+        .some(
+            kurs=>
+                String(
+                    kurs?.wariant||
+                    ""
+                )
+                .trim()
+                .toUpperCase()===
+                    szukana
+        );
+}
+
+
+function elementObslugiwanyZAktywnego202(
+    element
+){
+    if(!element){
+        return false;
+    }
+
+    return kursyDokladnegoAktywnego202()
+        .some(
+            kurs=>
+                kursMaPrzystanek(
+                    kurs,
+                    element
+                )
+        );
+}
+
+
+/*
+   Usuwa tylko tę część PRZED aktywnym przystankiem,
+   której żaden kurs dostępny na aktywnym słupku nie obsługuje.
+
+   To jest wspólna reguła dla:
+   - 131 / SADYBA 05: kursy A nie obsługują WILANOWA przed Sadybą,
+     więc wcześniejsze WILANÓW/KOSIARZY/ŁOWCZA/WIERTNICZA znikają;
+   - 401 / PKP URSUS 21: kursy M/T zaczynają się na PKP URSUS 21,
+     więc URSUS-NIEDŹWIADEK ... LALKI znikają.
+
+   Nie ma żadnego wyjątku wpisanego na numer linii.
+*/
+function przytnijPoczatekPoKursachAktywnego202(
+    lista
+){
+    if(
+        !Array.isArray(lista)||
+        !lista.length
+    ){
+        return lista||[];
+    }
+
+    const aktywnyPos=
+        lista.findIndex(
+            element=>
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
+        );
+
+    if(aktywnyPos<=0){
+        return lista;
+    }
+
+    const kursy=
+        kursyDokladnegoAktywnego202();
+
+    if(!kursy.length){
+        return lista;
+    }
+
+    /*
+       Szukamy ostatniego wcześniejszego elementu, który rzeczywiście
+       należy do któregoś kursu odjeżdżającego z aktywnego słupka.
+       Jeżeli nie ma żadnego — aktywny jest początkiem pasażerskim.
+    */
+    let ostatniWspolnyPrzed=-1;
+
+    for(
+        let i=0;
+        i<aktywnyPos;
+        i++
+    ){
+        if(
+            kursy.some(
+                kurs=>
+                    kursMaPrzystanek(
+                        kurs,
+                        lista[i]
+                    )
+            )
+        ){
+            ostatniWspolnyPrzed=i;
+        }
+    }
+
+    if(ostatniWspolnyPrzed<0){
+        return lista.slice(
+            aktywnyPos
+        );
+    }
+
+    return lista;
+}
+
+
 function usunPrzyszlePrzystankiBezMinuty(
     lista
 ){
@@ -9970,6 +10262,17 @@ function __bezCache_listaTrasyDoWyswietlenia(){
         );
 
     /*
+       v202:
+       dopiero PO całej sprawdzonej logice v197 ustalamy,
+       czy aktywny przystanek jest rzeczywistym początkiem kursów.
+       Dzięki temu nie zmieniamy działania SADYBA 05 / 131.
+    */
+    wynik=
+        przytnijPoczatekPoKursachAktywnego202(
+            wynik
+        );
+
+    /*
        =========================================================
        FALLBACK DLA DOKŁADNEGO AKTYWNEGO PRZYSTANKU
        =========================================================
@@ -10092,132 +10395,6 @@ function __bezCache_listaTrasyDoWyswietlenia(){
                     }
                 }
             );
-        }
-    }
-
-
-    /*
-       =========================================================
-       WERSJA 201 — FILTR WARIANTÓW NA AKTYWNYM PRZYSTANKU
-       BAZA: CZYSTA v197
-       =========================================================
-
-       Nie zmieniamy mechanizmu SADYBA 05 / 131.
-
-       Usuwamy wyłącznie te przyszłe elementy/gałęzie wariantowe,
-       których NIE obsługuje żaden rzeczywisty kurs dostępny
-       na aktualnym przystanku w wybranym rozkładzie.
-
-       Przykład 401 / PKP URSUS 21:
-       jeśli na tym przystanku nie istnieje kurs wariantu „e”,
-       jego METRO STOKŁOSY nie może pojawić się w liście trasy.
-    */
-    const aktywnyElement201=
-        baza.find(
-            element=>
-                Number(
-                    element?.index
-                )===
-                Number(
-                    aktualnyPrzystanek
-                )
-        );
-
-    if(aktywnyElement201){
-
-        const kursyAktywnego201=[];
-
-        (
-            daneLinii?.rozkłady||
-            []
-        ).forEach(
-            rozklad=>{
-
-                const pp=
-                    znajdzPrzystanekWRozkladzieDlaElementu(
-                        rozklad,
-                        aktualnyKierunek,
-                        aktywnyElement201
-                    );
-
-                (
-                    pp?.kursy||
-                    []
-                ).forEach(
-                    kurs=>{
-
-                        if(
-                            czasNaMinuty(
-                                kurs?.czas
-                            )===null
-                        ){
-                            return;
-                        }
-
-                        kursyAktywnego201.push({
-                            numer:String(
-                                kurs?.numer||
-                                ""
-                            ),
-                            wariant:String(
-                                kurs?.wariant||
-                                ""
-                            ).trim(),
-                            symbol:symbolDnia(kurs),
-                            brygada:String(
-                                kurs?.brygada||
-                                ""
-                            ).trim(),
-                            _kierunekIndex:
-                                Number(
-                                    aktualnyKierunek
-                                )
-                        });
-                    }
-                );
-            }
-        );
-
-        if(kursyAktywnego201.length){
-
-            wynik=
-                wynik.filter(
-                    element=>{
-
-                        const idx=
-                            Number(
-                                element?.index
-                            );
-
-                        /*
-                           Część do aktywnego przystanku pozostawiamy
-                           dokładnie tak, jak robiła to v197.
-                           To chroni działający przypadek 131.
-                        */
-                        if(
-                            Number.isInteger(idx)&&
-                            idx<=
-                                Number(
-                                    aktualnyPrzystanek
-                                )
-                        ){
-                            return true;
-                        }
-
-                        /*
-                           Przyszły element zostaje tylko wtedy,
-                           gdy przynajmniej jeden kurs dostępny
-                           Z TEGO PRZYSTANKU rzeczywiście go obsługuje.
-                        */
-                        return kursyAktywnego201.some(
-                            kurs=>
-                                kursMaPrzystanek(
-                                    kurs,
-                                    element
-                                )
-                        );
-                    }
-                );
         }
     }
 
@@ -11468,6 +11645,23 @@ function renderWydluzeniaTrasy(){
                     )
                     .trim()
                     .toLowerCase();
+
+                /*
+                   v202:
+                   gałąź wariantowa może być pokazana tylko wtedy,
+                   gdy na AKTYWNYM przystanku istnieje kurs tego wariantu.
+
+                   401 / PKP URSUS 21 ma M/T, ale nie ma E,
+                   więc "Trasa w kursach e" nie jest renderowana.
+                */
+                if(
+                    litera&&
+                    !aktywnyMaWariant202(
+                        litera
+                    )
+                ){
+                    return"";
+                }
 
                 const przystankiWydluzenia=
                     listaWydluzeniaBezPowtorzonegoKranca(
@@ -13256,7 +13450,8 @@ function renderuj(){
                     escapeHtml(
                         String(
                             nazwaKierunku(
-                                kierunek
+                                kierunek,
+                                aktualnyKierunek
                             )
                         ).toUpperCase()
                     )+
