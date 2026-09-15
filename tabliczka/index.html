@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 326
+     WERSJA: 327
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -5672,7 +5672,119 @@ function zastosujWariantyRoznychDni251(){
        najpierw rozdzielamy np. Z powszednie / Z weekendowe.
        B pozostaje zarezerwowane dla odmiennego pełnego przebiegu.
     */
+
     rozdzielSpecjalneLiteryMiedzyDniami254();
+
+    /*
+       WERSJA 327
+
+       NIE tworzymy A globalnie dla każdej linii.
+
+       A uzupełniamy tylko wtedy, gdy SAM JSON tej linii ma już
+       zdefiniowane:
+           A = "kurs bez podjazdów"
+
+       To dokładnie przypadek linii 134.
+
+       W 134 kierunek 0 ma A zapisane przy kursach, ale kierunek 1
+       ma puste pole wariantu. Dlatego pierwszy kierunek działał,
+       a drugi nie.
+
+       Teraz w rozkładzie bazowym:
+       - puste zwykłe kursy dostają A,
+       - Z i inne istniejące warianty pozostają bez zmian,
+       - synchronizujemy także pole godziny/minuty.
+
+       Dzięki temu nie wpływamy na linie, które nie mają w swoim JSON
+       jawnej definicji "A - kurs bez podjazdów".
+    */
+    const definicjaA=
+        (
+            Array.isArray(baza?.warianty)
+                ? baza.warianty
+                : []
+        ).find(
+            wariant=>
+                String(
+                    wariant?.litera||
+                    ""
+                )
+                    .trim()
+                    .toUpperCase()==="A"&&
+                /bez\s+podjazd/i.test(
+                    String(
+                        wariant?.opis||
+                        ""
+                    )
+                )
+        );
+
+    if(definicjaA){
+
+        (
+            baza?.kierunki||
+            []
+        ).forEach(
+            kierunek=>{
+
+                (
+                    kierunek?.przystanki||
+                    []
+                ).forEach(
+                    p=>{
+
+                        (
+                            p?.kursy||
+                            []
+                        ).forEach(
+                            kurs=>{
+
+                                const stara=
+                                    String(
+                                        kurs?.wariant||
+                                        ""
+                                    )
+                                        .trim()
+                                        .toUpperCase();
+
+                                if(!stara){
+                                    kurs.wariant="A";
+                                    kurs._wariantBazowyBezPodjazdow327=true;
+                                }
+                            }
+                        );
+
+                        (
+                            p?.godziny||
+                            []
+                        ).forEach(
+                            godzina=>
+                                (
+                                    godzina?.minuty||
+                                    []
+                                ).forEach(
+                                    minuta=>{
+
+                                        const stara=
+                                            String(
+                                                minuta?.wariant||
+                                                ""
+                                            )
+                                                .trim()
+                                                .toUpperCase();
+
+                                        if(!stara){
+                                            minuta.wariant="A";
+                                        }
+                                    }
+                                )
+                        );
+                    }
+                );
+            }
+        );
+    }
+
 
     const zajete=
         zajeteLitery251();
@@ -8884,6 +8996,49 @@ function czyUkrycWariantANaAktywnymPrzystanku213(){
 
 function czyPokazacWariantJakLiniaHTML(litera){
 
+    /*
+       327:
+       Jeżeli JSON jawnie definiuje A jako "kurs bez podjazdów",
+       A jest oznaczeniem rzeczywistego przebiegu i może być pokazane.
+       Nie dotyczy to linii bez takiej definicji.
+    */
+    if(
+        String(litera||"")
+            .trim()
+            .toUpperCase()==="A"
+    ){
+        const maJawneABezPodjazdow=
+            (
+                daneLinii?.rozkłady||
+                []
+            ).some(
+                rozklad=>
+                    (
+                        rozklad?.warianty||
+                        []
+                    ).some(
+                        wariant=>
+                            String(
+                                wariant?.litera||
+                                ""
+                            )
+                                .trim()
+                                .toUpperCase()==="A"&&
+                            /bez\s+podjazd/i.test(
+                                String(
+                                    wariant?.opis||
+                                    ""
+                                )
+                            )
+                    )
+            );
+
+        if(maJawneABezPodjazdow){
+            return true;
+        }
+    }
+
+
     const znak=
         String(
             litera||""
@@ -9932,66 +10087,23 @@ function symbolWariantu(kurs,symbol){
         symbol
     };
 
-    let literaRzeczywista=
+    const literaRzeczywista=
         literaWariantuPoRzeczywistymPrzebiegu(
             kursRef
         );
 
     /*
-       326:
-       To jest miejsce, które faktycznie tworzy literkę przy minucie.
-       Jeśli w kierunku istnieje alternatywny przebieg B/C/..., kurs
-       podstawowy bez litery dostaje A.
+       Litera przy minucie wynika teraz z rzeczywistej trasy,
+       a nie wyłącznie z pola kurs.wariant.
+
+       Dzięki temu np. kurs oznaczony w danych jako "o",
+       który faktycznie jedzie przez PŁYTOWĄ + KUPIECKĄ + POLFA,
+       dostanie "l".
     */
     if(
-        !String(
-            literaRzeczywista||
-            ""
-        ).trim()
-    ){
-
-        const katalog=
-            katalogPrzebiegowWszystkichDni300();
-
-        const istniejeInnyWariant=
-            katalog.some(
-                grupa=>
-                    Array.from(
-                        grupa?.litery||
-                        []
-                    )
-                        .map(
-                            x=>
-                                String(x||"")
-                                    .trim()
-                                    .toLowerCase()
-                        )
-                        .some(
-                            x=>
-                                x&&
-                                x!=="a"
-                        )
-            );
-
-        if(
-            istniejeInnyWariant&&
-            katalog.length>1
-        ){
-            literaRzeczywista="a";
-        }
-    }
-
-    if(
         literaRzeczywista&&
-        (
-            String(
-                literaRzeczywista
-            )
-                .trim()
-                .toLowerCase()==="a"||
-            czyPokazacWariantJakLiniaHTML(
-                literaRzeczywista
-            )
+        czyPokazacWariantJakLiniaHTML(
+            literaRzeczywista
         )
     ){
         return kanonicznaLiteraWariantu(
@@ -11753,7 +11865,7 @@ function __bez323_widocznaLiteraPrzebiegu298(kursRef){
 }
 
 
-function __bez325_widocznaLiteraPrzebiegu298(kursRef){
+function widocznaLiteraPrzebiegu298(kursRef){
 
     const jawna=
         __bez323_widocznaLiteraPrzebiegu298(
@@ -11776,55 +11888,6 @@ function __bez325_widocznaLiteraPrzebiegu298(kursRef){
         ""
     );
 }
-
-
-function widocznaLiteraPrzebiegu298(kursRef){
-
-    const jawna=
-        __bez325_widocznaLiteraPrzebiegu298(
-            kursRef
-        );
-
-    if(
-        String(jawna||"").trim()
-    ){
-        return jawna;
-    }
-
-    /*
-       325:
-       Jeśli kurs nie ma litery, ale w tym kierunku istnieje co najmniej
-       jeden inny rzeczywisty przebieg oznaczony wariantem, przebieg
-       podstawowy oznaczamy jako A. To jest ta sama zasada jak w pierwszym
-       kierunku linii 134: A = przebieg bez podjazdu/odnogi, B = przebieg
-       alternatywny.
-    */
-    const katalog=
-        typeof katalogPrzebiegowWszystkichDni300==="function"
-            ? katalogPrzebiegowWszystkichDni300()
-            : [];
-
-    const istniejeOznaczonyWariant=
-        katalog.some(
-            grupa=>
-                Array.from(
-                    grupa?.litery||
-                    []
-                )
-                    .map(x=>String(x||"").trim().toLowerCase())
-                    .some(Boolean)
-        );
-
-    if(
-        istniejeOznaczonyWariant&&
-        katalog.length>1
-    ){
-        return"a";
-    }
-
-    return"";
-}
-
 
 
 
