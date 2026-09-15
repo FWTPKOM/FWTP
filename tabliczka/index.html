@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 266
+     WERSJA: 267
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -4187,7 +4187,31 @@ let trybRoznychTrasDni256=false;
    ale SELECT przystanku musi pozwalać wybrać każdy rzeczywisty słupek.
 */
 let wybranyFizycznyPrzystanek262=null;
-console.log("v264: identyfikacja fizycznego przystanku = NAZWA + NR (logika jak v246/170)");
+
+/*
+   =========================================================
+   WERSJA 267 — FIZYCZNY PRZYSTANEK W URL
+   =========================================================
+
+   Sam parametr przystanek=idx:X określa tylko logiczny punkt
+   wspólnej osi trasy. Dla linii, w których ten sam logiczny
+   punkt ma różne numery słupków zależnie od dnia/wariantu,
+   potrzebujemy dodatkowo zapamiętać dokładną NAZWĘ + NR.
+
+   Przykład:
+   przystanek=idx:21&przystanekNazwa=KS%20Polonez&przystanekNr=03
+*/
+let przystanekNazwaURL267=
+    String(
+        parametry.get("przystanekNazwa")||""
+    ).trim();
+
+let przystanekNrURL267=
+    String(
+        parametry.get("przystanekNr")||""
+    ).trim();
+
+console.log("v267: identyfikacja fizycznego przystanku = logiczny indeks + NAZWA + NR w URL");
 
 
 let wybranaData=
@@ -4787,6 +4811,71 @@ function zapiszURL(){
         "idx:"+
         aktualnyPrzystanek
     );
+
+    /*
+       WERSJA 267:
+       zapisujemy także dokładny fizyczny słupek.
+       Dzięki temu idx:21 nie traci informacji, czy użytkownik
+       wybrał np. KS POLONEZ 01 czy KS POLONEZ 03.
+    */
+    if(
+        wybranyFizycznyPrzystanek262
+    ){
+
+        const nazwa267=
+            String(
+                wybranyFizycznyPrzystanek262?.nazwa||
+                ""
+            ).trim();
+
+        const nr267=
+            String(
+                wybranyFizycznyPrzystanek262?.nr||
+                ""
+            ).trim();
+
+        if(nazwa267){
+            url.searchParams.set(
+                "przystanekNazwa",
+                nazwa267
+            );
+        }
+        else{
+            url.searchParams.delete(
+                "przystanekNazwa"
+            );
+        }
+
+        if(nr267){
+            url.searchParams.set(
+                "przystanekNr",
+                nr267
+            );
+        }
+        else{
+            url.searchParams.delete(
+                "przystanekNr"
+            );
+        }
+
+        przystanekNazwaURL267=
+            nazwa267;
+
+        przystanekNrURL267=
+            nr267;
+    }
+    else{
+        url.searchParams.delete(
+            "przystanekNazwa"
+        );
+
+        url.searchParams.delete(
+            "przystanekNr"
+        );
+
+        przystanekNazwaURL267="";
+        przystanekNrURL267="";
+    }
 
     history.replaceState(
         {},
@@ -7087,10 +7176,109 @@ function wypelnijPrzystanki(){
         -1;
 
     /*
+       WERSJA 267:
+       przy pierwszym wejściu / odświeżeniu strony najpierw
+       odtwarzamy dokładny fizyczny słupek zapisany w URL.
+
+       Nie wystarcza sam idx, ponieważ jeden logiczny punkt może
+       odpowiadać kilku fizycznym numerom przystanku.
+    */
+    if(
+        !wybranyFizycznyPrzystanek262&&
+        (
+            przystanekNazwaURL267||
+            przystanekNrURL267
+        )
+    ){
+
+        const nazwaZURL267=
+            normalizujNazwe208(
+                przystanekNazwaURL267
+            );
+
+        const nrZURL267=
+            String(
+                przystanekNrURL267||
+                ""
+            ).trim();
+
+        indeksDoWyboru=
+            lista.findIndex(
+                element=>{
+
+                    const p267=
+                        element?.p||
+                        {};
+
+                    const zgodnaNazwa267=
+                        !nazwaZURL267||
+                        normalizujNazwe208(
+                            p267?.nazwa
+                        )===nazwaZURL267;
+
+                    const zgodnyNr267=
+                        !nrZURL267||
+                        String(
+                            p267?.nr||
+                            ""
+                        ).trim()===nrZURL267;
+
+                    const zgodnyLogiczny267=
+                        Number(
+                            element?.logicznyIndex
+                        )===
+                        Number(
+                            aktualnyPrzystanek
+                        );
+
+                    return(
+                        zgodnaNazwa267&&
+                        zgodnyNr267&&
+                        zgodnyLogiczny267
+                    );
+                }
+            );
+
+        /*
+           Awaryjnie szukamy po samej NAZWIE + NR.
+           Jest to potrzebne, gdy wspólna oś trasy zmieniła indeks,
+           ale fizyczny przystanek nadal istnieje w danych.
+        */
+        if(indeksDoWyboru<0){
+            indeksDoWyboru=
+                lista.findIndex(
+                    element=>{
+
+                        const p267=
+                            element?.p||
+                            {};
+
+                        return(
+                            (
+                                !nazwaZURL267||
+                                normalizujNazwe208(
+                                    p267?.nazwa
+                                )===nazwaZURL267
+                            )&&
+                            (
+                                !nrZURL267||
+                                String(
+                                    p267?.nr||
+                                    ""
+                                ).trim()===nrZURL267
+                            )
+                        );
+                    }
+                );
+        }
+    }
+
+    /*
        Jeżeli użytkownik wybrał już konkretny słupek,
        zachowujemy dokładnie NAZWA + NR.
     */
     if(
+        indeksDoWyboru<0&&
         wybranyFizycznyPrzystanek262
     ){
 
@@ -7184,6 +7372,21 @@ function wypelnijPrzystanki(){
             String(
                 indeksDoWyboru
             );
+
+        /*
+           Synchronizacja danych v267 używanych przy zapisie URL.
+        */
+        przystanekNazwaURL267=
+            String(
+                aktywnyElement?.p?.nazwa||
+                ""
+            ).trim();
+
+        przystanekNrURL267=
+            String(
+                aktywnyElement?.p?.nr||
+                ""
+            ).trim();
     }
 }
 
