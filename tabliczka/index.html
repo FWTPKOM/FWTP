@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 303
+     WERSJA: 305
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -14850,6 +14850,72 @@ function usunKolejnePowtorzeniaNazwyWDwukierunkowym(
 
 
 
+
+function wstawGalezieWPrzebieg304(lista){
+
+    const wynik=[...(lista||[])];
+
+    for(const galaz of galezieWewnetrzne302()){
+
+        const splitIndex=
+            wynik.findIndex(
+                e=>
+                    !e?._separator304&&
+                    logicznaNazwaPrzystanku298(e?.p||e)===
+                    galaz.splitNazwa
+            );
+
+        const rejoinIndex=
+            wynik.findIndex(
+                (e,i)=>
+                    i>splitIndex&&
+                    !e?._separator304&&
+                    logicznaNazwaPrzystanku298(e?.p||e)===
+                    galaz.rejoinNazwa
+            );
+
+        if(splitIndex<0||rejoinIndex<0) continue;
+
+        const litery=Array.from(galaz.litery||[]);
+
+        const blok=[
+            {
+                _separator304:true,
+                stan304:{
+                    typ:"wariant",
+                    litery
+                }
+            },
+            ...galaz.przystanki.map(
+                x=>({
+                    p:x?.p||x,
+                    _galaz304:true,
+                    stan304:{
+                        typ:"wariant",
+                        litery
+                    }
+                })
+            ),
+            {
+                _separator304:true,
+                stan304:{
+                    typ:"wszystkie",
+                    litery:[]
+                }
+            }
+        ];
+
+        /*
+           Wstawiamy bezpośrednio PRZED przystankiem ponownego
+           połączenia. Sam rejoin pozostaje tylko raz.
+        */
+        wynik.splice(rejoinIndex,0,...blok);
+    }
+
+    return wynik;
+}
+
+
 function __bezCache_listaTrasyDoWyswietlenia(){
 
     const baza=
@@ -15033,7 +15099,7 @@ function __bezCache_listaTrasyDoWyswietlenia(){
             );
     }
 
-    return wynik;
+    return wstawGalezieWPrzebieg304(wynik);
 }
 
 function listaTrasyDoWyswietlenia(){
@@ -16271,62 +16337,7 @@ function renderWydluzeniaTrasy(){
 
 function renderGalezieWewnetrzne302(){
 
-    const galezie=galezieWewnetrzne302();
-    if(!galezie.length) return"";
-
-    return galezie.map(galaz=>{
-
-        const litery=Array.from(galaz.litery||[]);
-        if(!litery.length) return"";
-
-        const tytul=litery
-            .map(l=>"„"+escapeHtml(l)+"”")
-            .join(", ");
-
-        const stops=galaz.przystanki.map(x=>{
-
-            const p=x?.p||x;
-
-            return(
-                '<li class="trasa-extra-stop">'+
-                '<span class="trasa-czas"></span>'+
-                '<span class="trasa-os"></span>'+
-                '<span class="trasa-nazwa">'+
-                escapeHtml(
-                    String(p?.nazwa||x?.nazwa||"").toUpperCase()
-                )+
-                '</span>'+
-                '<span class="trasa-nz">'+
-                (czyNZ(p)?'ż':'')+
-                '</span>'+
-                '</li>'
-            );
-        }).join("");
-
-        return(
-            '<div class="trasa-extra trasa-galaz-wewnetrzna">'+
-            '<div class="trasa-extra-title">'+
-            'Trasa w kursach '+tytul+
-            '</div>'+
-            '<ul class="trasa-extra-lista">'+
-            stops+
-            '</ul>'+
-            '<div class="trasa-extra-title trasa-polaczenie">'+
-            'Trasa we wszystkich kursach'+
-            '</div>'+
-            '<ul class="trasa-extra-lista">'+
-            '<li class="trasa-extra-stop">'+
-            '<span class="trasa-czas"></span>'+
-            '<span class="trasa-os"></span>'+
-            '<span class="trasa-nazwa">'+
-            escapeHtml(String(galaz.rejoinNazwa||"").toUpperCase())+
-            '</span>'+
-            '<span class="trasa-nz"></span>'+
-            '</li>'+
-            '</ul>'+
-            '</div>'
-        );
-    }).join("");
+    return"";
 }
 
 
@@ -16790,6 +16801,65 @@ function czyOstatniWidocznyPrzystanek210(
 }
 
 
+
+function renderSeparator304(stan){
+
+    if(!stan){
+        return"";
+    }
+
+    if(stan.typ==="wszystkie"){
+
+        return(
+            '<li class="trasa-separator">'+
+            '<span class="trasa-separator-title">'+
+            'Trasa we wszystkich kursach'+
+            '</span>'+
+            '</li>'
+        );
+    }
+
+    if(
+        stan.typ==="wariant"&&
+        Array.isArray(stan.litery)&&
+        stan.litery.length
+    ){
+
+        const litery=
+            Array.from(
+                new Set(
+                    stan.litery
+                        .map(
+                            l=>
+                                String(l||"")
+                                    .trim()
+                                    .toLowerCase()
+                        )
+                        .filter(Boolean)
+                )
+            );
+
+        return(
+            '<li class="trasa-separator">'+
+            '<span class="trasa-separator-title">'+
+            'Trasa w kursach '+
+            litery
+                .map(
+                    l=>
+                        '„'+
+                        escapeHtml(l)+
+                        '”'
+                )
+                .join(', ')+
+            '</span>'+
+            '</li>'
+        );
+    }
+
+    return"";
+}
+
+
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -16939,6 +17009,13 @@ function renderTrasaKolumna(
             .map(
                 (element,lokalny)=>{
 
+                    if(element?._separator304){
+
+                        return renderSeparator304(
+                            element.stan304
+                        );
+                    }
+
                     const p=
                         element&&
                         Object.prototype.hasOwnProperty.call(
@@ -16959,9 +17036,11 @@ function renderTrasaKolumna(
                               lokalny;
 
                     const stanAktualny=
-                        stanTrasyNaPrzystanku(
-                            element
-                        );
+                        element?._galaz304
+                            ? element.stan304
+                            : stanTrasyNaPrzystanku(
+                                element
+                            );
 
                     let stanPoprzedni=null;
 
@@ -17023,9 +17102,15 @@ function renderTrasaKolumna(
                             ];
 
                         stanPoprzedni=
-                            stanTrasyNaPrzystanku(
-                                poprzedniElement
-                            );
+                            poprzedniElement?._separator304
+                                ? poprzedniElement.stan304
+                                : (
+                                    poprzedniElement?._galaz304
+                                        ? poprzedniElement.stan304
+                                        : stanTrasyNaPrzystanku(
+                                            poprzedniElement
+                                        )
+                                  );
                     }
 
                     /*
@@ -17063,15 +17148,17 @@ function renderTrasaKolumna(
                          już opisu nieaktualnej gałęzi.
                     */
                     let separator=
-                        (
-                            stanPoprzedni===null||
-                            przed
-                                ? ''
-                                : naglowekZmianyTrasy(
-                                    stanPoprzedni,
-                                    stanAktualny
-                                )
-                        );
+                        element?._galaz304
+                            ? ''
+                            : (
+                                stanPoprzedni===null||
+                                przed
+                                    ? ''
+                                    : naglowekZmianyTrasy(
+                                        stanPoprzedni,
+                                        stanAktualny
+                                    )
+                              );
 
                     /*
                        Aktywny przystanek = dokładnie ten sam idx,
