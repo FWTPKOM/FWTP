@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 294
+     WERSJA: 295
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -11541,14 +11541,16 @@ function danePrzebiegowWariantowych(){
 
 
 /* =========================================================
-   WERSJA 294 — BAZA 291
+   WERSJA 295 — BAZA 291
    =========================================================
-   Jedna, bardzo wąska poprawka:
-   na pierwszym przystanku kierunku (aktualnyPrzystanek === 0)
-   linii 134 nie renderujemy starego dodatkowego bloku "b",
-   ponieważ poprawna gałąź "b,c" jest już na głównej liście.
+   Nie zmieniamy już rozpoznawania "przystanku początkowego".
 
-   Poza przystankiem początkowym zachowanie = wersja 291.
+   Renderowanie działa dokładnie jak w 291, a po wygenerowaniu
+   gotowej kolumny usuwany jest tylko stary blok "b", jeżeli
+   prawidłowy blok "b,c" już istnieje.
+
+   Dzięki temu reguła jest taka sama niezależnie od tego,
+   który przystanek jest wybrany.
    ========================================================= */
 
 /* =========================================================
@@ -16182,24 +16184,7 @@ function renderWydluzeniaTrasy(){
                     ).trim()==="134"&&
                     litera==="b"&&
                     typeof galazBC134_287==="function"&&
-                    galazBC134_287().length&&
-
-                    /*
-                       WERSJA 294:
-                       problem występuje WYŁĄCZNIE na pierwszym
-                       przystanku kierunku. Na OLESIN 01 parametr
-                       aktualnyPrzystanek ma wartość 0.
-
-                       Wtedy główna lista zawiera już poprawną
-                       wspólną gałąź "b,c", więc stare osobne "b"
-                       musi zostać pominięte.
-
-                       Na pozostałych przystankach niczego nie
-                       zmieniamy — zachowujemy działanie v291.
-                    */
-                    Number(
-                        aktualnyPrzystanek
-                    )===0
+                    galazBC134_287().length
                 ){
                     return"";
                 }
@@ -16818,7 +16803,161 @@ function czyOstatniWidocznyPrzystanek210(
 }
 
 
-function renderTrasaKolumna(
+
+/* =========================================================
+   WERSJA 295 — DEDUPLIKACJA b NA FINALNYM HTML
+   =========================================================
+   Baza: działająca wersja 291.
+
+   Zasada:
+   jeżeli w gotowym HTML linii 134 istnieje już:
+       Trasa w kursach „b”, „c”
+   to osobny stary blok:
+       Trasa w kursach „b”
+   jest duplikatem i ma zostać usunięty razem z przystankami
+   należącymi do tego starego bloku.
+
+   Nie sprawdzamy indeksu przystanku i nie zmieniamy danych.
+   ========================================================= */
+function usunStaryDuplikatB134_295(html){
+
+    if(
+        String(
+            daneLinii?.linia||
+            numerLinii||
+            ""
+        ).trim()!=="134"
+    ){
+        return html;
+    }
+
+    const kontener=
+        document.createElement(
+            "div"
+        );
+
+    kontener.innerHTML=
+        String(html||"");
+
+    const norm=t=>
+        String(t||"")
+            .replace(/[„”"]/g,"")
+            .replace(/\\s+/g," ")
+            .trim()
+            .toLowerCase();
+
+    const tytuly=
+        Array.from(
+            kontener.querySelectorAll(
+                ".trasa-separator-title, .trasa-extra-title"
+            )
+        );
+
+    const maBC=
+        tytuly.some(
+            el=>{
+                const t=norm(el.textContent);
+                return(
+                    t.includes("trasa w kursach")&&
+                    /\\bb\\b/.test(t)&&
+                    /\\bc\\b/.test(t)
+                );
+            }
+        );
+
+    if(!maBC){
+        return html;
+    }
+
+    tytuly.forEach(
+        el=>{
+
+            const t=
+                norm(
+                    el.textContent
+                );
+
+            const jestSamoB=
+                t.includes(
+                    "trasa w kursach"
+                )&&
+                /\\bb\\b/.test(t)&&
+                !/\\bc\\b/.test(t)&&
+                !/\\ba\\b/.test(t)&&
+                !/\\bz\\b/.test(t);
+
+            if(!jestSamoB){
+                return;
+            }
+
+            /*
+               W projekcie stary wariant może być:
+               1. całym .trasa-extra,
+               2. separatorem <li> + kolejnymi stopami.
+            */
+            const extra=
+                el.closest(
+                    ".trasa-extra"
+                );
+
+            if(extra){
+                extra.remove();
+                return;
+            }
+
+            const sep=
+                el.closest(
+                    ".trasa-separator"
+                );
+
+            if(!sep){
+                return;
+            }
+
+            let n=
+                sep.nextElementSibling;
+
+            sep.remove();
+
+            while(n){
+
+                const next=
+                    n.nextElementSibling;
+
+                if(
+                    n.classList.contains(
+                        "trasa-separator"
+                    )
+                ){
+                    break;
+                }
+
+                n.remove();
+                n=next;
+            }
+        }
+    );
+
+    return kontener.innerHTML;
+}
+
+
+
+function renderTrasaKolumna(){
+
+    const html=
+        renderTrasaKolumna_ORYGINAL_291.apply(
+            this,
+            arguments
+        );
+
+    return usunStaryDuplikatB134_295(
+        html
+    );
+}
+
+
+function renderTrasaKolumna_ORYGINAL_291(
     fragment,
     czasy,
     pierwszyIndexTrasy,
