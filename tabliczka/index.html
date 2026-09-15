@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 204
+     WERSJA: 205
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2361,12 +2361,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 204
+   WERSJA: 205
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "204";
+const WERSJA_TABLICZKI = "205";
 console.log(
-    "FWTP Tabliczka — wersja 204 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 205 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -3858,35 +3858,20 @@ function pobierzKierunki(){
 }
 
 
-function nazwaKierunku(
-    k,
-    kierunekIndex=aktualnyKierunek
-){
+function nazwaKierunku(k){
 
-    if(
-        Number(
-            kierunekIndex
-        )===
-        Number(
-            aktualnyKierunek
-        )
-    ){
-        const zKursow=
-            kierunekZKursowAktywnego204(
-                k
-            );
+    const pasazerski=
+        kierunekPasazerskiAktywnego205(
+            k
+        );
 
-        if(zKursow){
-            return zKursow;
-        }
+    if(pasazerski){
+        return pasazerski;
     }
 
     const lista=
-        Array.isArray(
-            k?.przystanki
-        )
-            ? k.przystanki
-            : [];
+        k?.przystanki||
+        [];
 
     for(
         let i=lista.length-1;
@@ -3911,6 +3896,129 @@ function nazwaKierunku(
         ""
     ).trim();
 }
+
+function kierunekPasazerskiAktywnego205(k){
+
+    const baza=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    const aktywny=
+        baza?.przystanki?.[
+            Number(
+                aktualnyPrzystanek
+            )
+        ];
+
+    if(!aktywny){
+        return"";
+    }
+
+    const klucze=
+        new Set();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const p=
+                znajdzDokladnyPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    aktywny
+                );
+
+            (
+                p?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    klucze.add(
+                        [
+                            String(kurs?.numer||"").trim(),
+                            String(kurs?.wariant||"").trim(),
+                            symbolDnia(kurs),
+                            String(kurs?.brygada||"").trim()
+                        ].join("|")
+                    );
+                }
+            );
+        }
+    );
+
+    if(!klucze.size){
+        return"";
+    }
+
+    let ostatni="";
+
+    (k?.przystanki||[]).forEach(
+        p=>{
+
+            if(
+                typPrzystankuTrasy(p)==="TECH"
+            ){
+                return;
+            }
+
+            let obslugiwany=false;
+
+            (
+                daneLinii?.rozkłady||
+                []
+            ).some(
+                rozklad=>{
+
+                    const rp=
+                        znajdzDokladnyPrzystanekWRozkladzie(
+                            rozklad,
+                            aktualnyKierunek,
+                            p
+                        );
+
+                    obslugiwany=
+                        (rp?.kursy||[]).some(
+                            kurs=>
+                                czasNaMinuty(kurs?.czas)!==null&&
+                                klucze.has(
+                                    [
+                                        String(kurs?.numer||"").trim(),
+                                        String(kurs?.wariant||"").trim(),
+                                        symbolDnia(kurs),
+                                        String(kurs?.brygada||"").trim()
+                                    ].join("|")
+                                )
+                        );
+
+                    return obslugiwany;
+                }
+            );
+
+            if(obslugiwany){
+                ostatni=
+                    String(
+                        p?.nazwa||
+                        ""
+                    ).trim();
+            }
+        }
+    );
+
+    return ostatni;
+}
+
 
 function wypelnijKierunki(){
 
@@ -3937,8 +4045,7 @@ function wypelnijKierunki(){
 
             option.textContent=
                 nazwaKierunku(
-                    el.dane,
-                    el.index
+                    el.dane
                 )||
                 "Kierunek "+
                 (el.index+1);
@@ -8860,8 +8967,12 @@ function przeniesMinieteGaleziePrzedAktywny(
     const pozycjaAktywnego=
         lista.findIndex(
             element=>
-                element.index===
-                aktualnyPrzystanek
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
         );
 
     if(
@@ -9151,8 +9262,12 @@ function przytnijInneGaleziePrzedPoczatkiemWariantu(
     const pozycja=
         lista.findIndex(
             element=>
-                element.index===
-                aktualnyPrzystanek
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
         );
 
     if(pozycja<0){
@@ -9193,8 +9308,12 @@ function usunPowtorzenieNazwyPrzedAktywnym(
     const pozycjaAktywnego=
         lista.findIndex(
             element=>
-                element.index===
-                aktualnyPrzystanek
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
         );
 
     if(pozycjaAktywnego<=0){
@@ -9280,352 +9399,6 @@ function usunPowtorzenieNazwyPrzedAktywnym(
 
 
 
-
-/* =========================================================
-   WERSJA 204
-   TRASA = WYŁĄCZNIE KURSY WIDOCZNE NA AKTYWNYM PRZYSTANKU
-   BAZA: CZYSTA v197
-   ========================================================= */
-
-function aktywnyPrzystanek204(){
-
-    const k=
-        znajdzNajpelniejszyKierunek(
-            aktualnyKierunek
-        );
-
-    return k?.przystanki?.[
-        Number(
-            aktualnyPrzystanek
-        )
-    ]||null;
-}
-
-
-function kursyAktywnego204(){
-
-    const aktywny=
-        aktywnyPrzystanek204();
-
-    if(!aktywny){
-        return[];
-    }
-
-    const mapa=
-        new Map();
-
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(
-        rozklad=>{
-
-            const rp=
-                znajdzDokladnyPrzystanekWRozkladzie(
-                    rozklad,
-                    aktualnyKierunek,
-                    aktywny
-                );
-
-            (
-                rp?.kursy||
-                []
-            ).forEach(
-                kurs=>{
-
-                    if(
-                        czasNaMinuty(
-                            kurs?.czas
-                        )===null
-                    ){
-                        return;
-                    }
-
-                    const ref={
-                        numer:String(
-                            kurs?.numer||
-                            ""
-                        ).trim(),
-                        wariant:String(
-                            kurs?.wariant||
-                            ""
-                        ).trim(),
-                        symbol:symbolDnia(kurs),
-                        brygada:String(
-                            kurs?.brygada||
-                            ""
-                        ).trim(),
-                        _kierunekIndex:
-                            Number(
-                                aktualnyKierunek
-                            )
-                    };
-
-                    const key=[
-                        ref.numer,
-                        ref.wariant,
-                        ref.symbol,
-                        ref.brygada
-                    ].join("|");
-
-                    mapa.set(
-                        key,
-                        ref
-                    );
-                }
-            );
-        }
-    );
-
-    return[
-        ...mapa.values()
-    ];
-}
-
-
-function wariantyAktywnego204(){
-
-    return new Set(
-        kursyAktywnego204()
-            .map(
-                kurs=>
-                    String(
-                        kurs?.wariant||
-                        ""
-                    )
-                    .trim()
-                    .toUpperCase()
-            )
-            .filter(Boolean)
-    );
-}
-
-
-function elementJestWKursachAktywnego204(
-    element
-){
-    return kursyAktywnego204()
-        .some(
-            kurs=>
-                kursMaPrzystanek(
-                    kurs,
-                    element
-                )
-        );
-}
-
-
-/*
-   Czy aktywny słupek jest początkiem własnej grupy kursów?
-
-   Warunek jest celowo ogólny:
-   - na aktywnym są kursy,
-   - żaden z tych kursów nie obsługuje wcześniejszych elementów
-     pełnego przebiegu przed aktywnym.
-
-   Wtedy wcześniejsza część pełnej trasy NIE należy do tabliczki.
-*/
-function czyPoczatekWlasnychKursow204(
-    lista
-){
-    if(
-        !Array.isArray(lista)||
-        !lista.length
-    ){
-        return false;
-    }
-
-    const pos=
-        lista.findIndex(
-            e=>
-                Number(
-                    e?.index
-                )===
-                Number(
-                    aktualnyPrzystanek
-                )
-        );
-
-    if(pos<=0){
-        return false;
-    }
-
-    const kursy=
-        kursyAktywnego204();
-
-    if(!kursy.length){
-        return false;
-    }
-
-    for(
-        let i=0;
-        i<pos;
-        i++
-    ){
-        if(
-            kursy.some(
-                kurs=>
-                    kursMaPrzystanek(
-                        kurs,
-                        lista[i]
-                    )
-            )
-        ){
-            return false;
-        }
-    }
-
-    return true;
-}
-
-
-/*
-   Najważniejsza funkcja v204.
-
-   Gdy aktywny jest początkiem własnych kursów:
-   1. usuwamy CAŁĄ część przed aktywnym,
-   2. od aktywnego zostawiamy TYLKO te przystanki, które są
-      obsługiwane przez co najmniej jeden kurs widoczny na tabliczce,
-   3. dzięki temu lista automatycznie kończy się tam, gdzie kończą się
-      te kursy — nie na końcu pełnej trasy linii.
-
-   To nie jest wyjątek dla 401.
-*/
-function trasaTylkoZKursowAktywnego204(
-    lista
-){
-    if(
-        !Array.isArray(lista)||
-        !lista.length
-    ){
-        return lista||[];
-    }
-
-    if(
-        !czyPoczatekWlasnychKursow204(
-            lista
-        )
-    ){
-        return lista;
-    }
-
-    const pos=
-        lista.findIndex(
-            e=>
-                Number(
-                    e?.index
-                )===
-                Number(
-                    aktualnyPrzystanek
-                )
-        );
-
-    if(pos<0){
-        return lista;
-    }
-
-    const odAktywnego=
-        lista.slice(pos);
-
-    const wynik=[];
-
-    odAktywnego.forEach(
-        element=>{
-
-            if(
-                Number(
-                    element?.index
-                )===
-                Number(
-                    aktualnyPrzystanek
-                )||
-                elementJestWKursachAktywnego204(
-                    element
-                )
-            ){
-                wynik.push(
-                    element
-                );
-            }
-        }
-    );
-
-    return wynik;
-}
-
-
-function aktywnyMaWariant204(
-    litera
-){
-    return wariantyAktywnego204()
-        .has(
-            String(
-                litera||
-                ""
-            )
-            .trim()
-            .toUpperCase()
-        );
-}
-
-
-/*
-   Ostatni pasażerski punkt rzeczywiście obsługiwany przez kursy
-   widoczne na aktywnym przystanku.
-*/
-function kierunekZKursowAktywnego204(
-    kierunek
-){
-    const kursy=
-        kursyAktywnego204();
-
-    if(!kursy.length){
-        return"";
-    }
-
-    let ostatni="";
-
-    (
-        kierunek?.przystanki||
-        []
-    ).forEach(
-        (p,index)=>{
-
-            if(
-                typPrzystankuTrasy(
-                    p
-                )==="TECH"
-            ){
-                return;
-            }
-
-            const element={
-                p,
-                index
-            };
-
-            if(
-                kursy.some(
-                    kurs=>
-                        kursMaPrzystanek(
-                            kurs,
-                            element
-                        )
-                )
-            ){
-                ostatni=
-                    String(
-                        p?.nazwa||
-                        ""
-                    ).trim();
-            }
-        }
-    );
-
-    return ostatni;
-}
-
-
 function usunPrzyszlePrzystankiBezMinuty(
     lista
 ){
@@ -9640,8 +9413,12 @@ function usunPrzyszlePrzystankiBezMinuty(
     const aktywnyPos=
         lista.findIndex(
             element=>
-                element?.index===
-                aktualnyPrzystanek
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
         );
 
     if(aktywnyPos<0){
@@ -10469,16 +10246,6 @@ function __bezCache_listaTrasyDoWyswietlenia(){
             );
         }
     }
-
-    /*
-       v204 — dopiero po całej logice v197:
-       jeśli aktywny jest początkiem własnych kursów,
-       pełna trasa zostaje zastąpiona trasą wynikającą z tych kursów.
-    */
-    wynik=
-        trasaTylkoZKursowAktywnego204(
-            wynik
-        );
 
     return wynik;
 }
@@ -11728,21 +11495,6 @@ function renderWydluzeniaTrasy(){
                     .trim()
                     .toLowerCase();
 
-                /*
-                   v204:
-                   boczna trasa wariantowa istnieje na tabliczce
-                   tylko wtedy, gdy taki wariant faktycznie odjeżdża
-                   z aktualnego przystanku.
-                */
-                if(
-                    litera&&
-                    !aktywnyMaWariant204(
-                        litera
-                    )
-                ){
-                    return"";
-                }
-
                 const przystankiWydluzenia=
                     listaWydluzeniaBezPowtorzonegoKranca(
                         wariant,
@@ -12759,28 +12511,12 @@ function renderTrasaKolumna(
 
                             if(
                                 czas===null||
-                                typeof czas==="undefined"||
-                                (
-                                    czyPoczatekWlasnychKursow204(
-                                        listaTrasyDoWyswietlenia()
-                                    )&&
-                                    elementJestWKursachAktywnego204(
-                                        element
-                                    )
-                                )
+                                typeof czas==="undefined"
                             ){
-                                const czasZKursu=
+                                czas=
                                     czasDowolnegoKursuNaPrzystanku(
                                         element
                                     );
-
-                                if(
-                                    czasZKursu!==null&&
-                                    typeof czasZKursu!=="undefined"
-                                ){
-                                    czas=
-                                        czasZKursu;
-                                }
                             }
                         }
                     }
@@ -13546,8 +13282,7 @@ function renderuj(){
                     escapeHtml(
                         String(
                             nazwaKierunku(
-                                kierunek,
-                                aktualnyKierunek
+                                kierunek
                             )
                         ).toUpperCase()
                     )+
