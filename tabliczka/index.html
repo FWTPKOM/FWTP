@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 205
+     WERSJA: 206
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2361,12 +2361,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 205
+   WERSJA: 206
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "205";
+const WERSJA_TABLICZKI = "206";
 console.log(
-    "FWTP Tabliczka — wersja 205 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 206 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -3860,13 +3860,11 @@ function pobierzKierunki(){
 
 function nazwaKierunku(k){
 
-    const pasazerski=
-        kierunekPasazerskiAktywnego205(
-            k
-        );
+    const zKursow=
+        kierunekZDokladnychKursow206();
 
-    if(pasazerski){
-        return pasazerski;
+    if(zKursow){
+        return zKursow;
     }
 
     const lista=
@@ -3896,129 +3894,6 @@ function nazwaKierunku(k){
         ""
     ).trim();
 }
-
-function kierunekPasazerskiAktywnego205(k){
-
-    const baza=
-        znajdzNajpelniejszyKierunek(
-            aktualnyKierunek
-        );
-
-    const aktywny=
-        baza?.przystanki?.[
-            Number(
-                aktualnyPrzystanek
-            )
-        ];
-
-    if(!aktywny){
-        return"";
-    }
-
-    const klucze=
-        new Set();
-
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(
-        rozklad=>{
-
-            const p=
-                znajdzDokladnyPrzystanekWRozkladzie(
-                    rozklad,
-                    aktualnyKierunek,
-                    aktywny
-                );
-
-            (
-                p?.kursy||
-                []
-            ).forEach(
-                kurs=>{
-
-                    if(
-                        czasNaMinuty(
-                            kurs?.czas
-                        )===null
-                    ){
-                        return;
-                    }
-
-                    klucze.add(
-                        [
-                            String(kurs?.numer||"").trim(),
-                            String(kurs?.wariant||"").trim(),
-                            symbolDnia(kurs),
-                            String(kurs?.brygada||"").trim()
-                        ].join("|")
-                    );
-                }
-            );
-        }
-    );
-
-    if(!klucze.size){
-        return"";
-    }
-
-    let ostatni="";
-
-    (k?.przystanki||[]).forEach(
-        p=>{
-
-            if(
-                typPrzystankuTrasy(p)==="TECH"
-            ){
-                return;
-            }
-
-            let obslugiwany=false;
-
-            (
-                daneLinii?.rozkłady||
-                []
-            ).some(
-                rozklad=>{
-
-                    const rp=
-                        znajdzDokladnyPrzystanekWRozkladzie(
-                            rozklad,
-                            aktualnyKierunek,
-                            p
-                        );
-
-                    obslugiwany=
-                        (rp?.kursy||[]).some(
-                            kurs=>
-                                czasNaMinuty(kurs?.czas)!==null&&
-                                klucze.has(
-                                    [
-                                        String(kurs?.numer||"").trim(),
-                                        String(kurs?.wariant||"").trim(),
-                                        symbolDnia(kurs),
-                                        String(kurs?.brygada||"").trim()
-                                    ].join("|")
-                                )
-                        );
-
-                    return obslugiwany;
-                }
-            );
-
-            if(obslugiwany){
-                ostatni=
-                    String(
-                        p?.nazwa||
-                        ""
-                    ).trim();
-            }
-        }
-    );
-
-    return ostatni;
-}
-
 
 function wypelnijKierunki(){
 
@@ -8967,12 +8842,8 @@ function przeniesMinieteGaleziePrzedAktywny(
     const pozycjaAktywnego=
         lista.findIndex(
             element=>
-                Number(
-                    element?.index
-                )===
-                Number(
-                    aktualnyPrzystanek
-                )
+                element.index===
+                aktualnyPrzystanek
         );
 
     if(
@@ -9262,12 +9133,8 @@ function przytnijInneGaleziePrzedPoczatkiemWariantu(
     const pozycja=
         lista.findIndex(
             element=>
-                Number(
-                    element?.index
-                )===
-                Number(
-                    aktualnyPrzystanek
-                )
+                element.index===
+                aktualnyPrzystanek
         );
 
     if(pozycja<0){
@@ -9308,12 +9175,8 @@ function usunPowtorzenieNazwyPrzedAktywnym(
     const pozycjaAktywnego=
         lista.findIndex(
             element=>
-                Number(
-                    element?.index
-                )===
-                Number(
-                    aktualnyPrzystanek
-                )
+                element.index===
+                aktualnyPrzystanek
         );
 
     if(pozycjaAktywnego<=0){
@@ -9399,6 +9262,382 @@ function usunPowtorzenieNazwyPrzedAktywnym(
 
 
 
+
+/* =========================================================
+   WERSJA 206
+   DOKŁADNY PRZEBIEG Z KURSÓW W JSON — PO INDEKSACH PRZYSTANKÓW
+
+   Ważne:
+   NIE dopasowujemy tutaj przystanków po samej nazwie.
+   PKP URSUS 21 (index 6) i późniejszy PKP URSUS 05 (index 7)
+   są dwoma osobnymi punktami przebiegu.
+   ========================================================= */
+
+function kluczKursu206(kurs){
+
+    return[
+        String(kurs?.numer||"").trim(),
+        String(kurs?.wariant||"").trim().toUpperCase(),
+        String(kurs?.brygada||"").trim(),
+        symbolDnia(kurs)
+    ].join("|");
+}
+
+
+function daneKursowAktywnego206(){
+
+    const aktywnyIndex=
+        Number(
+            aktualnyPrzystanek
+        );
+
+    if(
+        !Number.isInteger(
+            aktywnyIndex
+        )
+    ){
+        return null;
+    }
+
+    const klucze=
+        new Set();
+
+    const warianty=
+        new Set();
+
+    const rozklady=[];
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const kierunek=
+                rozklad?.kierunki?.[
+                    Number(
+                        aktualnyKierunek
+                    )
+                ];
+
+            const lista=
+                kierunek?.przystanki||
+                [];
+
+            /*
+               Najpierw próbujemy DOKŁADNIE index z URL.
+               To jest kluczowe dla 401:
+               index 6 = PKP URSUS 21,
+               index 7 = PKP URSUS 05.
+            */
+            let aktywny=
+                lista[
+                    aktywnyIndex
+                ];
+
+            /*
+               Fallback tylko gdy konkretny rozkład ma inną długość.
+               Nadal wymagamy dokładnej nazwy + numeru słupka.
+            */
+            if(!aktywny){
+
+                const baza=
+                    znajdzNajpelniejszyKierunek(
+                        aktualnyKierunek
+                    );
+
+                const wzorzec=
+                    baza?.przystanki?.[
+                        aktywnyIndex
+                    ];
+
+                if(wzorzec){
+
+                    aktywny=
+                        lista.find(
+                            p=>
+                                normalizujNazwe(
+                                    p?.nazwa
+                                )===
+                                normalizujNazwe(
+                                    wzorzec?.nazwa
+                                )&&
+                                String(
+                                    p?.nr||
+                                    ""
+                                ).trim()===
+                                String(
+                                    wzorzec?.nr||
+                                    ""
+                                ).trim()
+                        );
+                }
+            }
+
+            const aktywneKursy=
+                (
+                    aktywny?.kursy||
+                    []
+                )
+                .filter(
+                    kurs=>
+                        czasNaMinuty(
+                            kurs?.czas
+                        )!==null
+                );
+
+            if(!aktywneKursy.length){
+                return;
+            }
+
+            const lokalneKlucze=
+                new Set(
+                    aktywneKursy.map(
+                        kluczKursu206
+                    )
+                );
+
+            aktywneKursy.forEach(
+                kurs=>{
+
+                    klucze.add(
+                        kluczKursu206(
+                            kurs
+                        )
+                    );
+
+                    const w=
+                        String(
+                            kurs?.wariant||
+                            ""
+                        )
+                        .trim()
+                        .toUpperCase();
+
+                    if(w){
+                        warianty.add(w);
+                    }
+                }
+            );
+
+            rozklady.push({
+                rozklad,
+                lista,
+                lokalneKlucze
+            });
+        }
+    );
+
+    if(!klucze.size){
+        return null;
+    }
+
+    /*
+       Indeksy obsługiwane przez TE SAME kursy, które odjeżdżają
+       z aktywnego słupka.
+    */
+    const obslugiwane=
+        new Set();
+
+    let istniejePrzedAktywnym=false;
+
+    rozklady.forEach(
+        info=>{
+
+            info.lista.forEach(
+                (p,index)=>{
+
+                    const maTenKurs=
+                        (
+                            p?.kursy||
+                            []
+                        ).some(
+                            kurs=>
+                                info.lokalneKlucze.has(
+                                    kluczKursu206(
+                                        kurs
+                                    )
+                                )
+                        );
+
+                    if(!maTenKurs){
+                        return;
+                    }
+
+                    if(
+                        index<
+                        aktywnyIndex
+                    ){
+                        istniejePrzedAktywnym=true;
+                    }
+
+                    obslugiwane.add(
+                        index
+                    );
+                }
+            );
+        }
+    );
+
+    return{
+        aktywnyIndex,
+        klucze,
+        warianty,
+        obslugiwane,
+        istniejePrzedAktywnym
+    };
+}
+
+
+function czyAktywnyJestPoczatkiem206(){
+
+    const dane=
+        daneKursowAktywnego206();
+
+    return Boolean(
+        dane&&
+        !dane.istniejePrzedAktywnym
+    );
+}
+
+
+/*
+   Jeżeli kursy odjeżdżające z aktywnego słupka NIE występują
+   przed nim, to aktywny jest początkiem ich pasażerskiej trasy.
+
+   Wtedy lista jest tworzona od nowa:
+   - zaczyna się dokładnie od aktywnego indexu,
+   - zachowuje późniejsze powtórzenia nazw, jeśli mają inny index/nr,
+   - pokazuje tylko indeksy, na których istnieje któryś z kursów
+     odjeżdżających z aktywnego słupka,
+   - TECH pozostaje do odfiltrowania przez istniejący renderer.
+*/
+function trasaZDokladnychKursow206(
+    lista
+){
+    const dane=
+        daneKursowAktywnego206();
+
+    if(
+        !dane||
+        dane.istniejePrzedAktywnym
+    ){
+        return lista||[];
+    }
+
+    /*
+       Używamy pełnej osi v197, a nie już przyciętego wyniku,
+       bo wcześniejsze filtry mogły usunąć właściwy drugi słupek
+       o tej samej nazwie.
+    */
+    const pelna=
+        listaPelnejTrasyDoWyswietlenia();
+
+    const wynik=
+        pelna.filter(
+            element=>{
+
+                const index=
+                    Number(
+                        element?.index
+                    );
+
+                if(
+                    !Number.isInteger(
+                        index
+                    )
+                ){
+                    return false;
+                }
+
+                if(
+                    index<
+                    dane.aktywnyIndex
+                ){
+                    return false;
+                }
+
+                return dane.obslugiwane.has(
+                    index
+                );
+            }
+        );
+
+    return wynik.length
+        ? wynik
+        : lista||[];
+}
+
+
+function aktywnyMaWariant206(
+    litera
+){
+    const dane=
+        daneKursowAktywnego206();
+
+    if(!dane){
+        return false;
+    }
+
+    return dane.warianty.has(
+        String(
+            litera||
+            ""
+        )
+        .trim()
+        .toUpperCase()
+    );
+}
+
+
+function kierunekZDokladnychKursow206(){
+
+    const dane=
+        daneKursowAktywnego206();
+
+    if(!dane){
+        return"";
+    }
+
+    const kierunek=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    const lista=
+        kierunek?.przystanki||
+        [];
+
+    let ostatni="";
+
+    lista.forEach(
+        (p,index)=>{
+
+            if(
+                index<
+                dane.aktywnyIndex||
+                !dane.obslugiwane.has(
+                    index
+                )||
+                typPrzystankuTrasy(
+                    p
+                )==="TECH"
+            ){
+                return;
+            }
+
+            ostatni=
+                String(
+                    p?.nazwa||
+                    ""
+                ).trim();
+        }
+    );
+
+    return ostatni;
+}
+
+
 function usunPrzyszlePrzystankiBezMinuty(
     lista
 ){
@@ -9413,12 +9652,8 @@ function usunPrzyszlePrzystankiBezMinuty(
     const aktywnyPos=
         lista.findIndex(
             element=>
-                Number(
-                    element?.index
-                )===
-                Number(
-                    aktualnyPrzystanek
-                )
+                element?.index===
+                aktualnyPrzystanek
         );
 
     if(aktywnyPos<0){
@@ -10245,6 +10480,20 @@ function __bezCache_listaTrasyDoWyswietlenia(){
                 }
             );
         }
+    }
+
+    /*
+       v206:
+       dla początku własnej grupy kursów zastępujemy wynik trasą
+       wyliczoną BEZPOŚREDNIO z kursów JSON po indeksach.
+    */
+    if(
+        czyAktywnyJestPoczatkiem206()
+    ){
+        wynik=
+            trasaZDokladnychKursow206(
+                wynik
+            );
     }
 
     return wynik;
@@ -11494,6 +11743,20 @@ function renderWydluzeniaTrasy(){
                     )
                     .trim()
                     .toLowerCase();
+
+                /*
+                   v206:
+                   nie pokazujemy bocznej gałęzi wariantu,
+                   którego nie ma w kursach aktywnego słupka.
+                */
+                if(
+                    litera&&
+                    !aktywnyMaWariant206(
+                        litera
+                    )
+                ){
+                    return"";
+                }
 
                 const przystankiWydluzenia=
                     listaWydluzeniaBezPowtorzonegoKranca(
