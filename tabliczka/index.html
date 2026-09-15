@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 190
+     WERSJA: 191
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -2172,6 +2172,56 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     box-sizing: border-box !important;
 }
 
+
+/* =========================================================
+   WERSJA 191 — BAZA v188
+   ETAP 245 PX = 9 KURSÓW W JEDNYM WIERSZU
+   ========================================================= */
+
+/*
+   Cały typ dnia nadal ma 245 px.
+*/
+.tabliczka.etap-245.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt {
+    width: 245px !important;
+    min-width: 245px !important;
+    max-width: 245px !important;
+}
+
+/*
+   W etapie 245 nie zmniejszamy pojedynczych minut.
+   Zmniejszamy tylko szerokość kolumny "Godz." do niezbędnego minimum,
+   dzięki czemu obszar minut dostaje wystarczająco dużo miejsca na
+   9 normalnych pozycji w jednym rzędzie.
+*/
+.tabliczka.etap-245.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt .godzina-row,
+.tabliczka.etap-245.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt .naglowek-kolumn {
+    grid-template-columns: 21px minmax(0, 1fr) !important;
+}
+
+/*
+   W etapie 245 minuty mogą się zawijać dopiero wtedy,
+   gdy jest ich WIĘCEJ niż 9.
+*/
+.tabliczka.etap-245.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt .minuty-cell {
+    min-width: 0 !important;
+    max-width: none !important;
+}
+
+/*
+   Pojedyncza minuta zachowuje normalną szerokość z bazowego kodu.
+   Nie stosujemy tutaj starego limitu 8.
+*/
+.tabliczka.etap-245.tryb-kompaktowy
+.dzien.dzien-powszedni-kompakt .minuta {
+    flex: 0 0 24px !important;
+    width: 24px !important;
+    min-width: 24px !important;
+}
+
 </style>
 </head>
 
@@ -2234,12 +2284,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 190
+   WERSJA: 191
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "190";
+const WERSJA_TABLICZKI = "191";
 console.log(
-    "FWTP Tabliczka — wersja 190 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 191 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -13266,48 +13316,39 @@ function czyRozkladNachodziNaListePrzystankow(
         return false;
     }
 
+    const panel=
+        tabliczka.querySelector(
+            ".panel-lewy"
+        );
+
     const grid=
         tabliczka.querySelector(
             ".rozklady-grid"
         );
 
-    const panelPrawy=
-        tabliczka.querySelector(
-            ".panel-prawy"
-        );
-
     if(
-        !grid||
-        !panelPrawy
+        !panel||
+        !grid
     ){
         return false;
     }
 
+    const panelRect=
+        panel.getBoundingClientRect();
+
     const gridRect=
         grid.getBoundingClientRect();
 
-    const prawyRect=
-        panelPrawy.getBoundingClientRect();
-
     /*
-       WERSJA 190
-
-       Granicą nie jest już prawa krawędź panelu lewego.
-       To było błędne, bo panel lewy może sam zmieniać szerokość
-       i wtedy test uznawał nakładanie za poprawne.
-
-       Prawdziwą granicą jest LEWA KRAWĘDŹ panelu trasy/przystanków.
-
-       Jeśli rozkład choćby o 1 px wejdzie za tę granicę,
-       etap 245 px uznajemy za NIE mieszczący się i próbujemy 225 px.
-       Dopiero gdy 225 px też wchodzi na panel trasy, robimy 2 strony.
+       2 px tolerancji na linię podziału.
+       Jeśli prawa krawędź tabel wychodzi poza lewy panel,
+       oznacza to dokładnie problem widoczny np. na 523.
     */
-    const granica=
-        prawyRect.left;
-
     return(
         gridRect.right>
-        granica-1
+            panelRect.right-2||
+        grid.scrollWidth>
+            panel.clientWidth-34
     );
 }
 
@@ -13703,19 +13744,67 @@ function ustawSzerokoscDniaPowszedniego184(
 
 
 /* =========================================================
-   WERSJA 190 — STABILNY POMIAR KOLIZJI
+   WERSJA 191 — 9 KURSÓW W ETAPIE 245 PX
    ========================================================= */
-function czyRozkladNachodziPoPrzeliczeniu190(
+
+function dopasuj9KursowDo245px191(
     tabliczka
 ){
-    /*
-       Sam pomiar jest synchroniczny, ale wywołujemy go dopiero
-       w requestAnimationFrame po dopasujKolumnyTrasy().
-    */
-    return(
-        czyRozkladNachodziNaListePrzystankow(
-            tabliczka
+    if(
+        !tabliczka||
+        !tabliczka.classList.contains(
+            "etap-245"
         )
+    ){
+        return;
+    }
+
+    const dzien=
+        tabliczka.querySelector(
+            ".dzien.dzien-powszedni-kompakt"
+        );
+
+    if(!dzien){
+        return;
+    }
+
+    /*
+       Cały dzień pozostaje dokładnie 245 px.
+    */
+    dzien.style.width="245px";
+    dzien.style.minWidth="245px";
+    dzien.style.maxWidth="245px";
+
+    /*
+       Kolumna godziny = 21 px.
+       Reszta szerokości zostaje dla minut.
+       Dzięki temu 9 pozycji po 24 px = 216 px mieści się
+       wewnątrz dnia 245 px razem z kolumną godziny i obramowaniem.
+    */
+    dzien
+        .querySelectorAll(
+            ".godzina-row"
+        )
+        .forEach(
+            row=>{
+                row.style.gridTemplateColumns=
+                    "21px minmax(0, 1fr)";
+            }
+        );
+
+    /*
+       Po zmianie szerokości ponownie synchronizujemy godziny.
+    */
+    requestAnimationFrame(
+        ()=>{
+            if(
+                typeof wyrownajWysokosciGodzinMiedzyDniami==="function"
+            ){
+                wyrownajWysokosciGodzinMiedzyDniami(
+                    tabliczka
+                );
+            }
+        }
     );
 }
 
@@ -13744,7 +13833,7 @@ function zastosujEtapyRozkladu184(){
         ()=>{
 
             if(
-                !czyRozkladNachodziPoPrzeliczeniu190(
+                !czyRozkladNachodziNaListePrzystankow(
                     tabliczka
                 )
             ){
@@ -13757,6 +13846,10 @@ function zastosujEtapyRozkladu184(){
             ustawSzerokoscDniaPowszedniego184(
                 tabliczka,
                 245
+            );
+
+            dopasuj9KursowDo245px191(
+                tabliczka
             );
 
             dopasujKolumnyTrasy();
@@ -13774,6 +13867,10 @@ function zastosujEtapyRozkladu184(){
                         p245.style.minWidth="245px";
                         p245.style.maxWidth="245px";
                     }
+
+                    dopasuj9KursowDo245px191(
+                        tabliczka
+                    );
 
                     if(
                         typeof wyrownajWysokosciGodzinMiedzyDniami==="function"
@@ -13835,7 +13932,7 @@ function zastosujEtapyRozkladu184(){
                                                nadal nie rozwiązało kolizji.
                                             */
                                             if(
-                                                czyRozkladNachodziPoPrzeliczeniu190(
+                                                czyRozkladNachodziNaListePrzystankow(
                                                     tabliczka
                                                 )
                                             ){
