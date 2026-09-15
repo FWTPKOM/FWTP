@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 276
+     WERSJA: 277
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -6471,6 +6471,22 @@ function czyTenSamPrzystanekPoNazwieINumerze(
 
 
 /* =========================================================
+   WERSJA 277
+   =========================================================
+   Naprawiono pustą tabelę godzin dla fizycznych słupków
+   występujących tylko w innym rodzaju dnia.
+
+   Kluczowa poprawka:
+   kierunkiObslugujaceBiezacyPrzystanek() nie korzysta już tylko
+   z jednej "najpełniejszej" trasy. Dla każdego kierunku szuka
+   dokładnego NAZWA + NR we wszystkich rozkładach.
+
+   Dzięki temu KS POLONEZ 03 i PKP TORUŃSKA 01 są uznawane
+   za prawidłowe przystanki linii 134 i mogą mieć renderowany
+   rozkład również wtedy, gdy aktualna data jest robocza.
+   ========================================================= */
+
+/* =========================================================
    WERSJA 276 — JEDNO ŹRÓDŁO PRAWDY DLA AKTYWNEGO SŁUPKA
    =========================================================
    Stare funkcje z wersji 200–260 nadal w kilku miejscach
@@ -6540,9 +6556,34 @@ function indeksAktywnegoWKierunku276(kierunek){
 function __bezCache_kierunkiObslugujaceBiezacyPrzystanek(){
 
     /*
-       WERSJA 276:
-       nie odczytujemy już słupka z indeksu najpełniejszej trasy.
-    */
+       =========================================================
+       WERSJA 277 — NAPRAWA PUSTEGO ROZKŁADU
+       =========================================================
+
+       To było właściwe źródło pustego rozkładu dla:
+           KS POLONEZ 03
+           PKP TORUŃSKA 01
+
+       Poprzednio ta funkcja sprawdzała KAŻDY kierunek wyłącznie
+       na jednej trasie zwróconej przez znajdzNajpelniejszyKierunek().
+
+       Dla linii 134 najpełniejsza / wspólna trasa mogła zawierać:
+           KS POLONEZ 01
+           PKP TORUŃSKA 03
+
+       więc dokładne:
+           KS POLONEZ 03
+           PKP TORUŃSKA 01
+
+       nie były uznawane za obsługiwane przez żaden kierunek.
+       W efekcie kierunkiAktywneDlaBiezacegoPrzystanku() zwracało []
+       i cała tabela godzin była pusta.
+
+       Od v277 dla każdego kierunku przeglądamy WSZYSTKIE rozkłady
+       i szukamy dokładnego fizycznego słupka NAZWA + NR.
+       Data nie ma wpływu na to, czy słupek istnieje.
+       ========================================================= */
+
     const p=
         aktywnyFizycznyPrzystanek276();
 
@@ -6555,51 +6596,127 @@ function __bezCache_kierunkiObslugujaceBiezacyPrzystanek(){
     const listaKierunkow=
         pobierzKierunki();
 
+    const rozkladDnia=
+        rozkladBazowyDlaWybranejDaty272();
+
     listaKierunkow.forEach(
         el=>{
 
-            const k=
-                znajdzNajpelniejszyKierunek(
+            const indexKierunku=
+                Number(
                     el.index
                 );
 
-            if(!k){
-                return;
+            let najlepszy=null;
+
+            /*
+               1. Najpierw próbujemy rzeczywistej trasy wybranego dnia.
+               Jeśli dokładny słupek tam istnieje, używamy jej.
+            */
+            const kDnia=
+                rozkladDnia
+                    ?.kierunki
+                    ?.[indexKierunku];
+
+            if(kDnia){
+
+                const indexDnia=
+                    (
+                        kDnia.przystanki||
+                        []
+                    ).findIndex(
+                        x=>
+                            czyTenSamPrzystanekPoNazwieINumerze(
+                                x,
+                                p
+                            )
+                    );
+
+                if(indexDnia>=0){
+
+                    najlepszy={
+                        kierunek:kDnia,
+                        index:indexDnia
+                    };
+                }
             }
 
             /*
-               KLUCZOWA ZMIANA:
-               drugi kierunek uznajemy za obsługujący TEN SAM
-               przystanek tylko wtedy, gdy zgadza się:
-               - nazwa,
-               - numer przystanku.
+               2. Jeżeli wybrany dzień tego słupka nie obsługuje,
+               przeglądamy WSZYSTKIE rodzaje dnia.
 
-               Czyli:
-               SADYBA 05 !== SADYBA 01.
-
-               Dzięki temu:
-               - na SADYBA 05 nie pojawią się kursy do WILANOWA,
-               - na SADYBA 01 mogą się pojawić, jeśli rzeczywiście
-                 ten słupek obsługuje drugi kierunek.
+               To pozwala np. w poniedziałek otworzyć KS POLONEZ 03,
+               mimo że ten fizyczny słupek występuje w trasie
+               sobotnio-świątecznej.
             */
-            const index=
-                (
-                    k.przystanki||
-                    []
-                ).findIndex(
-                    x=>
-                        czyTenSamPrzystanekPoNazwieINumerze(
-                            x,
-                            p
-                        )
-                );
+            if(!najlepszy){
 
-            if(index<0){
+                let najlepszaDlugosc=-1;
+
+                (
+                    daneLinii?.rozkłady||
+                    []
+                ).forEach(
+                    rozklad=>{
+
+                        const k=
+                            rozklad
+                                ?.kierunki
+                                ?.[indexKierunku];
+
+                        if(!k){
+                            return;
+                        }
+
+                        const lista=
+                            k.przystanki||
+                            [];
+
+                        const index=
+                            lista.findIndex(
+                                x=>
+                                    czyTenSamPrzystanekPoNazwieINumerze(
+                                        x,
+                                        p
+                                    )
+                            );
+
+                        if(index<0){
+                            return;
+                        }
+
+                        /*
+                           Jeżeli kilka rozkładów ma dokładnie ten sam
+                           fizyczny słupek, wybieramy najpełniejszą trasę.
+                        */
+                        if(
+                            lista.length>
+                            najlepszaDlugosc
+                        ){
+                            najlepszaDlugosc=
+                                lista.length;
+
+                            najlepszy={
+                                kierunek:k,
+                                index
+                            };
+                        }
+                    }
+                );
+            }
+
+            if(!najlepszy){
                 return;
             }
 
+            const k=
+                najlepszy.kierunek;
+
+            const index=
+                najlepszy.index;
+
             wynik.push({
-                indexKierunku:el.index,
+                indexKierunku,
                 kierunek:k,
                 indexPrzystanku:index,
                 przystanek:
@@ -6627,6 +6744,7 @@ function __bezCache_kierunkiObslugujaceBiezacyPrzystanek(){
 
     return wynik;
 }
+
 
 function kierunkiObslugujaceBiezacyPrzystanek(){
 
