@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 252
+     WERSJA: 253
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3749,12 +3749,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 252
+   WERSJA: 253
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "252";
+const WERSJA_TABLICZKI = "253";
 console.log(
-    "FWTP Tabliczka — wersja 252 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 253 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -11321,7 +11321,7 @@ function daneKursowAktywnego206(){
                Aktywny słupek identyfikujemy po DOKŁADNEJ parze
                NAZWA + NR, a nie po pozycji w wariantowym przebiegu.
             */
-            const aktywnyPos=
+            let aktywnyPos=
                 lista.findIndex(
                     p=>
                         normalizujNazwe208(
@@ -11339,6 +11339,42 @@ function daneKursowAktywnego206(){
                             ""
                         ).trim()
                 );
+
+            /*
+               v253:
+               ten sam logiczny przystanek może mieć inny numer
+               słupka w innym rodzaju dnia. Najpierw nadal wymagamy
+               dokładnego NAZWA+NR, ale jeśli go nie ma, dopasowujemy
+               NAZWA+LP. Dzięki temu kursy weekendowe są widoczne
+               także na wspólnym przystanku z innym numerem.
+            */
+            if(aktywnyPos<0){
+
+                const lpAktywnego253=
+                    String(
+                        aktywnyBaza?.lp??
+                        ""
+                    ).trim();
+
+                if(lpAktywnego253){
+
+                    aktywnyPos=
+                        lista.findIndex(
+                            p=>
+                                normalizujNazwe208(
+                                    p?.nazwa
+                                )===
+                                normalizujNazwe208(
+                                    aktywnyBaza?.nazwa
+                                )&&
+                                String(
+                                    p?.lp??
+                                    ""
+                                ).trim()===
+                                lpAktywnego253
+                        );
+                }
+            }
 
             if(aktywnyPos<0){
                 return;
@@ -11492,82 +11528,187 @@ function daneKursowAktywnego206(){
     );
 
     /*
-       Łączymy punkty z rozkładów. Klucz zawiera nazwę, numer słupka
-       i numer wystąpienia tej samej pary, więc dwa PKP URSUS
-       nie zostaną sklejone.
+       v253 — SCALANIE PRZEBIEGÓW DO PUNKTU PONOWNEGO POŁĄCZENIA
+
+       Nie dopisujemy już całego drugiego przebiegu na końcu listy.
+
+       Przykład:
+           wspólna trasa
+           -> odcinek podstawowy
+           -> TORUŃSKA
+           -> [Trasa w kursach „b”]
+           -> odcinek B
+           -> [Trasa we wszystkich kursach]
+           -> PKP TORUŃSKA
+           -> wspólna trasa do końca
+
+       Każdy nowy odcinek z kolejnego rodzaju dnia jest wstawiany
+       PRZED pierwszym następnym wspólnym przystankiem. Dzięki temu
+       PKP TORUŃSKA staje się naturalnym punktem ponownego połączenia,
+       a ŻERAŃ FSO / OS. POTOK / PARK KASKADA itd. nie są powtarzane.
     */
+
+    function kluczPunktu253(p){
+
+        const lp=
+            String(
+                p?.lp??
+                ""
+            ).trim();
+
+        return[
+            normalizujNazwe208(
+                p?.nazwa
+            ),
+            lp
+                ? "LP:"+lp
+                : "NR:"+String(
+                    p?.nr||
+                    ""
+                ).trim()
+        ].join("|");
+    }
+
+    function sekwencjaPunktow253(info){
+
+        const wystapienia=
+            new Map();
+
+        return info.punkty.map(
+            pkt=>{
+
+                const para=
+                    kluczPunktu253(
+                        pkt.p
+                    );
+
+                const nrWyst=
+                    (
+                        wystapienia.get(
+                            para
+                        )||
+                        0
+                    )+1;
+
+                wystapienia.set(
+                    para,
+                    nrWyst
+                );
+
+                return{
+                    p:pkt.p,
+                    key:
+                        para+
+                        "|occ:"+
+                        nrWyst
+                };
+            }
+        );
+    }
+
+    const sekwencje=
+        przebiegi.map(
+            sekwencjaPunktow253
+        );
+
+    let scalone=
+        sekwencje.length
+            ? [...sekwencje[0]]
+            : [];
+
+    /*
+       Wstawiamy tylko te punkty kolejnego przebiegu, których jeszcze
+       nie ma na osi. Jeżeli po nich pojawia się znany już punkt,
+       wstawiamy je bezpośrednio PRZED nim — to punkt ponownego
+       połączenia obu tras.
+    */
+    for(
+        let s=1;
+        s<sekwencje.length;
+        s++
+    ){
+
+        const seq=
+            sekwencje[s];
+
+        let i=0;
+
+        while(i<seq.length){
+
+            const indeksIstniejacego=
+                scalone.findIndex(
+                    x=>x.key===seq[i].key
+                );
+
+            if(indeksIstniejacego>=0){
+                i++;
+                continue;
+            }
+
+            const brakujace=[];
+
+            while(
+                i<seq.length&&
+                !scalone.some(
+                    x=>x.key===seq[i].key
+                )
+            ){
+                brakujace.push(
+                    seq[i]
+                );
+                i++;
+            }
+
+            if(!brakujace.length){
+                continue;
+            }
+
+            if(i<seq.length){
+
+                const anchorKey=
+                    seq[i].key;
+
+                const anchorIndex=
+                    scalone.findIndex(
+                        x=>x.key===anchorKey
+                    );
+
+                if(anchorIndex>=0){
+                    scalone.splice(
+                        anchorIndex,
+                        0,
+                        ...brakujace
+                    );
+                }
+                else{
+                    scalone.push(
+                        ...brakujace
+                    );
+                }
+            }
+            else{
+                scalone.push(
+                    ...brakujace
+                );
+            }
+        }
+    }
+
     const punktyMap=
         new Map();
 
-    przebiegi.forEach(
-        info=>{
-
-            const wystapienia=
-                new Map();
-
-            info.punkty.forEach(
-                pkt=>{
-
-                    /*
-                       v252:
-                       przy scalaniu różnych rodzajów dni numer
-                       słupka nie może rozdzielać wspólnego przystanku.
-                       Najpierw nazwa + LP; numer tylko jako fallback.
-                    */
-                    const lp252=
-                        String(
-                            pkt.p?.lp??
-                            ""
-                        ).trim();
-
-                    const para=
-                        [
-                            normalizujNazwe208(
-                                pkt.p?.nazwa
-                            ),
-                            lp252
-                                ? "LP:"+lp252
-                                : "NR:"+String(
-                                    pkt.p?.nr||
-                                    ""
-                                ).trim()
-                        ].join("|");
-
-                    const nrWyst=
-                        (
-                            wystapienia.get(
-                                para
-                            )||
-                            0
-                        )+1;
-
-                    wystapienia.set(
-                        para,
-                        nrWyst
-                    );
-
-                    const key=
-                        para+
-                        "|occ:"+
-                        nrWyst;
-
-                    if(
-                        !punktyMap.has(
-                            key
-                        )
-                    ){
-                        punktyMap.set(
-                            key,
-                            {
-                                p:pkt.p,
-                                key,
-                                kolejnosc:
-                                    punktyMap.size
-                            }
-                        );
+    scalone.forEach(
+        (pkt,index)=>{
+            if(!punktyMap.has(pkt.key)){
+                punktyMap.set(
+                    pkt.key,
+                    {
+                        p:pkt.p,
+                        key:pkt.key,
+                        kolejnosc:index
                     }
-                }
-            );
+                );
+            }
         }
     );
 
