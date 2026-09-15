@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 315
+     WERSJA: 316
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -15027,11 +15027,181 @@ function usunKolejnePowtorzeniaNazwyWDwukierunkowym(
 
 
 
+
+function stanFizycznegoPrzystankuWobecGalezi316(
+    galaz
+){
+
+    const aktywny=
+        typeof aktywnyFizycznyPrzystanek276==="function"
+            ? aktywnyFizycznyPrzystanek276()
+            : wybranyFizycznyPrzystanek262;
+
+    if(!aktywny||!galaz){
+        return{
+            znaleziono:false,
+            maGalaz:false,
+            maTraseBezGalezi:false
+        };
+    }
+
+    const nazwyGalezi=
+        new Set(
+            (galaz.przystanki||[])
+                .map(
+                    e=>
+                        logicznaNazwaPrzystanku298(
+                            e?.p||e
+                        )
+                )
+                .filter(Boolean)
+        );
+
+    let znaleziono=false;
+    let maGalaz=false;
+    let maTraseBezGalezi=false;
+
+    for(
+        const rozklad of
+        (daneLinii?.rozklady||[])
+    ){
+
+        const kierunek=
+            rozklad?.kierunki?.[
+                aktualnyKierunek
+            ];
+
+        if(!kierunek){
+            continue;
+        }
+
+        const maDokladny=
+            (kierunek.przystanki||[])
+                .some(
+                    p=>
+                        czyTenSamPrzystanekPoNazwieINumerze(
+                            p,
+                            aktywny
+                        )
+                );
+
+        if(!maDokladny){
+            continue;
+        }
+
+        znaleziono=true;
+
+        const nazwy=
+            (kierunek.przystanki||[])
+                .map(
+                    p=>
+                        logicznaNazwaPrzystanku298(
+                            p
+                        )
+                );
+
+        const idzieGalezia=
+            nazwy.some(
+                n=>
+                    nazwyGalezi.has(n)
+            );
+
+        if(idzieGalezia){
+            maGalaz=true;
+        }else{
+            maTraseBezGalezi=true;
+        }
+    }
+
+    return{
+        znaleziono,
+        maGalaz,
+        maTraseBezGalezi
+    };
+}
+
+
+function czyNieDodawacAlternatywnejGalezi316(
+    galaz
+){
+
+    const stan=
+        stanFizycznegoPrzystankuWobecGalezi316(
+            galaz
+        );
+
+    if(!stan.znaleziono){
+        return false;
+    }
+
+    /*
+       Dokładny fizyczny słupek występuje tylko po jednej stronie
+       rozgałęzienia:
+       - albo wyłącznie na odnodze,
+       - albo wyłącznie na trasie bez tej odnogi.
+       W obu przypadkach na tym słupku kierunek dalszej jazdy jest
+       już jednoznaczny, więc nie pokazujemy drugiej możliwości.
+    */
+    return(
+        stan.maGalaz!==stan.maTraseBezGalezi
+    );
+}
+
+
+function aktywnyJestNaGalezi316(
+    galaz
+){
+
+    const aktywny=
+        typeof aktywnyFizycznyPrzystanek276==="function"
+            ? aktywnyFizycznyPrzystanek276()
+            : wybranyFizycznyPrzystanek262;
+
+    if(!aktywny||!galaz){
+        return false;
+    }
+
+    const nazwa=
+        logicznaNazwaPrzystanku298(
+            aktywny
+        );
+
+    return(
+        (galaz.przystanki||[])
+            .some(
+                e=>
+                    logicznaNazwaPrzystanku298(
+                        e?.p||e
+                    )===nazwa
+            )
+    );
+}
+
+
 function wstawGalezieWPrzebieg304(lista){
 
     const wynik=[...(lista||[])];
 
     for(const galaz of galezieWewnetrzne302()){
+
+        /*
+           316:
+           1. Jeśli aktywny przystanek jest już NA odnodze, baza
+              pokazuje tę odnogę — nie wolno wstawiać jej drugi raz.
+           2. Jeśli dokładny fizyczny słupek (np. konkretny KS POLONEZ)
+              występuje tylko w jednej rodzinie przebiegów, dalsza trasa
+              jest już ustalona — nie pokazujemy nieobsługiwanej odnogi.
+        */
+        if(
+            aktywnyJestNaGalezi316(
+                galaz
+            )||
+            czyNieDodawacAlternatywnejGalezi316(
+                galaz
+            )
+        ){
+            continue;
+        }
 
         const splitIndex=
             wynik.findIndex(
@@ -17129,6 +17299,52 @@ function renderSeparator304(stan){
         Array.isArray(stan.litery)&&
         stan.litery.length
     ){
+
+        const galaz316=
+            galezieWewnetrzne302()
+                .find(
+                    g=>{
+
+                        const literyStanu=
+                            new Set(
+                                stan.litery
+                                    .map(
+                                        x=>
+                                            String(x||"")
+                                                .trim()
+                                                .toLowerCase()
+                                    )
+                            );
+
+                        return Array.from(
+                            g?.litery||
+                            []
+                        )
+                            .some(
+                                x=>
+                                    literyStanu.has(
+                                        String(x||"")
+                                            .trim()
+                                            .toLowerCase()
+                                    )
+                            );
+                    }
+                );
+
+        if(
+            galaz316&&
+            (
+                aktywnyJestNaGalezi316(
+                    galaz316
+                )||
+                czyNieDodawacAlternatywnejGalezi316(
+                    galaz316
+                )
+            )
+        ){
+            return"";
+        }
+
 
         const aktywna=
             aktywnaGalaz313();
