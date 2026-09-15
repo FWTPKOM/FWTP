@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 233
+     WERSJA: 234
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3254,6 +3254,33 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     margin-top: 2px !important;
     line-height: 14px !important;
 }
+
+
+/* =========================================================
+   WERSJA 234 — LEGENDA WEWNĄTRZ PRAWEJ KOLUMNY,
+   POD WSZYSTKIMI JEJ PRZYSTANKAMI / KURSAMI DODATKOWYMI
+   ========================================================= */
+.tabliczka .panel-prawy .trasa-kol > .legenda.legenda-przeniesiona-234 {
+    display: block !important;
+    width: calc(100% - 10px) !important;
+    max-width: none !important;
+    margin: 6px 5px 0 5px !important;
+    padding: 5px 0 0 0 !important;
+    border-top: 1px solid #000 !important;
+    box-sizing: border-box !important;
+    transform: none !important;
+    position: relative !important;
+    overflow: visible !important;
+    font-size: 14px !important;
+    line-height: 14px !important;
+    color: #111 !important;
+    z-index: 10 !important;
+}
+
+.tabliczka .panel-prawy .trasa-kol > .legenda.legenda-przeniesiona-234 .legenda-wiersz {
+    margin-top: 2px !important;
+    line-height: 14px !important;
+}
 </style>
 </head>
 
@@ -3316,12 +3343,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 <script src="/FWTP/js/menu.js">
 /* =========================================================
    FWTP — TABLICZKA PRZYSTANKOWA
-   WERSJA: 233
+   WERSJA: 234
    BAZA: wersja 170 — wykorzystanie miejsca i równe wiersze
    ========================================================= */
-const WERSJA_TABLICZKI = "233";
+const WERSJA_TABLICZKI = "234";
 console.log(
-    "FWTP Tabliczka — wersja 233 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
+    "FWTP Tabliczka — wersja 234 | baza: 170_wykorzystanie_miejsca_i_rowne_wiersze"
 );
 </script>
 
@@ -15362,7 +15389,7 @@ function renderuj(){
                v229: po zakończeniu przeliczeń szerokości sprawdzamy,
                czy legenda nadal mieści się na dole strony.
             */
-            zaplanujLegende233(
+            zaplanujLegende234(
                 document.querySelector(
                     "#wynik .tabliczka"
                 )
@@ -15379,7 +15406,7 @@ function renderuj(){
    WERSJA 229 — PRZENOSZENIE LEGENDY POD OSTATNI PRZYSTANEK
    ========================================================= */
 
-function przywrocLegendeDoLewegoPanelu233(
+function przywrocLegendeDoLewegoPanelu234(
     tabliczka
 ){
     if(!tabliczka){
@@ -15388,7 +15415,7 @@ function przywrocLegendeDoLewegoPanelu233(
 
     const legenda=
         tabliczka.querySelector(
-            ".legenda.legenda-przeniesiona-233"
+            ".legenda.legenda-przeniesiona-234"
         );
 
     const panelLewy=
@@ -15414,14 +15441,14 @@ function przywrocLegendeDoLewegoPanelu233(
 }
 
 
-function przeniesLegendeJesliWychodziPozaStrone233(
+function przeniesLegendeJesliWychodziPozaStrone234(
     tabliczka
 ){
     if(!tabliczka){
         return;
     }
 
-    przywrocLegendeDoLewegoPanelu233(tabliczka);
+    przywrocLegendeDoLewegoPanelu234(tabliczka);
 
     const legenda=
         tabliczka.querySelector(
@@ -15439,64 +15466,112 @@ function przeniesLegendeJesliWychodziPozaStrone233(
         return;
     }
 
-    const panelPrawy=
-        tabliczka.querySelector(
-            ".panel-prawy"
-        );
-
     const columns=
-        panelPrawy?.querySelector(
-            ".trasa-columns"
+        tabliczka.querySelector(
+            ".panel-prawy .trasa-columns"
         );
 
-    if(!panelPrawy||!columns){
+    if(!columns){
+        return;
+    }
+
+    const kolumny=
+        Array.from(
+            columns.querySelectorAll(
+                ":scope > .trasa-kol"
+            )
+        );
+
+    if(!kolumny.length){
         return;
     }
 
     /*
-       v233:
-       Legenda nie jest już wkładana do jednej z list UL.
-       Musi być POD CAŁYM przebiegiem trasy:
-       - pod podstawową listą przystanków,
-       - pod wariantami,
-       - pod "Trasa w kursach ...",
-       - pod "kurs wydłużony",
-       czyli dopiero po wszystkich kolumnach i wszystkich dodatkowych
-       fragmentach trasy.
+       v234:
+       W v233 legenda była PO .trasa-columns i znikała przez
+       overflow:hidden prawego panelu.
+
+       Teraz legenda jest WEWNĄTRZ ostatniej kolumny trasy,
+       ale nie wewnątrz pojedynczej listy UL.
+
+       Szukamy najniższego elementu trasy w PRAWEJ / OSTATNIEJ kolumnie:
+       zwykłych przystanków, dodatkowych przystanków oraz sekcji
+       "Trasa w kursach ...". Legenda trafia dopiero PO NIM.
+       Dzięki temu będzie również pod kursem wydłużonym.
     */
+    const docelowa=
+        kolumny[kolumny.length-1];
+
+    const elementy=
+        Array.from(
+            docelowa.querySelectorAll(
+                ".trasa-lista, .trasa-extra-title, .trasa-extra-stop"
+            )
+        )
+        .filter(
+            el=>{
+                const cs=getComputedStyle(el);
+                const r=el.getBoundingClientRect();
+
+                return(
+                    cs.display!=="none"&&
+                    cs.visibility!=="hidden"&&
+                    r.width>0&&
+                    r.height>0
+                );
+            }
+        );
+
+    let poCzym=null;
+    let najnizszy=-Infinity;
+
+    elementy.forEach(
+        el=>{
+            const dol=el.getBoundingClientRect().bottom;
+
+            if(dol>najnizszy){
+                najnizszy=dol;
+                poCzym=el;
+            }
+        }
+    );
+
     const nowa=document.createElement("div");
-
     nowa.className=
-        "legenda legenda-przeniesiona-233";
-
-    nowa.innerHTML=
-        legenda.innerHTML;
+        "legenda legenda-przeniesiona-234";
+    nowa.innerHTML=legenda.innerHTML;
 
     legenda.remove();
 
-    columns.insertAdjacentElement(
-        "afterend",
-        nowa
-    );
+    if(poCzym){
+        poCzym.insertAdjacentElement(
+            "afterend",
+            nowa
+        );
+    }else{
+        docelowa.appendChild(
+            nowa
+        );
+    }
 }
 
 
-let timerLegendy233=null;
+let timerLegendy234=null;
 
-function zaplanujLegende233(tabliczka){
+function zaplanujLegende234(tabliczka){
     if(!tabliczka){
         return;
     }
 
-    clearTimeout(timerLegendy233);
+    clearTimeout(timerLegendy234);
 
-    timerLegendy233=setTimeout(
+    timerLegendy234=setTimeout(
         ()=>{
             requestAnimationFrame(
                 ()=>{
                     requestAnimationFrame(
                         ()=>{
-                            przeniesLegendeJesliWychodziPozaStrone233(
+                            przeniesLegendeJesliWychodziPozaStrone234(
                                 tabliczka
                             );
                         }
@@ -16852,7 +16927,7 @@ function zastosujTrybDwochTabliczekJesliPotrzeba(){
        v229: po ewentualnym podziale na strony ponownie sprawdzamy legendę
        na pierwszej tabliczce, gdzie znajduje się lista przystanków.
     */
-    zaplanujLegende233(
+    zaplanujLegende234(
         tabliczka
     );
 }
@@ -18717,8 +18792,8 @@ window.addEventListener(
 
 
 
-/* v233 — po późnych zmianach wysokości ponownie sprawdź legendę. */
-const observerLegendy233=
+/* v234 — po późnych zmianach wysokości ponownie sprawdź legendę. */
+const observerLegendy234=
     new MutationObserver(
         ()=>{
             const tabliczka=
@@ -18727,21 +18802,21 @@ const observerLegendy233=
                 );
 
             if(tabliczka){
-                zaplanujLegende233(
+                zaplanujLegende234(
                     tabliczka
                 );
             }
         }
     );
 
-const wynikLegendy233=
+const wynikLegendy234=
     document.getElementById(
         "wynik"
     );
 
-if(wynikLegendy233){
-    observerLegendy233.observe(
-        wynikLegendy233,
+if(wynikLegendy234){
+    observerLegendy234.observe(
+        wynikLegendy234,
         {
             childList:true,
             subtree:true,
@@ -18763,7 +18838,7 @@ window.addEventListener(
             );
 
         if(tabliczka){
-            zaplanujLegende233(
+            zaplanujLegende234(
                 tabliczka
             );
         }
