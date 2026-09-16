@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 367
+     WERSJA: 368
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3812,17 +3812,19 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 
 <style>
 /* =========================================================
-   WERSJA 367 — WYDŁUŻENIE TRASY
+   WERSJA 368 — CIĄGŁOŚĆ OSI PRZY TRASIE WYDŁUŻONEJ
    ========================================================= */
 
 /*
-   Jeżeli przystanek kończy trasę podstawową, ale pod nim istnieje
-   dalszy wariant/wydłużenie, pionowa kreska ma wychodzić z kropki
-   w dół. Sama kropka pozostaje w położeniu poprawionym w 364/366.
+   koniec-trasy-210 normalnie ucina kreskę na środku kropki.
+   Jeśli JS oznaczy ten sam wiersz jako ma-kontynuacje-trasy,
+   nie jest to koniec całej trasy, tylko koniec trasy podstawowej.
+   Dlatego kreska biegnie przez kropkę dalej w dół.
 */
-.trasa-stop.koniec-trasy-210.ma-kontynuacje-trasy .trasa-os::before,
-.trasa-stop.koniec-trasy-210:has(+ .trasa-extra) .trasa-os::before {
-    bottom: -100% !important;
+.trasa-stop.koniec-trasy-210.ma-kontynuacje-trasy .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
 }
 </style>
 
@@ -31214,6 +31216,76 @@ function kierunekZDokladnychKursow206(){
         }
     }
 
+    /*
+       WERSJA 368:
+       Jeżeli linia ma rzeczywiste kursy wydłużone, kierunek pokazuje
+       kraniec podstawowy ORAZ końce wydłużeń, np.:
+           SADYBA / WILANÓW
+
+       Nie bierzemy wszystkich mniejszościowych końców kursów, bo kurs
+       skrócony nie jest wydłużeniem. Korzystamy wyłącznie z danych
+       wyliczonych przez daneTrasWydluzonych().
+    */
+    try{
+        const daneWydluzen=
+            daneTrasWydluzonych();
+
+        const dodatkowe=[];
+
+        (
+            Array.isArray(daneWydluzen?.wydluzenia)
+                ? daneWydluzen.wydluzenia
+                : []
+        ).forEach(
+            wariant=>{
+
+                const lista=
+                    Array.isArray(wariant?.przystanki)
+                        ? wariant.przystanki
+                        : [];
+
+                if(!lista.length){
+                    return;
+                }
+
+                const ostatni=
+                    lista[lista.length-1];
+
+                const nazwa=
+                    String(
+                        ostatni?.p?.nazwa||
+                        ostatni?.nazwa||
+                        ""
+                    ).trim();
+
+                if(
+                    nazwa&&
+                    normalizuj(nazwa)!==
+                        normalizuj(najlepszy)&&
+                    !dodatkowe.some(
+                        x=>
+                            normalizuj(x)===
+                            normalizuj(nazwa)
+                    )
+                ){
+                    dodatkowe.push(nazwa);
+                }
+            }
+        );
+
+        if(dodatkowe.length){
+            return[
+                najlepszy,
+                ...dodatkowe
+            ].join(" / ");
+        }
+    }catch(e){
+        /*
+           Jeżeli w bardzo wczesnej fazie inicjalizacji dane wydłużeń
+           nie są jeszcze dostępne, zachowujemy dotychczasowy kierunek.
+        */
+    }
+
     return najlepszy;
 }
 
@@ -34529,6 +34601,15 @@ function renderTrasaKolumna(
                                 element
                             )
                                 ? ' koniec-trasy-210'
+                                : ''
+                        )+
+                        (
+                            czyOstatniWidocznyPrzystanek210(
+                                fragment,
+                                element
+                            )&&
+                            pokazWydluzenia
+                                ? ' ma-kontynuacje-trasy'
                                 : ''
                         )+
                         (
@@ -39238,145 +39319,6 @@ window.addEventListener(
             );
         },
         true
-    );
-})();
-</script>
-
-
-<script>
-(function(){
-    "use strict";
-
-    const p367 = new URLSearchParams(window.location.search);
-    const linia367 = String(p367.get("linia") || "").trim();
-
-    // 134 pozostaje całkowicie w logice 331.
-    if(linia367 === "134"){
-        return;
-    }
-
-    function poprawKierunekWydluzony367(){
-
-        if(typeof daneTrasWydluzonych !== "function"){
-            return;
-        }
-
-        let dane;
-        try{
-            dane = daneTrasWydluzonych();
-        }catch(e){
-            return;
-        }
-
-        const wydluzenia =
-            Array.isArray(dane?.wydluzenia)
-                ? dane.wydluzenia
-                : [];
-
-        if(!wydluzenia.length){
-            return;
-        }
-
-        /*
-           Nazwa kierunku podstawowego pochodzi z istniejącego nagłówka.
-           Końce wydłużeń bierzemy z faktycznie wyliczonych wydłużeń,
-           więc nie wpisujemy na sztywno "WILANÓW".
-        */
-        const naglowek =
-            document.querySelector(
-                ".kierunek, .tabliczka-kierunek, #kierunekNazwa"
-            );
-
-        if(!naglowek){
-            return;
-        }
-
-        let podstawowy =
-            String(naglowek.textContent || "")
-                .replace(/^\\s*[→➜➝➞➟]?\\s*/, "")
-                .trim();
-
-        if(!podstawowy){
-            return;
-        }
-
-        const konce = [];
-
-        for(const w of wydluzenia){
-
-            const lista =
-                Array.isArray(w?.przystanki)
-                    ? w.przystanki
-                    : Array.isArray(w?.lista)
-                        ? w.lista
-                        : [];
-
-            const ostatni =
-                lista.length
-                    ? lista[lista.length - 1]
-                    : null;
-
-            const nazwa =
-                String(
-                    ostatni?.nazwa ||
-                    w?.koniec ||
-                    w?.kraniec ||
-                    ""
-                ).trim();
-
-            if(
-                nazwa &&
-                nazwa.toUpperCase() !== podstawowy.toUpperCase() &&
-                !konce.some(
-                    x => x.toUpperCase() === nazwa.toUpperCase()
-                )
-            ){
-                konce.push(nazwa);
-            }
-        }
-
-        if(!konce.length){
-            return;
-        }
-
-        naglowek.textContent =
-            "→ " +
-            [podstawowy, ...konce]
-                .map(x => String(x).toUpperCase())
-                .join(" / ");
-    }
-
-    /*
-       Renderer buduje nagłówek asynchronicznie. MutationObserver
-       poprawia go po każdym pełnym renderze, również po zmianie
-       przystanku, daty lub kierunku.
-    */
-    let timer367 = null;
-
-    const observer367 =
-        new MutationObserver(
-            ()=>{
-                clearTimeout(timer367);
-                timer367 =
-                    setTimeout(
-                        poprawKierunekWydluzony367,
-                        0
-                    );
-            }
-        );
-
-    observer367.observe(
-        document.documentElement,
-        {
-            childList: true,
-            subtree: true
-        }
-    );
-
-    window.addEventListener(
-        "load",
-        ()=>setTimeout(poprawKierunekWydluzony367, 0),
-        {once:true}
     );
 })();
 </script>
