@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 400
+     WERSJA: 401
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -20872,6 +20872,124 @@ function normalizuj(tekst){
         surowy,
         wynik
     );
+
+    /*
+       WERSJA 401 — zachowanie NŻ w wydłużeniach 338.
+
+       Wiersze wspólnego odcinka i odcinka s są kopiowane z gotowego
+       HTML v385. Przed zwróceniem wyniku ustawiamy oznaczenie NŻ
+       jeszcze raz na podstawie rzeczywistych przystanków kursu.
+       To nie zmienia fizycznej tożsamości przystanku ani minut.
+    */
+    if(
+        String(aktualnaLinia||"").trim()==="338"&&
+        Number(aktualnyKierunek)===0
+    ){
+        const napraw401=
+            document.createElement("div");
+
+        napraw401.innerHTML=
+            wynik;
+
+        const kursy401=[
+            znajdzKursWariantuDoTrasy("s"),
+            znajdzKursWariantuDoTrasy("r")
+        ].filter(Boolean);
+
+        function przystanki401(kurs){
+            return(
+                Array.isArray(kurs?.przystanki)
+                    ? kurs.przystanki.map(x=>x?.p||x)
+                    : (
+                        Array.isArray(kurs?.trasa)
+                            ? kurs.trasa.map(x=>x?.p||x)
+                            : []
+                      )
+            );
+        }
+
+        Array.from(
+            napraw401.querySelectorAll(
+                ".trasa-extra-stop"
+            )
+        ).forEach(
+            row=>{
+
+                const nazwa=
+                    normalizuj(
+                        row.querySelector(
+                            ".trasa-nazwa"
+                        )?.textContent||""
+                    );
+
+                let znaleziony=null;
+
+                for(const kurs of kursy401){
+
+                    const kandydaci=
+                        przystanki401(kurs)
+                            .filter(
+                                p=>
+                                    normalizuj(
+                                        p?.nazwa
+                                    )===nazwa
+                            );
+
+                    if(kandydaci.length===1){
+                        znaleziony=
+                            kandydaci[0];
+                        break;
+                    }
+
+                    /*
+                       Przy wielokrotnym wystąpieniu tej samej nazwy
+                       nie zgadujemy fizycznego słupka. Jeżeli wszystkie
+                       wystąpienia mają ten sam typ NŻ/stały, możemy
+                       bezpiecznie użyć tego typu.
+                    */
+                    if(kandydaci.length>1){
+
+                        const typy=
+                            new Set(
+                                kandydaci.map(
+                                    p=>
+                                        czyNaZadanie(p)
+                                            ? "NZ"
+                                            : "STOP"
+                                )
+                            );
+
+                        if(typy.size===1){
+                            znaleziony=
+                                kandydaci[0];
+                            break;
+                        }
+                    }
+                }
+
+                if(!znaleziony){
+                    return;
+                }
+
+                const nz=
+                    row.querySelector(
+                        ".trasa-nz"
+                    );
+
+                if(nz){
+                    nz.textContent=
+                        czyNaZadanie(
+                            znaleziony
+                        )
+                            ? "ż"
+                            : "";
+                }
+            }
+        );
+
+        wynik=
+            napraw401.innerHTML;
+    }
 
     return wynik;
 }
