@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 417
+     WERSJA: 418
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -33290,20 +33290,23 @@ function znajdzKursWariantuDoTrasy(litera){
         return null;
     }
 
-    const kandydaci=
-        new Map();
+    const kandydaci=[];
 
     (
         daneLinii?.rozkłady||
         []
     ).forEach(
-        rozklad=>{
+        (rozklad,rozkladIndex418)=>{
 
             const p=
-                znajdzPrzystanekWRozkladzie(
+                znajdzPrzystanekWRozkladzieDlaElementu(
                     rozklad,
                     aktualnyKierunek,
-                    start
+                    {
+                        p:start,
+                        index:
+                            aktualnyPrzystanek
+                    }
                 );
 
             (
@@ -33315,7 +33318,10 @@ function znajdzKursWariantuDoTrasy(litera){
                     if(
                         String(
                             kurs?.wariant||""
-                        ).trim()!==litera
+                        ).trim().toLowerCase()!==
+                        String(
+                            litera||""
+                        ).trim().toLowerCase()
                     ){
                         return;
                     }
@@ -33329,55 +33335,117 @@ function znajdzKursWariantuDoTrasy(litera){
                         return;
                     }
 
-                    const key=
-                        kluczKursu(kurs);
+                    const kandydat={
+                        key:[
+                            String(
+                                rozkladIndex418
+                            ),
+                            String(
+                                kurs?.numer||""
+                            ),
+                            String(
+                                kurs?.wariant||""
+                            ).trim(),
+                            String(
+                                kurs?.brygada||""
+                            ).trim()
+                        ].join("||"),
+                        numer:String(
+                            kurs?.numer||""
+                        ),
+                        wariant:String(
+                            kurs?.wariant||""
+                        ).trim(),
+                        brygada:String(
+                            kurs?.brygada||""
+                        ).trim(),
+                        rozkladIndex:
+                            rozkladIndex418,
+                        start:czas,
+                        count:0,
+                        ostatniIndex:-1,
+                        czasDoKonca:0
+                    };
 
-                    if(!kandydaci.has(key)){
-                        kandydaci.set(
-                            key,
-                            {
-                                key,
-                                numer:String(
-                                    kurs?.numer||""
-                                ),
-                                wariant:litera,
-                                start:czas,
-                                count:0
-                            }
+                    const lista418=
+                        rozklad?.kierunki?.[
+                            aktualnyKierunek
+                        ]?.przystanki||
+                        [];
+
+                    const pStartIndex418=
+                        lista418.indexOf(p);
+
+                    let ostatniCzas418=czas;
+
+                    for(
+                        let i418=Math.max(
+                            0,
+                            pStartIndex418
                         );
-                    }
-                }
-            );
-        }
-    );
-
-    kandydaci.forEach(
-        kandydat=>{
-
-            pelna.forEach(
-                p=>{
-                    if(
-                        znajdzCzasKursuNaPrzystanku(
-                            kandydat,
-                            p
-                        )!==null
+                        i418<lista418.length;
+                        i418++
                     ){
+                        const stop418=
+                            lista418[i418];
+
+                        const fizyczny418=
+                            fizycznyPrzystanekWybranegoKursu417(
+                                kandydat,
+                                {
+                                    p:stop418,
+                                    index:i418
+                                }
+                            );
+
+                        if(!fizyczny418){
+                            continue;
+                        }
+
+                        const t418=
+                            znajdzCzasKursuNaPrzystanku(
+                                kandydat,
+                                fizyczny418,
+                                null
+                            );
+
+                        if(t418===null){
+                            continue;
+                        }
+
                         kandydat.count++;
+                        kandydat.ostatniIndex=i418;
+
+                        let tt418=t418;
+
+                        while(tt418<czas){
+                            tt418+=1440;
+                        }
+
+                        if(tt418>ostatniCzas418){
+                            ostatniCzas418=tt418;
+                        }
                     }
+
+                    kandydat.czasDoKonca=
+                        ostatniCzas418-czas;
+
+                    kandydaci.push(
+                        kandydat
+                    );
                 }
             );
         }
     );
 
-    return[
-        ...kandydaci.values()
-    ].sort(
+    return kandydaci.sort(
         (a,b)=>
             b.count-a.count||
+            b.ostatniIndex-a.ostatniIndex||
+            b.czasDoKonca-a.czasDoKonca||
             a.start-b.start
     )[0]||null;
 }
-
 
 function czasWariantuNaPrzystanku(
     litera,
@@ -33406,16 +33474,47 @@ function czasWariantuNaPrzystanku(
         return null;
     }
 
+    /*
+       WERSJA 418:
+       czas od aktywnego przystanku do wydłużenia jest liczony
+       z jednego konkretnego kursu tego wariantu i z fizycznych
+       słupków, które ten kurs naprawdę obsługuje.
+    */
+    const startFizyczny418=
+        fizycznyPrzystanekWybranegoKursu417(
+            kandydat,
+            {
+                p:start,
+                index:
+                    aktualnyPrzystanek
+            }
+        );
+
+    const koniecFizyczny418=
+        fizycznyPrzystanekWybranegoKursu417(
+            kandydat,
+            element
+        );
+
+    if(
+        !startFizyczny418||
+        !koniecFizyczny418
+    ){
+        return null;
+    }
+
     const t0=
         znajdzCzasKursuNaPrzystanku(
             kandydat,
-            start
+            startFizyczny418,
+            null
         );
 
     const t=
         znajdzCzasKursuNaPrzystanku(
             kandydat,
-            element.p
+            koniecFizyczny418,
+            null
         );
 
     if(
@@ -33433,7 +33532,6 @@ function czasWariantuNaPrzystanku(
 
     return wynik;
 }
-
 
 
 function kursReferencyjnyDrugiegoKierunku(
