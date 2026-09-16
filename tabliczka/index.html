@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 419
+     WERSJA: 420
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -35381,6 +35381,249 @@ function czyOstatniWidocznyPrzystanek210(
 }
 
 
+
+/*
+   =========================================================
+   WERSJA 420
+   CZAS DLA KONKRETNEJ GAŁĘZI WARIANTOWEJ
+   =========================================================
+
+   Alternatywny przebieg (np. 126 przez PŁYTOWĄ/KUPIECKĄ albo
+   bez podjazdu) nie może dziedziczyć czasu z globalnie wybranego
+   najdłuższego kursu innej gałęzi.
+
+   Wybieramy rzeczywisty kurs należący do stanu/gałęzi danego
+   wiersza, który:
+   - obsługuje dokładny aktywny fizyczny przystanek,
+   - obsługuje dokładny fizyczny przystanek danego wiersza,
+   - zachowuje numer, wariant, brygadę i symbol dnia.
+
+   Wydłużenia pozostają w osobnej logice v418 i nadal są liczone
+   jednym konkretnym kursem wydłużonym.
+*/
+function czasDlaGaleziWariantowej420(
+    stan,
+    element
+){
+    if(
+        stan?.typ!=="wariant"||
+        !Array.isArray(stan?.litery)||
+        !stan.litery.length||
+        !element?.p
+    ){
+        return null;
+    }
+
+    const aktywny=
+        aktywnyFizycznyPrzystanek276();
+
+    if(!aktywny){
+        return null;
+    }
+
+    const dozwoloneLitery=
+        new Set(
+            stan.litery
+                .map(
+                    x=>
+                        String(x||"")
+                            .trim()
+                            .toUpperCase()
+                )
+                .filter(Boolean)
+        );
+
+    const przebiegi=
+        danePrzebiegowWariantowych()
+            .filter(
+                przebieg=>
+                    dozwoloneLitery.has(
+                        String(
+                            przebieg?.litera||""
+                        )
+                            .trim()
+                            .toUpperCase()
+                    )
+            );
+
+    const kandydaci=[];
+
+    przebiegi.forEach(
+        przebieg=>{
+
+            const ref=
+                przebieg?.kurs;
+
+            if(!ref){
+                return;
+            }
+
+            (
+                daneLinii?.rozkłady||
+                []
+            ).forEach(
+                (rozklad,rozkladIndex420)=>{
+
+                    const kierunekIndex420=
+                        Number.isInteger(
+                            ref?._kierunekIndex
+                        )
+                            ? ref._kierunekIndex
+                            : aktualnyKierunek;
+
+                    const kierunek420=
+                        rozklad?.kierunki?.[
+                            kierunekIndex420
+                        ];
+
+                    const lista420=
+                        kierunek420?.przystanki||
+                        [];
+
+                    const start420=
+                        lista420.find(
+                            p=>
+                                czyTenSamPrzystanekPoNazwieINumerze(
+                                    p,
+                                    aktywny
+                                )
+                        );
+
+                    if(!start420){
+                        return;
+                    }
+
+                    const kursNa420=
+                        p=>
+                            (
+                                p?.kursy||
+                                []
+                            ).find(
+                                k=>
+                                    String(
+                                        k?.numer||""
+                                    )===
+                                        String(
+                                            ref?.numer||""
+                                        )&&
+                                    String(
+                                        k?.wariant||""
+                                    ).trim()===
+                                        String(
+                                            ref?.wariant||""
+                                        ).trim()&&
+                                    (
+                                        !String(
+                                            ref?.brygada||""
+                                        ).trim()||
+                                        String(
+                                            k?.brygada||""
+                                        ).trim()===
+                                            String(
+                                                ref?.brygada||""
+                                            ).trim()
+                                    )&&
+                                    (
+                                        !String(
+                                            ref?.symbol||""
+                                        ).trim()||
+                                        symbolDnia(k)===
+                                            ref.symbol
+                                    )&&
+                                    czasNaMinuty(
+                                        k?.czas
+                                    )!==null
+                            );
+
+                    const kStart420=
+                        kursNa420(
+                            start420
+                        );
+
+                    if(!kStart420){
+                        return;
+                    }
+
+                    /*
+                       Najpierw dokładne nazwa+nr.
+                       Tu NIE robimy fallbacku po samej nazwie:
+                       alternatywne gałęzie mają zachować własne
+                       fizyczne słupki.
+                    */
+                    const koniec420=
+                        lista420.find(
+                            p=>
+                                czyTenSamPrzystanekPoNazwieINumerze(
+                                    p,
+                                    element.p
+                                )
+                        );
+
+                    if(!koniec420){
+                        return;
+                    }
+
+                    const kKoniec420=
+                        kursNa420(
+                            koniec420
+                        );
+
+                    if(!kKoniec420){
+                        return;
+                    }
+
+                    const t0420=
+                        czasNaMinuty(
+                            kStart420.czas
+                        );
+
+                    const t420=
+                        czasNaMinuty(
+                            kKoniec420.czas
+                        );
+
+                    if(
+                        t0420===null||
+                        t420===null
+                    ){
+                        return;
+                    }
+
+                    let wynik420=
+                        t420-t0420;
+
+                    while(wynik420<0){
+                        wynik420+=1440;
+                    }
+
+                    kandydaci.push({
+                        czas:wynik420,
+                        start:t0420,
+                        rozkladIndex:
+                            rozkladIndex420
+                    });
+                }
+            );
+        }
+    );
+
+    if(!kandydaci.length){
+        return null;
+    }
+
+    /*
+       Stabilny wybór rzeczywistego kursu tej gałęzi.
+       Nie porównujemy go z kursami INNEJ gałęzi.
+    */
+    kandydaci.sort(
+        (a,b)=>
+            a.start-b.start||
+            a.rozkladIndex-b.rozkladIndex
+    );
+
+    return kandydaci[0].czas;
+}
+
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -35949,8 +36192,29 @@ function renderTrasaKolumna(
                         }
                         else{
 
+                            /*
+                               WERSJA 420:
+                               dla osobnej gałęzi wariantowej czas musi
+                               pochodzić z kursu tej właśnie gałęzi,
+                               a nie z globalnego najdłuższego kursu.
+                            */
                             czas=
-                                czasy[index];
+                                czasDlaGaleziWariantowej420(
+                                    stanAktualny,
+                                    element
+                                );
+
+                            /*
+                               Dla trasy wspólnej / podstawowej zachowujemy
+                               dotychczasową logikę jednego kursu.
+                            */
+                            if(
+                                czas===null||
+                                typeof czas==="undefined"
+                            ){
+                                czas=
+                                    czasy[index];
+                            }
 
                             if(
                                 czas===null||
