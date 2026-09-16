@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 421
+     WERSJA: 422
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -35381,6 +35381,261 @@ function czyOstatniWidocznyPrzystanek210(
 }
 
 
+
+/*
+   =========================================================
+   WERSJA 422 — 126 / GAŁĄŹ „A”, „O”
+   =========================================================
+   Punktowa korekta czasu dla alternatywnego przebiegu.
+   Nie zmienia budowania trasy, kolumn, nagłówków ani logiki 401.
+
+   Dla wiersza po nagłówku „Trasa w kursach „a”, „o””
+   szukamy rzeczywistego kursu A lub O, który jednocześnie:
+   - odjeżdża z dokładnie wybranego fizycznego przystanku,
+   - obsługuje dokładnie fizyczny przystanek w tym wierszu.
+*/
+function poprawCzas126AO422(tabliczka){
+
+    if(
+        String(aktualnaLinia||"").trim()!=="126"||
+        Number(aktualnyKierunek)!==0||
+        !tabliczka
+    ){
+        return;
+    }
+
+    const start=
+        aktywnyFizycznyPrzystanek276();
+
+    if(!start)return;
+
+    const wszystkie=
+        Array.from(
+            tabliczka.querySelectorAll(
+                ".trasa-columns .trasa-kol > *, .trasa-lista > *"
+            )
+        );
+
+    let aktywneAO=false;
+
+    for(const el of wszystkie){
+
+        const txt=
+            String(
+                el.textContent||""
+            )
+                .replace(/\s+/g," ")
+                .trim()
+                .toLowerCase();
+
+        if(
+            txt.includes("trasa w kursach")&&
+            txt.includes("„a”")&&
+            txt.includes("„o”")
+        ){
+            aktywneAO=true;
+            continue;
+        }
+
+        if(
+            aktywneAO&&
+            txt.includes("trasa ")
+        ){
+            aktywneAO=false;
+        }
+
+        if(
+            !aktywneAO||
+            !el.classList.contains("trasa-stop")
+        ){
+            continue;
+        }
+
+        const nazwaEl=
+            el.querySelector(".trasa-nazwa");
+
+        if(!nazwaEl)continue;
+
+        const nazwa=
+            normalizuj(
+                nazwaEl.textContent
+            );
+
+        /*
+           W tej gałęzi 126 interesuje nas PKP ŻERAŃ.
+           Fizycznie jest to PKP ŻERAŃ 02.
+        */
+        if(
+            nazwa!==
+            normalizuj("PKP Żerań")
+        ){
+            continue;
+        }
+
+        let najlepszy=null;
+
+        (
+            daneLinii?.rozkłady||
+            []
+        ).forEach(
+            rozklad=>{
+
+                const lista=
+                    rozklad?.kierunki?.[
+                        aktualnyKierunek
+                    ]?.przystanki||
+                    [];
+
+                const pStart=
+                    lista.find(
+                        p=>
+                            czyTenSamPrzystanekPoNazwieINumerze(
+                                p,
+                                start
+                            )
+                    );
+
+                const pKoniec=
+                    lista.find(
+                        p=>
+                            normalizuj(p?.nazwa)===
+                                normalizuj("PKP Żerań")&&
+                            String(p?.nr||"").trim()==="02"
+                    );
+
+                if(
+                    !pStart||
+                    !pKoniec
+                ){
+                    return;
+                }
+
+                const kursyStart=
+                    pStart?.kursy||
+                    [];
+
+                kursyStart.forEach(
+                    ks=>{
+
+                        const litera=
+                            String(
+                                ks?.wariant||""
+                            )
+                                .trim()
+                                .toUpperCase();
+
+                        if(
+                            litera!=="A"&&
+                            litera!=="O"
+                        ){
+                            return;
+                        }
+
+                        const kk=
+                            (
+                                pKoniec?.kursy||
+                                []
+                            ).find(
+                                k=>
+                                    String(k?.numer||"")===
+                                        String(ks?.numer||"")&&
+                                    String(k?.wariant||"")
+                                        .trim()
+                                        .toUpperCase()===
+                                        litera&&
+                                    (
+                                        !String(ks?.brygada||"").trim()||
+                                        String(k?.brygada||"").trim()===
+                                            String(ks?.brygada||"").trim()
+                                    )
+                            );
+
+                        if(!kk)return;
+
+                        const t0=
+                            czasNaMinuty(
+                                ks?.czas
+                            );
+
+                        const t1=
+                            czasNaMinuty(
+                                kk?.czas
+                            );
+
+                        if(
+                            t0===null||
+                            t1===null
+                        ){
+                            return;
+                        }
+
+                        let roznica=t1-t0;
+
+                        while(roznica<0){
+                            roznica+=1440;
+                        }
+
+                        if(
+                            najlepszy===null||
+                            roznica<najlepszy
+                        ){
+                            najlepszy=
+                                roznica;
+                        }
+                    }
+                );
+            }
+        );
+
+        if(najlepszy===null){
+            continue;
+        }
+
+        const czasEl=
+            el.querySelector(
+                ".trasa-czas, .trasa-minuty, .czas-przejazdu"
+            );
+
+        if(czasEl){
+            czasEl.textContent=
+                String(najlepszy);
+        }else{
+            /*
+               W obecnym układzie liczba czasu jest pierwszym
+               tekstowym węzłem wiersza przed osią. Jeżeli nie ma
+               osobnego elementu klasowego, podmieniamy tylko liczbę.
+            */
+            const walker=
+                document.createTreeWalker(
+                    el,
+                    NodeFilter.SHOW_TEXT
+                );
+
+            let node;
+
+            while(
+                node=
+                    walker.nextNode()
+            ){
+                if(
+                    /^\s*\d+\s*$/.test(
+                        node.nodeValue||""
+                    )
+                ){
+                    node.nodeValue=
+                        String(najlepszy);
+                    break;
+                }
+            }
+        }
+
+        /*
+           Tylko pierwszy PKP ŻERAŃ należący do sekcji A/O.
+        */
+        aktywneAO=false;
+    }
+}
+
 function renderTrasaKolumna(
     fragment,
     czasy,
@@ -41211,6 +41466,67 @@ window.addEventListener(
         })();
     }
 })();
+
+/* WERSJA 422 — punktowa korekta po gotowym renderze trasy 126. */
+if(
+    String(
+        new URLSearchParams(
+            window.location.search
+        ).get("linia")||""
+    ).trim()==="126"
+){
+    let __timer126AO422=null;
+
+    const __observer126AO422=
+        new MutationObserver(
+            ()=>{
+                clearTimeout(
+                    __timer126AO422
+                );
+
+                __timer126AO422=
+                    setTimeout(
+                        ()=>{
+                            const tab=
+                                document.querySelector(
+                                    ".tabliczka"
+                                );
+
+                            if(tab){
+                                poprawCzas126AO422(
+                                    tab
+                                );
+                            }
+                        },
+                        0
+                    );
+            }
+        );
+
+    document.addEventListener(
+        "DOMContentLoaded",
+        ()=>{
+            const tab=
+                document.querySelector(
+                    ".tabliczka"
+                );
+
+            if(!tab)return;
+
+            __observer126AO422.observe(
+                tab,
+                {
+                    childList:true,
+                    subtree:true
+                }
+            );
+
+            poprawCzas126AO422(
+                tab
+            );
+        }
+    );
+}
 </script>
 
 
