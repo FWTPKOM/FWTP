@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 416
+     WERSJA: 417
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -29116,14 +29116,26 @@ function __bezCache_czasyTrasy(){
         return wynik;
     }
 
-    const start=
-        znajdzCzasKursuNaPrzystanku(
+    const startFizyczny417=
+        fizycznyPrzystanekWybranegoKursu417(
             kandydat,
-            lista[
-                aktualnyPrzystanek
-            ],
-            aktualnyPrzystanek
+            {
+                p:lista[
+                    aktualnyPrzystanek
+                ],
+                index:
+                    aktualnyPrzystanek
+            }
         );
+
+    const start=
+        startFizyczny417
+            ? znajdzCzasKursuNaPrzystanku(
+                kandydat,
+                startFizyczny417,
+                null
+            )
+            : null;
 
     if(start===null){
         return wynik;
@@ -29136,12 +29148,23 @@ function __bezCache_czasyTrasy(){
         i++
     ){
 
-        let t=
-            znajdzCzasKursuNaPrzystanku(
+        const fizyczny417=
+            fizycznyPrzystanekWybranegoKursu417(
                 kandydat,
-                lista[i],
-                i
+                {
+                    p:lista[i],
+                    index:i
+                }
             );
+
+        let t=
+            fizyczny417
+                ? znajdzCzasKursuNaPrzystanku(
+                    kandydat,
+                    fizyczny417,
+                    null
+                )
+                : null;
 
         if(t===null)continue;
 
@@ -30383,6 +30406,85 @@ function naglowekZmianyTrasy(
 }
 
 
+
+/*
+   WERSJA 417
+   Zwraca fizyczny słupek faktycznie obsługiwany przez wybrany kurs.
+   Dokładne nazwa+nr zawsze ma pierwszeństwo. Jeżeli wiersz osi trasy
+   pochodzi z kursu podstawowego, a wybrany najdłuższy kurs jedzie
+   przez drugi słupek o tej samej nazwie, do samego obliczenia czasu
+   używany jest rzeczywisty słupek tego wybranego kursu.
+*/
+function fizycznyPrzystanekWybranegoKursu417(
+    kandydat,
+    element
+){
+    if(!kandydat||!element?.p)return null;
+
+    const rozklad=
+        (daneLinii?.rozkłady||[])[
+            Number(kandydat.rozkladIndex)
+        ];
+
+    const lista=
+        rozklad?.kierunki?.[
+            aktualnyKierunek
+        ]?.przystanki||[];
+
+    const numer=String(kandydat?.numer||"");
+    const wariant=String(kandydat?.wariant||"").trim();
+    const brygada=String(kandydat?.brygada||"").trim();
+
+    const maKurs=p=>
+        (p?.kursy||[]).some(
+            k=>
+                String(k?.numer||"")===numer&&
+                String(k?.wariant||"").trim()===wariant&&
+                (
+                    !brygada||
+                    String(k?.brygada||"").trim()===brygada
+                )&&
+                czasNaMinuty(k?.czas)!==null
+        );
+
+    const dokladny=
+        lista.find(
+            p=>
+                czyTenSamPrzystanekPoNazwieINumerze(
+                    p,
+                    element.p
+                )
+        );
+
+    if(dokladny&&maKurs(dokladny)){
+        return dokladny;
+    }
+
+    const nazwa=normalizuj(element.p?.nazwa);
+    if(!nazwa)return null;
+
+    const zgodne=
+        lista.filter(
+            p=>
+                normalizuj(p?.nazwa)===nazwa&&
+                maKurs(p)
+        );
+
+    if(!zgodne.length)return null;
+
+    const idx=Number(element.index);
+
+    if(Number.isInteger(idx)){
+        zgodne.sort(
+            (a,b)=>
+                Math.abs(lista.indexOf(a)-idx)-
+                Math.abs(lista.indexOf(b)-idx)
+        );
+    }
+
+    return zgodne[0];
+}
+
 function czasDowolnegoKursuNaPrzystanku(
     element
 ){
@@ -30417,23 +30519,24 @@ function czasDowolnegoKursuNaPrzystanku(
             );
 
         /*
-           WERSJA 416:
-           dla elementu trasy wariantowej nie używamy syntetycznego
-           indeksu pełnej osi. Element.p zawiera właściwy fizyczny
-           przystanek (nazwa + nr), więc czas odczytujemy dokładnie
-           dla niego z wybranego jednego kursu.
-
-           Przykład 401 / wariant E:
-               URSYNÓW PŁD. 04
-           nie może zostać zastąpiony przez:
-               URSYNÓW PŁD. 05
+           WERSJA 417:
+           bierzemy fizyczny słupek rzeczywiście obsługiwany
+           przez ten sam wybrany najdłuższy kurs.
         */
-        const koniec415=
-            znajdzCzasKursuNaPrzystanku(
+        const fizyczny417=
+            fizycznyPrzystanekWybranegoKursu417(
                 jedenKurs415,
-                element.p,
-                null
+                element
             );
+
+        const koniec415=
+            fizyczny417
+                ? znajdzCzasKursuNaPrzystanku(
+                    jedenKurs415,
+                    fizyczny417,
+                    null
+                )
+                : null;
 
         if(
             start415!==null &&
