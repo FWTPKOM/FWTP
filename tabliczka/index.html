@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 344 — JEDEN KOD
+     WERSJA: 345 — JEDEN KOD
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -39525,7 +39525,7 @@ window.addEventListener(
 </script>
 
 <script>
-/* WERSJA 344 — jeden HTML; 134 -> 331, pozostałe -> 246 */
+/* WERSJA 345 — jeden HTML; 134 -> 331, pozostałe -> 246 */
 (function(){
     "use strict";
 
@@ -39546,6 +39546,342 @@ window.addEventListener(
 
     skrypt.textContent=kod;
     document.body.appendChild(skrypt);
+})();
+</script>
+
+
+<script>
+/* =========================================================
+   WERSJA 345 — KIERUNKI + OPISY WARIANTÓW
+   ========================================================= */
+
+(function(){
+
+    function norm345(v){
+        return String(v||"")
+            .replace(/\s+/g," ")
+            .trim()
+            .toLocaleUpperCase("pl-PL");
+    }
+
+    function tekst345(el){
+        return String(el?.textContent||"")
+            .replace(/\s+/g," ")
+            .trim();
+    }
+
+    /*
+       Jeżeli dwa kierunki mają tę samą nazwę krańca,
+       w nagłówku pokazujemy ją tylko raz.
+       Nie usuwamy samych danych kierunków — tylko duplikat
+       prezentacyjny w nagłówku.
+    */
+    function usunPowtorzoneKierunki345(){
+        const kandydaci=[
+            ...document.querySelectorAll(
+                ".kierunki, .kierunek, .naglowek-kierunki, .naglowek-kierunku, .kierunki-linii"
+            )
+        ];
+
+        kandydaci.forEach(box=>{
+            const dzieci=Array.from(box.children||[]);
+            if(dzieci.length<2) return;
+
+            const widoczne=dzieci.filter(el=>tekst345(el));
+            if(widoczne.length<2) return;
+
+            const seen=new Set();
+
+            widoczne.forEach(el=>{
+                const t=norm345(tekst345(el));
+                if(!t) return;
+
+                if(seen.has(t)){
+                    el.style.display="none";
+                }else{
+                    seen.add(t);
+                }
+            });
+        });
+
+        /*
+           Obsługa nagłówków, w których oba kierunki są osobnymi
+           wierszami bez wspólnego kontenera.
+        */
+        const wszystkie=Array.from(
+            document.querySelectorAll(
+                ".naglowek-linii *"
+            )
+        ).filter(el=>{
+            const t=tekst345(el);
+            return t&&
+                (t.includes("→")||el.className?.toString().toLowerCase().includes("kier"));
+        });
+
+        const seen=new Set();
+
+        wszystkie.forEach(el=>{
+            const raw=tekst345(el);
+            const nazwa=norm345(
+                raw.replace(/^.*?→\s*/,"")
+            );
+
+            if(!nazwa) return;
+
+            if(seen.has(nazwa)){
+                /*
+                   Chowamy tylko element, który wygląda jak pojedynczy
+                   wiersz kierunku. Nie chowamy nadrzędnego kontenera.
+                */
+                if(
+                    el.children.length===0||
+                    el.childElementCount===0
+                ){
+                    el.style.display="none";
+                }
+            }else{
+                seen.add(nazwa);
+            }
+        });
+    }
+
+    function wszystkieRozklady345(){
+        if(typeof daneLinii==="undefined"||!daneLinii){
+            return [];
+        }
+
+        return (
+            daneLinii.rozklady||
+            daneLinii.rozkłady||
+            daneLinii.schedules||
+            []
+        );
+    }
+
+    function kierunkiRozkladu345(r){
+        return r?.kierunki||r?.directions||[];
+    }
+
+    function kursyKierunku345(k){
+        return k?.kursy||k?.courses||[];
+    }
+
+    function przystankiKierunku345(k){
+        return k?.przystanki||k?.stops||[];
+    }
+
+    function symbolKursu345(kurs){
+        return String(
+            kurs?.wariant||
+            kurs?.variant||
+            kurs?.symbol||
+            kurs?.oznaczenie||
+            ""
+        ).trim().toLowerCase();
+    }
+
+    function indeksyKursu345(kurs){
+        const arr=
+            kurs?.przystanki||
+            kurs?.stops||
+            kurs?.stopIndexes||
+            kurs?.indeksy||
+            null;
+
+        return Array.isArray(arr)?arr:null;
+    }
+
+    function nazwyPrzebiegu345(kierunek,kurs){
+        const bazowe=przystankiKierunku345(kierunek);
+        const idx=indeksyKursu345(kurs);
+
+        if(idx){
+            return idx.map(x=>{
+                if(typeof x==="number"){
+                    return bazowe[x]?.nazwa||bazowe[x]?.name||"";
+                }
+
+                if(typeof x==="object"&&x){
+                    return x.nazwa||x.name||"";
+                }
+
+                return "";
+            }).filter(Boolean);
+        }
+
+        const bezposrednie=
+            kurs?.trasa||
+            kurs?.route||
+            kurs?.przebieg||
+            null;
+
+        if(Array.isArray(bezposrednie)){
+            return bezposrednie.map(x=>
+                typeof x==="string"
+                    ?x
+                    :(x?.nazwa||x?.name||"")
+            ).filter(Boolean);
+        }
+
+        return [];
+    }
+
+    /*
+       Z danych wszystkich rozkładów budujemy dla każdej litery wariantu
+       zestaw nazw przystanków. Dzięki temu opis nie zależy tylko od
+       aktualnie wybranego dnia.
+    */
+    function przystankiWariantow345(){
+        const mapa=new Map();
+        const baza=[];
+
+        wszystkieRozklady345().forEach(r=>{
+            kierunkiRozkladu345(r).forEach((k,ki)=>{
+                const kursy=kursyKierunku345(k);
+
+                kursy.forEach(kurs=>{
+                    const symbol=symbolKursu345(kurs);
+                    const nazwy=nazwyPrzebiegu345(k,kurs);
+
+                    if(!nazwy.length) return;
+
+                    if(!symbol){
+                        baza.push(nazwy);
+                        return;
+                    }
+
+                    if(!mapa.has(symbol)){
+                        mapa.set(symbol,[]);
+                    }
+
+                    mapa.get(symbol).push(nazwy);
+                });
+            });
+        });
+
+        const bazowySet=new Set();
+
+        baza.forEach(arr=>
+            arr.forEach(n=>bazowySet.add(norm345(n)))
+        );
+
+        const wynik=new Map();
+
+        mapa.forEach((przebiegi,symbol)=>{
+            const licznik=new Map();
+            const oryginal=new Map();
+
+            przebiegi.forEach(arr=>{
+                const lokalny=new Set();
+
+                arr.forEach(n=>{
+                    const key=norm345(n);
+                    if(!key||lokalny.has(key)) return;
+                    lokalny.add(key);
+                    oryginal.set(key,n);
+                    licznik.set(
+                        key,
+                        (licznik.get(key)||0)+1
+                    );
+                });
+            });
+
+            const wymagane=Math.max(1,Math.ceil(przebiegi.length*0.5));
+
+            const dodatkowe=[...licznik.entries()]
+                .filter(([key,count])=>
+                    count>=wymagane&&!bazowySet.has(key)
+                )
+                .map(([key])=>oryginal.get(key));
+
+            if(dodatkowe.length){
+                wynik.set(symbol,dodatkowe);
+            }
+        });
+
+        return wynik;
+    }
+
+    function wzbogacLegende345(){
+        const mapa=przystankiWariantow345();
+        if(!mapa.size) return;
+
+        const legendy=Array.from(
+            document.querySelectorAll(
+                ".legenda, .legenda-przeniesiona-237"
+            )
+        );
+
+        legendy.forEach(legenda=>{
+            const elementy=Array.from(
+                legenda.querySelectorAll(
+                    "div, p, li, span"
+                )
+            );
+
+            elementy.forEach(el=>{
+                if(el.children.length>0) return;
+
+                const txt=tekst345(el);
+                const m=txt.match(
+                    /^\s*([a-z])\s*[-–—]\s*(.+)$/i
+                );
+
+                if(!m) return;
+
+                const symbol=m[1].toLowerCase();
+                const dodatkowe=mapa.get(symbol);
+
+                if(!dodatkowe?.length) return;
+
+                /*
+                   Nie dopisujemy drugi raz, jeśli obecny opis już
+                   zawiera nazwę któregoś dodatkowego przystanku.
+                */
+                const obecny=norm345(txt);
+                const brakujace=dodatkowe.filter(
+                    n=>!obecny.includes(norm345(n))
+                );
+
+                if(!brakujace.length) return;
+
+                const dopisek=
+                    " przez "+
+                    brakujace.join(", ");
+
+                el.textContent=
+                    txt.replace(/\s+$/,"")+
+                    dopisek;
+            });
+        });
+    }
+
+    function popraw345(){
+        usunPowtorzoneKierunki345();
+        wzbogacLegende345();
+    }
+
+    let timer=null;
+
+    const observer=new MutationObserver(()=>{
+        clearTimeout(timer);
+        timer=setTimeout(popraw345,30);
+    });
+
+    observer.observe(
+        document.documentElement,
+        {
+            childList:true,
+            subtree:true
+        }
+    );
+
+    window.addEventListener(
+        "load",
+        ()=>setTimeout(popraw345,100)
+    );
+
+    setTimeout(popraw345,300);
 })();
 </script>
 
