@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 399
+     WERSJA: 400
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -17815,7 +17815,271 @@ function czyDokladnyAktywnyJestWWydluzeniu(){
 }
 
 
+
+/* =========================================================
+   WERSJA 400 — 338, kierunek powrotny, wariant p w środku trasy
+   ========================================================= */
+
+function trasa338PowrotWariantP400(){
+
+    if(
+        String(aktualnaLinia||"").trim()!=="338"||
+        Number(aktualnyKierunek)!==1
+    ){
+        return null;
+    }
+
+    const wariantP=
+        znajdzKursWariantuDoTrasy(
+            "p"
+        );
+
+    if(!wariantP){
+        return null;
+    }
+
+    /*
+       Bazę bierzemy z kursu bez p. Szukamy w dostępnych kursach
+       bieżącego kierunku, zachowując istniejące struktury danych.
+    */
+    const kierunek=
+        kierunekBazowy();
+
+    const wszystkieKursy400=[];
+
+    function zbierz400(x){
+
+        if(!x){
+            return;
+        }
+
+        if(Array.isArray(x)){
+            x.forEach(zbierz400);
+            return;
+        }
+
+        if(typeof x!=="object"){
+            return;
+        }
+
+        if(
+            Array.isArray(x.przystanki)&&
+            x.przystanki.length
+        ){
+            wszystkieKursy400.push(x);
+        }
+
+        Object.values(x).forEach(
+            v=>{
+                if(
+                    v&&
+                    typeof v==="object"&&
+                    v!==x.przystanki
+                ){
+                    zbierz400(v);
+                }
+            }
+        );
+    }
+
+    /*
+       Najpierw próbujemy istniejących struktur rozkładu.
+       To jest tylko fallback dla 338, gdy standardowy renderer
+       nie widzi wariantu środkowego.
+    */
+    try{
+        zbierz400(
+            daneLinii
+        );
+    }
+    catch(e){}
+
+    function przebieg400(kurs){
+        return(
+            Array.isArray(kurs?.przystanki)
+                ? kurs.przystanki.map(x=>x?.p||x)
+                : []
+        );
+    }
+
+    function nazwa400(p){
+        return normalizuj(
+            p?.nazwa
+        );
+    }
+
+    const pRoute=
+        przebieg400(
+            wariantP
+        );
+
+    if(pRoute.length<2){
+        return null;
+    }
+
+    /*
+       Kandydat bazy:
+       - ten sam kierunek logiczny,
+       - nie wariant p,
+       - ma wspólny początek i koniec,
+       - możliwie najdłuższy wspólny przebieg.
+    */
+    let baza400=null;
+    let best400=-1;
+
+    wszystkieKursy400.forEach(
+        kurs=>{
+
+            if(kurs===wariantP){
+                return;
+            }
+
+            const lit=
+                String(
+                    kurs?.wariant||
+                    kurs?.litera||
+                    ""
+                ).trim().toLowerCase();
+
+            if(lit==="p"){
+                return;
+            }
+
+            const r=
+                przebieg400(kurs);
+
+            if(r.length<2){
+                return;
+            }
+
+            let score=0;
+
+            if(
+                nazwa400(r[0])===
+                nazwa400(pRoute[0])
+            ){
+                score+=1000;
+            }
+
+            if(
+                nazwa400(
+                    r[r.length-1]
+                )===
+                nazwa400(
+                    pRoute[pRoute.length-1]
+                )
+            ){
+                score+=1000;
+            }
+
+            const setP=
+                new Set(
+                    pRoute.map(
+                        nazwa400
+                    )
+                );
+
+            score+=
+                r.filter(
+                    x=>
+                        setP.has(
+                            nazwa400(x)
+                        )
+                ).length;
+
+            if(score>best400){
+                best400=score;
+                baza400=r;
+            }
+        }
+    );
+
+    if(
+        !Array.isArray(baza400)||
+        !baza400.length
+    ){
+        return null;
+    }
+
+    /*
+       Wspólny prefiks.
+    */
+    let start400=0;
+
+    while(
+        start400<
+            Math.min(
+                baza400.length,
+                pRoute.length
+            )&&
+        nazwa400(
+            baza400[start400]
+        )===
+        nazwa400(
+            pRoute[start400]
+        )
+    ){
+        start400++;
+    }
+
+    /*
+       Wspólny sufiks.
+    */
+    let ib400=baza400.length-1;
+    let ip400=pRoute.length-1;
+
+    while(
+        ib400>=start400&&
+        ip400>=start400&&
+        nazwa400(
+            baza400[ib400]
+        )===
+        nazwa400(
+            pRoute[ip400]
+        )
+    ){
+        ib400--;
+        ip400--;
+    }
+
+    const pOnly400=
+        pRoute.slice(
+            start400,
+            ip400+1
+        );
+
+    const wspolnePo400=
+        pRoute.slice(
+            ip400+1
+        );
+
+    if(
+        !pOnly400.length||
+        !wspolnePo400.length
+    ){
+        return null;
+    }
+
+    return{
+        wariantP,
+        pOnly:pOnly400,
+        commonAfter:wspolnePo400,
+        rejoin:
+            wspolnePo400[0]||null
+    };
+}
+
 function renderWydluzeniaTrasy(){
+
+    /*
+       W400: w kierunku 1 linii 338 wariant p nie jest wydłużeniem
+       końca trasy. Jest objazdem w środku przebiegu, więc jego
+       nagłówki zostaną wstawione do bazowej listy przez splitter.
+    */
+    const srodek338p400=
+        trasa338PowrotWariantP400();
+
+
 
     return"";
 }
@@ -38795,6 +39059,126 @@ function dopasujKolumnyTrasy() {
         parser397.querySelector(
             ".trasa-lista"
         );
+
+    /*
+       W400 — 338 kierunek powrotny.
+
+       Wariant p odchodzi od trasy i wraca do niej przed końcem.
+       Dlatego:
+         wspólna trasa do miejsca rozjazdu
+         -> "Trasa w kursach p"
+         -> tylko przystanki p
+         -> "Trasa we wszystkich kursach"
+         -> dalsza wspólna trasa.
+
+       Minuty wariantu p liczymy istniejącą, działającą funkcją
+       czasWariantuNaPrzystanku("p", ...).
+    */
+    const srodek400=
+        trasa338PowrotWariantP400();
+
+    if(
+        srodek400&&
+        bazowa397
+    ){
+        const rows400=
+            Array.from(
+                bazowa397.children
+            );
+
+        const rejoinName400=
+            normalizuj(
+                srodek400.rejoin?.nazwa
+            );
+
+        const rejoinIndex400=
+            rows400.findIndex(
+                row=>
+                    normalizuj(
+                        row.querySelector(
+                            ".trasa-nazwa"
+                        )?.textContent||""
+                    )===
+                    rejoinName400
+            );
+
+        if(rejoinIndex400>=0){
+
+            const before400=
+                rows400.slice(
+                    0,
+                    rejoinIndex400
+                );
+
+            const after400=
+                rows400.slice(
+                    rejoinIndex400
+                );
+
+            function rowP400(p){
+
+                const czas=
+                    czasWariantuNaPrzystanku(
+                        "p",
+                        p
+                    );
+
+                const nrCzasu=
+                    (
+                        czas===null||
+                        typeof czas==="undefined"
+                    )
+                        ? ""
+                        : String(czas);
+
+                return(
+                    '<li class="trasa-stop trasa-extra-stop-397 trasa-stop-p-400">'+
+                        '<span class="trasa-czas">'+
+                            escapeHtml(nrCzasu)+
+                        '</span>'+
+                        '<span class="trasa-os"></span>'+
+                        '<span class="trasa-nazwa">'+
+                            escapeHtml(
+                                String(
+                                    p?.nazwa||""
+                                ).toUpperCase()
+                            )+
+                        '</span>'+
+                        '<span class="trasa-nz">'+
+                            (
+                                czyNaZadanie(p)
+                                    ? 'ż'
+                                    : ''
+                            )+
+                        '</span>'+
+                    '</li>'
+                );
+            }
+
+            bazowa397.innerHTML=
+                before400
+                    .map(
+                        x=>x.outerHTML
+                    )
+                    .join("")+
+                '<li class="trasa-separator trasa-extra-title-397">'+
+                    'Trasa w kursach „p”'+
+                '</li>'+
+                srodek400.pOnly
+                    .map(
+                        rowP400
+                    )
+                    .join("")+
+                '<li class="trasa-separator trasa-extra-title-397">'+
+                    'Trasa we wszystkich kursach'+
+                '</li>'+
+                after400
+                    .map(
+                        x=>x.outerHTML
+                    )
+                    .join("");
+        }
+    }
 
     const maExtra397=
         !!parser397.querySelector(
