@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 422
+     WERSJA: 423
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -33432,92 +33432,206 @@ function znajdzKursWariantuDoTrasy(litera){
     )[0]||null;
 }
 
-function czasWariantuNaPrzystanku(
-    litera,
-    element
-){
+function czasWariantuNaPrzystanku(litera,element){
 
-    const kandydat=
-        znajdzKursWariantuDoTrasy(
-            litera
-        );
+    /*
+       WERSJA 423
 
-    if(!kandydat){
+       Dla wariantu przebiegu (np. A albo O w 126) czas musi być
+       odczytany z TEGO SAMEGO rzeczywistego kursu i z DOKŁADNIE
+       tego fizycznego przystanku, który należy do wariantu.
+
+       Nie wolno tutaj używać fallbacku po samej nazwie przystanku.
+       Przykład 126:
+           PKP ŻERAŃ 02 != PKP ŻERAŃ 07 != PKP ŻERAŃ 05
+
+       Dzięki temu sekcja „Trasa w kursach „a”, „o”” nie może
+       dostać czasu z innego PKP ŻERAŃ.
+    */
+
+    const litera423=
+        String(litera||"")
+            .trim()
+            .toUpperCase();
+
+    if(
+        !litera423||
+        !element?.p
+    ){
         return null;
     }
 
-    const pelna=
-        kierunekBazowy()?.przystanki||
-        [];
+    const aktywny423=
+        aktywnyFizycznyPrzystanek276();
 
-    const start=
-        pelna[
-            aktualnyPrzystanek
-        ];
+    if(!aktywny423){
+        return null;
+    }
 
-    if(!start){
+    const kandydaci423=[];
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        (rozklad423,rozkladIndex423)=>{
+
+            const kierunek423=
+                rozklad423?.kierunki?.[
+                    aktualnyKierunek
+                ];
+
+            const lista423=
+                kierunek423?.przystanki||
+                [];
+
+            /*
+               Oba końce są wyszukiwane WYŁĄCZNIE po
+               dokładnym fizycznym nazwa + nr.
+            */
+            const pStart423=
+                lista423.find(
+                    p=>
+                        czyTenSamPrzystanekPoNazwieINumerze(
+                            p,
+                            aktywny423
+                        )
+                );
+
+            const pCel423=
+                lista423.find(
+                    p=>
+                        czyTenSamPrzystanekPoNazwieINumerze(
+                            p,
+                            element.p
+                        )
+                );
+
+            if(
+                !pStart423||
+                !pCel423
+            ){
+                return;
+            }
+
+            /*
+               Bierzemy wyłącznie kursy żądanego wariantu,
+               np. tylko A albo tylko O.
+            */
+            (
+                pStart423?.kursy||
+                []
+            ).forEach(
+                kursStart423=>{
+
+                    if(
+                        String(
+                            kursStart423?.wariant||""
+                        )
+                            .trim()
+                            .toUpperCase()!==
+                        litera423
+                    ){
+                        return;
+                    }
+
+                    const numer423=
+                        String(
+                            kursStart423?.numer||""
+                        );
+
+                    const brygada423=
+                        String(
+                            kursStart423?.brygada||""
+                        ).trim();
+
+                    const kursCel423=
+                        (
+                            pCel423?.kursy||
+                            []
+                        ).find(
+                            k=>
+                                String(
+                                    k?.numer||""
+                                )===
+                                    numer423&&
+                                String(
+                                    k?.wariant||""
+                                )
+                                    .trim()
+                                    .toUpperCase()===
+                                    litera423&&
+                                (
+                                    !brygada423||
+                                    String(
+                                        k?.brygada||""
+                                    ).trim()===
+                                        brygada423
+                                )
+                        );
+
+                    if(!kursCel423){
+                        return;
+                    }
+
+                    const tStart423=
+                        czasNaMinuty(
+                            kursStart423?.czas
+                        );
+
+                    const tCel423=
+                        czasNaMinuty(
+                            kursCel423?.czas
+                        );
+
+                    if(
+                        tStart423===null||
+                        tCel423===null
+                    ){
+                        return;
+                    }
+
+                    let roznica423=
+                        tCel423-tStart423;
+
+                    while(roznica423<0){
+                        roznica423+=1440;
+                    }
+
+                    kandydaci423.push({
+                        czas:roznica423,
+                        numer:numer423,
+                        brygada:brygada423,
+                        rozkladIndex:
+                            rozkladIndex423,
+                        start:tStart423
+                    });
+                }
+            );
+        }
+    );
+
+    if(!kandydaci423.length){
         return null;
     }
 
     /*
-       WERSJA 418:
-       czas od aktywnego przystanku do wydłużenia jest liczony
-       z jednego konkretnego kursu tego wariantu i z fizycznych
-       słupków, które ten kurs naprawdę obsługuje.
+       Wszystkie wartości pochodzą już z właściwego wariantu
+       i właściwego fizycznego przystanku. Wybór jest stabilny:
+       pierwszy rzeczywisty kurs tego wariantu w rozkładzie.
     */
-    const startFizyczny418=
-        fizycznyPrzystanekWybranegoKursu417(
-            kandydat,
-            {
-                p:start,
-                index:
-                    aktualnyPrzystanek
-            }
-        );
+    kandydaci423.sort(
+        (x,y)=>
+            x.rozkladIndex-y.rozkladIndex||
+            x.start-y.start||
+            String(x.numer)
+                .localeCompare(
+                    String(y.numer)
+                )
+    );
 
-    const koniecFizyczny418=
-        fizycznyPrzystanekWybranegoKursu417(
-            kandydat,
-            element
-        );
-
-    if(
-        !startFizyczny418||
-        !koniecFizyczny418
-    ){
-        return null;
-    }
-
-    const t0=
-        znajdzCzasKursuNaPrzystanku(
-            kandydat,
-            startFizyczny418,
-            null
-        );
-
-    const t=
-        znajdzCzasKursuNaPrzystanku(
-            kandydat,
-            koniecFizyczny418,
-            null
-        );
-
-    if(
-        t0===null||
-        t===null
-    ){
-        return null;
-    }
-
-    let wynik=t-t0;
-
-    while(wynik<0){
-        wynik+=1440;
-    }
-
-    return wynik;
+    return kandydaci423[0].czas;
 }
-
 
 function kursReferencyjnyDrugiegoKierunku(
     info
@@ -35380,261 +35494,6 @@ function czyOstatniWidocznyPrzystanek210(
     ]===element;
 }
 
-
-
-/*
-   =========================================================
-   WERSJA 422 — 126 / GAŁĄŹ „A”, „O”
-   =========================================================
-   Punktowa korekta czasu dla alternatywnego przebiegu.
-   Nie zmienia budowania trasy, kolumn, nagłówków ani logiki 401.
-
-   Dla wiersza po nagłówku „Trasa w kursach „a”, „o””
-   szukamy rzeczywistego kursu A lub O, który jednocześnie:
-   - odjeżdża z dokładnie wybranego fizycznego przystanku,
-   - obsługuje dokładnie fizyczny przystanek w tym wierszu.
-*/
-function poprawCzas126AO422(tabliczka){
-
-    if(
-        String(aktualnaLinia||"").trim()!=="126"||
-        Number(aktualnyKierunek)!==0||
-        !tabliczka
-    ){
-        return;
-    }
-
-    const start=
-        aktywnyFizycznyPrzystanek276();
-
-    if(!start)return;
-
-    const wszystkie=
-        Array.from(
-            tabliczka.querySelectorAll(
-                ".trasa-columns .trasa-kol > *, .trasa-lista > *"
-            )
-        );
-
-    let aktywneAO=false;
-
-    for(const el of wszystkie){
-
-        const txt=
-            String(
-                el.textContent||""
-            )
-                .replace(/\s+/g," ")
-                .trim()
-                .toLowerCase();
-
-        if(
-            txt.includes("trasa w kursach")&&
-            txt.includes("„a”")&&
-            txt.includes("„o”")
-        ){
-            aktywneAO=true;
-            continue;
-        }
-
-        if(
-            aktywneAO&&
-            txt.includes("trasa ")
-        ){
-            aktywneAO=false;
-        }
-
-        if(
-            !aktywneAO||
-            !el.classList.contains("trasa-stop")
-        ){
-            continue;
-        }
-
-        const nazwaEl=
-            el.querySelector(".trasa-nazwa");
-
-        if(!nazwaEl)continue;
-
-        const nazwa=
-            normalizuj(
-                nazwaEl.textContent
-            );
-
-        /*
-           W tej gałęzi 126 interesuje nas PKP ŻERAŃ.
-           Fizycznie jest to PKP ŻERAŃ 02.
-        */
-        if(
-            nazwa!==
-            normalizuj("PKP Żerań")
-        ){
-            continue;
-        }
-
-        let najlepszy=null;
-
-        (
-            daneLinii?.rozkłady||
-            []
-        ).forEach(
-            rozklad=>{
-
-                const lista=
-                    rozklad?.kierunki?.[
-                        aktualnyKierunek
-                    ]?.przystanki||
-                    [];
-
-                const pStart=
-                    lista.find(
-                        p=>
-                            czyTenSamPrzystanekPoNazwieINumerze(
-                                p,
-                                start
-                            )
-                    );
-
-                const pKoniec=
-                    lista.find(
-                        p=>
-                            normalizuj(p?.nazwa)===
-                                normalizuj("PKP Żerań")&&
-                            String(p?.nr||"").trim()==="02"
-                    );
-
-                if(
-                    !pStart||
-                    !pKoniec
-                ){
-                    return;
-                }
-
-                const kursyStart=
-                    pStart?.kursy||
-                    [];
-
-                kursyStart.forEach(
-                    ks=>{
-
-                        const litera=
-                            String(
-                                ks?.wariant||""
-                            )
-                                .trim()
-                                .toUpperCase();
-
-                        if(
-                            litera!=="A"&&
-                            litera!=="O"
-                        ){
-                            return;
-                        }
-
-                        const kk=
-                            (
-                                pKoniec?.kursy||
-                                []
-                            ).find(
-                                k=>
-                                    String(k?.numer||"")===
-                                        String(ks?.numer||"")&&
-                                    String(k?.wariant||"")
-                                        .trim()
-                                        .toUpperCase()===
-                                        litera&&
-                                    (
-                                        !String(ks?.brygada||"").trim()||
-                                        String(k?.brygada||"").trim()===
-                                            String(ks?.brygada||"").trim()
-                                    )
-                            );
-
-                        if(!kk)return;
-
-                        const t0=
-                            czasNaMinuty(
-                                ks?.czas
-                            );
-
-                        const t1=
-                            czasNaMinuty(
-                                kk?.czas
-                            );
-
-                        if(
-                            t0===null||
-                            t1===null
-                        ){
-                            return;
-                        }
-
-                        let roznica=t1-t0;
-
-                        while(roznica<0){
-                            roznica+=1440;
-                        }
-
-                        if(
-                            najlepszy===null||
-                            roznica<najlepszy
-                        ){
-                            najlepszy=
-                                roznica;
-                        }
-                    }
-                );
-            }
-        );
-
-        if(najlepszy===null){
-            continue;
-        }
-
-        const czasEl=
-            el.querySelector(
-                ".trasa-czas, .trasa-minuty, .czas-przejazdu"
-            );
-
-        if(czasEl){
-            czasEl.textContent=
-                String(najlepszy);
-        }else{
-            /*
-               W obecnym układzie liczba czasu jest pierwszym
-               tekstowym węzłem wiersza przed osią. Jeżeli nie ma
-               osobnego elementu klasowego, podmieniamy tylko liczbę.
-            */
-            const walker=
-                document.createTreeWalker(
-                    el,
-                    NodeFilter.SHOW_TEXT
-                );
-
-            let node;
-
-            while(
-                node=
-                    walker.nextNode()
-            ){
-                if(
-                    /^\s*\d+\s*$/.test(
-                        node.nodeValue||""
-                    )
-                ){
-                    node.nodeValue=
-                        String(najlepszy);
-                    break;
-                }
-            }
-        }
-
-        /*
-           Tylko pierwszy PKP ŻERAŃ należący do sekcji A/O.
-        */
-        aktywneAO=false;
-    }
-}
 
 function renderTrasaKolumna(
     fragment,
@@ -41466,67 +41325,6 @@ window.addEventListener(
         })();
     }
 })();
-
-/* WERSJA 422 — punktowa korekta po gotowym renderze trasy 126. */
-if(
-    String(
-        new URLSearchParams(
-            window.location.search
-        ).get("linia")||""
-    ).trim()==="126"
-){
-    let __timer126AO422=null;
-
-    const __observer126AO422=
-        new MutationObserver(
-            ()=>{
-                clearTimeout(
-                    __timer126AO422
-                );
-
-                __timer126AO422=
-                    setTimeout(
-                        ()=>{
-                            const tab=
-                                document.querySelector(
-                                    ".tabliczka"
-                                );
-
-                            if(tab){
-                                poprawCzas126AO422(
-                                    tab
-                                );
-                            }
-                        },
-                        0
-                    );
-            }
-        );
-
-    document.addEventListener(
-        "DOMContentLoaded",
-        ()=>{
-            const tab=
-                document.querySelector(
-                    ".tabliczka"
-                );
-
-            if(!tab)return;
-
-            __observer126AO422.observe(
-                tab,
-                {
-                    childList:true,
-                    subtree:true
-                }
-            );
-
-            poprawCzas126AO422(
-                tab
-            );
-        }
-    );
-}
 </script>
 
 
