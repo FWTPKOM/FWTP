@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 347 — JEDEN KOD
+     WERSJA: 345 — JEDEN KOD
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -5674,10 +5674,7 @@ function __bezCache_kierunkiObslugujaceBiezacyPrzystanek(){
                     k.przystanki[index],
                 nazwa:
                     String(
-                        nazwaKierunku(
-                            k,
-                            el.index
-                        )||
+                        nazwaKierunku(k)||
                         ""
                     ).toUpperCase()
             });
@@ -11415,6 +11412,40 @@ function trasaZDokladnychKursow206(
     }
 
     /*
+       WERSJA 343:
+       Jeżeli linia ma trasę podstawową oraz rzeczywiste wydłużenie,
+       NIE wolno przy pierwszym przystanku zastępować listy podstawowej
+       sumą wszystkich kursów aktywnego słupka.
+
+       To właśnie powodowało błąd:
+           DW. CENTRALNY -> ... -> WILANÓW
+           Trasa w kursach „w”
+           WIERTNICZA -> ... -> WILANÓW
+
+       Przy pierwszym przystanku kursy wariantu „w” są oczywiście
+       obecne na aktywnym słupku, więc stara logika 206 wciągała
+       wydłużenie do trasy głównej, a renderer wydłużeń dodawał je
+       drugi raz.
+
+       Dla wydłużeń zachowujemy więc normalny podział:
+           trasa podstawowa -> kraniec podstawowy
+           Trasa w kursach „w”
+           dalsza część trasy.
+    */
+    const wydluzenia343=
+        daneTrasWydluzonych();
+
+    if(
+        String(aktualnaLinia||"").trim()!=="401"&&
+        Array.isArray(
+            wydluzenia343?.wydluzenia
+        )&&
+        wydluzenia343.wydluzenia.length
+    ){
+        return lista||[];
+    }
+
+    /*
        NIE korzystamy już z indeksów pełnej osi.
        Zwracamy przebieg kursów bezpośrednio z JSON.
 
@@ -15173,90 +15204,23 @@ function opisKombinacjiDwukierunkowej(item){
             item
         );
 
-    let opisBazowy="";
-
     if(
         kraniec&&
         normalizuj(kraniec)!==
         normalizuj(kierunek)
     ){
-        opisBazowy=
+        return(
             "kurs do krańca "+
-            kraniec;
-    }else{
-        opisBazowy=
-            "kurs w kierunku "+
-            kierunek;
+            kraniec
+        );
     }
 
-    /*
-       W 246 istniała już funkcja opisWariantuDoKierunku(),
-       ale nie była tutaj wykorzystywana.
-
-       Teraz dla kombinacji kierunek + wariant pobieramy opis
-       rzeczywistego podjazdu, np.:
-           "w kierunku TARCHOMIN przez PŁYTOWĄ, KUPIECKĄ I POLFA"
-
-       Do podstawowego opisu dopisujemy część od "przez ...".
-       Dzięki temu legenda rozróżnia kursy jadące do tego samego
-       kierunku, ale innym przebiegiem.
-    */
-    const wariant=
-        String(
-            item?.wariant||""
-        ).trim();
-
-    if(wariant){
-
-        const opisWariantu=
-            String(
-                opisWariantuDoKierunku(
-                    wariant,
-                    Number(item?.dir)
-                )||""
-            ).trim();
-
-        if(opisWariantu){
-
-            const match=
-                opisWariantu.match(
-                    /\bprzez\b[\s\S]*$/i
-                );
-
-            if(match){
-
-                const przez=
-                    String(
-                        match[0]||""
-                    ).trim();
-
-                if(
-                    przez&&
-                    !normalizuj(opisBazowy)
-                        .includes(
-                            normalizuj(przez)
-                        )
-                ){
-                    opisBazowy+=
-                        " "+
-                        przez;
-                }
-
-            }else if(
-                !normalizuj(opisBazowy)
-                    .includes(
-                        normalizuj(opisWariantu)
-                    )
-            ){
-                opisBazowy+=
-                    " — "+
-                    opisWariantu;
-            }
-        }
-    }
-
-    return opisBazowy;
+    return(
+        "kurs w kierunku "+
+        kierunek
+    );
 }
+
 
 function renderLegendaDwukierunkowa(){
 
@@ -16181,11 +16145,6 @@ function przeniesLegendeJesliWychodziPozaStrone237(
         return;
     }
 
-    /*
-       Jeśli legenda została już przeniesiona, niczego więcej nie robimy.
-       To najważniejsza zmiana względem v230-v236:
-       nie ma już ciągłego wyjmowania i ponownego wkładania elementu.
-    */
     if(
         tabliczka.querySelector(
             ".legenda.legenda-przeniesiona-237"
@@ -16209,6 +16168,10 @@ function przeniesLegendeJesliWychodziPozaStrone237(
     const legRect=
         legenda.getBoundingClientRect();
 
+    /*
+       Jeżeli legenda mieści się pod rozkładem,
+       zostaje po lewej stronie.
+    */
     if(
         legRect.bottom<=
         tabRect.bottom-1
@@ -16216,26 +16179,65 @@ function przeniesLegendeJesliWychodziPozaStrone237(
         return;
     }
 
-    const kolumny=
-        Array.from(
-            tabliczka.querySelectorAll(
-                ".panel-prawy .trasa-columns > .trasa-kol"
-            )
+    const columns=
+        tabliczka.querySelector(
+            ".panel-prawy .trasa-columns"
         );
 
-    if(!kolumny.length){
+    if(!columns){
         return;
     }
 
-    const docelowa=
-        kolumny[kolumny.length-1];
+    const stareKolumny=
+        Array.from(
+            columns.querySelectorAll(
+                ":scope > .trasa-kol"
+            )
+        );
+
+    if(!stareKolumny.length){
+        return;
+    }
 
     /*
-       Legenda ma być POD CAŁĄ zawartością ostatniej kolumny,
-       także pod .trasa-extra ("Trasa w kursach...").
-       Dlatego nie wstawiamy jej już do żadnego UL.
-       Zawsze appendChild bezpośrednio do .trasa-kol.
+       Zapamiętujemy całą listę przystanków dokładnie tak,
+       jak została wyrenderowana.
+       NIE łączymy takich samych nazw — np. dwa METRO BRÓDNO
+       pozostają dwoma osobnymi <li>.
     */
+    const elementy=
+        [];
+
+    stareKolumny.forEach(
+        kolumna=>{
+            Array.from(
+                kolumna.querySelectorAll(
+                    ":scope > .trasa-lista > li"
+                )
+            ).forEach(
+                li=>
+                    elementy.push(
+                        li.outerHTML
+                    )
+            );
+        }
+    );
+
+    if(!elementy.length){
+        return;
+    }
+
+    const dodatki=
+        Array.from(
+            columns.querySelectorAll(
+                ":scope > .trasa-kol > .trasa-extra"
+            )
+        )
+        .map(
+            el=>el.outerHTML
+        )
+        .join("");
+
     legenda.classList.remove(
         "legenda-przeniesiona-234",
         "legenda-przeniesiona-235"
@@ -16245,8 +16247,158 @@ function przeniesLegendeJesliWychodziPozaStrone237(
         "legenda-przeniesiona-237"
     );
 
-    docelowa.appendChild(
-        legenda
+    const legendaHTML=
+        legenda.outerHTML;
+
+    /*
+       Od tej chwili legenda nie jest już po lewej.
+       Będzie częścią OSTATNIEJ kolumny trasy.
+    */
+    legenda.remove();
+
+    const renderujPodzial=
+        podzial=>{
+
+            tabliczka.classList.remove(
+                "trasa-3-kol"
+            );
+
+            tabliczka.classList.add(
+                "trasa-2-kol"
+            );
+
+            columns.className=
+                "trasa-columns cols-2";
+
+            ustawNaglowekTrasy(2);
+
+            columns.innerHTML=
+                '<div class="trasa-kol">'+
+                    '<ul class="trasa-lista">'+
+                        elementy
+                            .slice(0,podzial)
+                            .join("")+
+                    '</ul>'+
+                '</div>'+
+                '<div class="trasa-kol">'+
+                    '<ul class="trasa-lista">'+
+                        elementy
+                            .slice(podzial)
+                            .join("")+
+                    '</ul>'+
+                    dodatki+
+                    legendaHTML+
+                '</div>';
+
+            ustawZawijanieNazwTrasy(
+                columns
+            );
+
+            const kolumny=
+                Array.from(
+                    columns.querySelectorAll(
+                        ":scope > .trasa-kol"
+                    )
+                );
+
+            return(
+                kolumny.length===2&&
+                kolumny.every(
+                    kolumna=>
+                        kolumna.scrollHeight<=
+                        columns.clientHeight+1
+                )
+            );
+        };
+
+    /*
+       Najpierw sprawdzamy, czy cała lista + legenda
+       zmieściłaby się jeszcze w jednej kolumnie.
+    */
+    tabliczka.classList.remove(
+        "trasa-2-kol",
+        "trasa-3-kol"
+    );
+
+    columns.className=
+        "trasa-columns cols-1";
+
+    ustawNaglowekTrasy(1);
+
+    columns.innerHTML=
+        '<div class="trasa-kol">'+
+            '<ul class="trasa-lista">'+
+                elementy.join("")+
+            '</ul>'+
+            dodatki+
+            legendaHTML+
+        '</div>';
+
+    ustawZawijanieNazwTrasy(
+        columns
+    );
+
+    const jedna=
+        columns.querySelector(
+            ":scope > .trasa-kol"
+        );
+
+    if(
+        jedna&&
+        jedna.scrollHeight<=
+        columns.clientHeight+1
+    ){
+        return;
+    }
+
+    /*
+       Nie mieści się w jednej kolumnie:
+       testujemy KAŻDY podział na dwie kolumny.
+
+       Wybieramy NAJPÓŹNIEJSZY poprawny punkt,
+       czyli pierwsza kolumna jest zapełniona
+       maksymalnie do dołu, a dopiero potem
+       zaczyna się druga.
+
+       Wysokość legendy jest częścią pomiaru
+       drugiej kolumny.
+    */
+    let najlepszy=null;
+
+    for(
+        let k=1;
+        k<elementy.length;
+        k++
+    ){
+        if(
+            renderujPodzial(k)
+        ){
+            najlepszy=k;
+        }
+    }
+
+    if(najlepszy!==null){
+        renderujPodzial(
+            najlepszy
+        );
+        return;
+    }
+
+    /*
+       Awaryjnie, gdy nawet dwie pełne kolumny są za niskie,
+       pozostawiamy najbardziej równy podział. Legenda nadal
+       pozostaje na samym końcu drugiej kolumny.
+    */
+    renderujPodzial(
+        Math.max(
+            1,
+            Math.min(
+                elementy.length-1,
+                Math.ceil(
+                    elementy.length/2
+                )
+            )
+        )
     );
 }
 
@@ -39373,7 +39525,7 @@ window.addEventListener(
 </script>
 
 <script>
-/* WERSJA 347 — jeden HTML; 134 -> 331, pozostałe -> 246 */
+/* WERSJA 345 — jeden HTML; 134 -> 331, pozostałe -> 246 */
 (function(){
     "use strict";
 
@@ -39397,6 +39549,341 @@ window.addEventListener(
 })();
 </script>
 
+
+<script>
+/* =========================================================
+   WERSJA 345 — KIERUNKI + OPISY WARIANTÓW
+   ========================================================= */
+
+(function(){
+
+    function norm345(v){
+        return String(v||"")
+            .replace(/\s+/g," ")
+            .trim()
+            .toLocaleUpperCase("pl-PL");
+    }
+
+    function tekst345(el){
+        return String(el?.textContent||"")
+            .replace(/\s+/g," ")
+            .trim();
+    }
+
+    /*
+       Jeżeli dwa kierunki mają tę samą nazwę krańca,
+       w nagłówku pokazujemy ją tylko raz.
+       Nie usuwamy samych danych kierunków — tylko duplikat
+       prezentacyjny w nagłówku.
+    */
+    function usunPowtorzoneKierunki345(){
+        const kandydaci=[
+            ...document.querySelectorAll(
+                ".kierunki, .kierunek, .naglowek-kierunki, .naglowek-kierunku, .kierunki-linii"
+            )
+        ];
+
+        kandydaci.forEach(box=>{
+            const dzieci=Array.from(box.children||[]);
+            if(dzieci.length<2) return;
+
+            const widoczne=dzieci.filter(el=>tekst345(el));
+            if(widoczne.length<2) return;
+
+            const seen=new Set();
+
+            widoczne.forEach(el=>{
+                const t=norm345(tekst345(el));
+                if(!t) return;
+
+                if(seen.has(t)){
+                    el.style.display="none";
+                }else{
+                    seen.add(t);
+                }
+            });
+        });
+
+        /*
+           Obsługa nagłówków, w których oba kierunki są osobnymi
+           wierszami bez wspólnego kontenera.
+        */
+        const wszystkie=Array.from(
+            document.querySelectorAll(
+                ".naglowek-linii *"
+            )
+        ).filter(el=>{
+            const t=tekst345(el);
+            return t&&
+                (t.includes("→")||el.className?.toString().toLowerCase().includes("kier"));
+        });
+
+        const seen=new Set();
+
+        wszystkie.forEach(el=>{
+            const raw=tekst345(el);
+            const nazwa=norm345(
+                raw.replace(/^.*?→\s*/,"")
+            );
+
+            if(!nazwa) return;
+
+            if(seen.has(nazwa)){
+                /*
+                   Chowamy tylko element, który wygląda jak pojedynczy
+                   wiersz kierunku. Nie chowamy nadrzędnego kontenera.
+                */
+                if(
+                    el.children.length===0||
+                    el.childElementCount===0
+                ){
+                    el.style.display="none";
+                }
+            }else{
+                seen.add(nazwa);
+            }
+        });
+    }
+
+    function wszystkieRozklady345(){
+        if(typeof daneLinii==="undefined"||!daneLinii){
+            return [];
+        }
+
+        return (
+            daneLinii.rozklady||
+            daneLinii.rozkłady||
+            daneLinii.schedules||
+            []
+        );
+    }
+
+    function kierunkiRozkladu345(r){
+        return r?.kierunki||r?.directions||[];
+    }
+
+    function kursyKierunku345(k){
+        return k?.kursy||k?.courses||[];
+    }
+
+    function przystankiKierunku345(k){
+        return k?.przystanki||k?.stops||[];
+    }
+
+    function symbolKursu345(kurs){
+        return String(
+            kurs?.wariant||
+            kurs?.variant||
+            kurs?.symbol||
+            kurs?.oznaczenie||
+            ""
+        ).trim().toLowerCase();
+    }
+
+    function indeksyKursu345(kurs){
+        const arr=
+            kurs?.przystanki||
+            kurs?.stops||
+            kurs?.stopIndexes||
+            kurs?.indeksy||
+            null;
+
+        return Array.isArray(arr)?arr:null;
+    }
+
+    function nazwyPrzebiegu345(kierunek,kurs){
+        const bazowe=przystankiKierunku345(kierunek);
+        const idx=indeksyKursu345(kurs);
+
+        if(idx){
+            return idx.map(x=>{
+                if(typeof x==="number"){
+                    return bazowe[x]?.nazwa||bazowe[x]?.name||"";
+                }
+
+                if(typeof x==="object"&&x){
+                    return x.nazwa||x.name||"";
+                }
+
+                return "";
+            }).filter(Boolean);
+        }
+
+        const bezposrednie=
+            kurs?.trasa||
+            kurs?.route||
+            kurs?.przebieg||
+            null;
+
+        if(Array.isArray(bezposrednie)){
+            return bezposrednie.map(x=>
+                typeof x==="string"
+                    ?x
+                    :(x?.nazwa||x?.name||"")
+            ).filter(Boolean);
+        }
+
+        return [];
+    }
+
+    /*
+       Z danych wszystkich rozkładów budujemy dla każdej litery wariantu
+       zestaw nazw przystanków. Dzięki temu opis nie zależy tylko od
+       aktualnie wybranego dnia.
+    */
+    function przystankiWariantow345(){
+        const mapa=new Map();
+        const baza=[];
+
+        wszystkieRozklady345().forEach(r=>{
+            kierunkiRozkladu345(r).forEach((k,ki)=>{
+                const kursy=kursyKierunku345(k);
+
+                kursy.forEach(kurs=>{
+                    const symbol=symbolKursu345(kurs);
+                    const nazwy=nazwyPrzebiegu345(k,kurs);
+
+                    if(!nazwy.length) return;
+
+                    if(!symbol){
+                        baza.push(nazwy);
+                        return;
+                    }
+
+                    if(!mapa.has(symbol)){
+                        mapa.set(symbol,[]);
+                    }
+
+                    mapa.get(symbol).push(nazwy);
+                });
+            });
+        });
+
+        const bazowySet=new Set();
+
+        baza.forEach(arr=>
+            arr.forEach(n=>bazowySet.add(norm345(n)))
+        );
+
+        const wynik=new Map();
+
+        mapa.forEach((przebiegi,symbol)=>{
+            const licznik=new Map();
+            const oryginal=new Map();
+
+            przebiegi.forEach(arr=>{
+                const lokalny=new Set();
+
+                arr.forEach(n=>{
+                    const key=norm345(n);
+                    if(!key||lokalny.has(key)) return;
+                    lokalny.add(key);
+                    oryginal.set(key,n);
+                    licznik.set(
+                        key,
+                        (licznik.get(key)||0)+1
+                    );
+                });
+            });
+
+            const wymagane=Math.max(1,Math.ceil(przebiegi.length*0.5));
+
+            const dodatkowe=[...licznik.entries()]
+                .filter(([key,count])=>
+                    count>=wymagane&&!bazowySet.has(key)
+                )
+                .map(([key])=>oryginal.get(key));
+
+            if(dodatkowe.length){
+                wynik.set(symbol,dodatkowe);
+            }
+        });
+
+        return wynik;
+    }
+
+    function wzbogacLegende345(){
+        const mapa=przystankiWariantow345();
+        if(!mapa.size) return;
+
+        const legendy=Array.from(
+            document.querySelectorAll(
+                ".legenda, .legenda-przeniesiona-237"
+            )
+        );
+
+        legendy.forEach(legenda=>{
+            const elementy=Array.from(
+                legenda.querySelectorAll(
+                    "div, p, li, span"
+                )
+            );
+
+            elementy.forEach(el=>{
+                if(el.children.length>0) return;
+
+                const txt=tekst345(el);
+                const m=txt.match(
+                    /^\s*([a-z])\s*[-–—]\s*(.+)$/i
+                );
+
+                if(!m) return;
+
+                const symbol=m[1].toLowerCase();
+                const dodatkowe=mapa.get(symbol);
+
+                if(!dodatkowe?.length) return;
+
+                /*
+                   Nie dopisujemy drugi raz, jeśli obecny opis już
+                   zawiera nazwę któregoś dodatkowego przystanku.
+                */
+                const obecny=norm345(txt);
+                const brakujace=dodatkowe.filter(
+                    n=>!obecny.includes(norm345(n))
+                );
+
+                if(!brakujace.length) return;
+
+                const dopisek=
+                    " przez "+
+                    brakujace.join(", ");
+
+                el.textContent=
+                    txt.replace(/\s+$/,"")+
+                    dopisek;
+            });
+        });
+    }
+
+    function popraw345(){
+        usunPowtorzoneKierunki345();
+        wzbogacLegende345();
+    }
+
+    let timer=null;
+
+    const observer=new MutationObserver(()=>{
+        clearTimeout(timer);
+        timer=setTimeout(popraw345,30);
+    });
+
+    observer.observe(
+        document.documentElement,
+        {
+            childList:true,
+            subtree:true
+        }
+    );
+
+    window.addEventListener(
+        "load",
+        ()=>setTimeout(popraw345,100)
+    );
+
+    setTimeout(popraw345,300);
+})();
+</script>
 
 </body>
 </html>
