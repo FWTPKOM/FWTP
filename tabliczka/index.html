@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 406
+     WERSJA: 407
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -4381,6 +4381,16 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     top: 0 !important;
     bottom: 0 !important;
     height: auto !important;
+}
+</style>
+
+
+<style>
+/* W407 — dokładnie pusty środek kropki NŻ w wariantach 338/kierunek 0 */
+.tabliczka.linia-338-k0-407
+.trasa-stop.stop-zadanie
+.trasa-os::after {
+    background: #fff !important;
 }
 </style>
 
@@ -38954,46 +38964,72 @@ function dopasujKolumnyTrasy() {
             const pierwszaSzeroka404=szerokie404[0];
             const ostatniaSzeroka404=szerokie404[szerokie404.length-1];
 
-            let startP404=-1;
+            /*
+               W407:
+               - pierwsze RONDO GRANZOWA przed objazdem zostaje wspólne;
+               - nagłówek "p" trafia ZARAZ PO NIM;
+               - cały wariant p jest pomiędzy nagłówkami;
+               - "Trasa we wszystkich kursach" trafia PRZED OSTATNIM
+                 RONDO GRANZOWA przed UTRATĄ.
+            */
+            let pierwszeRondo404=-1;
+
             for(let i=pierwszaSzeroka404-1;i>=0;i--){
                 if(
                     nazwy404[i]===
                     normalizuj("RONDO GRANZOWA")
                 ){
-                    startP404=i;
+                    pierwszeRondo404=i;
+
+                    while(
+                        pierwszeRondo404-1>=0 &&
+                        nazwy404[pierwszeRondo404-1]===
+                        normalizuj("RONDO GRANZOWA")
+                    ){
+                        pierwszeRondo404--;
+                    }
+
                     break;
                 }
             }
 
-            let koniecP404=-1;
-            for(let i=ostatniaSzeroka404+1;i<nazwy404.length;i++){
+            let ostatnieRondo404=-1;
+
+            /*
+               Szukamy ostatniego RONDO GRANZOWA przed UTRATĄ.
+            */
+            const utrata404=
+                nazwy404.findIndex(
+                    (n,i)=>
+                        i>ostatniaSzeroka404 &&
+                        n===normalizuj("UTRATA")
+                );
+
+            const limit404=
+                utrata404>=0
+                    ? utrata404
+                    : nazwy404.length;
+
+            for(let i=limit404-1;i>pierwszaSzeroka404;i--){
                 if(
                     nazwy404[i]===
                     normalizuj("RONDO GRANZOWA")
                 ){
-                    /*
-                       Bierzemy ostatnie kolejne RONDO GRANZOWA po
-                       powrocie z objazdu, aby oba fizyczne słupki
-                       pozostały wewnątrz wariantu p.
-                    */
-                    koniecP404=i;
-                    while(
-                        koniecP404+1<nazwy404.length&&
-                        nazwy404[koniecP404+1]===
-                        normalizuj("RONDO GRANZOWA")
-                    ){
-                        koniecP404++;
-                    }
+                    ostatnieRondo404=i;
                     break;
                 }
             }
 
             if(
-                startP404>=0&&
-                koniecP404>startP404
+                pierwszeRondo404>=0 &&
+                ostatnieRondo404>pierwszeRondo404
             ){
+                /*
+                   Najpierw późniejszy separator, żeby wcześniejsze splice
+                   nie przesunęło jego indeksu.
+                */
                 wszystkie397.splice(
-                    koniecP404+1,
+                    ostatnieRondo404,
                     0,
                     '<li class="trasa-separator">'+
                         '<span class="trasa-separator-title">'+
@@ -39003,7 +39039,7 @@ function dopasujKolumnyTrasy() {
                 );
 
                 wszystkie397.splice(
-                    startP404,
+                    pierwszeRondo404+1,
                     0,
                     '<li class="trasa-separator">'+
                         '<span class="trasa-separator-title">'+
@@ -39012,6 +39048,47 @@ function dopasujKolumnyTrasy() {
                     '</li>'
                 );
             }
+        }
+    }
+
+
+    /*
+       W407 — 338 kierunek 0.
+       Ostateczny strumień trasy ma zachowywać NŻ dokładnie jak zwykła
+       trasa/kurs "przez": jeżeli w gotowym wierszu jest "ż", wiersz
+       otrzymuje klasę stop-zadanie PRZED renderowaniem kolumn.
+    */
+    if(
+        String(aktualnaLinia||"").trim()==="338" &&
+        Number(aktualnyKierunek)===0
+    ){
+        const tab407=document.querySelector(".tabliczka");
+        if(tab407){
+            tab407.classList.add("linia-338-k0-407");
+        }
+
+        for(let i407=0;i407<wszystkie397.length;i407++){
+
+            const box407=document.createElement("div");
+            box407.innerHTML=wszystkie397[i407];
+
+            const row407=box407.querySelector(".trasa-stop");
+
+            if(!row407){
+                continue;
+            }
+
+            const jestNZ407=
+                String(
+                    row407.querySelector(".trasa-nz")?.textContent||""
+                ).trim()!=="";
+
+            row407.classList.toggle(
+                "stop-zadanie",
+                jestNZ407
+            );
+
+            wszystkie397[i407]=row407.outerHTML;
         }
     }
 
