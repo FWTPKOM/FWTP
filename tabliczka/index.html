@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 366
+     WERSJA: 367
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -3806,6 +3806,23 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     width: 2.25px !important;
     bottom: calc(100% - 7.25px) !important;
     height: auto !important;
+}
+</style>
+
+
+<style>
+/* =========================================================
+   WERSJA 367 — WYDŁUŻENIE TRASY
+   ========================================================= */
+
+/*
+   Jeżeli przystanek kończy trasę podstawową, ale pod nim istnieje
+   dalszy wariant/wydłużenie, pionowa kreska ma wychodzić z kropki
+   w dół. Sama kropka pozostaje w położeniu poprawionym w 364/366.
+*/
+.trasa-stop.koniec-trasy-210.ma-kontynuacje-trasy .trasa-os::before,
+.trasa-stop.koniec-trasy-210:has(+ .trasa-extra) .trasa-os::before {
+    bottom: -100% !important;
 }
 </style>
 
@@ -39221,6 +39238,145 @@ window.addEventListener(
             );
         },
         true
+    );
+})();
+</script>
+
+
+<script>
+(function(){
+    "use strict";
+
+    const p367 = new URLSearchParams(window.location.search);
+    const linia367 = String(p367.get("linia") || "").trim();
+
+    // 134 pozostaje całkowicie w logice 331.
+    if(linia367 === "134"){
+        return;
+    }
+
+    function poprawKierunekWydluzony367(){
+
+        if(typeof daneTrasWydluzonych !== "function"){
+            return;
+        }
+
+        let dane;
+        try{
+            dane = daneTrasWydluzonych();
+        }catch(e){
+            return;
+        }
+
+        const wydluzenia =
+            Array.isArray(dane?.wydluzenia)
+                ? dane.wydluzenia
+                : [];
+
+        if(!wydluzenia.length){
+            return;
+        }
+
+        /*
+           Nazwa kierunku podstawowego pochodzi z istniejącego nagłówka.
+           Końce wydłużeń bierzemy z faktycznie wyliczonych wydłużeń,
+           więc nie wpisujemy na sztywno "WILANÓW".
+        */
+        const naglowek =
+            document.querySelector(
+                ".kierunek, .tabliczka-kierunek, #kierunekNazwa"
+            );
+
+        if(!naglowek){
+            return;
+        }
+
+        let podstawowy =
+            String(naglowek.textContent || "")
+                .replace(/^\\s*[→➜➝➞➟]?\\s*/, "")
+                .trim();
+
+        if(!podstawowy){
+            return;
+        }
+
+        const konce = [];
+
+        for(const w of wydluzenia){
+
+            const lista =
+                Array.isArray(w?.przystanki)
+                    ? w.przystanki
+                    : Array.isArray(w?.lista)
+                        ? w.lista
+                        : [];
+
+            const ostatni =
+                lista.length
+                    ? lista[lista.length - 1]
+                    : null;
+
+            const nazwa =
+                String(
+                    ostatni?.nazwa ||
+                    w?.koniec ||
+                    w?.kraniec ||
+                    ""
+                ).trim();
+
+            if(
+                nazwa &&
+                nazwa.toUpperCase() !== podstawowy.toUpperCase() &&
+                !konce.some(
+                    x => x.toUpperCase() === nazwa.toUpperCase()
+                )
+            ){
+                konce.push(nazwa);
+            }
+        }
+
+        if(!konce.length){
+            return;
+        }
+
+        naglowek.textContent =
+            "→ " +
+            [podstawowy, ...konce]
+                .map(x => String(x).toUpperCase())
+                .join(" / ");
+    }
+
+    /*
+       Renderer buduje nagłówek asynchronicznie. MutationObserver
+       poprawia go po każdym pełnym renderze, również po zmianie
+       przystanku, daty lub kierunku.
+    */
+    let timer367 = null;
+
+    const observer367 =
+        new MutationObserver(
+            ()=>{
+                clearTimeout(timer367);
+                timer367 =
+                    setTimeout(
+                        poprawKierunekWydluzony367,
+                        0
+                    );
+            }
+        );
+
+    observer367.observe(
+        document.documentElement,
+        {
+            childList: true,
+            subtree: true
+        }
+    );
+
+    window.addEventListener(
+        "load",
+        ()=>setTimeout(poprawKierunekWydluzony367, 0),
+        {once:true}
     );
 })();
 </script>
