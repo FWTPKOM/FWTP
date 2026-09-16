@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 391
+     WERSJA: 392
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -40295,6 +40295,471 @@ window.addEventListener(
                 staryDopasuj389();
             }
         };
+
+})();
+</script>
+
+
+<script>
+/* =========================================================
+   WERSJA 392 — JEDEN CIĄG: TRASA PODSTAWOWA + WYDŁUŻENIA
+   ========================================================= */
+(function(){
+
+    const staryDopasuj392 =
+        dopasujKolumnyTrasy;
+
+    dopasujKolumnyTrasy = function(){
+
+        staryDopasuj392();
+
+        requestAnimationFrame(
+            ()=>dopelnijKolumnyZWydluzeniami392()
+        );
+    };
+
+
+    function dopelnijKolumnyZWydluzeniami392(){
+
+        const tabliczka=
+            document.querySelector(".tabliczka");
+
+        const columns=
+            tabliczka?.querySelector(".trasa-columns");
+
+        if(!tabliczka||!columns){
+            return;
+        }
+
+        const extra=
+            columns.querySelector(".trasa-extra");
+
+        if(!extra){
+            return;
+        }
+
+        /*
+           Zbieramy GOTOWE wyrenderowane elementy.
+           Nie przeliczamy wariantów i nie generujemy przystanków ponownie.
+        */
+        const elementy=[];
+
+        Array.from(
+            columns.querySelectorAll(":scope > .trasa-kol")
+        ).forEach(
+            kol=>{
+
+                Array.from(
+                    kol.children
+                ).forEach(
+                    blok=>{
+
+                        if(
+                            blok.classList.contains("trasa-lista")
+                        ){
+                            Array.from(blok.children)
+                                .forEach(
+                                    el=>
+                                        elementy.push({
+                                            typ:"stop",
+                                            node:el
+                                        })
+                                );
+                        }
+                        else if(
+                            blok.classList.contains("trasa-extra")
+                        ){
+                            const title=
+                                blok.querySelector(
+                                    ":scope > .trasa-extra-title"
+                                );
+
+                            if(title){
+                                elementy.push({
+                                    typ:"title",
+                                    node:title
+                                });
+                            }
+
+                            const lista=
+                                blok.querySelector(
+                                    ":scope > .trasa-extra-lista"
+                                );
+
+                            Array.from(
+                                lista?.children||[]
+                            ).forEach(
+                                el=>
+                                    elementy.push({
+                                        typ:"extra-stop",
+                                        node:el
+                                    })
+                            );
+                        }
+                    }
+                );
+            }
+        );
+
+        if(!elementy.length){
+            return;
+        }
+
+        /*
+           Tymczasowo wszystkie elementy trafiają do pierwszej kolumny,
+           dokładnie tak jak przy działającym splitterze 401/126.
+           Dzięki temu mierzymy prawdziwe wysokości po zawinięciu nazw.
+        */
+        tabliczka.classList.remove("trasa-3-kol");
+        tabliczka.classList.add("trasa-2-kol");
+
+        columns.className=
+            "trasa-columns cols-2";
+
+        ustawNaglowekTrasy(2);
+
+        const pomiar=
+            document.createElement("div");
+
+        pomiar.className=
+            "trasa-kol trasa-kol-pomiar-392";
+
+        const listaPomiar=
+            document.createElement("ul");
+
+        listaPomiar.className=
+            "trasa-lista trasa-lista-polaczona-392";
+
+        pomiar.appendChild(listaPomiar);
+
+        const pusta=
+            document.createElement("div");
+
+        pusta.className=
+            "trasa-kol trasa-kol-pusta";
+
+        columns.innerHTML="";
+        columns.appendChild(pomiar);
+        columns.appendChild(pusta);
+
+        elementy.forEach(
+            item=>{
+
+                const li=
+                    document.createElement("li");
+
+                if(item.typ==="title"){
+                    li.className=
+                        "trasa-separator trasa-extra-title-w-liscie-392";
+
+                    li.innerHTML=
+                        item.node.innerHTML;
+                }
+                else{
+                    li.className=
+                        item.node.className+
+                        (
+                            item.typ==="extra-stop"
+                                ? " trasa-extra-stop-w-liscie-392"
+                                : ""
+                        );
+
+                    li.innerHTML=
+                        item.node.innerHTML;
+                }
+
+                listaPomiar.appendChild(li);
+            }
+        );
+
+        ustawZawijanieNazwTrasy(columns);
+
+        const dzieci=
+            Array.from(listaPomiar.children);
+
+        const styl=
+            getComputedStyle(pomiar);
+
+        const dostepna=
+            columns.clientHeight-
+            parseFloat(styl.paddingTop||0)-
+            parseFloat(styl.paddingBottom||0)-
+            1;
+
+        const wysokosci=
+            dzieci.map(
+                el=>{
+                    const r=
+                        el.getBoundingClientRect();
+
+                    const cs=
+                        getComputedStyle(el);
+
+                    return(
+                        r.height+
+                        parseFloat(cs.marginTop||0)+
+                        parseFloat(cs.marginBottom||0)
+                    );
+                }
+            );
+
+        /*
+           Maksymalnie zapełniamy pierwszą kolumnę.
+           Nagłówek sekcji nie może zostać sam na dole bez pierwszego stopu.
+        */
+        let suma=0;
+        let split=dzieci.length;
+
+        for(let i=0;i<dzieci.length;i++){
+
+            let wymagane=
+                wysokosci[i]||0;
+
+            if(
+                dzieci[i].classList.contains("trasa-separator")&&
+                i+1<dzieci.length
+            ){
+                wymagane+=
+                    wysokosci[i+1]||0;
+            }
+
+            if(
+                i>0&&
+                suma+wymagane>dostepna
+            ){
+                split=i;
+                break;
+            }
+
+            suma+=
+                wysokosci[i]||0;
+        }
+
+        /*
+           Jeżeli wszystko mieści się w jednej kolumnie, wracamy do 1.
+        */
+        if(split>=dzieci.length){
+
+            tabliczka.classList.remove("trasa-2-kol");
+
+            columns.className=
+                "trasa-columns cols-1";
+
+            ustawNaglowekTrasy(1);
+
+            columns.innerHTML=
+                '<div class="trasa-kol">'+
+                    '<ul class="trasa-lista trasa-lista-polaczona-392">'+
+                        dzieci.map(
+                            el=>el.outerHTML
+                        ).join("")+
+                    '</ul>'+
+                '</div>';
+
+            ustawZawijanieNazwTrasy(columns);
+            poprawMinutyWydluzen392(columns);
+            return;
+        }
+
+        const grupa1=
+            dzieci.slice(0,split);
+
+        const grupa2=
+            dzieci.slice(split);
+
+        columns.innerHTML=
+            [grupa1,grupa2]
+                .map(
+                    grupa=>
+                        '<div class="trasa-kol">'+
+                            '<ul class="trasa-lista trasa-lista-polaczona-392">'+
+                                grupa.map(
+                                    el=>el.outerHTML
+                                ).join("")+
+                            '</ul>'+
+                        '</div>'
+                )
+                .join("");
+
+        ustawZawijanieNazwTrasy(columns);
+        poprawMinutyWydluzen392(columns);
+
+        /*
+           Koniec pierwszej kolumny nie jest końcem trasy.
+        */
+        const kol1=
+            columns.querySelector(
+                ":scope > .trasa-kol:first-child"
+            );
+
+        const ostatni1=
+            kol1?.querySelector(
+                ".trasa-lista > li:last-child"
+            );
+
+        if(ostatni1){
+            ostatni1.classList.remove(
+                "kraniec-koniec",
+                "koniec-trasy-210"
+            );
+        }
+    }
+
+
+    function poprawMinutyWydluzen392(root){
+
+        /*
+           W 389 renderer wspólnego odcinka mógł dostać null z
+           czasWariantuNaPrzystanku(), bo element po obróbce wydłużenia
+           nie zawsze był tym samym obiektem co element kursu.
+
+           Dla pustych czasów szukamy czasu po dokładnym fizycznym
+           przystanku nazwa+nr w rzeczywistym kursie wariantu.
+        */
+        const aktywny=
+            aktywnyFizycznyPrzystanek276
+                ? aktywnyFizycznyPrzystanek276()
+                : (
+                    kierunekBazowy()
+                        ?.przystanki?.[
+                            aktualnyPrzystanek
+                        ]||null
+                  );
+
+        if(!aktywny){
+            return;
+        }
+
+        let aktualneLitery=[];
+
+        root.querySelectorAll(
+            ".trasa-lista-polaczona-392 > li"
+        ).forEach(
+            li=>{
+
+                if(
+                    li.classList.contains(
+                        "trasa-extra-title-w-liscie-392"
+                    )
+                ){
+                    const tekst=
+                        li.textContent||"";
+
+                    aktualneLitery=
+                        Array.from(
+                            tekst.matchAll(
+                                /[„"]([^”"]+)[”"]/g
+                            )
+                        )
+                        .map(m=>m[1].trim().toLowerCase());
+
+                    return;
+                }
+
+                if(
+                    !li.classList.contains(
+                        "trasa-extra-stop-w-liscie-392"
+                    )
+                ){
+                    return;
+                }
+
+                const pole=
+                    li.querySelector(".trasa-czas");
+
+                if(
+                    !pole||
+                    String(pole.textContent||"").trim()
+                ){
+                    return;
+                }
+
+                const nazwa=
+                    String(
+                        li.querySelector(".trasa-nazwa")
+                            ?.textContent||""
+                    ).trim();
+
+                if(!nazwa){
+                    return;
+                }
+
+                for(const litera of aktualneLitery){
+
+                    const kurs=
+                        znajdzKursWariantuDoTrasy(
+                            litera
+                        );
+
+                    if(!kurs){
+                        continue;
+                    }
+
+                    const t0=
+                        znajdzCzasKursuNaPrzystanku(
+                            kurs,
+                            aktywny
+                        );
+
+                    if(t0===null){
+                        continue;
+                    }
+
+                    /*
+                       Najpierw dokładna nazwa. Numer jest pobierany z
+                       elementów kursu, jeżeli jest dostępny.
+                    */
+                    const kandydaci=
+                        (
+                            kurs?.przystanki||
+                            kurs?.trasa||
+                            []
+                        );
+
+                    let znaleziony=null;
+
+                    for(const p0 of kandydaci){
+
+                        const p=
+                            p0?.p||p0;
+
+                        if(
+                            normalizuj(p?.nazwa)===
+                            normalizuj(nazwa)
+                        ){
+                            znaleziony=p;
+                            break;
+                        }
+                    }
+
+                    if(!znaleziony){
+                        continue;
+                    }
+
+                    const t=
+                        znajdzCzasKursuNaPrzystanku(
+                            kurs,
+                            znaleziony
+                        );
+
+                    if(t===null){
+                        continue;
+                    }
+
+                    let wynik=t-t0;
+
+                    while(wynik<0){
+                        wynik+=1440;
+                    }
+
+                    pole.textContent=
+                        String(wynik);
+
+                    break;
+                }
+            }
+        );
+    }
 
 })();
 </script>
