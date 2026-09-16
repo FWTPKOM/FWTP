@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 395
+     WERSJA: 396
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -34202,18 +34202,173 @@ function renderWydluzeniaTrasy(){
                                             const litera
                                             of segment.litery
                                         ){
-                                            czas=
-                                                czasWariantuNaPrzystanku(
-                                                    litera,
-                                                    element
+                                            /*
+                                               WERSJA 396 — zasada jak w 134:
+                                               czas liczymy z rzeczywistego
+                                               przebiegu kursu wariantu, a nie
+                                               z później przerobionego DOM.
+                                            */
+                                            const kurs396=
+                                                znajdzKursWariantuDoTrasy(
+                                                    litera
                                                 );
 
-                                            if(
-                                                czas!==null&&
-                                                typeof czas!=="undefined"
-                                            ){
-                                                break;
+                                            if(!kurs396){
+                                                continue;
                                             }
+
+                                            const aktywny396=
+                                                aktywnyFizycznyPrzystanek276
+                                                    ? aktywnyFizycznyPrzystanek276()
+                                                    : (
+                                                        kierunekBazowy()
+                                                            ?.przystanki?.[
+                                                                aktualnyPrzystanek
+                                                            ]||null
+                                                      );
+
+                                            const cel396=
+                                                element?.p||
+                                                element;
+
+                                            if(
+                                                !aktywny396||
+                                                !cel396
+                                            ){
+                                                continue;
+                                            }
+
+                                            let t0396=
+                                                znajdzCzasKursuNaPrzystanku(
+                                                    kurs396,
+                                                    aktywny396
+                                                );
+
+                                            let t396=
+                                                znajdzCzasKursuNaPrzystanku(
+                                                    kurs396,
+                                                    cel396
+                                                );
+
+                                            /*
+                                               Jeżeli obiekt z wydłużenia nie
+                                               jest tą samą referencją co obiekt
+                                               w kursie, dopasuj logicznie po
+                                               nazwie. To jest wyłącznie analiza
+                                               przebiegu; wybór tabliczki nadal
+                                               pozostaje fizyczny nazwa+nr.
+                                            */
+                                            const przebieg396=
+                                                Array.isArray(
+                                                    kurs396?.przystanki
+                                                )
+                                                    ? kurs396.przystanki
+                                                    : (
+                                                        Array.isArray(
+                                                            kurs396?.trasa
+                                                        )
+                                                            ? kurs396.trasa
+                                                            : []
+                                                      );
+
+                                            function znajdzLogiczny396(
+                                                wzorzec
+                                            ){
+                                                const nazwa396=
+                                                    normalizuj(
+                                                        wzorzec?.nazwa
+                                                    );
+
+                                                const kandydaci396=
+                                                    przebieg396
+                                                        .map(
+                                                            x=>x?.p||x
+                                                        )
+                                                        .filter(
+                                                            p=>
+                                                                normalizuj(
+                                                                    p?.nazwa
+                                                                )===
+                                                                nazwa396
+                                                        );
+
+                                                if(
+                                                    kandydaci396.length===
+                                                    1
+                                                ){
+                                                    return kandydaci396[0];
+                                                }
+
+                                                const nr396=
+                                                    String(
+                                                        wzorzec?.nr||""
+                                                    ).trim();
+
+                                                return(
+                                                    kandydaci396.find(
+                                                        p=>
+                                                            String(
+                                                                p?.nr||""
+                                                            ).trim()===
+                                                            nr396
+                                                    )||
+                                                    null
+                                                );
+                                            }
+
+                                            if(
+                                                t0396===null||
+                                                typeof t0396==="undefined"
+                                            ){
+                                                const p0396=
+                                                    znajdzLogiczny396(
+                                                        aktywny396
+                                                    );
+
+                                                if(p0396){
+                                                    t0396=
+                                                        znajdzCzasKursuNaPrzystanku(
+                                                            kurs396,
+                                                            p0396
+                                                        );
+                                                }
+                                            }
+
+                                            if(
+                                                t396===null||
+                                                typeof t396==="undefined"
+                                            ){
+                                                const p396=
+                                                    znajdzLogiczny396(
+                                                        cel396
+                                                    );
+
+                                                if(p396){
+                                                    t396=
+                                                        znajdzCzasKursuNaPrzystanku(
+                                                            kurs396,
+                                                            p396
+                                                        );
+                                                }
+                                            }
+
+                                            if(
+                                                t0396===null||
+                                                typeof t0396==="undefined"||
+                                                t396===null||
+                                                typeof t396==="undefined"
+                                            ){
+                                                continue;
+                                            }
+
+                                            czas=
+                                                t396-t0396;
+
+                                            while(czas<0){
+                                                czas+=1440;
+                                            }
+
+                                            break;
                                         }
                                     }
                                 }
@@ -40504,35 +40659,62 @@ window.addEventListener(
             );
 
         /*
-           Maksymalnie zapełniamy pierwszą kolumnę.
-           Nagłówek sekcji nie może zostać sam na dole bez pierwszego stopu.
+           WERSJA 396 — wybieramy NAJPÓŹNIEJSZY możliwy punkt
+           podziału, tak jak w poprawnej logice 134.
+
+           Nie opieramy się na samym sumowaniu wysokości, bo przy
+           skalowaniu nazw i separatorach dawało to za dużo pustego
+           miejsca w pierwszej kolumnie.
         */
-        let suma=0;
-        let split=dzieci.length;
+        let split=1;
 
-        for(let i=0;i<dzieci.length;i++){
-
-            let wymagane=
-                wysokosci[i]||0;
-
+        for(
+            let kandydat392=1;
+            kandydat392<dzieci.length;
+            kandydat392++
+        ){
+            /*
+               Nie zostawiamy nagłówka sekcji jako ostatniego
+               elementu pierwszej kolumny.
+            */
             if(
-                dzieci[i].classList.contains("trasa-separator")&&
-                i+1<dzieci.length
+                dzieci[
+                    kandydat392-1
+                ]?.classList.contains(
+                    "trasa-separator"
+                )
             ){
-                wymagane+=
-                    wysokosci[i+1]||0;
+                continue;
             }
 
+            const ostatni392=
+                dzieci[
+                    kandydat392-1
+                ];
+
+            if(!ostatni392){
+                continue;
+            }
+
+            const rect392=
+                ostatni392
+                    .getBoundingClientRect();
+
+            const dolPanelu392=
+                columns
+                    .getBoundingClientRect()
+                    .bottom-1;
+
             if(
-                i>0&&
-                suma+wymagane>dostepna
+                rect392.bottom<=
+                dolPanelu392
             ){
-                split=i;
+                split=
+                    kandydat392;
+            }
+            else{
                 break;
             }
-
-            suma+=
-                wysokosci[i]||0;
         }
 
         /*
@@ -40557,7 +40739,7 @@ window.addEventListener(
                 '</div>';
 
             ustawZawijanieNazwTrasy(columns);
-            /* W395: minuty pozostają dokładnie z renderera v385 */
+            /* W396: czasy są liczone przed podziałem, jak w logice 134 */
             return;
         }
 
@@ -40582,7 +40764,7 @@ window.addEventListener(
                 .join("");
 
         ustawZawijanieNazwTrasy(columns);
-        /* W395: minuty pozostają dokładnie z renderera v385 */
+        /* W396: czasy są liczone przed podziałem, jak w logice 134 */
 
         /*
            Koniec pierwszej kolumny nie jest końcem trasy.
