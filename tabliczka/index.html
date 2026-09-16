@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 394
+     WERSJA: 395
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -32814,7 +32814,10 @@ function znajdzKursWariantuDoTrasy(litera){
 }
 
 
-function czasWariantuNaPrzystanku(litera, element){
+function czasWariantuNaPrzystanku(
+    litera,
+    element
+){
 
     const kandydat=
         znajdzKursWariantuDoTrasy(
@@ -32825,168 +32828,45 @@ function czasWariantuNaPrzystanku(litera, element){
         return null;
     }
 
-    const aktywny=
-        aktywnyFizycznyPrzystanek276
-            ? aktywnyFizycznyPrzystanek276()
-            : (
-                kierunekBazowy()
-                    ?.przystanki?.[
-                        aktualnyPrzystanek
-                    ]||null
-              );
+    const pelna=
+        kierunekBazowy()?.przystanki||
+        [];
 
-    if(!aktywny){
+    const start=
+        pelna[
+            aktualnyPrzystanek
+        ];
+
+    if(!start){
         return null;
     }
 
-    const cel=
-        element?.p||
-        element;
-
-    if(!cel){
-        return null;
-    }
-
-    /*
-       WERSJA 394
-
-       Najpierw korzystamy z istniejącej funkcji czasu.
-       To zachowuje dotychczasową logikę dla wszystkich przypadków,
-       w których obiekt elementu pochodzi bezpośrednio z kursu.
-    */
-    let t0=
+    const t0=
         znajdzCzasKursuNaPrzystanku(
             kandydat,
-            aktywny
+            start
         );
 
-    let t=
+    const t=
         znajdzCzasKursuNaPrzystanku(
             kandydat,
-            cel
+            element.p
         );
-
-    /*
-       Przy wydłużeniach obiekt przystanku jest po obróbce
-       listaWydluzeniaBezPowtorzonegoKranca(), więc referencja może
-       nie być identyczna z obiektem w kursie.
-
-       Wtedy szukamy pozycji po fizycznym nazwa+nr, a jeżeli numer
-       wariantu różni się tylko technicznie — po unikalnym wystąpieniu
-       tej samej nazwy.
-    */
-    const przebieg=
-        Array.isArray(kandydat?.przystanki)
-            ? kandydat.przystanki
-            : (
-                Array.isArray(kandydat?.trasa)
-                    ? kandydat.trasa
-                    : []
-              );
-
-    function znajdz394(p){
-
-        if(!p){
-            return null;
-        }
-
-        const nazwa=
-            normalizuj(
-                p?.nazwa
-            );
-
-        const nr=
-            String(
-                p?.nr||""
-            ).trim();
-
-        let lista=
-            przebieg
-                .map((x,index)=>({
-                    x:x?.p||x,
-                    index
-                }))
-                .filter(
-                    o=>
-                        normalizuj(
-                            o.x?.nazwa
-                        )===nazwa&&
-                        String(
-                            o.x?.nr||""
-                        ).trim()===nr
-                );
-
-        if(lista.length){
-            return lista[0].x;
-        }
-
-        lista=
-            przebieg
-                .map((x,index)=>({
-                    x:x?.p||x,
-                    index
-                }))
-                .filter(
-                    o=>
-                        normalizuj(
-                            o.x?.nazwa
-                        )===nazwa
-                );
-
-        return(
-            lista.length===1
-                ? lista[0].x
-                : null
-        );
-    }
-
-    if(t0===null||typeof t0==="undefined"){
-        const p0=
-            znajdz394(
-                aktywny
-            );
-
-        if(p0){
-            t0=
-                znajdzCzasKursuNaPrzystanku(
-                    kandydat,
-                    p0
-                );
-        }
-    }
-
-    if(t===null||typeof t==="undefined"){
-        const pc=
-            znajdz394(
-                cel
-            );
-
-        if(pc){
-            t=
-                znajdzCzasKursuNaPrzystanku(
-                    kandydat,
-                    pc
-                );
-        }
-    }
 
     if(
         t0===null||
-        typeof t0==="undefined"||
-        t===null||
-        typeof t==="undefined"
+        t===null
     ){
         return null;
     }
 
-    let roznica=
-        t-t0;
+    let wynik=t-t0;
 
-    while(roznica<0){
-        roznica+=1440;
+    while(wynik<0){
+        wynik+=1440;
     }
 
-    return roznica;
+    return wynik;
 }
 
 
@@ -40597,61 +40477,62 @@ window.addEventListener(
         const dzieci=
             Array.from(listaPomiar.children);
 
+        const styl=
+            getComputedStyle(pomiar);
+
+        const dostepna=
+            columns.clientHeight-
+            parseFloat(styl.paddingTop||0)-
+            parseFloat(styl.paddingBottom||0)-
+            1;
+
+        const wysokosci=
+            dzieci.map(
+                el=>{
+                    const r=
+                        el.getBoundingClientRect();
+
+                    const cs=
+                        getComputedStyle(el);
+
+                    return(
+                        r.height+
+                        parseFloat(cs.marginTop||0)+
+                        parseFloat(cs.marginBottom||0)
+                    );
+                }
+            );
+
         /*
-           WERSJA 394
-
-           Nie sumujemy już ręcznie wysokości wierszy. Przy nazwach
-           zawijanych na 2 linie, nagłówkach wariantów i skalowaniu
-           tekstu dawało to za wczesny podział.
-
-           Mierzymy rzeczywisty BOTTOM każdego już wyrenderowanego
-           wiersza względem rzeczywistego dołu panelu trasy.
-           Dzięki temu pierwsza kolumna jest wypełniana maksymalnie.
+           Maksymalnie zapełniamy pierwszą kolumnę.
+           Nagłówek sekcji nie może zostać sam na dole bez pierwszego stopu.
         */
-        const rectColumns394=
-            columns.getBoundingClientRect();
-
-        const dol394=
-            rectColumns394.bottom-1;
-
+        let suma=0;
         let split=dzieci.length;
 
         for(let i=0;i<dzieci.length;i++){
 
-            const rect=
-                dzieci[i]
-                    .getBoundingClientRect();
+            let wymagane=
+                wysokosci[i]||0;
 
-            let dolElementu=
-                rect.bottom;
-
-            /*
-               Nagłówek "Trasa w kursach..." nie może zostać sam
-               na dole kolumny — musi zmieścić się także pierwszy
-               przystanek tej sekcji.
-            */
             if(
-                dzieci[i].classList.contains(
-                    "trasa-separator"
-                )&&
+                dzieci[i].classList.contains("trasa-separator")&&
                 i+1<dzieci.length
             ){
-                dolElementu=
-                    Math.max(
-                        dolElementu,
-                        dzieci[i+1]
-                            .getBoundingClientRect()
-                            .bottom
-                    );
+                wymagane+=
+                    wysokosci[i+1]||0;
             }
 
             if(
                 i>0&&
-                dolElementu>dol394
+                suma+wymagane>dostepna
             ){
                 split=i;
                 break;
             }
+
+            suma+=
+                wysokosci[i]||0;
         }
 
         /*
@@ -40676,7 +40557,7 @@ window.addEventListener(
                 '</div>';
 
             ustawZawijanieNazwTrasy(columns);
-            /* minuty są już policzone w rendererze 394 */
+            /* W395: minuty pozostają dokładnie z renderera v385 */
             return;
         }
 
@@ -40701,7 +40582,7 @@ window.addEventListener(
                 .join("");
 
         ustawZawijanieNazwTrasy(columns);
-        /* minuty są już policzone w rendererze 394 */
+        /* W395: minuty pozostają dokładnie z renderera v385 */
 
         /*
            Koniec pierwszej kolumny nie jest końcem trasy.
