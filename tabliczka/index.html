@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 415
+     WERSJA: 416
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -28786,129 +28786,197 @@ function __bezCache_znajdzNajlepszyKursDoTrasy(){
     };
 
     const kandydaci=
-        new Map();
+        [];
 
     (
         daneLinii?.rozkłady||
         []
     ).forEach(
-        (rozklad,rozkladIndex415)=>{
+        (rozklad,rozkladIndex416)=>{
 
-            /*
-               KLUCZOWA POPRAWKA:
-               nie szukamy już pierwszego przystanku o tej samej
-               nazwie i numerze.
+            const kierunek416=
+                rozklad?.kierunki?.[
+                    aktualnyKierunek
+                ];
 
-               Szukamy dokładnie TEGO wystąpienia, które zostało
-               wybrane w URL / select:
-                   kierunek=1
-                   przystanek=idx:5
+            const przystanki416=
+                kierunek416?.przystanki||
+                [];
 
-               To jest konieczne np. dla linii 170, gdzie
-               PKP ZACISZE-WILNO 02 może wystąpić więcej niż raz
-               w strukturze kierunku, ale każde wystąpienie należy
-               do innego przebiegu.
-            */
-            const p=
+            const pStart416=
                 znajdzPrzystanekWRozkladzieDlaElementu(
                     rozklad,
                     aktualnyKierunek,
                     startElement
                 );
 
+            if(!pStart416){
+                return;
+            }
+
+            const startIndex416=
+                przystanki416.indexOf(
+                    pStart416
+                );
+
+            if(startIndex416<0){
+                return;
+            }
+
             (
-                p?.kursy||
+                pStart416?.kursy||
                 []
             ).forEach(
-                kurs=>{
+                kurs416=>{
 
-                    if(
+                    const startCzas416=
                         czasNaMinuty(
-                            kurs.czas
-                        )===null
-                    ){
+                            kurs416?.czas
+                        );
+
+                    if(startCzas416===null){
                         return;
                     }
 
-                    /*
-                       WERSJA 415:
-                       numer+wariant nie wystarcza jako identyfikator kursu,
-                       bo taki sam numer może występować w kilku rozkładach.
-                       Zapamiętujemy KONKRETNY rozkład oraz brygadę.
-                    */
-                    const key=[
-                        String(rozkladIndex415),
-                        kluczKursu(kurs),
-                        String(kurs?.brygada||"").trim()
-                    ].join("||");
-
-                    if(!kandydaci.has(key)){
-
-                        kandydaci.set(
-                            key,
-                            {
-                                key,
-                                numer:String(
-                                    kurs.numer||""
-                                ),
-                                wariant:String(
-                                    kurs.wariant||""
-                                ),
-                                brygada:String(
-                                    kurs?.brygada||""
-                                ).trim(),
-                                rozkladIndex:
-                                    rozkladIndex415,
-                                start:
-                                    czasNaMinuty(
-                                        kurs.czas
-                                    ),
-                                count:0
-                            }
+                    const numer416=
+                        String(
+                            kurs416?.numer||""
                         );
+
+                    const wariant416=
+                        String(
+                            kurs416?.wariant||""
+                        ).trim();
+
+                    const brygada416=
+                        String(
+                            kurs416?.brygada||""
+                        ).trim();
+
+                    let liczba416=0;
+                    let ostatniIndex416=startIndex416;
+                    let ostatniCzas416=startCzas416;
+
+                    /*
+                       WERSJA 416:
+                       śledzimy TEN SAM rzeczywisty kurs przez kolejne
+                       fizyczne przystanki dokładnie tego samego rozkładu.
+
+                       Kurs wydłużony będzie miał więcej punktów za
+                       wybranym przystankiem niż kurs kończący się
+                       na zwykłym krańcu, więc zostanie wybrany pierwszy.
+                    */
+                    for(
+                        let i416=startIndex416;
+                        i416<przystanki416.length;
+                        i416++
+                    ){
+                        const stop416=
+                            przystanki416[i416];
+
+                        const k416=
+                            (
+                                stop416?.kursy||
+                                []
+                            ).find(
+                                k=>
+                                    String(
+                                        k?.numer||""
+                                    )===numer416&&
+                                    String(
+                                        k?.wariant||""
+                                    ).trim()===wariant416&&
+                                    (
+                                        !brygada416||
+                                        String(
+                                            k?.brygada||""
+                                        ).trim()===brygada416
+                                    )&&
+                                    czasNaMinuty(
+                                        k?.czas
+                                    )!==null
+                            );
+
+                        if(!k416){
+                            continue;
+                        }
+
+                        liczba416++;
+                        ostatniIndex416=i416;
+
+                        let czas416=
+                            czasNaMinuty(
+                                k416.czas
+                            );
+
+                        while(czas416<startCzas416){
+                            czas416+=1440;
+                        }
+
+                        if(czas416>ostatniCzas416){
+                            ostatniCzas416=czas416;
+                        }
                     }
+
+                    kandydaci.push({
+                        key:[
+                            String(
+                                rozkladIndex416
+                            ),
+                            numer416,
+                            wariant416,
+                            brygada416
+                        ].join("||"),
+                        numer:numer416,
+                        wariant:wariant416,
+                        brygada:brygada416,
+                        rozkladIndex:
+                            rozkladIndex416,
+                        start:startCzas416,
+                        count:liczba416,
+                        ostatniIndex:
+                            ostatniIndex416,
+                        czasDoKonca:
+                            ostatniCzas416-
+                            startCzas416
+                    });
                 }
             );
         }
     );
 
-    kandydaci.forEach(
-        kandydat=>{
+    /*
+       Kolejność:
+       1. kurs obsługujący najwięcej fizycznych przystanków,
+          czyli przede wszystkim kurs wydłużony;
+       2. jeśli dwa kursy mają tyle samo punktów — ten, który
+          rzeczywiście dochodzi dalej w strukturze kierunku;
+       3. następnie większy czas do końca;
+       4. na końcu najwcześniejszy kurs jako stabilny wybór.
 
-            for(
-                let i=
-                    aktualnyPrzystanek;
-                i<lista.length;
-                i++
-            ){
-
-                if(
-                    znajdzCzasKursuNaPrzystanku(
-                        kandydat,
-                        lista[i],
-                        i
-                    )!==null
-                ){
-                    kandydat.count++;
-                }
-            }
-        }
-    );
-
-    return[
-        ...kandydaci.values()
-    ].sort(
+       Jeżeli nie ma żadnego wydłużenia, naturalnie wygra kurs
+       dochodzący do zwykłego ostatniego krańca.
+    */
+    return kandydaci.sort(
         (a,b)=>
             b.count-a.count||
+            b.ostatniIndex-a.ostatniIndex||
+            b.czasDoKonca-a.czasDoKonca||
             a.start-b.start
     )[0]||null;
 }
-
 function znajdzNajlepszyKursDoTrasy(){
 
     return memoTabliczki(
         "znajdzNajlepszyKursDoTrasy",
-        "",
+        [
+            String(
+                aktualnyKierunek
+            ),
+            String(
+                aktualnyPrzystanek
+            )
+        ].join("|"),
         ()=>__bezCache_znajdzNajlepszyKursDoTrasy()
     );
 }
@@ -30348,19 +30416,23 @@ function czasDowolnegoKursuNaPrzystanku(
                 aktualnyPrzystanek
             );
 
+        /*
+           WERSJA 416:
+           dla elementu trasy wariantowej nie używamy syntetycznego
+           indeksu pełnej osi. Element.p zawiera właściwy fizyczny
+           przystanek (nazwa + nr), więc czas odczytujemy dokładnie
+           dla niego z wybranego jednego kursu.
+
+           Przykład 401 / wariant E:
+               URSYNÓW PŁD. 04
+           nie może zostać zastąpiony przez:
+               URSYNÓW PŁD. 05
+        */
         const koniec415=
             znajdzCzasKursuNaPrzystanku(
                 jedenKurs415,
                 element.p,
-                Number.isInteger(
-                    Number(
-                        element.index
-                    )
-                )
-                    ? Number(
-                        element.index
-                    )
-                    : null
+                null
             );
 
         if(
