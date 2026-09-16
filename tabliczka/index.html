@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 388
+     WERSJA: 389
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -4328,32 +4328,6 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     bottom: 0 !important;
     height: auto !important;
 }
-</style>
-
-
-<style>
-/* =========================================================
-   WERSJA 388 — WYDŁUŻENIA KORZYSTAJĄ Z TEGO SAMEGO UKŁADU CO 401
-   ========================================================= */
-
-.tabliczka .trasa-extra {
-    break-inside: auto !important;
-    overflow: visible !important;
-}
-
-.tabliczka .trasa-extra-lista {
-    overflow: visible !important;
-}
-
-.tabliczka .trasa-extra-title,
-.tabliczka .trasa-extra-stop {
-    break-inside: avoid !important;
-}
-
-/*
-   Nie tworzymy osobnego "drugiego systemu kolumn" dla wydłużeń.
-   Mają być mierzone i dzielone razem z normalną listą trasy.
-*/
 </style>
 
 </head>
@@ -33919,161 +33893,202 @@ function renderWydluzeniaTrasy(){
     }
 
     /*
-       WERSJA 386
+       WERSJA 389
 
-       Nie renderujemy już każdego wydłużenia jako całkowicie
-       osobnej gałęzi.
+       Wracamy do ważnej zasady z v246:
+       NIE używamy surowego wariant.przystanki jako listy wydłużenia.
 
-       Jeżeli np.:
-         s: UTRATA -> SZEROKA -> ARESZT... -> OS. DUDZIARSKA
-            -> RONDO GRANZOWA -> ... -> REMBERTÓW-STRZELNICA
+       v246 najpierw wywoływała:
+           listaWydluzeniaBezPowtorzonegoKranca(wariant, dane.baza)
 
-         r: UTRATA -> RONDO GRANZOWA -> ... -> REMBERTÓW-STRZELNICA
+       Dzięki temu nie pojawia się ponownie fragment trasy podstawowej
+       ani błędna pętla typu:
+           RONDO -> ... -> RONDO -> ...
 
-       wynik ma być:
-         Trasa w kursach „s”
-           SZEROKA
-           ARESZT ŚLEDCZY GROCHÓW
-           OS. DUDZIARSKA
+       Następnie, jeżeli dwa wydłużenia mają wspólny końcowy odcinek,
+       pokazujemy:
+           Trasa w kursach „s”
+           [tylko odcinek s]
 
-         Trasa w kursach „r”, „s”
-           RONDO GRANZOWA
-           ...
-           REMBERTÓW-STRZELNICA
-
-       Czyli nagłówki wynikają z RZECZYWISTEGO zestawu wariantów
-       obsługujących kolejne przystanki.
+           Trasa w kursach „r”, „s”
+           [wspólny końcowy odcinek]
     */
 
     const warianty=
         dane.wydluzenia
             .map(
-                w=>({
-                    ...w,
-                    litera:
+                w=>{
+
+                    const litera=
                         String(w?.litera||"")
                             .trim()
-                            .toLowerCase()
-                })
+                            .toLowerCase();
+
+                    const przystanki=
+                        listaWydluzeniaBezPowtorzonegoKranca(
+                            w,
+                            dane.baza
+                        )||[];
+
+                    return{
+                        ...w,
+                        litera,
+                        przystanki
+                    };
+                }
             )
             .filter(
                 w=>
                     w.litera&&
-                    Array.isArray(w.przystanki)&&
                     w.przystanki.length&&
-                    aktywnyMaWariant206(w.litera)
+                    aktywnyMaWariant206(
+                        w.litera
+                    )
             );
 
     if(!warianty.length){
         return "";
     }
 
-    /*
-       Wszystkie elementy wydłużeń pochodzą z jednej finalnej listy
-       pelna, więc zachowujemy jej rzeczywistą kolejność.
-    */
-    const pelna=
-        listaPelnejTrasyDoWyswietlenia();
 
-    const zbiorElementow=
-        new Set();
+    function klucz389(element){
 
-    warianty.forEach(
-        w=>
-            w.przystanki.forEach(
-                el=>zbiorElementow.add(el)
-            )
-    );
+        const p=
+            element?.p||
+            element;
 
-    const elementy=
-        pelna.filter(
-            el=>zbiorElementow.has(el)
-        );
-
-    /*
-       Awaryjny fallback, gdyby referencje elementów zostały kiedyś
-       skopiowane przez inną funkcję.
-    */
-    if(!elementy.length){
-        warianty.forEach(
-            w=>
-                w.przystanki.forEach(
-                    el=>{
-                        if(!elementy.includes(el)){
-                            elementy.push(el);
-                        }
-                    }
-                )
+        return(
+            normalizuj(
+                p?.nazwa
+            )+
+            "||"+
+            String(
+                p?.nr||""
+            ).trim()
         );
     }
 
-    if(!elementy.length){
-        return "";
+
+    /*
+       Dwa warianty kończące się wspólną trasą:
+       wyznaczamy NAJDŁUŻSZY wspólny SUFIKS.
+       To dokładnie odpowiada sytuacji 338:
+       s ma własny objazd, a od RONDO GRANZOWA 06
+       r i s jadą już razem.
+    */
+    let segmenty=[];
+
+    if(warianty.length===2){
+
+        const a=
+            warianty[0];
+
+        const b=
+            warianty[1];
+
+        let ia=
+            a.przystanki.length-1;
+
+        let ib=
+            b.przystanki.length-1;
+
+        const wspolnyOdKonca=[];
+
+        while(
+            ia>=0&&
+            ib>=0&&
+            klucz389(
+                a.przystanki[ia]
+            )===
+            klucz389(
+                b.przystanki[ib]
+            )
+        ){
+            wspolnyOdKonca.unshift(
+                a.przystanki[ia]
+            );
+
+            ia--;
+            ib--;
+        }
+
+        const prefA=
+            a.przystanki.slice(
+                0,
+                ia+1
+            );
+
+        const prefB=
+            b.przystanki.slice(
+                0,
+                ib+1
+            );
+
+        /*
+           Najpierw pokazujemy odcinek wariantu, który rzeczywiście
+           ma dodatkową trasę przed wspólnym odcinkiem.
+           Przy 338 jest to "s".
+        */
+        [
+            {
+                litery:[a.litera],
+                elementy:prefA
+            },
+            {
+                litery:[b.litera],
+                elementy:prefB
+            }
+        ]
+        .filter(
+            x=>x.elementy.length
+        )
+        .sort(
+            (x,y)=>
+                y.elementy.length-
+                x.elementy.length
+        )
+        .forEach(
+            x=>segmenty.push(x)
+        );
+
+        if(wspolnyOdKonca.length){
+            segmenty.push({
+                litery:[
+                    a.litera,
+                    b.litera
+                ].sort(
+                    (x,y)=>
+                        x.localeCompare(
+                            y,
+                            "pl",
+                            {numeric:true}
+                        )
+                ),
+                elementy:
+                    wspolnyOdKonca
+            });
+        }
     }
 
-    function literyElementu386(element){
 
-        return warianty
-            .filter(
-                w=>w.przystanki.includes(element)
-            )
-            .map(w=>w.litera)
-            .sort(
-                (a,b)=>
-                    a.localeCompare(
-                        b,
-                        "pl",
-                        {numeric:true}
-                    )
+    /*
+       Fallback dla bardziej złożonych przypadków:
+       zachowujemy każde rzeczywiste wydłużenie z v246 osobno.
+    */
+    if(!segmenty.length){
+
+        segmenty=
+            warianty.map(
+                w=>({
+                    litery:[
+                        w.litera
+                    ],
+                    elementy:
+                        w.przystanki
+                })
             );
     }
 
-    /*
-       Dzielimy wydłużenie na kolejne odcinki.
-       Nowy odcinek powstaje dokładnie wtedy, gdy zmienia się zestaw
-       wariantów jadących przez dany przystanek.
-    */
-    const segmenty=[];
-
-    elementy.forEach(
-        element=>{
-
-            const litery=
-                literyElementu386(element);
-
-            if(!litery.length){
-                return;
-            }
-
-            const klucz=
-                litery.join("|");
-
-            const ostatni=
-                segmenty[
-                    segmenty.length-1
-                ];
-
-            if(
-                !ostatni||
-                ostatni.klucz!==klucz
-            ){
-                segmenty.push({
-                    klucz,
-                    litery,
-                    elementy:[element]
-                });
-            }
-            else{
-                ostatni.elementy.push(
-                    element
-                );
-            }
-        }
-    );
-
-    if(!segmenty.length){
-        return "";
-    }
 
     const baza=
         kierunekBazowy()
@@ -34085,7 +34100,8 @@ function renderWydluzeniaTrasy(){
             aktualnyPrzystanek
         ]||null;
 
-    function czyAktywny386(element){
+
+    function czyAktywny389(element){
 
         if(!aktywny){
             return false;
@@ -34096,63 +34112,60 @@ function renderWydluzeniaTrasy(){
             element;
 
         return(
-            normalizuj(p?.nazwa)===
-                normalizuj(aktywny?.nazwa)&&
-            String(p?.nr||"").trim()===
-                String(aktywny?.nr||"").trim()
+            normalizuj(
+                p?.nazwa
+            )===
+            normalizuj(
+                aktywny?.nazwa
+            )&&
+            String(
+                p?.nr||""
+            ).trim()===
+            String(
+                aktywny?.nr||""
+            ).trim()
         );
     }
 
-    /*
-       Jeżeli dokładnego numeru nie uda się znaleźć, ale nazwa
-       występuje w całym wydłużeniu tylko raz, pozwalamy na bezpieczny
-       fallback po nazwie — zgodnie z istniejącą logiką tabliczki.
-    */
-    const poNazwie=
-        aktywny
-            ? elementy.filter(
-                el=>
-                    normalizuj(
-                        (el?.p||el)?.nazwa
-                    )===
-                    normalizuj(
-                        aktywny?.nazwa
-                    )
-              )
-            : [];
 
-    function czyAktywnyZFallback386(element){
-
-        if(czyAktywny386(element)){
-            return true;
-        }
-
-        return(
-            poNazwie.length===1&&
-            poNazwie[0]===element
+    const wszystkieElementy=
+        segmenty.flatMap(
+            s=>s.elementy
         );
-    }
 
     let aktywnyGlobalny=
-        elementy.findIndex(
-            czyAktywnyZFallback386
+        wszystkieElementy.findIndex(
+            czyAktywny389
         );
 
-    function tytul386(litery){
+
+    function tytul389(litery){
 
         return(
             "Trasa w kursach "+
             litery
                 .map(
-                    l=>"„"+escapeHtml(l)+"”"
+                    l=>
+                        "„"+
+                        escapeHtml(l)+
+                        "”"
                 )
                 .join(", ")
         );
     }
 
+
+    let globalnyIndex=0;
+
     return segmenty
         .map(
             segment=>{
+
+                if(
+                    !segment.elementy.length
+                ){
+                    return "";
+                }
 
                 const wiersze=
                     segment.elementy
@@ -34163,19 +34176,17 @@ function renderWydluzeniaTrasy(){
                                     element?.p||
                                     element;
 
-                                const globalnyIndex=
-                                    elementy.indexOf(
-                                        element
-                                    );
+                                const tenIndex=
+                                    globalnyIndex++;
 
                                 const przed=
                                     aktywnyGlobalny>=0&&
-                                    globalnyIndex<
+                                    tenIndex<
                                         aktywnyGlobalny;
 
                                 const wybrany=
                                     aktywnyGlobalny>=0&&
-                                    globalnyIndex===
+                                    tenIndex===
                                         aktywnyGlobalny;
 
                                 let czas=null;
@@ -34186,11 +34197,7 @@ function renderWydluzeniaTrasy(){
                                         czas=0;
                                     }
                                     else{
-                                        /*
-                                           Dla odcinka wspólnego wystarczy czas
-                                           jednego z wariantów obsługujących ten
-                                           odcinek. Preferujemy pierwszy dostępny.
-                                        */
+
                                         for(
                                             const litera
                                             of segment.litery
@@ -34273,7 +34280,7 @@ function renderWydluzeniaTrasy(){
                 return(
                     '<div class="trasa-extra">'+
                     '<div class="trasa-extra-title">'+
-                    tytul386(
+                    tytul389(
                         segment.litery
                     )+
                     '</div>'+
@@ -38775,7 +38782,7 @@ function dopasujKolumnyTrasy() {
 
     const pierwszaKolumna = columns.querySelector(".trasa-kol");
     const wiersze = Array.from(
-        pierwszaKolumna?.querySelectorAll(".trasa-stop, .trasa-extra-title, .trasa-extra-stop") || []
+        pierwszaKolumna?.querySelectorAll(".trasa-stop") || []
     );
 
     if (!pierwszaKolumna || !wiersze.length) return;
@@ -40164,6 +40171,108 @@ window.addEventListener(
             }
         }
     );
+})();
+</script>
+
+
+<script>
+/* =========================================================
+   WERSJA 389 — TEN SAM UKŁAD 2 KOLUMN CO v246 / 401
+   ========================================================= */
+(function(){
+
+    const staryDopasuj389 =
+        dopasujKolumnyTrasy;
+
+    dopasujKolumnyTrasy =
+        function(){
+
+            staryDopasuj389();
+
+            const tabliczka=
+                document.querySelector(
+                    ".tabliczka"
+                );
+
+            const columns=
+                tabliczka?.querySelector(
+                    ".trasa-columns"
+                );
+
+            if(
+                !tabliczka||
+                !columns||
+                !columns.querySelector(
+                    ".trasa-extra"
+                )
+            ){
+                return;
+            }
+
+            const kolumny=
+                Array.from(
+                    columns.querySelectorAll(
+                        ":scope > .trasa-kol"
+                    )
+                );
+
+            if(!kolumny.length){
+                return;
+            }
+
+            const dolPanelu=
+                columns
+                    .getBoundingClientRect()
+                    .bottom;
+
+            const przelewa=
+                kolumny.some(
+                    kol=>{
+                        const ostatni=
+                            kol.lastElementChild;
+
+                        return(
+                            ostatni&&
+                            ostatni
+                                .getBoundingClientRect()
+                                .bottom>
+                            dolPanelu+0.5
+                        );
+                    }
+                );
+
+            if(!przelewa){
+                return;
+            }
+
+            /*
+               Jeżeli v246 uznała, że sama baza mieści się w 1 kolumnie,
+               ale po dołożeniu prawdziwych wydłużeń całość już się nie
+               mieści, przechodzimy na ten sam szeroki układ 2-kolumnowy.
+            */
+            if(
+                columns.classList.contains(
+                    "cols-1"
+                )
+            ){
+                tabliczka.classList.add(
+                    "trasa-2-kol"
+                );
+
+                columns.className=
+                    "trasa-columns cols-2";
+
+                ustawNaglowekTrasy(2);
+
+                /*
+                   Ponownie uruchamiamy oryginalny splitter v246 już przy
+                   szerokości dwóch kolumn. Baza zostanie podzielona tak,
+                   jak dla 401, a wydłużenie pozostanie w ostatniej kolumnie.
+                */
+                staryDopasuj389();
+            }
+        };
+
 })();
 </script>
 
