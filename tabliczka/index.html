@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 351 — JEDEN KOD
+     WERSJA: 352 — JEDEN KOD
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -7817,6 +7817,144 @@ function __bezCache_literaWariantuPoRzeczywistymPrzebiegu(
                 ).trim()===
                 oryginalna
         });
+    }
+
+    /*
+       WERSJA 352
+       SCALANIE IDENTYCZNYCH RZECZYWISTYCH PRZEBIEGÓW.
+
+       Nie wystarczy porównywać opisów wariantów. Dwa różne symbole
+       mogą oznaczać dokładnie ten sam zestaw obsługiwanych przystanków.
+
+       Dla bieżącego kursu budujemy sygnaturę jego rzeczywistego przebiegu
+       i szukamy innych kursów w tym samym kierunku o identycznej sygnaturze.
+       Jeżeli kilka liter opisuje dokładnie ten sam przebieg, wybieramy JEDNĄ:
+       preferowany jest wariant posiadający konkretny opis "przez ...".
+       Dzięki temu np. i oraz p o identycznym przebiegu stają się jednym
+       wariantem p, a l pozostaje osobno, jeśli dodatkowo jedzie przez POLFĘ.
+    */
+    const sygnaturaBiezacego352=
+        [...przystankiKursu]
+            .sort()
+            .join("|");
+
+    const wspolneLitery352=
+        new Map();
+
+    if(sygnaturaBiezacego352){
+
+        dostepneGrupyDni()
+            .slice(0,3)
+            .forEach(grupa352=>{
+
+                pobierzKursyDlaSymbolu(
+                    grupa352.symbol
+                )
+                .forEach(inny352=>{
+
+                    const dir352=
+                        Number(
+                            inny352?._kierunekIndex
+                        );
+
+                    if(
+                        dir352!==
+                        Number(kierunekIndex)
+                    ){
+                        return;
+                    }
+
+                    const lit352=
+                        String(
+                            inny352?.wariant||""
+                        ).trim();
+
+                    if(!lit352){
+                        return;
+                    }
+
+                    const set352=
+                        nazwyPrzystankowKursu(
+                            {
+                                ...inny352,
+                                symbol:grupa352.symbol,
+                                _kierunekIndex:dir352
+                            },
+                            dir352
+                        );
+
+                    const syg352=
+                        [...set352]
+                            .sort()
+                            .join("|");
+
+                    if(
+                        !syg352||
+                        syg352!==sygnaturaBiezacego352
+                    ){
+                        return;
+                    }
+
+                    const opis352=
+                        String(
+                            mapaWariantow()
+                                .get(lit352)||
+                            ""
+                        );
+
+                    const przez352=
+                        /\\bprzez\\b/i.test(
+                            opis352
+                        );
+
+                    const wymagane352=
+                        wymaganePrzystankiZWariantu(
+                            lit352,
+                            dir352
+                        ).length;
+
+                    const stary352=
+                        wspolneLitery352.get(
+                            lit352
+                        );
+
+                    if(
+                        !stary352||
+                        wymagane352>
+                        stary352.wymagane
+                    ){
+                        wspolneLitery352.set(
+                            lit352,
+                            {
+                                litera:lit352,
+                                przez:przez352,
+                                wymagane:wymagane352
+                            }
+                        );
+                    }
+                });
+            });
+
+        if(wspolneLitery352.size>1){
+
+            const najlepszy352=
+                [...wspolneLitery352.values()]
+                    .sort(
+                        (x,y)=>
+                            Number(y.przez)-
+                            Number(x.przez)||
+                            y.wymagane-
+                            x.wymagane||
+                            x.litera.localeCompare(
+                                y.litera,
+                                "pl"
+                            )
+                    )[0];
+
+            if(najlepszy352?.litera){
+                return najlepszy352.litera;
+            }
+        }
     }
 
     if(!kandydaci.length){
@@ -39376,7 +39514,7 @@ window.addEventListener(
 </script>
 
 <script>
-/* WERSJA 351 — jeden HTML; 134 -> 331, pozostałe -> 246 */
+/* WERSJA 352 — jeden HTML; 134 -> 331, pozostałe -> 246 */
 (function(){
     "use strict";
 
