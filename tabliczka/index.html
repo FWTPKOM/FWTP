@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 385
+     WERSJA: 386
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -33885,89 +33885,303 @@ function renderWydluzeniaTrasy(){
     const dane=
         daneTrasWydluzonych();
 
-    if(!dane.wydluzenia.length){
-        return"";
+    if(
+        !Array.isArray(dane?.wydluzenia)||
+        !dane.wydluzenia.length
+    ){
+        return "";
     }
 
-    return dane.wydluzenia
+    /*
+       WERSJA 386
+
+       Nie renderujemy już każdego wydłużenia jako całkowicie
+       osobnej gałęzi.
+
+       Jeżeli np.:
+         s: UTRATA -> SZEROKA -> ARESZT... -> OS. DUDZIARSKA
+            -> RONDO GRANZOWA -> ... -> REMBERTÓW-STRZELNICA
+
+         r: UTRATA -> RONDO GRANZOWA -> ... -> REMBERTÓW-STRZELNICA
+
+       wynik ma być:
+         Trasa w kursach „s”
+           SZEROKA
+           ARESZT ŚLEDCZY GROCHÓW
+           OS. DUDZIARSKA
+
+         Trasa w kursach „r”, „s”
+           RONDO GRANZOWA
+           ...
+           REMBERTÓW-STRZELNICA
+
+       Czyli nagłówki wynikają z RZECZYWISTEGO zestawu wariantów
+       obsługujących kolejne przystanki.
+    */
+
+    const warianty=
+        dane.wydluzenia
+            .map(
+                w=>({
+                    ...w,
+                    litera:
+                        String(w?.litera||"")
+                            .trim()
+                            .toLowerCase()
+                })
+            )
+            .filter(
+                w=>
+                    w.litera&&
+                    Array.isArray(w.przystanki)&&
+                    w.przystanki.length&&
+                    aktywnyMaWariant206(w.litera)
+            );
+
+    if(!warianty.length){
+        return "";
+    }
+
+    /*
+       Wszystkie elementy wydłużeń pochodzą z jednej finalnej listy
+       pelna, więc zachowujemy jej rzeczywistą kolejność.
+    */
+    const pelna=
+        listaPelnejTrasyDoWyswietlenia();
+
+    const zbiorElementow=
+        new Set();
+
+    warianty.forEach(
+        w=>
+            w.przystanki.forEach(
+                el=>zbiorElementow.add(el)
+            )
+    );
+
+    const elementy=
+        pelna.filter(
+            el=>zbiorElementow.has(el)
+        );
+
+    /*
+       Awaryjny fallback, gdyby referencje elementów zostały kiedyś
+       skopiowane przez inną funkcję.
+    */
+    if(!elementy.length){
+        warianty.forEach(
+            w=>
+                w.przystanki.forEach(
+                    el=>{
+                        if(!elementy.includes(el)){
+                            elementy.push(el);
+                        }
+                    }
+                )
+        );
+    }
+
+    if(!elementy.length){
+        return "";
+    }
+
+    function literyElementu386(element){
+
+        return warianty
+            .filter(
+                w=>w.przystanki.includes(element)
+            )
+            .map(w=>w.litera)
+            .sort(
+                (a,b)=>
+                    a.localeCompare(
+                        b,
+                        "pl",
+                        {numeric:true}
+                    )
+            );
+    }
+
+    /*
+       Dzielimy wydłużenie na kolejne odcinki.
+       Nowy odcinek powstaje dokładnie wtedy, gdy zmienia się zestaw
+       wariantów jadących przez dany przystanek.
+    */
+    const segmenty=[];
+
+    elementy.forEach(
+        element=>{
+
+            const litery=
+                literyElementu386(element);
+
+            if(!litery.length){
+                return;
+            }
+
+            const klucz=
+                litery.join("|");
+
+            const ostatni=
+                segmenty[
+                    segmenty.length-1
+                ];
+
+            if(
+                !ostatni||
+                ostatni.klucz!==klucz
+            ){
+                segmenty.push({
+                    klucz,
+                    litery,
+                    elementy:[element]
+                });
+            }
+            else{
+                ostatni.elementy.push(
+                    element
+                );
+            }
+        }
+    );
+
+    if(!segmenty.length){
+        return "";
+    }
+
+    const baza=
+        kierunekBazowy()
+            ?.przystanki||
+        [];
+
+    const aktywny=
+        baza[
+            aktualnyPrzystanek
+        ]||null;
+
+    function czyAktywny386(element){
+
+        if(!aktywny){
+            return false;
+        }
+
+        const p=
+            element?.p||
+            element;
+
+        return(
+            normalizuj(p?.nazwa)===
+                normalizuj(aktywny?.nazwa)&&
+            String(p?.nr||"").trim()===
+                String(aktywny?.nr||"").trim()
+        );
+    }
+
+    /*
+       Jeżeli dokładnego numeru nie uda się znaleźć, ale nazwa
+       występuje w całym wydłużeniu tylko raz, pozwalamy na bezpieczny
+       fallback po nazwie — zgodnie z istniejącą logiką tabliczki.
+    */
+    const poNazwie=
+        aktywny
+            ? elementy.filter(
+                el=>
+                    normalizuj(
+                        (el?.p||el)?.nazwa
+                    )===
+                    normalizuj(
+                        aktywny?.nazwa
+                    )
+              )
+            : [];
+
+    function czyAktywnyZFallback386(element){
+
+        if(czyAktywny386(element)){
+            return true;
+        }
+
+        return(
+            poNazwie.length===1&&
+            poNazwie[0]===element
+        );
+    }
+
+    let aktywnyGlobalny=
+        elementy.findIndex(
+            czyAktywnyZFallback386
+        );
+
+    function tytul386(litery){
+
+        return(
+            "Trasa w kursach "+
+            litery
+                .map(
+                    l=>"„"+escapeHtml(l)+"”"
+                )
+                .join(", ")
+        );
+    }
+
+    return segmenty
         .map(
-            wariant=>{
-
-                const litera=
-                    String(
-                        wariant.litera||""
-                    )
-                    .trim()
-                    .toLowerCase();
-
-                /*
-                   v206:
-                   nie pokazujemy bocznej gałęzi wariantu,
-                   którego nie ma w kursach aktywnego słupka.
-                */
-                if(
-                    litera&&
-                    !aktywnyMaWariant206(
-                        litera
-                    )
-                ){
-                    return"";
-                }
-
-                const przystankiWydluzenia=
-                    listaWydluzeniaBezPowtorzonegoKranca(
-                        wariant,
-                        dane.baza
-                    );
-
-                /*
-                 * Aktywną pozycję liczymy WSPÓLNĄ funkcją.
-                 * Ta sama decyzja jest używana również do tego,
-                 * czy główna lista ma wyłączyć wcześniejszy aktywny wpis.
-                 */
-                const aktywnaPozycja=
-                    pozycjaAktywnegoWWydluzeniu(
-                        wariant,
-                        dane
-                    );
+            segment=>{
 
                 const wiersze=
-                    przystankiWydluzenia
+                    segment.elementy
                         .map(
-                            (element,pozycja)=>{
+                            element=>{
 
                                 const p=
-                                    element.p;
+                                    element?.p||
+                                    element;
+
+                                const globalnyIndex=
+                                    elementy.indexOf(
+                                        element
+                                    );
 
                                 const przed=
-                                    aktywnaPozycja>=0&&
-                                    pozycja<
-                                        aktywnaPozycja;
+                                    aktywnyGlobalny>=0&&
+                                    globalnyIndex<
+                                        aktywnyGlobalny;
 
                                 const wybrany=
-                                    aktywnaPozycja>=0&&
-                                    pozycja===
-                                        aktywnaPozycja;
+                                    aktywnyGlobalny>=0&&
+                                    globalnyIndex===
+                                        aktywnyGlobalny;
 
                                 let czas=null;
 
-                                /*
-                                   Dokładnie jak w zwykłej liście:
-                                   - przed aktywnym: bez czasu,
-                                   - aktywny: 0,
-                                   - po aktywnym: normalny czas.
-                                */
                                 if(!przed){
 
                                     if(wybrany){
                                         czas=0;
                                     }
                                     else{
-                                        czas=
-                                            czasWariantuNaPrzystanku(
-                                                wariant.litera,
-                                                element
-                                            );
+                                        /*
+                                           Dla odcinka wspólnego wystarczy czas
+                                           jednego z wariantów obsługujących ten
+                                           odcinek. Preferujemy pierwszy dostępny.
+                                        */
+                                        for(
+                                            const litera
+                                            of segment.litery
+                                        ){
+                                            czas=
+                                                czasWariantuNaPrzystanku(
+                                                    litera,
+                                                    element
+                                                );
+
+                                            if(
+                                                czas!==null&&
+                                                typeof czas!=="undefined"
+                                            ){
+                                                break;
+                                            }
+                                        }
                                     }
                                 }
 
@@ -33991,7 +34205,8 @@ function renderWydluzeniaTrasy(){
                                     '">'+
                                     '<span class="trasa-czas">'+
                                     (
-                                        czas===null
+                                        czas===null||
+                                        typeof czas==="undefined"
                                             ? ''
                                             : escapeHtml(
                                                 String(czas)
@@ -34029,18 +34244,12 @@ function renderWydluzeniaTrasy(){
                         )
                         .join("");
 
-                if(
-                    !przystankiWydluzenia.length
-                ){
-                    return"";
-                }
-
                 return(
                     '<div class="trasa-extra">'+
                     '<div class="trasa-extra-title">'+
-                    'Trasa w kursach „'+
-                    escapeHtml(litera)+
-                    '”'+
+                    tytul386(
+                        segment.litery
+                    )+
                     '</div>'+
                     '<ul class="trasa-extra-lista">'+
                     wiersze+
