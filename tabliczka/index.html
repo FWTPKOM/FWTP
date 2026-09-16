@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 387
+     WERSJA: 388
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -4328,6 +4328,32 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     bottom: 0 !important;
     height: auto !important;
 }
+</style>
+
+
+<style>
+/* =========================================================
+   WERSJA 388 — WYDŁUŻENIA KORZYSTAJĄ Z TEGO SAMEGO UKŁADU CO 401
+   ========================================================= */
+
+.tabliczka .trasa-extra {
+    break-inside: auto !important;
+    overflow: visible !important;
+}
+
+.tabliczka .trasa-extra-lista {
+    overflow: visible !important;
+}
+
+.tabliczka .trasa-extra-title,
+.tabliczka .trasa-extra-stop {
+    break-inside: avoid !important;
+}
+
+/*
+   Nie tworzymy osobnego "drugiego systemu kolumn" dla wydłużeń.
+   Mają być mierzone i dzielone razem z normalną listą trasy.
+*/
 </style>
 
 </head>
@@ -38749,7 +38775,7 @@ function dopasujKolumnyTrasy() {
 
     const pierwszaKolumna = columns.querySelector(".trasa-kol");
     const wiersze = Array.from(
-        pierwszaKolumna?.querySelectorAll(".trasa-stop") || []
+        pierwszaKolumna?.querySelectorAll(".trasa-stop, .trasa-extra-title, .trasa-extra-stop") || []
     );
 
     if (!pierwszaKolumna || !wiersze.length) return;
@@ -40138,246 +40164,6 @@ window.addEventListener(
             }
         }
     );
-})();
-</script>
-
-
-<script>
-/* =========================================================
-   WERSJA 387 — WYDŁUŻENIA TEŻ UCZESTNICZĄ W PODZIALE NA KOLUMNY
-   ========================================================= */
-(function(){
-
-    const staryDopasujKolumnyTrasy387 =
-        dopasujKolumnyTrasy;
-
-    dopasujKolumnyTrasy = function(){
-
-        staryDopasujKolumnyTrasy387();
-
-        /*
-           Stary podział mierzył przede wszystkim .trasa-stop.
-           Wydłużenia (.trasa-extra / .trasa-extra-stop) mogły więc
-           wychodzić pod dolną krawędź strony zamiast przejść do
-           drugiej kolumny.
-        */
-        requestAnimationFrame(
-            ()=>podzielWydluzeniaNaKolumny387()
-        );
-    };
-
-
-    function podzielWydluzeniaNaKolumny387(){
-
-        const tabliczka =
-            document.querySelector(".tabliczka");
-
-        const columns =
-            tabliczka?.querySelector(".trasa-columns");
-
-        if(!tabliczka || !columns){
-            return;
-        }
-
-        const pierwsza =
-            columns.querySelector(".trasa-kol");
-
-        if(!pierwsza){
-            return;
-        }
-
-        const extras =
-            Array.from(
-                pierwsza.querySelectorAll(":scope > .trasa-extra")
-            );
-
-        if(!extras.length){
-            return;
-        }
-
-        const styl =
-            getComputedStyle(pierwsza);
-
-        const maxDol =
-            pierwsza.getBoundingClientRect().top +
-            columns.clientHeight -
-            (parseFloat(styl.paddingBottom || 0) || 0) -
-            1;
-
-        /*
-           Jeżeli całe wydłużenie już się mieści, nic nie zmieniamy.
-        */
-        const ostatniElement =
-            pierwsza.lastElementChild;
-
-        if(
-            ostatniElement &&
-            ostatniElement.getBoundingClientRect().bottom <= maxDol + 0.5
-        ){
-            return;
-        }
-
-        /*
-           Przechodzimy na 2 kolumny. Pierwszą pozostawiamy możliwie
-           pełną, a nadmiar wydłużenia przenosimy do drugiej.
-        */
-        tabliczka.classList.remove("trasa-3-kol");
-        tabliczka.classList.add("trasa-2-kol");
-
-        columns.className = "trasa-columns cols-2";
-
-        if(typeof ustawNaglowekTrasy === "function"){
-            ustawNaglowekTrasy(2);
-        }
-
-        let druga =
-            columns.children[1];
-
-        if(!druga){
-            druga = document.createElement("div");
-            druga.className = "trasa-kol";
-            columns.appendChild(druga);
-        }
-
-        /*
-           Jeżeli druga kolumna zawiera zwykłą listę dalszej części
-           trasy, zachowujemy ją. W typowym przypadku 338 jest pusta.
-        */
-        function utworzKontynuacjeExtra387(extra){
-
-            const nowy =
-                document.createElement("div");
-
-            nowy.className =
-                extra.className + " trasa-extra-kontynuacja-387";
-
-            const lista =
-                document.createElement("ul");
-
-            lista.className = "trasa-extra-lista";
-
-            nowy.appendChild(lista);
-
-            return {nowy, lista};
-        }
-
-        let cel = null;
-
-        /*
-           Idziemy po każdym bloku wydłużenia i po każdym jego wierszu.
-           Wiersze, które już nie mieszczą się w pierwszej kolumnie,
-           są przenoszone do drugiej kolumny.
-        */
-        extras.forEach(
-            extra=>{
-
-                const lista =
-                    extra.querySelector(":scope > .trasa-extra-lista");
-
-                if(!lista){
-                    return;
-                }
-
-                const wiersze =
-                    Array.from(lista.children);
-
-                for(let i=0; i<wiersze.length; i++){
-
-                    const wiersz = wiersze[i];
-
-                    if(
-                        wiersz.getBoundingClientRect().bottom <=
-                        maxDol + 0.5
-                    ){
-                        continue;
-                    }
-
-                    if(!cel){
-
-                        cel =
-                            utworzKontynuacjeExtra387(extra);
-
-                        /*
-                           Jeżeli przejście do drugiej kolumny następuje
-                           dokładnie na początku nowego segmentu, przenosimy
-                           także jego nagłówek. W przeciwnym razie jest to
-                           zwykła kontynuacja tej samej sekcji.
-                        */
-                        const title =
-                            extra.querySelector(":scope > .trasa-extra-title");
-
-                        if(
-                            i === 0 &&
-                            title
-                        ){
-                            cel.nowy.insertBefore(
-                                title.cloneNode(true),
-                                cel.lista
-                            );
-                        }
-
-                        druga.appendChild(cel.nowy);
-                    }
-
-                    cel.lista.appendChild(wiersz);
-                }
-
-                /*
-                   Jeżeli następny .trasa-extra jest osobnym segmentem
-                   (np. po "Trasa w kursach s" zaczyna się
-                   "Trasa w kursach r, s"), w drugiej kolumnie ma dostać
-                   własny nagłówek, a nie zostać doklejony do poprzedniego.
-                */
-                if(
-                    cel &&
-                    !lista.children.length
-                ){
-                    const title =
-                        extra.querySelector(":scope > .trasa-extra-title");
-
-                    if(title){
-                        const titleWDrugiej =
-                            cel.nowy.querySelector(
-                                ":scope > .trasa-extra-title"
-                            );
-
-                        if(!titleWDrugiej){
-                            cel.nowy.insertBefore(
-                                title.cloneNode(true),
-                                cel.lista
-                            );
-                        }
-                    }
-                }
-
-                cel = null;
-            }
-        );
-
-        /*
-           Puste bloki po przeniesieniu usuwamy.
-        */
-        Array.from(
-            pierwsza.querySelectorAll(":scope > .trasa-extra")
-        ).forEach(
-            extra=>{
-                const lista =
-                    extra.querySelector(":scope > .trasa-extra-lista");
-
-                if(
-                    lista &&
-                    !lista.children.length
-                ){
-                    extra.remove();
-                }
-            }
-        );
-
-        if(typeof ustawZawijanieNazwTrasy === "function"){
-            ustawZawijanieNazwTrasy(columns);
-        }
-    }
-
 })();
 </script>
 
