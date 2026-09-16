@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 336 — JEDEN KOD
+     WERSJA: 337 — JEDEN KOD
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-15
      ========================================================= -->
@@ -15949,11 +15949,6 @@ function przeniesLegendeJesliWychodziPozaStrone237(
         return;
     }
 
-    /*
-       Jeśli legenda została już przeniesiona, niczego więcej nie robimy.
-       To najważniejsza zmiana względem v230-v236:
-       nie ma już ciągłego wyjmowania i ponownego wkładania elementu.
-    */
     if(
         tabliczka.querySelector(
             ".legenda.legenda-przeniesiona-237"
@@ -15977,6 +15972,10 @@ function przeniesLegendeJesliWychodziPozaStrone237(
     const legRect=
         legenda.getBoundingClientRect();
 
+    /*
+       Jeżeli legenda mieści się pod rozkładem,
+       zostaje po lewej stronie.
+    */
     if(
         legRect.bottom<=
         tabRect.bottom-1
@@ -15984,26 +15983,65 @@ function przeniesLegendeJesliWychodziPozaStrone237(
         return;
     }
 
-    const kolumny=
-        Array.from(
-            tabliczka.querySelectorAll(
-                ".panel-prawy .trasa-columns > .trasa-kol"
-            )
+    const columns=
+        tabliczka.querySelector(
+            ".panel-prawy .trasa-columns"
         );
 
-    if(!kolumny.length){
+    if(!columns){
         return;
     }
 
-    const docelowa=
-        kolumny[kolumny.length-1];
+    const stareKolumny=
+        Array.from(
+            columns.querySelectorAll(
+                ":scope > .trasa-kol"
+            )
+        );
+
+    if(!stareKolumny.length){
+        return;
+    }
 
     /*
-       Legenda ma być POD CAŁĄ zawartością ostatniej kolumny,
-       także pod .trasa-extra ("Trasa w kursach...").
-       Dlatego nie wstawiamy jej już do żadnego UL.
-       Zawsze appendChild bezpośrednio do .trasa-kol.
+       Zapamiętujemy całą listę przystanków dokładnie tak,
+       jak została wyrenderowana.
+       NIE łączymy takich samych nazw — np. dwa METRO BRÓDNO
+       pozostają dwoma osobnymi <li>.
     */
+    const elementy=
+        [];
+
+    stareKolumny.forEach(
+        kolumna=>{
+            Array.from(
+                kolumna.querySelectorAll(
+                    ":scope > .trasa-lista > li"
+                )
+            ).forEach(
+                li=>
+                    elementy.push(
+                        li.outerHTML
+                    )
+            );
+        }
+    );
+
+    if(!elementy.length){
+        return;
+    }
+
+    const dodatki=
+        Array.from(
+            columns.querySelectorAll(
+                ":scope > .trasa-kol > .trasa-extra"
+            )
+        )
+        .map(
+            el=>el.outerHTML
+        )
+        .join("");
+
     legenda.classList.remove(
         "legenda-przeniesiona-234",
         "legenda-przeniesiona-235"
@@ -16013,8 +16051,158 @@ function przeniesLegendeJesliWychodziPozaStrone237(
         "legenda-przeniesiona-237"
     );
 
-    docelowa.appendChild(
-        legenda
+    const legendaHTML=
+        legenda.outerHTML;
+
+    /*
+       Od tej chwili legenda nie jest już po lewej.
+       Będzie częścią OSTATNIEJ kolumny trasy.
+    */
+    legenda.remove();
+
+    const renderujPodzial=
+        podzial=>{
+
+            tabliczka.classList.remove(
+                "trasa-3-kol"
+            );
+
+            tabliczka.classList.add(
+                "trasa-2-kol"
+            );
+
+            columns.className=
+                "trasa-columns cols-2";
+
+            ustawNaglowekTrasy(2);
+
+            columns.innerHTML=
+                '<div class="trasa-kol">'+
+                    '<ul class="trasa-lista">'+
+                        elementy
+                            .slice(0,podzial)
+                            .join("")+
+                    '</ul>'+
+                '</div>'+
+                '<div class="trasa-kol">'+
+                    '<ul class="trasa-lista">'+
+                        elementy
+                            .slice(podzial)
+                            .join("")+
+                    '</ul>'+
+                    dodatki+
+                    legendaHTML+
+                '</div>';
+
+            ustawZawijanieNazwTrasy(
+                columns
+            );
+
+            const kolumny=
+                Array.from(
+                    columns.querySelectorAll(
+                        ":scope > .trasa-kol"
+                    )
+                );
+
+            return(
+                kolumny.length===2&&
+                kolumny.every(
+                    kolumna=>
+                        kolumna.scrollHeight<=
+                        columns.clientHeight+1
+                )
+            );
+        };
+
+    /*
+       Najpierw sprawdzamy, czy cała lista + legenda
+       zmieściłaby się jeszcze w jednej kolumnie.
+    */
+    tabliczka.classList.remove(
+        "trasa-2-kol",
+        "trasa-3-kol"
+    );
+
+    columns.className=
+        "trasa-columns cols-1";
+
+    ustawNaglowekTrasy(1);
+
+    columns.innerHTML=
+        '<div class="trasa-kol">'+
+            '<ul class="trasa-lista">'+
+                elementy.join("")+
+            '</ul>'+
+            dodatki+
+            legendaHTML+
+        '</div>';
+
+    ustawZawijanieNazwTrasy(
+        columns
+    );
+
+    const jedna=
+        columns.querySelector(
+            ":scope > .trasa-kol"
+        );
+
+    if(
+        jedna&&
+        jedna.scrollHeight<=
+        columns.clientHeight+1
+    ){
+        return;
+    }
+
+    /*
+       Nie mieści się w jednej kolumnie:
+       testujemy KAŻDY podział na dwie kolumny.
+
+       Wybieramy NAJPÓŹNIEJSZY poprawny punkt,
+       czyli pierwsza kolumna jest zapełniona
+       maksymalnie do dołu, a dopiero potem
+       zaczyna się druga.
+
+       Wysokość legendy jest częścią pomiaru
+       drugiej kolumny.
+    */
+    let najlepszy=null;
+
+    for(
+        let k=1;
+        k<elementy.length;
+        k++
+    ){
+        if(
+            renderujPodzial(k)
+        ){
+            najlepszy=k;
+        }
+    }
+
+    if(najlepszy!==null){
+        renderujPodzial(
+            najlepszy
+        );
+        return;
+    }
+
+    /*
+       Awaryjnie, gdy nawet dwie pełne kolumny są za niskie,
+       pozostawiamy najbardziej równy podział. Legenda nadal
+       pozostaje na samym końcu drugiej kolumny.
+    */
+    renderujPodzial(
+        Math.max(
+            1,
+            Math.min(
+                elementy.length-1,
+                Math.ceil(
+                    elementy.length/2
+                )
+            )
+        )
     );
 }
 
@@ -35269,11 +35457,6 @@ function przeniesLegendeJesliWychodziPozaStrone237(
         return;
     }
 
-    /*
-       Jeśli legenda została już przeniesiona, niczego więcej nie robimy.
-       To najważniejsza zmiana względem v230-v236:
-       nie ma już ciągłego wyjmowania i ponownego wkładania elementu.
-    */
     if(
         tabliczka.querySelector(
             ".legenda.legenda-przeniesiona-237"
@@ -35297,6 +35480,10 @@ function przeniesLegendeJesliWychodziPozaStrone237(
     const legRect=
         legenda.getBoundingClientRect();
 
+    /*
+       Jeżeli legenda mieści się pod rozkładem,
+       zostaje po lewej stronie.
+    */
     if(
         legRect.bottom<=
         tabRect.bottom-1
@@ -35304,26 +35491,65 @@ function przeniesLegendeJesliWychodziPozaStrone237(
         return;
     }
 
-    const kolumny=
-        Array.from(
-            tabliczka.querySelectorAll(
-                ".panel-prawy .trasa-columns > .trasa-kol"
-            )
+    const columns=
+        tabliczka.querySelector(
+            ".panel-prawy .trasa-columns"
         );
 
-    if(!kolumny.length){
+    if(!columns){
         return;
     }
 
-    const docelowa=
-        kolumny[kolumny.length-1];
+    const stareKolumny=
+        Array.from(
+            columns.querySelectorAll(
+                ":scope > .trasa-kol"
+            )
+        );
+
+    if(!stareKolumny.length){
+        return;
+    }
 
     /*
-       Legenda ma być POD CAŁĄ zawartością ostatniej kolumny,
-       także pod .trasa-extra ("Trasa w kursach...").
-       Dlatego nie wstawiamy jej już do żadnego UL.
-       Zawsze appendChild bezpośrednio do .trasa-kol.
+       Zapamiętujemy całą listę przystanków dokładnie tak,
+       jak została wyrenderowana.
+       NIE łączymy takich samych nazw — np. dwa METRO BRÓDNO
+       pozostają dwoma osobnymi <li>.
     */
+    const elementy=
+        [];
+
+    stareKolumny.forEach(
+        kolumna=>{
+            Array.from(
+                kolumna.querySelectorAll(
+                    ":scope > .trasa-lista > li"
+                )
+            ).forEach(
+                li=>
+                    elementy.push(
+                        li.outerHTML
+                    )
+            );
+        }
+    );
+
+    if(!elementy.length){
+        return;
+    }
+
+    const dodatki=
+        Array.from(
+            columns.querySelectorAll(
+                ":scope > .trasa-kol > .trasa-extra"
+            )
+        )
+        .map(
+            el=>el.outerHTML
+        )
+        .join("");
+
     legenda.classList.remove(
         "legenda-przeniesiona-234",
         "legenda-przeniesiona-235"
@@ -35333,8 +35559,158 @@ function przeniesLegendeJesliWychodziPozaStrone237(
         "legenda-przeniesiona-237"
     );
 
-    docelowa.appendChild(
-        legenda
+    const legendaHTML=
+        legenda.outerHTML;
+
+    /*
+       Od tej chwili legenda nie jest już po lewej.
+       Będzie częścią OSTATNIEJ kolumny trasy.
+    */
+    legenda.remove();
+
+    const renderujPodzial=
+        podzial=>{
+
+            tabliczka.classList.remove(
+                "trasa-3-kol"
+            );
+
+            tabliczka.classList.add(
+                "trasa-2-kol"
+            );
+
+            columns.className=
+                "trasa-columns cols-2";
+
+            ustawNaglowekTrasy(2);
+
+            columns.innerHTML=
+                '<div class="trasa-kol">'+
+                    '<ul class="trasa-lista">'+
+                        elementy
+                            .slice(0,podzial)
+                            .join("")+
+                    '</ul>'+
+                '</div>'+
+                '<div class="trasa-kol">'+
+                    '<ul class="trasa-lista">'+
+                        elementy
+                            .slice(podzial)
+                            .join("")+
+                    '</ul>'+
+                    dodatki+
+                    legendaHTML+
+                '</div>';
+
+            ustawZawijanieNazwTrasy(
+                columns
+            );
+
+            const kolumny=
+                Array.from(
+                    columns.querySelectorAll(
+                        ":scope > .trasa-kol"
+                    )
+                );
+
+            return(
+                kolumny.length===2&&
+                kolumny.every(
+                    kolumna=>
+                        kolumna.scrollHeight<=
+                        columns.clientHeight+1
+                )
+            );
+        };
+
+    /*
+       Najpierw sprawdzamy, czy cała lista + legenda
+       zmieściłaby się jeszcze w jednej kolumnie.
+    */
+    tabliczka.classList.remove(
+        "trasa-2-kol",
+        "trasa-3-kol"
+    );
+
+    columns.className=
+        "trasa-columns cols-1";
+
+    ustawNaglowekTrasy(1);
+
+    columns.innerHTML=
+        '<div class="trasa-kol">'+
+            '<ul class="trasa-lista">'+
+                elementy.join("")+
+            '</ul>'+
+            dodatki+
+            legendaHTML+
+        '</div>';
+
+    ustawZawijanieNazwTrasy(
+        columns
+    );
+
+    const jedna=
+        columns.querySelector(
+            ":scope > .trasa-kol"
+        );
+
+    if(
+        jedna&&
+        jedna.scrollHeight<=
+        columns.clientHeight+1
+    ){
+        return;
+    }
+
+    /*
+       Nie mieści się w jednej kolumnie:
+       testujemy KAŻDY podział na dwie kolumny.
+
+       Wybieramy NAJPÓŹNIEJSZY poprawny punkt,
+       czyli pierwsza kolumna jest zapełniona
+       maksymalnie do dołu, a dopiero potem
+       zaczyna się druga.
+
+       Wysokość legendy jest częścią pomiaru
+       drugiej kolumny.
+    */
+    let najlepszy=null;
+
+    for(
+        let k=1;
+        k<elementy.length;
+        k++
+    ){
+        if(
+            renderujPodzial(k)
+        ){
+            najlepszy=k;
+        }
+    }
+
+    if(najlepszy!==null){
+        renderujPodzial(
+            najlepszy
+        );
+        return;
+    }
+
+    /*
+       Awaryjnie, gdy nawet dwie pełne kolumny są za niskie,
+       pozostawiamy najbardziej równy podział. Legenda nadal
+       pozostaje na samym końcu drugiej kolumny.
+    */
+    renderujPodzial(
+        Math.max(
+            1,
+            Math.min(
+                elementy.length-1,
+                Math.ceil(
+                    elementy.length/2
+                )
+            )
+        )
     );
 }
 
@@ -38919,7 +39295,7 @@ window.addEventListener(
 </script>
 
 <script>
-/* WERSJA 336 — jeden HTML, bez Base64 i bez document.write */
+/* WERSJA 337 — jeden HTML; 134 -> 331, pozostałe -> 246 */
 (function(){
     "use strict";
 
@@ -38932,9 +39308,12 @@ window.addEventListener(
             ?"fwtp-kod-331"
             :"fwtp-kod-246";
 
-    const kod=document.getElementById(id).textContent;
+    const kod=
+        document.getElementById(id).textContent;
 
-    const skrypt=document.createElement("script");
+    const skrypt=
+        document.createElement("script");
+
     skrypt.textContent=kod;
     document.body.appendChild(skrypt);
 })();
