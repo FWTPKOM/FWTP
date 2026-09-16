@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 359
+     WERSJA: 360
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -24715,24 +24715,6 @@ async function wczytajLinie(){
         */
         await czekajNaPelneRenderowanieTabliczki();
 
-        /*
-           WERSJA 358 — DRUGI PRZEBIEG PO WCZYTANIU LINII.
-
-           Przy pierwszym wejściu z innej strony JSON i część danych
-           pomocniczych są pobierane asynchronicznie. Pierwszy render
-           potrafił więc powstać zanim wszystkie końcowe obliczenia trasy
-           były już gotowe. Po zwykłym F5 dane były w cache i drugi problem
-           znikał — dlatego po odświeżeniu układ był poprawny.
-
-           Wykonujemy drugi render dopiero PO zakończeniu pierwszego
-           pełnego układania. Nie zmieniamy żadnej logiki wariantów,
-           kierunków ani tras — tylko uruchamiamy ten sam renderer jeszcze
-           raz, już na kompletnie przygotowanych danych.
-        */
-        renderuj();
-
-        await czekajNaPelneRenderowanieTabliczki();
-
         ustawStatus(
             "Linia "+
             String(
@@ -38938,143 +38920,156 @@ window.addEventListener(
 (function(){
     "use strict";
 
-    const p359=
-        new URLSearchParams(
-            window.location.search
-        );
+    /*
+       WERSJA 360 — PRZEŁĄCZANIE RODZINY SILNIKA
 
-    const linia359=
+       Silnik jest wybierany podczas startu dokumentu:
+         134             -> 331
+         wszystkie inne -> 246
+
+       Jeżeli użytkownik zmieni linię tak, że trzeba przejść
+       z jednej rodziny silnika do drugiej, dokument MUSI zostać
+       uruchomiony ponownie z właściwym kodem.
+
+       Dzięki temu:
+       - wejście z 126/131/170/401 na 134 od razu uruchamia 331,
+       - wejście z 134 na 126/131/170/401 od razu uruchamia 246,
+       - zwykła zmiana 126 -> 131 nie przeładowuje strony,
+       - nie ma już sytuacji, że dopiero ręczne F5 naprawia trasę.
+    */
+
+    const startowaLinia360=
         String(
-            p359.get("linia")||""
+            new URLSearchParams(
+                window.location.search
+            ).get("linia")||""
         ).trim();
 
-    if(
-        !linia359||
-        linia359==="134"
-    ){
-        return;
+    const startowySilnik331_360=
+        startowaLinia360==="134";
+
+    function czySilnik331_360(linia){
+        return String(linia||"").trim()==="134";
     }
 
-    let wykonano359=false;
+    function przelaczSilnikJesliTrzeba360(event){
 
-    function finalnyStart359(){
+        const input=
+            document.getElementById("liniaInput");
 
-        if(wykonano359){
+        if(!input){
             return;
         }
 
-        const liniaInput=
-            document.getElementById(
-                "liniaInput"
+        const nowaLinia=
+            String(input.value||"").trim();
+
+        if(!nowaLinia){
+            return;
+        }
+
+        const potrzebuje331=
+            czySilnik331_360(
+                nowaLinia
             );
+
+        if(
+            potrzebuje331===
+            startowySilnik331_360
+        ){
+            return;
+        }
+
+        /*
+           Zatrzymujemy handler starego silnika.
+           To ważne: nie może on choć raz wyrenderować nowej linii.
+        */
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+
+        const url=
+            new URL(
+                window.location.href
+            );
+
+        url.searchParams.set(
+            "linia",
+            nowaLinia
+        );
 
         const dataInput=
             document.getElementById(
                 "dataInput"
             );
 
-        const kierunekSelect=
-            document.getElementById(
-                "kierunekSelect"
-            );
-
-        const przystanekSelect=
-            document.getElementById(
-                "przystanekSelect"
-            );
-
-        const pokazBtn=
-            document.getElementById(
-                "pokazBtn"
-            );
-
-        if(
-            !liniaInput||
-            !pokazBtn
-        ){
-            return;
-        }
-
-        /*
-           Parametry URL są źródłem prawdy przy pierwszym wejściu.
-           Nie pozwalamy, żeby wcześniejszy render zostawił wartości
-           odziedziczone z poprzednio oglądanej linii.
-        */
-        liniaInput.value=
-            linia359;
-
-        const data359=
-            String(
-                p359.get("data")||""
-            ).trim();
-
         if(
             dataInput&&
-            data359
+            String(dataInput.value||"").trim()
         ){
-            dataInput.value=
-                data359;
+            url.searchParams.set(
+                "data",
+                String(
+                    dataInput.value
+                ).trim()
+            );
         }
 
         /*
-           Najpierw odpalamy normalny mechanizm Pokaż dla linii.
-           Po jego asynchronicznym przygotowaniu kontrolek istniejąca
-           logika sama odczyta parametry kierunku/przystanku z URL.
+           Nowa linia zaczyna od kierunku 0 / pierwszego przystanku.
+           Usuwamy fizyczny przystanek poprzedniej linii.
         */
-        wykonano359=true;
+        url.searchParams.set(
+            "kierunek",
+            "0"
+        );
 
-        pokazBtn.click();
+        url.searchParams.set(
+            "przystanek",
+            "idx:0"
+        );
+
+        url.searchParams.delete(
+            "przystanekNazwa"
+        );
+
+        url.searchParams.delete(
+            "przystanekNr"
+        );
 
         /*
-           Drugi klik po pełnym zakończeniu kolejki przeglądarki jest
-           odpowiednikiem sytuacji po F5, ale bez przeładowania strony.
-           Nie zmienia algorytmu trasy — wymusza ponowne zastosowanie
-           parametrów dopiero po zakończeniu inicjalizacji.
+           replace zamiast sztucznego podwójnego renderu.
+           Nowy dokument startuje od razu z prawidłowym silnikiem.
         */
-        setTimeout(
-            ()=>{
-                requestAnimationFrame(
-                    ()=>{
-                        requestAnimationFrame(
-                            ()=>{
-                                if(
-                                    typeof pokazBtn.click===
-                                    "function"
-                                ){
-                                    pokazBtn.click();
-                                }
-                            }
-                        );
-                    }
-                );
-            },
-            350
+        window.location.replace(
+            url.toString()
         );
     }
 
-    function zaplanuj359(){
-        setTimeout(
-            ()=>{
-                requestAnimationFrame(
-                    ()=>
-                        requestAnimationFrame(
-                            finalnyStart359
-                        )
-                );
-            },
-            0
-        );
-    }
+    /*
+       capture=true:
+       nasza kontrola wykona się PRZED handlerem Pokaż
+       należącym do aktualnie uruchomionego silnika.
+    */
+    document.addEventListener(
+        "click",
+        event=>{
 
-    if(document.readyState==="complete"){
-        zaplanuj359();
-    }else{
-        window.addEventListener(
-            "load",
-            zaplanuj359,
-            {once:true}
-        );
-    }
+            const btn=
+                event.target?.closest?.(
+                    "#pokazBtn"
+                );
+
+            if(!btn){
+                return;
+            }
+
+            przelaczSilnikJesliTrzeba360(
+                event
+            );
+        },
+        true
+    );
 })();
 </script>
 
