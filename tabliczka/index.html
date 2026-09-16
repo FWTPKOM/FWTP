@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 402
+     WERSJA: 403
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -4386,18 +4386,11 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 
 
 <style>
-/* W402 — wygląd wariantu p zgodny z nagłówkami v399 */
-.trasa-extra-title-402 {
-    list-style: none !important;
-    margin: 9px auto 9px auto !important;
-    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
-    font-size: 13.5px !important;
-    line-height: 16px !important;
-    font-weight: 400 !important;
-    letter-spacing: 0.75px !important;
-    text-align: center !important;
-    transform: scaleY(1.30) !important;
-    transform-origin: center !important;
+/* =========================================================
+   WERSJA 403 — NŻ w wydłużeniach
+   ========================================================= */
+.tabliczka .trasa-stop.trasa-nz-403 .trasa-os::after {
+    background: #fff !important;
 }
 </style>
 
@@ -20625,6 +20618,36 @@ function normalizuj(tekst){
         surowy,
         wynik
     );
+
+    /*
+       W403: renderer v385 poprawnie zachowuje tekst "ż", ale po
+       przebudowie bloków znikała klasa odpowiadająca za pustą kropkę.
+       Odtwarzamy WYŁĄCZNIE stan kropki z już wyrenderowanego "ż".
+    */
+    if(
+        String(aktualnaLinia||"").trim()==="338"&&
+        Number(aktualnyKierunek)===0
+    ){
+        const box403=document.createElement("div");
+        box403.innerHTML=wynik;
+
+        Array.from(
+            box403.querySelectorAll(".trasa-extra-stop")
+        ).forEach(
+            row=>{
+                const ozn=
+                    String(
+                        row.querySelector(".trasa-nz")?.textContent||""
+                    ).trim().toLowerCase();
+
+                if(ozn){
+                    row.classList.add("trasa-nz-403");
+                }
+            }
+        );
+
+        wynik=box403.innerHTML;
+    }
 
     return wynik;
 }
@@ -38806,6 +38829,159 @@ function dopasujKolumnyTrasy() {
     parser397.innerHTML=
         html397;
 
+    /*
+       W403 — linia 338, kierunek powrotny.
+       Wariant p jest odgałęzieniem W ŚRODKU trasy, więc musi zostać
+       wstawiony tutaj: przed spłaszczeniem i przed podziałem kolumn.
+    */
+    if(
+        String(aktualnaLinia||"").trim()==="338"&&
+        Number(aktualnyKierunek)===1
+    ){
+        const lista403=
+            parser397.querySelector(".trasa-lista");
+
+        const kursP403=
+            znajdzKursWariantuDoTrasy("p");
+
+        if(lista403&&kursP403){
+
+            const pRoute403=
+                (
+                    Array.isArray(kursP403?.przystanki)
+                        ? kursP403.przystanki
+                        : (
+                            Array.isArray(kursP403?.trasa)
+                                ? kursP403.trasa
+                                : []
+                          )
+                ).map(x=>x?.p||x);
+
+            const baseRows403=
+                Array.from(
+                    lista403.querySelectorAll(":scope > .trasa-stop")
+                );
+
+            const baseNames403=
+                baseRows403.map(
+                    row=>normalizuj(
+                        row.querySelector(".trasa-nazwa")?.textContent||""
+                    )
+                );
+
+            const pNames403=
+                pRoute403.map(p=>normalizuj(p?.nazwa));
+
+            if(baseRows403.length&&pRoute403.length){
+
+                let pref403=0;
+
+                while(
+                    pref403<Math.min(baseNames403.length,pNames403.length)&&
+                    baseNames403[pref403]===pNames403[pref403]
+                ){
+                    pref403++;
+                }
+
+                let ib403=baseNames403.length-1;
+                let ip403=pNames403.length-1;
+
+                while(
+                    ib403>=pref403&&
+                    ip403>=pref403&&
+                    baseNames403[ib403]===pNames403[ip403]
+                ){
+                    ib403--;
+                    ip403--;
+                }
+
+                const pOnly403=
+                    pRoute403.slice(pref403,ip403+1);
+
+                const rejoin403=
+                    pRoute403[ip403+1]||null;
+
+                if(pOnly403.length&&rejoin403){
+
+                    const rejoinName403=
+                        normalizuj(rejoin403?.nazwa);
+
+                    const rejoinRow403=
+                        baseRows403.find(
+                            (row,index)=>
+                                index>=pref403&&
+                                normalizuj(
+                                    row.querySelector(".trasa-nazwa")?.textContent||""
+                                )===rejoinName403
+                        );
+
+                    if(rejoinRow403){
+
+                        const titleP403=document.createElement("li");
+                        titleP403.className=
+                            "trasa-separator trasa-extra-title-397";
+                        titleP403.textContent=
+                            "Trasa w kursach „p”";
+
+                        lista403.insertBefore(
+                            titleP403,
+                            rejoinRow403
+                        );
+
+                        pOnly403.forEach(
+                            p=>{
+                                const czas403=
+                                    czasWariantuNaPrzystanku("p",p);
+
+                                const row403=
+                                    document.createElement("li");
+
+                                row403.className=
+                                    "trasa-stop trasa-extra-stop-397"+
+                                    (czyNaZadanie(p) ? " trasa-nz-403" : "");
+
+                                row403.innerHTML=
+                                    '<span class="trasa-czas">'+
+                                        (
+                                            czas403===null||
+                                            typeof czas403==="undefined"
+                                                ? ""
+                                                : escapeHtml(String(czas403))
+                                        )+
+                                    '</span>'+
+                                    '<span class="trasa-os"></span>'+
+                                    '<span class="trasa-nazwa">'+
+                                        escapeHtml(
+                                            String(p?.nazwa||"").toUpperCase()
+                                        )+
+                                    '</span>'+
+                                    '<span class="trasa-nz">'+
+                                        (czyNaZadanie(p) ? "ż" : "")+
+                                    '</span>';
+
+                                lista403.insertBefore(
+                                    row403,
+                                    rejoinRow403
+                                );
+                            }
+                        );
+
+                        const titleAll403=document.createElement("li");
+                        titleAll403.className=
+                            "trasa-separator trasa-extra-title-397";
+                        titleAll403.textContent=
+                            "Trasa we wszystkich kursach";
+
+                        lista403.insertBefore(
+                            titleAll403,
+                            rejoinRow403
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     const wszystkie397=[];
 
     const bazowa397=
@@ -40495,346 +40671,6 @@ window.addEventListener(
         }
     );
 })();
-
-/* =========================================================
-   WERSJA 402
-   338 / kierunek=1 — wariant p w środku trasy.
-   Kierunek 0 pozostaje dokładnie z v399.
-   ========================================================= */
-
-(function(){
-
-    const params402=
-        new URLSearchParams(
-            window.location.search
-        );
-
-    if(
-        String(
-            params402.get("linia")||""
-        ).trim()!=="338"||
-        String(
-            params402.get("kierunek")||""
-        ).trim()!=="1"
-    ){
-        return;
-    }
-
-    const staryDopasuj402=
-        dopasujKolumnyTrasy;
-
-    dopasujKolumnyTrasy=
-        function(){
-
-            const wynik402=
-                staryDopasuj402.apply(
-                    this,
-                    arguments
-                );
-
-            requestAnimationFrame(
-                ()=>{
-                    wstawWariantP402();
-                }
-            );
-
-            return wynik402;
-        };
-
-
-    function wstawWariantP402(){
-
-        const tabliczka=
-            document.querySelector(
-                ".tabliczka"
-            );
-
-        const columns=
-            tabliczka?.querySelector(
-                ".trasa-columns"
-            );
-
-        if(!columns){
-            return;
-        }
-
-        /*
-           Jeżeli nagłówek już istnieje, niczego drugi raz nie robimy.
-        */
-        if(
-            Array.from(
-                columns.querySelectorAll(
-                    ".trasa-extra-title-402"
-                )
-            ).some(
-                x=>
-                    /kursach\s+[„"]?p/i.test(
-                        x.textContent||""
-                    )
-            )
-        ){
-            return;
-        }
-
-        const kursP=
-            znajdzKursWariantuDoTrasy(
-                "p"
-            );
-
-        if(!kursP){
-            return;
-        }
-
-        const pRoute=
-            (
-                Array.isArray(
-                    kursP?.przystanki
-                )
-                    ? kursP.przystanki
-                    : (
-                        Array.isArray(
-                            kursP?.trasa
-                        )
-                            ? kursP.trasa
-                            : []
-                      )
-            )
-            .map(
-                x=>x?.p||x
-            );
-
-        if(pRoute.length<3){
-            return;
-        }
-
-        /*
-           Bieżąca lista na ekranie jest trasą bazową.
-           Porównujemy ją z rzeczywistym przebiegiem p po NAZWIE,
-           bo tutaj analizujemy przebieg trasy, a nie wybór fizycznego
-           słupka.
-        */
-        const rows=
-            Array.from(
-                columns.querySelectorAll(
-                    ".trasa-lista > .trasa-stop"
-                )
-            );
-
-        if(rows.length<3){
-            return;
-        }
-
-        const baseNames=
-            rows.map(
-                row=>
-                    normalizuj(
-                        row.querySelector(
-                            ".trasa-nazwa"
-                        )?.textContent||""
-                    )
-            );
-
-        const pNames=
-            pRoute.map(
-                p=>
-                    normalizuj(
-                        p?.nazwa
-                    )
-            );
-
-        /*
-           Wspólny początek.
-        */
-        let prefix=0;
-
-        while(
-            prefix<
-                Math.min(
-                    baseNames.length,
-                    pNames.length
-                )&&
-            baseNames[prefix]===
-                pNames[prefix]
-        ){
-            prefix++;
-        }
-
-        /*
-           Wspólny koniec — punkt ponownego połączenia.
-        */
-        let ib=
-            baseNames.length-1;
-
-        let ip=
-            pNames.length-1;
-
-        while(
-            ib>=prefix&&
-            ip>=prefix&&
-            baseNames[ib]===
-                pNames[ip]
-        ){
-            ib--;
-            ip--;
-        }
-
-        const pOnly=
-            pRoute.slice(
-                prefix,
-                ip+1
-            );
-
-        const rejoinP=
-            pRoute[ip+1]||null;
-
-        if(
-            !pOnly.length||
-            !rejoinP
-        ){
-            return;
-        }
-
-        /*
-           Budujemy wiersze p z istniejącej logiki minut.
-        */
-        function rowP402(p){
-
-            const czas=
-                czasWariantuNaPrzystanku(
-                    "p",
-                    p
-                );
-
-            const li=
-                document.createElement(
-                    "li"
-                );
-
-            li.className=
-                "trasa-stop trasa-stop-p-402";
-
-            li.innerHTML=
-                '<span class="trasa-czas">'+
-                    (
-                        czas===null||
-                        typeof czas==="undefined"
-                            ? ""
-                            : escapeHtml(
-                                String(czas)
-                            )
-                    )+
-                '</span>'+
-                '<span class="trasa-os"></span>'+
-                '<span class="trasa-nazwa">'+
-                    escapeHtml(
-                        String(
-                            p?.nazwa||""
-                        ).toUpperCase()
-                    )+
-                '</span>'+
-                '<span class="trasa-nz">'+
-                    (
-                        czyNaZadanie(p)
-                            ? "ż"
-                            : ""
-                    )+
-                '</span>';
-
-            return li;
-        }
-
-        /*
-           Znajdujemy na ekranie pierwszy wiersz wspólnej trasy po
-           ponownym połączeniu.
-        */
-        const rejoinName=
-            normalizuj(
-                rejoinP?.nazwa
-            );
-
-        const rejoinRow=
-            rows.find(
-                (row,index)=>
-                    index>=prefix&&
-                    normalizuj(
-                        row.querySelector(
-                            ".trasa-nazwa"
-                        )?.textContent||""
-                    )===
-                    rejoinName
-            );
-
-        if(!rejoinRow){
-            return;
-        }
-
-        const lista=
-            rejoinRow.closest(
-                ".trasa-lista"
-            );
-
-        if(!lista){
-            return;
-        }
-
-        const titleP=
-            document.createElement(
-                "li"
-            );
-
-        titleP.className=
-            "trasa-separator trasa-extra-title-397 trasa-extra-title-402";
-
-        titleP.textContent=
-            "Trasa w kursach „p”";
-
-        /*
-           Nagłówek p wstawiamy przed pierwszym przystankiem odgałęzienia.
-           Ponieważ bazowa lista nie zawiera przystanków p, trafia on
-           bezpośrednio przed punktem ponownego połączenia.
-        */
-        lista.insertBefore(
-            titleP,
-            rejoinRow
-        );
-
-        pOnly.forEach(
-            p=>{
-                lista.insertBefore(
-                    rowP402(p),
-                    rejoinRow
-                );
-            }
-        );
-
-        const titleAll=
-            document.createElement(
-                "li"
-            );
-
-        titleAll.className=
-            "trasa-separator trasa-extra-title-397 trasa-extra-title-402";
-
-        titleAll.textContent=
-            "Trasa we wszystkich kursach";
-
-        lista.insertBefore(
-            titleAll,
-            rejoinRow
-        );
-
-        /*
-           Po dodaniu wierszy uruchamiamy istniejące zawijanie nazw.
-           Nie wywołujemy ponownie całego splittera, żeby nie dotknąć
-           logiki kierunku 0 ani nie zgubić wstawionych elementów.
-        */
-        ustawZawijanieNazwTrasy(
-            columns
-        );
-    }
-
-})();
-
 </script>
 
 </body>
