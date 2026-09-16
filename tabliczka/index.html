@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 414
+     WERSJA: 415
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -28792,7 +28792,7 @@ function __bezCache_znajdzNajlepszyKursDoTrasy(){
         daneLinii?.rozkłady||
         []
     ).forEach(
-        rozklad=>{
+        (rozklad,rozkladIndex415)=>{
 
             /*
                KLUCZOWA POPRAWKA:
@@ -28830,8 +28830,17 @@ function __bezCache_znajdzNajlepszyKursDoTrasy(){
                         return;
                     }
 
-                    const key=
-                        kluczKursu(kurs);
+                    /*
+                       WERSJA 415:
+                       numer+wariant nie wystarcza jako identyfikator kursu,
+                       bo taki sam numer może występować w kilku rozkładach.
+                       Zapamiętujemy KONKRETNY rozkład oraz brygadę.
+                    */
+                    const key=[
+                        String(rozkladIndex415),
+                        kluczKursu(kurs),
+                        String(kurs?.brygada||"").trim()
+                    ].join("||");
 
                     if(!kandydaci.has(key)){
 
@@ -28845,6 +28854,11 @@ function __bezCache_znajdzNajlepszyKursDoTrasy(){
                                 wariant:String(
                                     kurs.wariant||""
                                 ),
+                                brygada:String(
+                                    kurs?.brygada||""
+                                ).trim(),
+                                rozkladIndex:
+                                    rozkladIndex415,
                                 start:
                                     czasNaMinuty(
                                         kurs.czas
@@ -28907,77 +28921,109 @@ function znajdzCzasKursuNaPrzystanku(
     bazaIndex=null
 ){
 
-    for(
-        const rozklad of
-        (
-            daneLinii?.rozkłady||
-            []
-        )
-    ){
+    /*
+       =========================================================
+       WERSJA 415 — JEDEN FIZYCZNY KURS
+       =========================================================
 
-        let p=null;
+       Czasów kolejnych przystanków nie wolno już składać z kursów
+       o tym samym numerze znalezionych w różnych rozkładach.
 
-        if(
-            Number.isInteger(
-                Number(
-                    bazaIndex
-                )
+       Kandydat wskazuje konkretny rozkład. Od początku do końca
+       odczytujemy godziny wyłącznie z tego jednego kursu.
+       =========================================================
+    */
+
+    const rozklady=
+        daneLinii?.rozkłady||
+        [];
+
+    const rozklad=
+        Number.isInteger(
+            Number(
+                kandydat?.rozkladIndex
             )
-        ){
+        )
+            ? rozklady[
+                Number(
+                    kandydat.rozkladIndex
+                )
+            ]
+            : null;
 
-            p=
-                znajdzPrzystanekWRozkladzieDlaElementu(
-                    rozklad,
-                    aktualnyKierunek,
-                    {
-                        p:bazaP,
-                        index:Number(
-                            bazaIndex
-                        )
-                    }
-                );
-        }
-        else{
-
-            /*
-               Stary fallback pozostaje dla pozostałych miejsc kodu,
-               które nie mają informacji o indeksie wystąpienia.
-            */
-            p=
-                znajdzPrzystanekWRozkladzie(
-                    rozklad,
-                    aktualnyKierunek,
-                    bazaP
-                );
-        }
-
-        const kurs=
-            (
-                p?.kursy||
-                []
-            ).find(
-                k=>
-                    String(
-                        k.numer||""
-                    )===
-                        kandydat.numer&&
-                    String(
-                        k.wariant||""
-                    )===
-                        kandydat.wariant&&
-                    czasNaMinuty(
-                        k.czas
-                    )!==null
-            );
-
-        if(kurs){
-            return czasNaMinuty(
-                kurs.czas
-            );
-        }
+    if(!rozklad){
+        return null;
     }
 
-    return null;
+    let p=null;
+
+    if(
+        Number.isInteger(
+            Number(
+                bazaIndex
+            )
+        )
+    ){
+        p=
+            znajdzPrzystanekWRozkladzieDlaElementu(
+                rozklad,
+                aktualnyKierunek,
+                {
+                    p:bazaP,
+                    index:Number(
+                        bazaIndex
+                    )
+                }
+            );
+    }
+    else{
+        p=
+            znajdzPrzystanekWRozkladzie(
+                rozklad,
+                aktualnyKierunek,
+                bazaP
+            );
+    }
+
+    const kurs=
+        (
+            p?.kursy||
+            []
+        ).find(
+            k=>
+                String(
+                    k?.numer||""
+                )===
+                    String(
+                        kandydat?.numer||""
+                    )&&
+                String(
+                    k?.wariant||""
+                ).trim()===
+                    String(
+                        kandydat?.wariant||""
+                    ).trim()&&
+                (
+                    !String(
+                        kandydat?.brygada||""
+                    ).trim()||
+                    String(
+                        k?.brygada||""
+                    ).trim()===
+                        String(
+                            kandydat?.brygada||""
+                        ).trim()
+                )&&
+                czasNaMinuty(
+                    k?.czas
+                )!==null
+        );
+
+    return kurs
+        ? czasNaMinuty(
+            kurs.czas
+        )
+        : null;
 }
 
 
@@ -29037,6 +29083,36 @@ function __bezCache_czasyTrasy(){
 
         wynik[i]=
             t-start;
+    }
+
+    /*
+       Dodatkowa kontrola spójności:
+       w jednym kursie czas przejazdu na kolejnych przystankach
+       nie może się cofać. Nie poprawiamy danych sztucznie —
+       błędny punkt zostawiamy bez czasu zamiast pokazywać np.
+       23, 25, 26, 28, 24.
+    */
+    let poprzedni415=null;
+
+    for(
+        let i415=aktualnyPrzystanek;
+        i415<wynik.length;
+        i415++
+    ){
+        if(wynik[i415]===null){
+            continue;
+        }
+
+        if(
+            poprzedni415!==null &&
+            wynik[i415]<poprzedni415
+        ){
+            wynik[i415]=null;
+            continue;
+        }
+
+        poprzedni415=
+            wynik[i415];
     }
 
     return wynik;
@@ -30242,6 +30318,65 @@ function naglowekZmianyTrasy(
 function czasDowolnegoKursuNaPrzystanku(
     element
 ){
+
+    /*
+       WERSJA 415:
+       zanim uruchomimy starszy fallback dla nietypowych odgałęzień,
+       próbujemy policzyć czas z dokładnie tego samego kursu
+       referencyjnego, który wybrano dla całej trasy.
+    */
+    const jedenKurs415=
+        znajdzNajlepszyKursDoTrasy();
+
+    const baza415=
+        kierunekBazowy();
+
+    const startP415=
+        baza415?.przystanki?.[
+            aktualnyPrzystanek
+        ];
+
+    if(
+        jedenKurs415 &&
+        startP415 &&
+        element?.p
+    ){
+        const start415=
+            znajdzCzasKursuNaPrzystanku(
+                jedenKurs415,
+                startP415,
+                aktualnyPrzystanek
+            );
+
+        const koniec415=
+            znajdzCzasKursuNaPrzystanku(
+                jedenKurs415,
+                element.p,
+                Number.isInteger(
+                    Number(
+                        element.index
+                    )
+                )
+                    ? Number(
+                        element.index
+                    )
+                    : null
+            );
+
+        if(
+            start415!==null &&
+            koniec415!==null
+        ){
+            let roznica415=
+                koniec415-start415;
+
+            while(roznica415<0){
+                roznica415+=1440;
+            }
+
+            return roznica415;
+        }
+    }
 
     const listaStartowa=
         kursyAktualnegoRozkladuDoTrasy();
