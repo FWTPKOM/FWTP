@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 425
+     WERSJA: 418
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -29177,19 +29177,34 @@ function __bezCache_czasyTrasy(){
     }
 
     /*
-       WERSJA 419:
-       nie wymuszamy globalnej monotoniczności pomiędzy osobnymi
-       wariantami przebiegu.
-
-       Dla linii takich jak 126 podjazd przez PŁYTOWĄ/KUPIECKĄ
-       albo POLFA jest osobną gałęzią i ma własny kurs referencyjny.
-       Po przejściu z jednej gałęzi do drugiej widoczna liczba może
-       więc być mniejsza.
-
-       Wydłużenie trasy nie potrzebuje tego sztucznego zabezpieczenia:
-       logika v418 liczy bazę oraz dalszy kraniec z jednego konkretnego
-       rzeczywistego kursu wydłużonego.
+       Dodatkowa kontrola spójności:
+       w jednym kursie czas przejazdu na kolejnych przystankach
+       nie może się cofać. Nie poprawiamy danych sztucznie —
+       błędny punkt zostawiamy bez czasu zamiast pokazywać np.
+       23, 25, 26, 28, 24.
     */
+    let poprzedni415=null;
+
+    for(
+        let i415=aktualnyPrzystanek;
+        i415<wynik.length;
+        i415++
+    ){
+        if(wynik[i415]===null){
+            continue;
+        }
+
+        if(
+            poprzedni415!==null &&
+            wynik[i415]<poprzedni415
+        ){
+            wynik[i415]=null;
+            continue;
+        }
+
+        poprzedni415=
+            wynik[i415];
+    }
 
     return wynik;
 }
@@ -33432,206 +33447,92 @@ function znajdzKursWariantuDoTrasy(litera){
     )[0]||null;
 }
 
-function czasWariantuNaPrzystanku(litera,element){
+function czasWariantuNaPrzystanku(
+    litera,
+    element
+){
+
+    const kandydat=
+        znajdzKursWariantuDoTrasy(
+            litera
+        );
+
+    if(!kandydat){
+        return null;
+    }
+
+    const pelna=
+        kierunekBazowy()?.przystanki||
+        [];
+
+    const start=
+        pelna[
+            aktualnyPrzystanek
+        ];
+
+    if(!start){
+        return null;
+    }
 
     /*
-       WERSJA 423
-
-       Dla wariantu przebiegu (np. A albo O w 126) czas musi być
-       odczytany z TEGO SAMEGO rzeczywistego kursu i z DOKŁADNIE
-       tego fizycznego przystanku, który należy do wariantu.
-
-       Nie wolno tutaj używać fallbacku po samej nazwie przystanku.
-       Przykład 126:
-           PKP ŻERAŃ 02 != PKP ŻERAŃ 07 != PKP ŻERAŃ 05
-
-       Dzięki temu sekcja „Trasa w kursach „a”, „o”” nie może
-       dostać czasu z innego PKP ŻERAŃ.
+       WERSJA 418:
+       czas od aktywnego przystanku do wydłużenia jest liczony
+       z jednego konkretnego kursu tego wariantu i z fizycznych
+       słupków, które ten kurs naprawdę obsługuje.
     */
+    const startFizyczny418=
+        fizycznyPrzystanekWybranegoKursu417(
+            kandydat,
+            {
+                p:start,
+                index:
+                    aktualnyPrzystanek
+            }
+        );
 
-    const litera423=
-        String(litera||"")
-            .trim()
-            .toUpperCase();
+    const koniecFizyczny418=
+        fizycznyPrzystanekWybranegoKursu417(
+            kandydat,
+            element
+        );
 
     if(
-        !litera423||
-        !element?.p
+        !startFizyczny418||
+        !koniecFizyczny418
     ){
         return null;
     }
 
-    const aktywny423=
-        aktywnyFizycznyPrzystanek276();
+    const t0=
+        znajdzCzasKursuNaPrzystanku(
+            kandydat,
+            startFizyczny418,
+            null
+        );
 
-    if(!aktywny423){
+    const t=
+        znajdzCzasKursuNaPrzystanku(
+            kandydat,
+            koniecFizyczny418,
+            null
+        );
+
+    if(
+        t0===null||
+        t===null
+    ){
         return null;
     }
 
-    const kandydaci423=[];
+    let wynik=t-t0;
 
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(
-        (rozklad423,rozkladIndex423)=>{
-
-            const kierunek423=
-                rozklad423?.kierunki?.[
-                    aktualnyKierunek
-                ];
-
-            const lista423=
-                kierunek423?.przystanki||
-                [];
-
-            /*
-               Oba końce są wyszukiwane WYŁĄCZNIE po
-               dokładnym fizycznym nazwa + nr.
-            */
-            const pStart423=
-                lista423.find(
-                    p=>
-                        czyTenSamPrzystanekPoNazwieINumerze(
-                            p,
-                            aktywny423
-                        )
-                );
-
-            const pCel423=
-                lista423.find(
-                    p=>
-                        czyTenSamPrzystanekPoNazwieINumerze(
-                            p,
-                            element.p
-                        )
-                );
-
-            if(
-                !pStart423||
-                !pCel423
-            ){
-                return;
-            }
-
-            /*
-               Bierzemy wyłącznie kursy żądanego wariantu,
-               np. tylko A albo tylko O.
-            */
-            (
-                pStart423?.kursy||
-                []
-            ).forEach(
-                kursStart423=>{
-
-                    if(
-                        String(
-                            kursStart423?.wariant||""
-                        )
-                            .trim()
-                            .toUpperCase()!==
-                        litera423
-                    ){
-                        return;
-                    }
-
-                    const numer423=
-                        String(
-                            kursStart423?.numer||""
-                        );
-
-                    const brygada423=
-                        String(
-                            kursStart423?.brygada||""
-                        ).trim();
-
-                    const kursCel423=
-                        (
-                            pCel423?.kursy||
-                            []
-                        ).find(
-                            k=>
-                                String(
-                                    k?.numer||""
-                                )===
-                                    numer423&&
-                                String(
-                                    k?.wariant||""
-                                )
-                                    .trim()
-                                    .toUpperCase()===
-                                    litera423&&
-                                (
-                                    !brygada423||
-                                    String(
-                                        k?.brygada||""
-                                    ).trim()===
-                                        brygada423
-                                )
-                        );
-
-                    if(!kursCel423){
-                        return;
-                    }
-
-                    const tStart423=
-                        czasNaMinuty(
-                            kursStart423?.czas
-                        );
-
-                    const tCel423=
-                        czasNaMinuty(
-                            kursCel423?.czas
-                        );
-
-                    if(
-                        tStart423===null||
-                        tCel423===null
-                    ){
-                        return;
-                    }
-
-                    let roznica423=
-                        tCel423-tStart423;
-
-                    while(roznica423<0){
-                        roznica423+=1440;
-                    }
-
-                    kandydaci423.push({
-                        czas:roznica423,
-                        numer:numer423,
-                        brygada:brygada423,
-                        rozkladIndex:
-                            rozkladIndex423,
-                        start:tStart423
-                    });
-                }
-            );
-        }
-    );
-
-    if(!kandydaci423.length){
-        return null;
+    while(wynik<0){
+        wynik+=1440;
     }
 
-    /*
-       Wszystkie wartości pochodzą już z właściwego wariantu
-       i właściwego fizycznego przystanku. Wybór jest stabilny:
-       pierwszy rzeczywisty kurs tego wariantu w rozkładzie.
-    */
-    kandydaci423.sort(
-        (x,y)=>
-            x.rozkladIndex-y.rozkladIndex||
-            x.start-y.start||
-            String(x.numer)
-                .localeCompare(
-                    String(y.numer)
-                )
-    );
-
-    return kandydaci423[0].czas;
+    return wynik;
 }
+
 
 function kursReferencyjnyDrugiegoKierunku(
     info
