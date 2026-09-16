@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 389
+     WERSJA: 390
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -40175,103 +40175,130 @@ window.addEventListener(
 </script>
 
 
+
+
+
 <script>
 /* =========================================================
-   WERSJA 389 — TEN SAM UKŁAD 2 KOLUMN CO v246 / 401
+   WERSJA 390 — WYDŁUŻENIE, KTÓRE NIE MIEŚCI SIĘ POD BAZĄ,
+   PRZECHODZI DO DRUGIEJ KOLUMNY
    ========================================================= */
 (function(){
 
-    const staryDopasuj389 =
+    const staryDopasujKolumnyTrasy390 =
         dopasujKolumnyTrasy;
 
-    dopasujKolumnyTrasy =
-        function(){
+    dopasujKolumnyTrasy = function(){
 
-            staryDopasuj389();
+        /*
+           Najpierw działa dokładnie dotychczasowy splitter.
+           Dzięki temu 401 i wszystkie zwykłe długie trasy pozostają
+           bez zmian.
+        */
+        staryDopasujKolumnyTrasy390();
 
-            const tabliczka=
-                document.querySelector(
-                    ".tabliczka"
-                );
+        const tabliczka =
+            document.querySelector(".tabliczka");
 
-            const columns=
-                tabliczka?.querySelector(
-                    ".trasa-columns"
-                );
+        const columns =
+            tabliczka?.querySelector(".trasa-columns");
 
-            if(
-                !tabliczka||
-                !columns||
-                !columns.querySelector(
-                    ".trasa-extra"
-                )
-            ){
-                return;
+        if(!tabliczka || !columns){
+            return;
+        }
+
+        const kolumny =
+            Array.from(
+                columns.querySelectorAll(":scope > .trasa-kol")
+            );
+
+        if(!kolumny.length){
+            return;
+        }
+
+        /*
+           renderTrasaKolumna() dokłada .trasa-extra ZA .trasa-lista.
+           W v246 sam pomiar jednej kolumny sprawdzał tylko wysokość
+           .trasa-lista, dlatego wydłużenie mogło wyjść poza dół strony.
+
+           Nie próbujemy już "uczyć" starego splittera elementów extra.
+           Jeżeli baza mieści się w 1 kolumnie, ale baza + wydłużenie nie,
+           przenosimy CAŁE wydłużenie do drugiej kolumny.
+        */
+        if(kolumny.length !== 1){
+            return;
+        }
+
+        const pierwsza = kolumny[0];
+
+        const extras =
+            Array.from(
+                pierwsza.querySelectorAll(":scope > .trasa-extra")
+            );
+
+        if(!extras.length){
+            return;
+        }
+
+        const rectColumns =
+            columns.getBoundingClientRect();
+
+        const ostatniExtra =
+            extras[extras.length - 1];
+
+        const rectExtra =
+            ostatniExtra.getBoundingClientRect();
+
+        /*
+           Jeżeli wszystko realnie mieści się w panelu, zostaje 1 kolumna.
+        */
+        if(rectExtra.bottom <= rectColumns.bottom + 0.5){
+            return;
+        }
+
+        /*
+           Dokładnie taki sam szeroki panel jak przy normalnym podziale
+           długiej trasy (np. 401).
+        */
+        tabliczka.classList.remove("trasa-3-kol");
+        tabliczka.classList.add("trasa-2-kol");
+
+        columns.className =
+            "trasa-columns cols-2";
+
+        ustawNaglowekTrasy(2);
+
+        const druga =
+            document.createElement("div");
+
+        druga.className =
+            "trasa-kol trasa-kol-wydluzenie-390";
+
+        columns.appendChild(druga);
+
+        /*
+           Najważniejsze:
+           przenosimy istniejące, już poprawnie wyrenderowane bloki.
+           Niczego nie generujemy drugi raz i niczego nie obcinamy.
+           Dzięki temu wszystkie przystanki wariantów r/s zostają.
+        */
+        extras.forEach(
+            extra => druga.appendChild(extra)
+        );
+
+        ustawZawijanieNazwTrasy(columns);
+
+        /*
+           Po zmianie szerokości nazw przeliczamy jeszcze raz w następnym
+           frame, ale NIE uruchamiamy ponownie starego splittera, bo ten
+           znowu uznałby samą bazę za mieszczącą się w jednej kolumnie.
+        */
+        requestAnimationFrame(
+            ()=>{
+                ustawZawijanieNazwTrasy(columns);
             }
-
-            const kolumny=
-                Array.from(
-                    columns.querySelectorAll(
-                        ":scope > .trasa-kol"
-                    )
-                );
-
-            if(!kolumny.length){
-                return;
-            }
-
-            const dolPanelu=
-                columns
-                    .getBoundingClientRect()
-                    .bottom;
-
-            const przelewa=
-                kolumny.some(
-                    kol=>{
-                        const ostatni=
-                            kol.lastElementChild;
-
-                        return(
-                            ostatni&&
-                            ostatni
-                                .getBoundingClientRect()
-                                .bottom>
-                            dolPanelu+0.5
-                        );
-                    }
-                );
-
-            if(!przelewa){
-                return;
-            }
-
-            /*
-               Jeżeli v246 uznała, że sama baza mieści się w 1 kolumnie,
-               ale po dołożeniu prawdziwych wydłużeń całość już się nie
-               mieści, przechodzimy na ten sam szeroki układ 2-kolumnowy.
-            */
-            if(
-                columns.classList.contains(
-                    "cols-1"
-                )
-            ){
-                tabliczka.classList.add(
-                    "trasa-2-kol"
-                );
-
-                columns.className=
-                    "trasa-columns cols-2";
-
-                ustawNaglowekTrasy(2);
-
-                /*
-                   Ponownie uruchamiamy oryginalny splitter v246 już przy
-                   szerokości dwóch kolumn. Baza zostanie podzielona tak,
-                   jak dla 401, a wydłużenie pozostanie w ostatniej kolumnie.
-                */
-                staryDopasuj389();
-            }
-        };
+        );
+    };
 
 })();
 </script>
