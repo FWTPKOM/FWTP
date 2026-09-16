@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 404
+     WERSJA: 405
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -20609,35 +20609,110 @@ function normalizuj(tekst){
         wynik
     );
 
+
     /*
-       W404: dokładnie ten sam mechanizm wizualny NŻ co w 126/134:
-       klasa "nz" na .trasa-stop. Istniejący CSS projektu robi wtedy
-       pustą kropkę. Nie tworzymy nowej klasy/stylu.
+       =========================================================
+       WERSJA 405 — 338 / kierunek 0
+       NŻ dokładnie jak w normalnej trasie (kierunek 1 / 126 / 134)
+       =========================================================
+
+       Nie zmieniamy kropki CSS-em i nie zgadujemy typu po JSON-ie.
+       Gotowy wiersz wariantu ma już poprawne "ż". Nadajemy mu dokładnie
+       ten sam STAN KLASY, jaki normalny renderer nadaje wierszowi z "ż".
     */
     if(
-        String(aktualnaLinia||"").trim()==="338"&&
+        String(aktualnaLinia||"").trim()==="338" &&
         Number(aktualnyKierunek)===0
     ){
-        const box404=document.createElement("div");
-        box404.innerHTML=wynik;
+        const box405=document.createElement("div");
+        box405.innerHTML=wynik;
 
-        Array.from(
-            box404.querySelectorAll(".trasa-extra-stop")
-        ).forEach(
-            row=>{
-                const ozn=
+        /*
+           Normalny renderer trasy już działa poprawnie dla NŻ.
+           Bierzemy więc z aktualnie wyrenderowanej bazowej trasy wzorzec:
+           - wiersz z "ż"
+           - jego komplet klas.
+        */
+        const normalne405=
+            Array.from(
+                document.querySelectorAll(
+                    ".tabliczka .trasa-lista > .trasa-stop"
+                )
+            );
+
+        const wzorzecNZ405=
+            normalne405.find(
+                row=>
                     String(
                         row.querySelector(".trasa-nz")?.textContent||""
-                    ).trim();
+                    ).trim()!==""
+            );
 
-                row.classList.toggle(
-                    "nz",
-                    !!ozn
+        const wzorzecStaly405=
+            normalne405.find(
+                row=>
+                    String(
+                        row.querySelector(".trasa-nz")?.textContent||""
+                    ).trim()===""
+            );
+
+        /*
+           Kopiujemy tylko klasy różniące wzorzec NŻ od zwykłego
+           przystanku. Dzięki temu korzystamy z dokładnie tej samej
+           logiki wizualnej co normalny drugi kierunek.
+        */
+        const klasyNZ405=[];
+
+        if(wzorzecNZ405){
+            Array.from(
+                wzorzecNZ405.classList
+            ).forEach(
+                klasa=>{
+                    if(
+                        klasa!=="trasa-stop" &&
+                        (
+                            !wzorzecStaly405 ||
+                            !wzorzecStaly405.classList.contains(klasa)
+                        )
+                    ){
+                        klasyNZ405.push(klasa);
+                    }
+                }
+            );
+        }
+
+        Array.from(
+            box405.querySelectorAll(
+                ".trasa-extra-stop"
+            )
+        ).forEach(
+            row=>{
+
+                const jestNZ405=
+                    String(
+                        row.querySelector(".trasa-nz")?.textContent||""
+                    ).trim()!=="";
+
+                /*
+                   Najpierw usuwamy z wariantowego wiersza klasy NŻ
+                   znalezione na wzorcu, a potem dodajemy je tylko
+                   przystankom z "ż".
+                */
+                klasyNZ405.forEach(
+                    klasa=>
+                        row.classList.remove(klasa)
                 );
+
+                if(jestNZ405){
+                    klasyNZ405.forEach(
+                        klasa=>
+                            row.classList.add(klasa)
+                    );
+                }
             }
         );
 
-        wynik=box404.innerHTML;
+        wynik=box405.innerHTML;
     }
 
     return wynik;
@@ -38900,106 +38975,6 @@ function dopasujKolumnyTrasy() {
 
     if(!wszystkie397.length){
         return;
-    }
-
-    /*
-       W404 — 338, kierunek 1.
-
-       Tak jak w 134 separatory są ELEMENTAMI TEGO SAMEGO STRUMIENIA
-       co przystanki, więc splitter je widzi i przenosi razem z trasą.
-
-       Wariant p to środkowy objazd przez SZEROKĄ / ARESZT / DUDZIARSKĄ,
-       który odchodzi od RONDA GRANZOWA i wraca do RONDA GRANZOWA.
-    */
-    if(
-        String(aktualnaLinia||"").trim()==="338"&&
-        Number(aktualnyKierunek)===1
-    ){
-        function nazwaHtml404(html){
-            const d=document.createElement("div");
-            d.innerHTML=html;
-            return normalizuj(
-                d.querySelector(".trasa-nazwa")?.textContent||""
-            );
-        }
-
-        const nazwy404=
-            wszystkie397.map(nazwaHtml404);
-
-        const szerokie404=[];
-
-        nazwy404.forEach(
-            (n,i)=>{
-                if(n===normalizuj("SZEROKA")){
-                    szerokie404.push(i);
-                }
-            }
-        );
-
-        if(szerokie404.length>=1){
-
-            const pierwszaSzeroka404=szerokie404[0];
-            const ostatniaSzeroka404=szerokie404[szerokie404.length-1];
-
-            let startP404=-1;
-            for(let i=pierwszaSzeroka404-1;i>=0;i--){
-                if(
-                    nazwy404[i]===
-                    normalizuj("RONDO GRANZOWA")
-                ){
-                    startP404=i;
-                    break;
-                }
-            }
-
-            let koniecP404=-1;
-            for(let i=ostatniaSzeroka404+1;i<nazwy404.length;i++){
-                if(
-                    nazwy404[i]===
-                    normalizuj("RONDO GRANZOWA")
-                ){
-                    /*
-                       Bierzemy ostatnie kolejne RONDO GRANZOWA po
-                       powrocie z objazdu, aby oba fizyczne słupki
-                       pozostały wewnątrz wariantu p.
-                    */
-                    koniecP404=i;
-                    while(
-                        koniecP404+1<nazwy404.length&&
-                        nazwy404[koniecP404+1]===
-                        normalizuj("RONDO GRANZOWA")
-                    ){
-                        koniecP404++;
-                    }
-                    break;
-                }
-            }
-
-            if(
-                startP404>=0&&
-                koniecP404>startP404
-            ){
-                wszystkie397.splice(
-                    koniecP404+1,
-                    0,
-                    '<li class="trasa-separator">'+
-                        '<span class="trasa-separator-title">'+
-                            'Trasa we wszystkich kursach'+
-                        '</span>'+
-                    '</li>'
-                );
-
-                wszystkie397.splice(
-                    startP404,
-                    0,
-                    '<li class="trasa-separator">'+
-                        '<span class="trasa-separator-title">'+
-                            'Trasa w kursach „p”'+
-                        '</span>'+
-                    '</li>'
-                );
-            }
-        }
     }
 
     const renderGrupy397=
