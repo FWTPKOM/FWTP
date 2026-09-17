@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 461
+     WERSJA: 462
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
-     DATA: 2026-09-14
+     DATA: 2026-09-17
      ========================================================= -->
 
 <html lang="pl">
@@ -5208,6 +5208,51 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 .tabliczka .trasa-separator.trasa-miejscowosc-429::before,
 .tabliczka .trasa-separator.trasa-miejscowosc-429::after {
     border-top-color: #8b8b8b !important;
+}
+</style>
+
+
+<style>
+/* =========================================================
+   WERSJA 462 — LINIA 150 / IZABELIN-DZIEKANÓWEK
+   =========================================================
+   1. Na pierwszym aktywnym przystanku IZABELIN-DZIEKANÓWEK
+      pionowa oś wychodzi dokładnie ze środka kółka w dół.
+   2. Drugi kolejny przystanek o tej samej nazwie nie jest
+      traktowany wizualnie jako kraniec i nie jest pogrubiany.
+   3. Poprawka jest ograniczona do linii 150.
+   ========================================================= */
+
+/* Pierwszy aktywny punkt linii 150: oś od środka kółka w dół. */
+.tabliczka.linia-150-v462
+.trasa-stop.wybrany.aktywny-pierwszy
+.trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    top: 7.25px !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/* Drugi IZABELIN-DZIEKANÓWEK nie jest krańcem. */
+.tabliczka.linia-150-v462
+.trasa-stop.zwykly-duplikat-150-v462,
+.tabliczka.linia-150-v462
+.trasa-stop.zwykly-duplikat-150-v462 .trasa-nazwa,
+.tabliczka.linia-150-v462
+.trasa-stop.zwykly-duplikat-150-v462 .trasa-nazwa-aktywna {
+    font-weight: 400 !important;
+}
+
+/* Oś ma przechodzić przez ten przystanek dalej. */
+.tabliczka.linia-150-v462
+.trasa-stop.zwykly-duplikat-150-v462
+.trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
 }
 </style>
 
@@ -43776,6 +43821,268 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
         start454();
     }
 })();
+
+
+/* =========================================================
+   WERSJA 462 — LINIA 150 / IZABELIN-DZIEKANÓWEK
+   =========================================================
+   Problem:
+   przy wybranym pierwszym słupku IZABELIN-DZIEKANÓWEK
+   kolejny fizyczny słupek o tej samej nazwie mógł odziedziczyć
+   klasy krańca nadawane przez starszą logikę opartą o nazwę.
+
+   Rozwiązanie:
+   - działamy wyłącznie dla linii 150,
+   - bierzemy wybrany pierwszy widoczny przystanek,
+   - szukamy następnego rzeczywistego .trasa-stop,
+   - jeśli ma tę samą nazwę, usuwamy z niego klasy końca/krańca,
+   - oznaczamy go jako zwykły przystanek,
+   - pierwszej aktywnej kropce nadajemy pełne połączenie osi w dół.
+
+   Nie zmieniamy JSON i nie ingerujemy w zachowanie innych linii.
+   ========================================================= */
+(function poprawLinie150Wersja462(){
+
+    function czyLinia150V462(){
+        const zUrl462 =
+            new URLSearchParams(window.location.search)
+                .get("linia");
+
+        const zKod462 =
+            typeof aktualnaLinia !== "undefined"
+                ? aktualnaLinia
+                : "";
+
+        return String(zUrl462 || zKod462 || "").trim() === "150";
+    }
+
+
+    function nazwaStopu462(stop462){
+        if(!stop462){
+            return "";
+        }
+
+        const nazwa462 =
+            stop462.querySelector(".trasa-nazwa");
+
+        if(!nazwa462){
+            return "";
+        }
+
+        /*
+           cloneNode usuwa nam możliwość przypadkowego wpływu
+           późniejszych zmian na prawdziwy element.
+        */
+        const kopia462 =
+            nazwa462.cloneNode(true);
+
+        return normalizuj(
+            String(
+                kopia462.textContent || ""
+            )
+        );
+    }
+
+
+    function nastepnyRzeczywistyStop462(stop462){
+        let el462 =
+            stop462
+                ? stop462.nextElementSibling
+                : null;
+
+        while(el462){
+            if(
+                el462.classList &&
+                el462.classList.contains("trasa-stop")
+            ){
+                return el462;
+            }
+
+            /*
+               Separator miejscowości oznacza przejście do innej
+               grupy. Nie szukamy duplikatu poza bieżącą miejscowością.
+            */
+            if(
+                el462.classList &&
+                el462.classList.contains("trasa-miejscowosc-429")
+            ){
+                return null;
+            }
+
+            el462 =
+                el462.nextElementSibling;
+        }
+
+        return null;
+    }
+
+
+    function usunFalszywyKraniec462(stop462){
+        if(!stop462){
+            return;
+        }
+
+        stop462.classList.remove(
+            "kraniec-poczatek",
+            "kraniec-koniec",
+            "kraniec-z-naglowka-423",
+            "kraniec-podstawowy-427",
+            "koniec-trasy-210",
+            "ma-kontynuacje-trasy",
+            "koniec-wariantu-bez-oznaczen-411",
+            "koniec-wariantu-419"
+        );
+
+        stop462.classList.add(
+            "zwykly-duplikat-150-v462"
+        );
+    }
+
+
+    function popraw150V462(){
+        if(!czyLinia150V462()){
+            return;
+        }
+
+        const tabliczka462 =
+            document.querySelector(
+                "#wynik .tabliczka"
+            ) ||
+            document.querySelector(
+                ".tabliczka"
+            );
+
+        if(!tabliczka462){
+            return;
+        }
+
+        tabliczka462.classList.add(
+            "linia-150-v462"
+        );
+
+        /*
+           Czyścimy znacznik z poprzedniego renderowania,
+           np. po zmianie kierunku albo przystanku.
+        */
+        tabliczka462
+            .querySelectorAll(
+                ".zwykly-duplikat-150-v462"
+            )
+            .forEach(
+                stop462 =>
+                    stop462.classList.remove(
+                        "zwykly-duplikat-150-v462"
+                    )
+            );
+
+        tabliczka462
+            .querySelectorAll(
+                ".trasa-stop.wybrany"
+            )
+            .forEach(
+                wybrany462 => {
+
+                    const nazwaWybranego462 =
+                        nazwaStopu462(
+                            wybrany462
+                        );
+
+                    if(
+                        nazwaWybranego462 !==
+                        normalizuj(
+                            "IZABELIN-DZIEKANÓWEK"
+                        )
+                    ){
+                        return;
+                    }
+
+                    /*
+                       Wymuszamy prawidłowe zachowanie początku osi.
+                       CSS v462 rozpocznie kreskę dokładnie w środku kropki.
+                    */
+                    wybrany462.classList.add(
+                        "aktywny-pierwszy"
+                    );
+
+                    const nastepny462 =
+                        nastepnyRzeczywistyStop462(
+                            wybrany462
+                        );
+
+                    if(!nastepny462){
+                        return;
+                    }
+
+                    if(
+                        nazwaStopu462(
+                            nastepny462
+                        ) !==
+                        nazwaWybranego462
+                    ){
+                        return;
+                    }
+
+                    /*
+                       To drugi fizyczny słupek o tej samej nazwie.
+                       Nie jest końcem trasy — trasa biegnie dalej.
+                    */
+                    usunFalszywyKraniec462(
+                        nastepny462
+                    );
+                }
+            );
+    }
+
+
+    function start462(){
+        popraw150V462();
+
+        const host462 =
+            document.getElementById("wynik") ||
+            document.body;
+
+        let zaplanowane462 = false;
+
+        const observer462 =
+            new MutationObserver(
+                () => {
+                    if(zaplanowane462){
+                        return;
+                    }
+
+                    zaplanowane462 = true;
+
+                    requestAnimationFrame(
+                        () => {
+                            zaplanowane462 = false;
+                            popraw150V462();
+                        }
+                    );
+                }
+            );
+
+        observer462.observe(
+            host462,
+            {
+                childList: true,
+                subtree: true
+            }
+        );
+    }
+
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            start462,
+            {once:true}
+        );
+    }else{
+        start462();
+    }
+
+})();
+
 </script>
 
 
