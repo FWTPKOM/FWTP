@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 483
+     WERSJA: 484
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -46785,6 +46785,289 @@ body
     font-weight: 700 !important;
 }
 </style>
+
+
+<style id="wersja-484-ciagla-os-przez-separatory">
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 484
+   BAZA: 483
+
+   POPRAWKA:
+   W 483 istniał .os-lacznik-453, ale jego wysokość była ograniczona
+   do wysokości separatora. W praktyce w widoku dwóch kierunków
+   separator miejscowości i układ jego pseudo-elementów powodowały,
+   że łącznik nie dawał ciągłej osi pomiędzy sąsiednimi przystankami.
+
+   W 484 oś dla separatora jest wyznaczana GEOMETRYCZNIE:
+   od środka kropki poprzedniego przystanku
+   do środka kropki następnego przystanku.
+
+   Element jest nadal dzieckiem separatora, ale może wychodzić poza
+   jego wysokość (overflow:visible). Dzięki temu pionowa linia jest
+   naprawdę ciągła i przechodzi NAD poziomymi kreskami miejscowości.
+   ========================================================= */
+
+.tabliczka .trasa-separator.laczenie-osi-484 {
+    position: relative !important;
+    overflow: visible !important;
+    isolation: isolate !important;
+    background-image: none !important;
+}
+
+/* Poziome kreski miejscowości pozostają widoczne. */
+.tabliczka .trasa-separator.laczenie-osi-484::before,
+.tabliczka .trasa-separator.laczenie-osi-484::after {
+    z-index: 1 !important;
+}
+
+/* Prawdziwa ciągła czarna oś. */
+.tabliczka .trasa-separator.laczenie-osi-484 > .os-lacznik-484 {
+    position: absolute !important;
+    display: block !important;
+
+    left: var(--os484-left, 23.1px) !important;
+    top: var(--os484-top, 0px) !important;
+
+    width: 2.25px !important;
+    height: var(--os484-height, 100%) !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+
+    background: #111 !important;
+
+    /* nad poziomymi kreskami separatora */
+    z-index: 500 !important;
+    pointer-events: none !important;
+}
+
+/* Tekst miejscowości pozostaje czytelny. */
+.tabliczka .trasa-separator.laczenie-osi-484 > .trasa-separator-title {
+    position: relative !important;
+    z-index: 600 !important;
+}
+
+/* Wyłączamy starszy łącznik w separatorach obsłużonych przez 484. */
+.tabliczka .trasa-separator.laczenie-osi-484 > .os-lacznik-453 {
+    display: none !important;
+}
+
+/* Metro Młociny pozostaje końcowym i pogrubionym. */
+body .tabliczka
+.trasa-stop.koniec-metro-mlociny-477
+.trasa-nazwa,
+body .tabliczka
+.trasa-stop.koniec-metro-mlociny-477
+.trasa-nazwa * {
+    font-weight: 700 !important;
+}
+</style>
+
+<script>
+(function FWTP_WERSJA_484(){
+    "use strict";
+
+    let proby = 0;
+    let gotowe = false;
+
+    function norm(v){
+        return String(v || "")
+            .replace(/\u00a0/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toUpperCase();
+    }
+
+    function czy150(){
+        return norm(new URLSearchParams(location.search).get("linia")) === "150";
+    }
+
+    function jestStop(el){
+        return !!el?.matches?.(".trasa-stop,.trasa-extra-stop");
+    }
+
+    function jestNaglowekNowejTrasy(el){
+        return !!(
+            el?.classList?.contains("trasa-separator") &&
+            norm(el.textContent).includes("TRASA W KURSACH")
+        );
+    }
+
+    function jestSeparatorDoPolaczenia(el){
+        return !!(
+            el?.classList?.contains("trasa-separator") &&
+            (
+                el.classList.contains("trasa-miejscowosc-429") ||
+                el.classList.contains("trasa-strefa-440") ||
+                el.classList.contains("trasa-graniczny-440")
+            )
+        );
+    }
+
+    function poprzedniStop(dzieci, i){
+        for(let j=i-1; j>=0; j--){
+            if(jestNaglowekNowejTrasy(dzieci[j])) return null;
+            if(jestStop(dzieci[j])) return dzieci[j];
+        }
+        return null;
+    }
+
+    function nastepnyStop(dzieci, i){
+        for(let j=i+1; j<dzieci.length; j++){
+            if(jestNaglowekNowejTrasy(dzieci[j])) return null;
+            if(jestStop(dzieci[j])) return dzieci[j];
+        }
+        return null;
+    }
+
+    function srodekOsi(stop){
+        const os = stop?.querySelector(".trasa-os");
+        if(!os) return null;
+
+        const r = os.getBoundingClientRect();
+
+        return {
+            x: r.left + r.width / 2,
+            y: r.top + 7.25
+        };
+    }
+
+    function polaczSeparator(sep, przed, po){
+        const a = srodekOsi(przed);
+        const b = srodekOsi(po);
+
+        if(!a || !b) return false;
+
+        const rs = sep.getBoundingClientRect();
+
+        /*
+           Oś biegnie dokładnie od środka osi poprzedniego stopu
+           do środka osi następnego stopu. Nie jest już ograniczona
+           wysokością samego separatora.
+        */
+        const x = ((a.x + b.x) / 2) - rs.left;
+        const top = a.y - rs.top;
+        const bottomY = b.y - rs.top;
+        const height = bottomY - top;
+
+        if(!Number.isFinite(x) ||
+           !Number.isFinite(top) ||
+           !Number.isFinite(height) ||
+           height <= 0){
+            return false;
+        }
+
+        sep.classList.add("laczenie-osi-484");
+
+        sep.style.setProperty(
+            "--os484-left",
+            `${x - 1.125}px`
+        );
+        sep.style.setProperty(
+            "--os484-top",
+            `${top}px`
+        );
+        sep.style.setProperty(
+            "--os484-height",
+            `${height}px`
+        );
+
+        let lacznik = sep.querySelector(":scope > .os-lacznik-484");
+
+        if(!lacznik){
+            lacznik = document.createElement("span");
+            lacznik.className = "os-lacznik-484";
+            lacznik.setAttribute("aria-hidden", "true");
+            sep.appendChild(lacznik);
+        }
+
+        return true;
+    }
+
+    function wykonaj(){
+        if(gotowe) return true;
+        if(!czy150()){
+            gotowe = true;
+            return true;
+        }
+
+        const tab =
+            document.querySelector("#wynik .tabliczka") ||
+            document.querySelector(".tabliczka");
+
+        if(!tab) return false;
+
+        /*
+           Czekamy na finalny render i podział kolumn.
+        */
+        if(!tab.querySelector(".trasa-columns.cols-2")) return false;
+        if(!tab.querySelector(".trasa-stop")) return false;
+
+        const listy = Array.from(
+            tab.querySelectorAll(".trasa-lista-397, .trasa-lista")
+        ).filter((el, i, arr) => arr.indexOf(el) === i);
+
+        let liczba = 0;
+
+        for(const lista of listy){
+            const dzieci = Array.from(lista.children);
+
+            dzieci.forEach((sep, i) => {
+                if(!jestSeparatorDoPolaczenia(sep)) return;
+
+                const przed = poprzedniStop(dzieci, i);
+                const po = nastepnyStop(dzieci, i);
+
+                if(!przed || !po) return;
+
+                if(polaczSeparator(sep, przed, po)){
+                    liczba++;
+                }
+            });
+        }
+
+        /*
+           Wymuszenie pogrubienia Metro Młociny po finalnym renderze.
+        */
+        tab.querySelectorAll(
+            ".trasa-stop.koniec-metro-mlociny-477 .trasa-nazwa, " +
+            ".trasa-stop.koniec-metro-mlociny-477 .trasa-nazwa *"
+        ).forEach(el => {
+            el.style.setProperty("font-weight", "700", "important");
+        });
+
+        if(liczba > 0){
+            gotowe = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    function czekaj(){
+        proby++;
+
+        /*
+           Podwójny RAF daje przeglądarce czas na finalne pozycje
+           po mechanizmie kolumn z 474.
+        */
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if(wykonaj()) return;
+                if(proby >= 100) return;
+                setTimeout(czekaj, 100);
+            });
+        });
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener("DOMContentLoaded", czekaj, {once:true});
+    }else{
+        czekaj();
+    }
+})();
+</script>
 
 </body>
 </html>
