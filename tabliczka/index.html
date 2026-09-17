@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 444
+     WERSJA: 445
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -4961,9 +4961,9 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     line-height: 16px !important;
     font-weight: 400 !important;
     font-style: normal !important;
-    letter-spacing: normal !important;
+    letter-spacing: 0.6px !important;
     text-align: center !important;
-    transform: scaleY(1.08) !important;
+    transform: scaleY(1.30) !important;
     transform-origin: center !important;
 }
 
@@ -40730,107 +40730,95 @@ function dopasujKolumnyTrasy() {
 
 
     /* =========================================================
-       WERSJA 444 — LINIA 150: WSPÓLNY ODCINEK + WYDŁUŻENIE „i”
+       WERSJA 445 — LINIA 150: WSPÓLNY DZIEKANÓW LEŚNY
 
-       Dla kierunku od METRA MŁOCINY wspólny przebieg kończy się:
-           INSTYTUT EKOLOGII PAN -> DZIEKANÓW LEŚNY
-       Dopiero za DZIEKANOWEM LEŚNYM zaczyna się blok „Trasa w kursach „i””.
+       Ważne: ten blok działa PRZED wizualnym usuwaniem nazw
+       miejscowości w WERSJI 432, dlatego porównujemy samą nazwę
+       przystanku przez rozdzielNazweIMiejscowosc().
 
-       Ten sam DZIEKANÓW LEŚNY nie może pojawić się ponownie na końcu
-       wydłużenia. Z początku wydłużenia usuwamy też powtórzony wspólny
-       INSTYTUT EKOLOGII PAN. Minuty w wydłużeniu są kontynuowane względem
-       ostatniego czasu części wspólnej, jeżeli źródłowy wariant zaczyna
-       liczenie ponownie od wcześniejszego punktu.
+       Oczekiwany układ:
+         INSTYTUT EKOLOGII PAN
+         DZIEKANÓW LEŚNY
+         Trasa w kursach „i”
+         dalsze przystanki wariantu i ... IZABELIN-DZIEKANÓWEK
+
+       Nie przeliczamy minut. Przenosimy rzeczywisty wiersz
+       DZIEKANÓW LEŚNY z wariantu razem z jego prawidłowym czasem,
+       a powtórzony INSTYTUT EKOLOGII PAN usuwamy.
        ========================================================= */
     if(String(aktualnaLinia||"").trim()==="150"){
-        const box444=html=>{
+        const box445=html=>{
             const b=document.createElement("div");
             b.innerHTML=html||"";
             return b;
         };
-        const nazwa444=html=>String(
-            box444(html).querySelector(".trasa-nazwa")?.textContent||""
+
+        const nazwaPelna445=html=>String(
+            box445(html).querySelector(".trasa-nazwa")?.textContent||""
         ).trim();
-        const czas444=html=>{
-            const t=String(box444(html).querySelector(".trasa-czas")?.textContent||"").trim();
-            return /^\d+$/.test(t)?Number(t):null;
+
+        const nazwaBazowa445=html=>{
+            const pelna=nazwaPelna445(html);
+            const r=rozdzielNazweIMiejscowosc(pelna);
+            return String(r?.nazwa||pelna).trim();
         };
-        const sep444=html=>String(
-            box444(html).querySelector(".trasa-separator-title")?.textContent||""
+
+        const sep445=html=>String(
+            box445(html).querySelector(".trasa-separator-title")?.textContent||""
         ).trim();
-        const isI444=html=>/Trasa\s+w\s+kursach\s+[„\"]i[”\"]/i.test(sep444(html));
-        let idxI444=wszystkie397.findIndex(isI444);
 
-        if(idxI444>0){
-            const N_DZ=normalizuj("DZIEKANÓW LEŚNY");
-            const N_IEP=normalizuj("INSTYTUT EKOLOGII PAN");
+        const isI445=html=>
+            /Trasa\s+w\s+kursach\s+[„\"]i[”\"]/i.test(sep445(html));
 
-            /* 1. Dziekanów Leśny z początku sekcji i staje się wspólnym
-                  ostatnim przystankiem przed nagłówkiem. */
-            let idxDz444=-1;
-            for(let j=idxI444+1;j<wszystkie397.length;j++){
-                if(isI444(wszystkie397[j]) && j!==idxI444) break;
-                if(normalizuj(nazwa444(wszystkie397[j]))===N_DZ){
-                    idxDz444=j;
+        const N_DZ445=normalizuj("DZIEKANÓW LEŚNY");
+        const N_IEP445=normalizuj("INSTYTUT EKOLOGII PAN");
+
+        let idxI445=wszystkie397.findIndex(isI445);
+
+        if(idxI445>0){
+            /* Znajdź pierwszy Dziekanów Leśny należący do sekcji i.
+               To właśnie jego wiersz (z poprawną minutą) staje się
+               wspólnym punktem przed nagłówkiem wariantu. */
+            let idxDz445=-1;
+            for(let j=idxI445+1;j<wszystkie397.length;j++){
+                const n=normalizuj(nazwaBazowa445(wszystkie397[j]));
+                if(n===N_DZ445){
+                    idxDz445=j;
                     break;
                 }
-                if(j>idxI444+6) break;
-            }
-            if(idxDz444>idxI444){
-                const dz=wszystkie397.splice(idxDz444,1)[0];
-                wszystkie397.splice(idxI444,0,dz);
+                /* Szukamy tylko w początkowej części tej gałęzi. */
+                if(j>idxI445+8) break;
             }
 
-            idxI444=wszystkie397.findIndex(isI444);
-
-            /* 2. Jeżeli pierwszy punkt wydłużenia powtarza Instytut PAN,
-                  który jest już bezpośrednio przed wspólnym Dziekanowem,
-                  usuwamy tylko tę powtórkę. */
-            if(idxI444>=2 && idxI444+1<wszystkie397.length){
-                const p1=normalizuj(nazwa444(wszystkie397[idxI444-1]));
-                const p2=normalizuj(nazwa444(wszystkie397[idxI444-2]));
-                const n1=normalizuj(nazwa444(wszystkie397[idxI444+1]));
-                if(p1===N_DZ && p2===N_IEP && n1===N_IEP){
-                    wszystkie397.splice(idxI444+1,1);
-                }
+            if(idxDz445>idxI445){
+                const dz445=wszystkie397.splice(idxDz445,1)[0];
+                wszystkie397.splice(idxI445,0,dz445);
             }
 
-            idxI444=wszystkie397.findIndex(isI444);
+            idxI445=wszystkie397.findIndex(isI445);
 
-            /* 3. Usuń późniejszy duplikat Dziekanowa Leśnego z tej samej
-                  sekcji wydłużenia. Wydłużenie ma kończyć się na
-                  IZABELIN-DZIEKANÓWEK, a nie wracać na wspólny kraniec. */
-            if(idxI444>=0){
-                for(let j=wszystkie397.length-1;j>idxI444;j--){
-                    if(normalizuj(nazwa444(wszystkie397[j]))===N_DZ){
+            /* Po przeniesieniu: usuń z początku wariantu powtórzony
+               INSTYTUT EKOLOGII PAN, bo wspólny Instytut jest już
+               przed Dziekanowem Leśnym. */
+            if(idxI445>=0){
+                for(let j=idxI445+1;j<Math.min(wszystkie397.length,idxI445+5);j++){
+                    if(normalizuj(nazwaBazowa445(wszystkie397[j]))===N_IEP445){
                         wszystkie397.splice(j,1);
+                        break;
                     }
                 }
             }
 
-            /* 4. Napraw ciąg minut w sekcji i. Jeżeli po wspólnym końcu
-                  czas wariantu spada (np. 22 -> 5), oznacza to, że wariant
-                  przyniósł czas liczony od wcześniejszego punktu. Dodajemy
-                  pełne dziesiątki tak długo, aż czas będzie większy od
-                  poprzedniego. Nie zmieniamy różnic pomiędzy przystankami. */
-            idxI444=wszystkie397.findIndex(isI444);
-            let poprzedni444=null;
-            for(let j=idxI444-1;j>=0;j--){
-                const c=czas444(wszystkie397[j]);
-                if(c!==null){ poprzedni444=c; break; }
-            }
-            if(idxI444>=0 && poprzedni444!==null){
-                for(let j=idxI444+1;j<wszystkie397.length;j++){
-                    const b=box444(wszystkie397[j]);
-                    const row=b.querySelector(".trasa-stop,.trasa-extra-stop");
-                    const ce=b.querySelector(".trasa-czas");
-                    if(!row || !ce) continue;
-                    let c=Number(String(ce.textContent||"").trim());
-                    if(!Number.isFinite(c)) continue;
-                    while(c<=poprzedni444) c+=10;
-                    ce.textContent=String(c);
-                    poprzedni444=c;
-                    wszystkie397[j]=b.firstElementChild?.outerHTML||wszystkie397[j];
+            idxI445=wszystkie397.findIndex(isI445);
+
+            /* Dziekanów Leśny ma wystąpić tylko raz — jako wspólny
+               przystanek bezpośrednio NAD nagłówkiem wariantu i.
+               Usuwamy wszystkie późniejsze jego wystąpienia. */
+            if(idxI445>=0){
+                for(let j=wszystkie397.length-1;j>idxI445;j--){
+                    if(normalizuj(nazwaBazowa445(wszystkie397[j]))===N_DZ445){
+                        wszystkie397.splice(j,1);
+                    }
                 }
             }
         }
