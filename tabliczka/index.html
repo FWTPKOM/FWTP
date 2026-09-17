@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 470
+     WERSJA: 471
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -44688,7 +44688,7 @@ body .tabliczka:has(.kierunki-dwa)
 
 <!-- =========================================================
      FWTP — POPRAWKA DWUKIERUNKOWA LINII 150
-     WERSJA PLIKU: 470
+     WERSJA PLIKU: 471
      BAZA: WERSJA 465
      ========================================================= -->
 
@@ -46075,6 +46075,373 @@ body .tabliczka:has(.kierunki-dwa)
                 subtree:true
             }
         );
+    }
+})();
+</script>
+
+
+<!-- =========================================================
+     FWTP — WERSJA PLIKU: 471
+     BAZA: WERSJA 470
+
+     POPRAWKA NA PODSTAWIE DZIAŁAJĄCEGO WYGLĄDU LINII 126:
+     - położenie kropki/osi liczone od stałego punktu 8 px,
+       a NIE od 50% wysokości wiersza;
+     - po zmianach DOM ponownie uruchamiane jest standardowe
+       ustawZawijanieNazwTrasy(), tak jak przy zwykłej linii 126;
+     - jednowierszowy przystanek nie dziedziczy wysokości
+       dwuwierszowego przystanku użytego wcześniej jako wzór;
+     - pierwsza kolumna zaczyna oś od kropki;
+     - następna kolumna, jeżeli jest kontynuacją, ma oś od góry.
+     ========================================================= -->
+
+<style id="wersja-471-jak-126">
+/*
+   W bazowym, działającym rendererze kropka znajduje się 8 px
+   od górnej krawędzi wiersza. Nie wolno używać top:50%,
+   ponieważ dla nazwy dwuwierszowej środek wiersza jest znacznie niżej.
+*/
+
+/* prawdziwy początek całej widocznej trasy */
+body .tabliczka.kierunki-dwa-471
+.trasa-columns
+.trasa-kol:first-child
+.trasa-lista-397
+> .v471-poczatek .trasa-os::before {
+    top: 8px !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/* pierwszy stop kolejnej kolumny = kontynuacja poprzedniej kolumny */
+body .tabliczka.kierunki-dwa-471
+.trasa-columns
+.trasa-kol:not(:first-child)
+.trasa-lista-397
+> .v471-kontynuacja .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/* zwykły stop wewnątrz trasy */
+body .tabliczka.kierunki-dwa-471
+.trasa-lista-397
+> .v471-srodek .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/*
+   Dziekanów Leśny jest końcem trasy podstawowej, ale przy wariancie i
+   pion biegnie dalej.
+*/
+body .tabliczka.kierunki-dwa-471
+.trasa-lista-397
+> .v471-koniec-bazy .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+body .tabliczka.kierunki-dwa-471
+.trasa-lista-397
+> .v471-koniec-bazy > .trasa-nazwa {
+    font-weight: 700 !important;
+}
+
+/* Izabelin-Dziekanówek = rzeczywisty koniec wydłużenia */
+body .tabliczka.kierunki-dwa-471
+.trasa-lista-397
+> .v471-koniec .trasa-os::before {
+    top: 0 !important;
+    bottom: calc(100% - 8px) !important;
+    height: auto !important;
+}
+
+body .tabliczka.kierunki-dwa-471
+.trasa-lista-397
+> .v471-koniec > .trasa-nazwa {
+    font-weight: 700 !important;
+}
+
+/*
+   Ważne: min-height 33 px ma być WYŁĄCZNIE wtedy,
+   gdy nazwa naprawdę została przez standardowy mechanizm oznaczona
+   jako .zawijaj. Dzięki temu np. DZIEKANÓW LEŚNY nie wygląda
+   jak pusty, dwuwierszowy przystanek.
+*/
+body .tabliczka.kierunki-dwa-471
+.trasa-lista-397
+> .trasa-stop:not(:has(.trasa-nazwa.zawijaj)),
+body .tabliczka.kierunki-dwa-471
+.trasa-lista-397
+> .trasa-extra-stop:not(:has(.trasa-nazwa.zawijaj)) {
+    min-height: 0 !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   FWTP — WERSJA 471
+   UJEDNOLICENIE GEOMETRII Z DZIAŁAJĄCYM RENDEREM (np. linia 126)
+   ========================================================= */
+(function(){
+    "use strict";
+
+    let busy471 = false;
+    let queued471 = false;
+
+    function norm471(v){
+        return String(v || "")
+            .toLocaleUpperCase("pl-PL")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function stop471(el){
+        return !!el && el.matches?.(".trasa-stop,.trasa-extra-stop");
+    }
+
+    function nazwa471(el){
+        return norm471(
+            el?.querySelector(".trasa-nazwa")?.textContent || ""
+        );
+    }
+
+    function separatorI471(el){
+        return !!el &&
+            el.classList?.contains("trasa-separator") &&
+            /Trasa\s+w\s+kursach\s+[„"]i[”"]/i.test(el.textContent || "");
+    }
+
+    function wyczysc471(tab){
+        tab.querySelectorAll(
+            ".v471-poczatek,.v471-kontynuacja,.v471-srodek,.v471-koniec-bazy,.v471-koniec"
+        ).forEach(el=>{
+            el.classList.remove(
+                "v471-poczatek",
+                "v471-kontynuacja",
+                "v471-srodek",
+                "v471-koniec-bazy",
+                "v471-koniec"
+            );
+        });
+    }
+
+    function poprawJednowierszowe471(columns){
+        /*
+           Najpierw korzystamy dokładnie z istniejącej funkcji używanej
+           przez poprawnie wyglądające zwykłe trasy, np. 126.
+           Ona zdejmuje .zawijaj ze wszystkich nazw i dodaje ją ponownie
+           tylko tam, gdzie tekst FAKTYCZNIE nie mieści się w jednej linii.
+        */
+        if(typeof ustawZawijanieNazwTrasy === "function"){
+            ustawZawijanieNazwTrasy(columns);
+        }
+
+        /*
+           Dodatkowe zabezpieczenie po wcześniejszym klonowaniu wiersza:
+           jeżeli nazwa nie ma .zawijaj, wiersz nie może zachować
+           sztucznej wysokości przystanku dwuwierszowego.
+        */
+        columns.querySelectorAll(
+            ".trasa-stop,.trasa-extra-stop"
+        ).forEach(row=>{
+            const nazwa = row.querySelector(".trasa-nazwa");
+            if(!nazwa) return;
+
+            if(!nazwa.classList.contains("zawijaj")){
+                row.style.removeProperty("min-height");
+            }
+        });
+    }
+
+    function poprawOs471(tab){
+        const columns = tab.querySelector(".trasa-columns");
+        if(!columns) return;
+
+        tab.classList.add("kierunki-dwa-471");
+
+        wyczysc471(tab);
+
+        const kolumny = Array.from(
+            columns.querySelectorAll(":scope > .trasa-kol")
+        );
+
+        if(!kolumny.length) return;
+
+        /*
+           Najpierw normalizujemy zawijanie. To jest kluczowe:
+           wcześniej np. DZIEKANÓW LEŚNY mógł odziedziczyć klasę
+           .zawijaj po dwuwierszowym INSTYTUT EKOLOGII PAN.
+        */
+        poprawJednowierszowe471(columns);
+
+        const pierwsze = [];
+
+        kolumny.forEach((kol, nrKol)=>{
+            const lista = kol.querySelector(".trasa-lista-397,.trasa-lista");
+            if(!lista) return;
+
+            const stopy = Array.from(lista.children).filter(stop471);
+
+            stopy.forEach(row=>{
+                row.classList.add("v471-srodek");
+            });
+
+            const pierwszy = stopy[0];
+            if(!pierwszy) return;
+
+            pierwsze.push({row:pierwszy, nrKol, lista});
+
+            /*
+               W pierwszej kolumnie jest prawdziwy początek widocznej osi.
+               W kolejnych kolumnach oś jest kontynuacją.
+            */
+            if(nrKol === 0){
+                pierwszy.classList.remove("v471-srodek");
+                pierwszy.classList.add("v471-poczatek");
+            }else{
+                /*
+                   Stare poprawki oznaczały pierwszy stop każdej kolumny
+                   jako nowy początek. To jest właśnie zachowanie, którego
+                   nie ma w poprawnie działającej 126.
+                */
+                pierwszy.classList.remove(
+                    "pierwszy-stop-444",
+                    "v465-pierwszy-widoczny",
+                    "v467-pierwszy",
+                    "v468-pierwszy-stop",
+                    "v469-poczatek",
+                    "v470-poczatek-calej-trasy"
+                );
+
+                pierwszy.classList.add(
+                    "v471-srodek",
+                    "v471-kontynuacja"
+                );
+            }
+
+            /*
+               Obsługa odcinka wydłużonego i:
+               Dziekanów Leśny = koniec podstawy,
+               Izabelin-Dziekanówek = koniec całej widocznej gałęzi.
+            */
+            const dzieci = Array.from(lista.children);
+            const sep = dzieci.find(separatorI471);
+
+            if(sep){
+                const si = dzieci.indexOf(sep);
+
+                let baza = null;
+                for(let i=si-1;i>=0;i--){
+                    if(stop471(dzieci[i])){
+                        baza=dzieci[i];
+                        break;
+                    }
+                }
+
+                if(
+                    baza &&
+                    nazwa471(baza).includes("DZIEKANOW LESNY")
+                ){
+                    baza.classList.remove(
+                        "kraniec-koniec",
+                        "koniec-wydluzenia-446",
+                        "v465-koniec-wydluzenia",
+                        "v467-izabelin-koniec",
+                        "v468-koniec-calej-trasy",
+                        "v469-koniec"
+                    );
+                    baza.classList.add(
+                        "v471-srodek",
+                        "v471-koniec-bazy"
+                    );
+                }
+
+                let koniec = null;
+                for(let i=dzieci.length-1;i>si;i--){
+                    if(
+                        stop471(dzieci[i]) &&
+                        nazwa471(dzieci[i]).includes("IZABELIN-DZIEKANOWEK")
+                    ){
+                        koniec=dzieci[i];
+                        break;
+                    }
+                }
+
+                if(koniec){
+                    koniec.classList.remove(
+                        "v471-srodek",
+                        "v471-kontynuacja"
+                    );
+                    koniec.classList.add(
+                        "v471-koniec",
+                        "kraniec-koniec"
+                    );
+                }
+            }
+        });
+
+        /*
+           Jeszcze raz po wszystkich zmianach tekstów/klas.
+           To dokładnie zapobiega pozostawaniu starego .zawijaj.
+        */
+        poprawJednowierszowe471(columns);
+    }
+
+    function run471(){
+        if(busy471) return;
+        busy471=true;
+
+        try{
+            const linia = String(
+                (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
+                new URLSearchParams(location.search).get("linia") ||
+                ""
+            ).trim();
+
+            if(linia !== "150") return;
+
+            document.querySelectorAll(".tabliczka").forEach(tab=>{
+                if(!tab.querySelector(".kierunki-dwa")) return;
+                poprawOs471(tab);
+            });
+        }finally{
+            busy471=false;
+        }
+    }
+
+    function queue471(){
+        if(queued471) return;
+        queued471=true;
+
+        requestAnimationFrame(()=>
+            requestAnimationFrame(()=>{
+                queued471=false;
+                run471();
+            })
+        );
+    }
+
+    if(document.readyState==="loading"){
+        document.addEventListener("DOMContentLoaded",queue471,{once:true});
+    }else{
+        queue471();
+    }
+
+    window.addEventListener("load",queue471);
+    document.addEventListener("fwtp-v464-ready",queue471);
+
+    const host=document.getElementById("wynik");
+    if(host){
+        new MutationObserver(()=>{
+            if(!busy471) queue471();
+        }).observe(host,{childList:true,subtree:true});
     }
 })();
 </script>
