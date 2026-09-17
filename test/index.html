@@ -2,20 +2,23 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 498
+     WERSJA: 499
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 498
+     FWTP — WERSJA PLIKU: 499
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
      - wspólne przystanki łączone po nazwa_czysta + nr
      - obsługa: różne początki -> wspólny odcinek -> odgałęzienia
      - "TRASA W KURSACH ..." dopiero przy rzeczywistej gałęzi
+     - brak "TRASA W KURSACH ..." nad początkiem listy
+     - STREFA I/II raz na górze, ponownie tylko po zmianie strefy
+     - po powrocie wariantu dalsze wspólne przystanki bierze trasa bazowa
      ========================================================= -->
 
 <html lang="pl">
@@ -16007,7 +16010,7 @@ function v496RenderStop(item, route, aktywnyKey, first=false, last=false){
         czyNZ(p)?"nz":""
     ].filter(Boolean).join(" ");
 
-    return '<li class="'+cls+'">'+
+    return '<li class="'+cls+'" data-v499-stop-key="'+escapeHtml(v496StopKey(p))+'">'+
         '<span class="trasa-czas">'+
         (minutes===null?"":escapeHtml(String(minutes)))+
         '</span>'+
@@ -16037,9 +16040,11 @@ function v496RenderItems(items,route,aktywnyKey,opts={}){
         if(t && t!==town && (i>0 || opts.separatorAtStart)){
             html+=v486TownSeparator(t);
         }
-        if(z && z!==zone && (i>0 || opts.separatorAtStart)){
-            html+=v486ZoneSeparator(z);
-        }
+        /*
+           V499: strefy są renderowane globalnie przez v499NormalizujStrefy().
+           Dzięki temu STREFA I jest raz na górze i nie powtarza się
+           w każdej gałęzi.
+        */
 
         html+=v496RenderStop(
             item,route,aktywnyKey,
@@ -16110,7 +16115,16 @@ function v496RenderBranchGroup(group,aktywnyKey,position){
     if(!group.items.length)return "";
 
     const rep=group.routes[0];
-    const label=v496OpisWariantow(group.routes);
+    /*
+       V499:
+       opis wariantu pokazujemy tylko przy odgałęzieniu PO wspólnej trasie.
+       Różne początki przed wspólnym odcinkiem nie dostają napisu
+       "TRASA W KURSACH ...".
+    */
+    const label=
+        position==="after"
+            ? v496OpisWariantow(group.routes)
+            : "";
     const r=v496RenderItems(
         group.items,rep,aktywnyKey,
         {
@@ -16127,6 +16141,38 @@ function v496RenderBranchGroup(group,aktywnyKey,position){
             : '')+
         '<ul class="trasa-lista">'+r.html+'</ul>'+
         '</div>';
+}
+
+
+/*
+   V499:
+   wariant pokazuje tylko własne odgałęzienie.
+   Gdy ponownie spotka przystanek należący do dalszej trasy bazowej,
+   nie powtarzamy dalszych przystanków wariantu — od tego miejsca
+   lista może korzystać z przebiegu podstawowego.
+*/
+function v499PrzytnijGalazDoPowrotu(group,baseRoute,commonEndIndex){
+    if(!group?.items?.length)return group;
+
+    const baseAfter=v486Array(baseRoute?.items).slice(commonEndIndex);
+    const baseKeys=new Set(baseAfter.map(x=>v496StopKey(x.p)));
+
+    let cut=-1;
+    for(let i=0;i<group.items.length;i++){
+        if(baseKeys.has(v496StopKey(group.items[i].p))){
+            cut=i;
+            break;
+        }
+    }
+
+    if(cut>0){
+        return {
+            ...group,
+            items:group.items.slice(0,cut)
+        };
+    }
+
+    return group;
 }
 
 function v496RenderRoutes(routes){
@@ -16203,8 +16249,36 @@ function v496RenderRoutes(routes){
        Dopiero tutaj, po wspólnym odcinku, pokazujemy opis gałęzi.
     */
     if(afterGroups.length){
+        const commonEnd=
+            common.positions[0]+common.len;
+
+        /*
+           Pierwszy przebieg jest przebiegiem bazowym dla dalszej
+           wspólnej listy. Pozostałe przebiegi pokazują tylko własny
+           fragment odgałęzienia; po powrocie do podstawowej trasy
+           nie powtarzamy już przystanków.
+        */
+        const baseAfterKey=
+            baseRoute.items.slice(commonEnd)
+                .map(x=>v496StopKey(x.p))
+                .join("\u001E");
+
+        const groups499=afterGroups.map(g=>{
+            const key=g.items.map(x=>v496StopKey(x.p)).join("\u001E");
+
+            if(key===baseAfterKey){
+                return g;
+            }
+
+            return v499PrzytnijGalazDoPowrotu(
+                g,
+                baseRoute,
+                commonEnd
+            );
+        }).filter(g=>g.items.length);
+
         html+='<div class="v496-galezie v496-po">'+
-            afterGroups.map(g=>v496RenderBranchGroup(g,activeKey,"after")).join("")+
+            groups499.map(g=>v496RenderBranchGroup(g,activeKey,"after")).join("")+
             '</div>';
     }
 
@@ -16265,6 +16339,97 @@ window.FWTP486 = {
    - separator wariantu zostaje z pierwszym przystankiem sekcji.
    ========================================================= */
 
+
+/* =========================================================
+   FWTP — WERSJA 499
+   STREFY + WARIANTY PO WSPÓLNYM ODCINKU
+   ========================================================= */
+
+function v499ZoneText(el){
+    return (el?.textContent||"")
+        .replace(/\s+/g," ")
+        .trim()
+        .toLocaleUpperCase("pl-PL");
+}
+
+function v499PierwszaStrefaZTrasy(){
+    const routes=v486BuildRoutes();
+    if(!routes.length)return "";
+
+    /*
+       Strefa z pierwszego rzeczywistego przystanku przebiegu.
+       Jeżeli pierwszy przebieg zaczyna się inną gałęzią, nadal
+       strefa jest informacją globalną i ma być przed listą.
+    */
+    for(const route of routes){
+        for(const item of v486Array(route.items)){
+            const z=v486StopZone(item?.p);
+            if(z)return z;
+        }
+    }
+    return "";
+}
+
+function v499NormalizujStrefy(root){
+    if(!root)return;
+
+    /*
+       Usuwamy wszystkie separatory stref wygenerowane lokalnie
+       przez poszczególne gałęzie. Zbudujemy je ponownie według
+       kolejności wyświetlanej listy.
+    */
+    root.querySelectorAll(".v486-strefa").forEach(x=>x.remove());
+
+    const pierwsza=v499PierwszaStrefaZTrasy();
+    if(!pierwsza)return;
+
+    /*
+       Pierwszy napis STREFA I / II ma być NA GÓRZE,
+       przed miejscowością i przed pierwszym przystankiem.
+    */
+    const firstList=root.querySelector(".trasa-lista");
+    if(firstList){
+        firstList.insertAdjacentHTML(
+            "afterbegin",
+            v486ZoneSeparator(pierwsza)
+        );
+    }
+
+    /*
+       Następne napisy dodajemy wyłącznie w momencie faktycznej
+       zmiany strefy. Ten sam napis nie jest powtarzany.
+    */
+    let current=pierwsza;
+
+    const stops=Array.from(
+        root.querySelectorAll(".trasa-stop")
+    );
+
+    stops.forEach(stop=>{
+        const key=stop.getAttribute("data-v499-stop-key");
+        if(!key)return;
+
+        const p=v499StopByKey(key);
+        const zone=v486StopZone(p);
+
+        if(zone && zone!==current){
+            stop.insertAdjacentHTML(
+                "beforebegin",
+                v486ZoneSeparator(zone)
+            );
+            current=zone;
+        }
+    });
+}
+
+function v499StopByKey(key){
+    const k=v486CurrentDirection();
+    for(const p of v486Array(k?.przystanki)){
+        if(v496StopKey(p)===key)return p;
+    }
+    return null;
+}
+
 function v498UstawNaglowek(ile){
     const head=document.querySelector("#wynik .trasa-head");
     if(!head)return;
@@ -16320,6 +16485,13 @@ function v498DopasujKolumnyTrasy(){
     const columns=document.querySelector("#wynik .trasa-columns");
 
     if(!tabliczka || !columns)return;
+
+    /*
+       V499:
+       STREFA I/II jest najpierw ustawiana globalnie:
+       raz na górze i ponownie dopiero po rzeczywistej zmianie.
+    */
+    v499NormalizujStrefy(columns);
 
     /*
        Najpierw pobieramy cały nowy przebieg V496 zanim zmienimy DOM.
