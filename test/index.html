@@ -2,14 +2,14 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 497
+     WERSJA: 498
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 497
+     FWTP — WERSJA PLIKU: 498
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
@@ -5202,37 +5202,32 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 
 <style>
 /* =========================================================
-   FWTP — WERSJA 497
-   AUTOMATYCZNY PODZIAŁ DŁUGIEJ LISTY NA 2 KOLUMNY
-   =========================================================
-   JS dodaje klasę .v497-dwie-kolumny tylko wtedy, gdy cała
-   lista przystanków nie mieści się w wysokości tabliczki.
+   FWTP — WERSJA 498
+   PODZIAŁ KOLUMN PRZENIESIONY ZE STAREJ DZIAŁAJĄCEJ LOGIKI
    ========================================================= */
 
-.trasa-columns.v497-dwie-kolumny{
+.tabliczka .trasa-head.cols-1,
+.tabliczka .trasa-columns.cols-1{
+    grid-template-columns:1fr !important;
+}
+
+.tabliczka .trasa-head.cols-2,
+.tabliczka .trasa-columns.cols-2{
+    grid-template-columns:1fr 1fr !important;
+}
+
+.tabliczka.trasa-2-kol .trasa-columns{
     display:grid !important;
-    grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important;
-    column-gap:0 !important;
-    align-items:start !important;
 }
 
-.trasa-columns.v497-dwie-kolumny > .v497-polowa{
-    min-width:0 !important;
-    width:100% !important;
-    box-sizing:border-box !important;
+.tabliczka .trasa-columns.cols-2 > .trasa-kol:not(:last-child){
+    border-right:1px solid #999;
 }
 
-.trasa-columns.v497-dwie-kolumny > .v497-polowa + .v497-polowa{
-    border-left:1px solid #999;
-}
-
-.trasa-columns.v497-dwie-kolumny .trasa-lista{
-    margin-top:0 !important;
-    margin-bottom:0 !important;
-}
-
-.v497-polowa .trasa-stop:first-child{
-    margin-top:0 !important;
+/* Granica kolumny nie jest końcem całej trasy. */
+.tabliczka .trasa-columns.cols-2 > .trasa-kol:not(:last-child)
+.trasa-stop:last-child{
+    font-weight:400;
 }
 </style>
 
@@ -16259,166 +16254,231 @@ window.FWTP486 = {
 
 
 /* =========================================================
-   FWTP — WERSJA 497
-   AUTOMATYCZNE ŁAMANIE LISTY PRZYSTANKÓW
+   FWTP — WERSJA 498
+   STARA LOGIKA 1/2 KOLUMN — ADAPTACJA DO NOWEGO kurs.trasa
+   =========================================================
+   Zasada pochodzi z wcześniejszego, działającego układu:
+   - najpierw zawsze 1 kolumna,
+   - mierzymy rzeczywistą wysokość po zawinięciu nazw,
+   - dopiero jeśli nie mieści się: 2 kolumny,
+   - pierwszą wypełniamy do dostępnej wysokości,
+   - separator wariantu zostaje z pierwszym przystankiem sekcji.
    ========================================================= */
 
-function v497ResetSplit(){
-    const root=document.querySelector(".trasa-columns");
-    if(!root)return;
+function v498UstawNaglowek(ile){
+    const head=document.querySelector("#wynik .trasa-head");
+    if(!head)return;
 
-    const left=root.querySelector(".v497-polowa-a");
-    const right=root.querySelector(".v497-polowa-b");
+    head.className="trasa-head cols-"+ile;
 
-    if(left && right){
-        const frag=document.createDocumentFragment();
-
-        [...left.childNodes].forEach(n=>frag.appendChild(n));
-        [...right.childNodes].forEach(n=>frag.appendChild(n));
-
-        root.replaceChildren(frag);
-    }
-
-    root.classList.remove("v497-dwie-kolumny");
+    head.innerHTML=Array.from(
+        {length:ile},
+        ()=>'<div class="trasa-head-label">czasy, trasa, przystanki</div>'
+    ).join("");
 }
 
-function v497RouteAvailableHeight(root){
+function v498PobierzStrumienWierszy(columns){
     /*
-       Najpierw wykorzystujemy rzeczywistą wysokość prawego pola.
-       Jeżeli rodzic nie ma ograniczonej wysokości, punktem odniesienia
-       jest wysokość całej tabliczki.
+       V496 może mieć wspólną część i kilka gałęzi.
+       Do starego splittera przekazujemy jeden ciąg gotowych wierszy:
+       separatory + przystanki, dokładnie w kolejności DOM.
     */
-    const tabliczka=root.closest(".tabliczka");
-    if(!tabliczka)return 0;
+    const main=columns.querySelector(":scope > .v496-kol") ||
+               columns.querySelector(":scope > .trasa-kol");
 
-    const rootRect=root.getBoundingClientRect();
-    const tabRect=tabliczka.getBoundingClientRect();
+    if(!main)return [];
 
-    return Math.max(0,tabRect.bottom-rootRect.top-4);
-}
+    const result=[];
 
-function v497TopLevelBlocks(root){
-    /*
-       Silnik V496 tworzy jeden .v496-kol. Dzielimy jego elementy
-       blokami, dzięki czemu nie przecinamy w połowie pojedynczego
-       wiersza przystanku ani opisu wariantu.
-    */
-    const main=root.querySelector(":scope > .v496-kol") ||
-               root.querySelector(":scope > .v486-trasa-kol") ||
-               root.firstElementChild;
-
-    if(!main)return {main:null,blocks:[]};
-
-    return {
-        main,
-        blocks:[...main.children]
-    };
-}
-
-function v497SplitLongRoute(){
-    v497ResetSplit();
-
-    const root=document.querySelector(".trasa-columns");
-    if(!root)return;
-
-    const available=v497RouteAvailableHeight(root);
-    if(available<=0)return;
-
-    /*
-       Dopóki całość mieści się w pierwszej kolumnie,
-       niczego nie zmieniamy.
-    */
-    if(root.scrollHeight<=available+2)return;
-
-    const info=v497TopLevelBlocks(root);
-    const main=info.main;
-    let blocks=info.blocks;
-
-    if(!main || !blocks.length)return;
-
-    /*
-       Jeżeli głównym blokiem jest jedna długa lista UL,
-       rozbijamy ją na bezpieczne bloki LI.
-    */
-    if(blocks.length===1 && blocks[0].matches("ul.trasa-lista")){
-        const ul=blocks[0];
-        blocks=[...ul.children];
-
-        const wrappers=blocks.map(li=>{
-            const copy=document.createElement("ul");
-            copy.className=ul.className;
-            copy.appendChild(li);
-            return copy;
-        });
-
-        blocks=wrappers;
-    }else{
-        blocks=blocks.map(x=>x);
-    }
-
-    if(blocks.length<2)return;
-
-    const left=document.createElement("div");
-    left.className="v497-polowa v497-polowa-a";
-
-    const right=document.createElement("div");
-    right.className="v497-polowa v497-polowa-b";
-
-    /*
-       Rozdział według rzeczywistej wysokości. Najpierw mierzymy
-       bloki w niewidocznym kontenerze o tej samej szerokości.
-    */
-    const probe=document.createElement("div");
-    probe.style.position="absolute";
-    probe.style.visibility="hidden";
-    probe.style.pointerEvents="none";
-    probe.style.width=Math.max(1,root.clientWidth/2)+"px";
-    document.body.appendChild(probe);
-
-    const heights=blocks.map(block=>{
-        const clone=block.cloneNode(true);
-        probe.appendChild(clone);
-        const h=clone.getBoundingClientRect().height;
-        clone.remove();
-        return h;
+    main.querySelectorAll(
+        ".trasa-separator, .trasa-lista > .trasa-stop, .trasa-lista > li"
+    ).forEach(el=>{
+        /*
+           Nie dodajemy li drugi raz, jeżeli selektor trafił go
+           jednocześnie jako .trasa-stop i jako li.
+        */
+        if(result.includes(el))return;
+        result.push(el);
     });
 
-    probe.remove();
-
-    const total=heights.reduce((a,b)=>a+b,0);
-    const target=total/2;
-
-    let sum=0;
-    let cut=1;
-    for(let i=0;i<heights.length-1;i++){
-        sum+=heights[i];
-        cut=i+1;
-        if(sum>=target)break;
-    }
-
-    /*
-       Przenosimy oryginalne elementy, nie ich kopie.
-    */
-    blocks.forEach((block,i)=>{
-        (i<cut?left:right).appendChild(block);
-    });
-
-    /*
-       Usuwamy pusty kontener V496 i wkładamy dwie kolumny.
-    */
-    if(main.parentNode===root){
-        main.remove();
-    }else{
-        root.replaceChildren();
-    }
-
-    root.append(left,right);
-    root.classList.add("v497-dwie-kolumny");
+    return result.map(el=>el.outerHTML);
 }
 
-function v497ScheduleSplit(){
+function v498RenderGrupy(columns,grupy){
+    columns.innerHTML=grupy.map(
+        grupa=>
+            '<div class="trasa-kol">'+
+            '<ul class="trasa-lista">'+
+            grupa.join("")+
+            '</ul>'+
+            '</div>'
+    ).join("");
+}
+
+function v498DopasujKolumnyTrasy(){
+    const tabliczka=document.querySelector("#wynik .tabliczka");
+    const columns=document.querySelector("#wynik .trasa-columns");
+
+    if(!tabliczka || !columns)return;
+
+    /*
+       Najpierw pobieramy cały nowy przebieg V496 zanim zmienimy DOM.
+    */
+    const wszystkie=v498PobierzStrumienWierszy(columns);
+    if(!wszystkie.length)return;
+
+    /*
+       =====================================================
+       1. NAJPIERW JEDNA KOLUMNA
+       =====================================================
+    */
+    tabliczka.classList.remove("trasa-2-kol","trasa-3-kol");
+    columns.className="trasa-columns cols-1";
+    v498UstawNaglowek(1);
+    v498RenderGrupy(columns,[wszystkie]);
+
+    if(typeof ustawZawijanieNazwTrasy==="function"){
+        ustawZawijanieNazwTrasy(columns);
+    }
+
+    const jedna=columns.querySelector(".trasa-kol");
+
+    if(
+        jedna &&
+        jedna.scrollHeight<=columns.clientHeight+1
+    ){
+        return;
+    }
+
+    /*
+       =====================================================
+       2. DOPIERO TERAZ DWIE KOLUMNY
+       =====================================================
+       To jest ta sama zasada co w starej działającej logice:
+       nie dzielimy listy matematycznie na pół.
+       Wypełniamy pierwszą kolumnę do dostępnej wysokości.
+    */
+    tabliczka.classList.add("trasa-2-kol");
+    columns.className="trasa-columns cols-2";
+    v498UstawNaglowek(2);
+
+    /*
+       Pomiar przy FINALNEJ szerokości kolumny.
+       Druga pusta kolumna wymusza prawidłową szerokość pierwszej.
+    */
+    columns.innerHTML=
+        '<div class="trasa-kol trasa-kol-pomiar-498">'+
+            '<ul class="trasa-lista trasa-lista-pomiar-498">'+
+                wszystkie.join("")+
+            '</ul>'+
+        '</div>'+
+        '<div class="trasa-kol trasa-kol-pusta"></div>';
+
+    if(typeof ustawZawijanieNazwTrasy==="function"){
+        ustawZawijanieNazwTrasy(columns);
+    }
+
+    const pomiar=columns.querySelector(".trasa-kol-pomiar-498");
+    const dzieci=Array.from(
+        pomiar?.querySelector(".trasa-lista-pomiar-498")?.children||[]
+    );
+
+    if(!pomiar || !dzieci.length)return;
+
+    const styl=getComputedStyle(pomiar);
+
+    const dostepna=
+        columns.clientHeight-
+        parseFloat(styl.paddingTop||0)-
+        parseFloat(styl.paddingBottom||0)-
+        1;
+
+    const wysokosci=dzieci.map(el=>{
+        const rect=el.getBoundingClientRect();
+        const css=getComputedStyle(el);
+
+        return (
+            rect.height+
+            parseFloat(css.marginTop||0)+
+            parseFloat(css.marginBottom||0)
+        );
+    });
+
+    const grupy=[[]];
+    let suma=0;
+
+    for(let i=0;i<wszystkie.length;i++){
+        const h=Math.max(0,wysokosci[i]||0);
+        let wymagane=h;
+
+        /*
+           Tak jak wcześniej: napis "TRASA W KURSACH ..."
+           nie może zostać sam na dole kolumny.
+           Musi zmieścić się razem z pierwszym przystankiem.
+        */
+        if(
+            dzieci[i]?.classList?.contains("trasa-separator") &&
+            i+1<wszystkie.length
+        ){
+            wymagane+=Math.max(0,wysokosci[i+1]||0);
+        }
+
+        if(
+            grupy[0].length>0 &&
+            suma+wymagane>dostepna &&
+            grupy.length===1
+        ){
+            grupy.push([]);
+            suma=0;
+        }
+
+        grupy[grupy.length-1].push(wszystkie[i]);
+        suma+=h;
+    }
+
+    /*
+       Jeżeli po pomiarze jednak wszystko weszło do jednej,
+       wracamy do jednej kolumny.
+    */
+    const niepuste=grupy.filter(g=>g.length);
+
+    if(niepuste.length<=1){
+        tabliczka.classList.remove("trasa-2-kol");
+        columns.className="trasa-columns cols-1";
+        v498UstawNaglowek(1);
+        v498RenderGrupy(columns,[wszystkie]);
+
+        if(typeof ustawZawijanieNazwTrasy==="function"){
+            ustawZawijanieNazwTrasy(columns);
+        }
+        return;
+    }
+
+    v498RenderGrupy(columns,niepuste.slice(0,2));
+
+    if(typeof ustawZawijanieNazwTrasy==="function"){
+        ustawZawijanieNazwTrasy(columns);
+    }
+
+    /*
+       Koniec pierwszej kolumny nie jest końcem trasy.
+    */
+    const pierwsza=columns.querySelector(
+        ":scope > .trasa-kol:not(:last-child) .trasa-lista > li:last-child"
+    );
+
+    pierwsza?.classList.remove(
+        "kraniec-koniec",
+        "koniec-trasy-210",
+        "ma-kontynuacje-trasy"
+    );
+}
+
+function v498UruchomDopasowanie(){
     requestAnimationFrame(()=>{
-        requestAnimationFrame(v497SplitLongRoute);
+        requestAnimationFrame(()=>{
+            v498DopasujKolumnyTrasy();
+        });
     });
 }
 
@@ -16629,39 +16689,27 @@ function renderuj(){
             html;
 
     /*
-       Nowe kolumny są dynamiczne, dlatego ich siatkę ustawiamy
-       bez korzystania ze starych klas cols-1 / cols-2.
+       WERSJA 498:
+       po renderze zaczynamy od jednej kolumny.
+       O liczbie 1/2 kolumn decyduje stary, sprawdzony pomiar wysokości.
     */
     const tabliczka=
-        document.querySelector(
-            "#wynik .v486-tabliczka"
-        );
+        document.querySelector("#wynik .v486-tabliczka");
 
-    if(tabliczka){
-        const head=
-            tabliczka.querySelector(
-                ".trasa-head.v486-cols"
-            );
+    const head=
+        tabliczka?.querySelector(".trasa-head");
 
-        const columns=
-            tabliczka.querySelector(
-                ".trasa-columns.v486-cols"
-            );
+    const columns=
+        tabliczka?.querySelector(".trasa-columns");
 
-        const template=
-            "repeat("+
-            routeCount+
-            ", minmax(145px, 1fr))";
+    if(head){
+        head.className="trasa-head cols-1";
+        head.style.removeProperty("grid-template-columns");
+    }
 
-        if(head){
-            head.style.display="grid";
-            head.style.gridTemplateColumns=template;
-        }
-
-        if(columns){
-            columns.style.display="grid";
-            columns.style.gridTemplateColumns=template;
-        }
+    if(columns){
+        columns.className="trasa-columns cols-1";
+        columns.style.removeProperty("grid-template-columns");
     }
 
     requestAnimationFrame(() => {
@@ -16674,10 +16722,11 @@ function renderuj(){
             wyrownajSzerokoscWeekendow();
 
             /*
-               Nie wywołujemy dopasujKolumnyTrasy(), ponieważ była to
-               część starego silnika listy. Siatka V486 jest ustawiona
-               bezpośrednio z liczby rzeczywistych kurs.trasa.
+               WERSJA 498:
+               przywrócona sprawdzona logika 1/2 kolumn,
+               zaadaptowana do nowego modelu kurs.trasa.
             */
+            v498DopasujKolumnyTrasy();
 
             zastosujEtapyRozkladu184();
 
@@ -16688,8 +16737,6 @@ function renderuj(){
             );
         });
     });
-
-    v497ScheduleSplit();
 }
 
 
@@ -19450,8 +19497,11 @@ window.addEventListener(
     
 })();
 window.addEventListener("resize",()=>{
-    clearTimeout(window.__v497ResizeTimer);
-    window.__v497ResizeTimer=setTimeout(v497ScheduleSplit,120);
+    clearTimeout(window.__v498Resize);
+    window.__v498Resize=setTimeout(()=>{
+        /* pełny render odtwarza źródłowy model V496 przed ponownym podziałem */
+        if(typeof renderuj==="function") renderuj();
+    },150);
 });
 </script>
 
