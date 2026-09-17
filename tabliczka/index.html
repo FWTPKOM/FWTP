@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 473
+     WERSJA: 474
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -45008,134 +45008,549 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
      ========================================================= -->
 
 
-<style id="wersja-473-linia-150-dopasowanie-kartki">
+<style id="wersja-474-linia-150-podzial-wg-rzeczywistej-wysokosci">
 /* =========================================================
-   WERSJA 473 — LINIA 150
+   WERSJA 474 — LINIA 150
    BAZA: 471
 
-   NIE ZMIENIAMY:
-   - wysokości .trasa-stop,
-   - line-height nazw,
-   - wysokości przystanków dwuliniowych,
-   - geometrii kropek i osi.
+   WAŻNE:
+   Nie zmieniamy wysokości przystanków.
 
-   Zamiast tego odzyskujemy miejsce wyłącznie z elementów
-   dodatkowych: separatorów miejscowości, STREFA I oraz opisów
-   "Trasa w kursach...".
+   Naprawa polega na tym, że przy podziale na dwie kolumny
+   liczymy rzeczywistą wysokość WSZYSTKICH elementów:
+   - przystanków,
+   - miejscowości,
+   - STREFA I,
+   - "Trasa w kursach...",
+   - pozostałych separatorów.
+
+   Dzięki temu separator nie może wejść na nazwę przystanku,
+   a druga część trasy jest przenoszona do prawej kolumny
+   zanim wyjdzie poza dół kartki.
    ========================================================= */
 
+/*
+   Nazwa miejscowości może być dwuliniowa.
+   Separator musi wtedy dostać rzeczywistą wysokość tekstu,
+   zamiast zachowywać wysokość jak dla jednej linii.
+*/
 .tabliczka.linia-150-v469
-.trasa-columns:has(> .trasa-kol:nth-child(2))
-.trasa-miejscowosc-429 {
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
+.trasa-columns.cols-2
+.trasa-separator.trasa-miejscowosc-429 {
+    height: auto !important;
+    min-height: 22px !important;
+    overflow: visible !important;
+    align-items: center !important;
 }
 
 .tabliczka.linia-150-v469
-.trasa-columns:has(> .trasa-kol:nth-child(2))
-.trasa-strefa-440 {
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
-}
-
-/* Zmniejszamy tylko puste odstępy przy opisach wariantów/kursów. */
-.tabliczka.linia-150-v469
-.trasa-columns:has(> .trasa-kol:nth-child(2))
-.trasa-extra,
-.tabliczka.linia-150-v469
-.trasa-columns:has(> .trasa-kol:nth-child(2))
-.trasa-opis {
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-    padding-top: 1px !important;
-    padding-bottom: 1px !important;
+.trasa-columns.cols-2
+.trasa-separator.trasa-miejscowosc-429
+.trasa-separator-title {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    height: auto !important;
+    max-height: none !important;
 }
 
 /*
-   Kluczowa różnica względem 472:
-   NIE MA tutaj żadnych reguł dla:
+   STREFA I i nagłówki "Trasa w kursach..." również mają zachować
+   własną naturalną wysokość. Nie ściskamy ich na przystanki.
+*/
+.tabliczka.linia-150-v469
+.trasa-columns.cols-2
+.trasa-separator.trasa-strefa-440,
+.tabliczka.linia-150-v469
+.trasa-columns.cols-2
+.trasa-separator:not(.trasa-miejscowosc-429):not(.trasa-strefa-440):not(.trasa-graniczny-440) {
+    height: auto !important;
+}
+
+/*
+   Celowo BRAK reguł dla:
    .trasa-stop
+   .trasa-extra-stop
    .trasa-nazwa
    .trasa-os
 
-   Dwuliniowe przystanki zachowują więc dokładnie wysokość z 471.
+   Czyli jedno- i dwuliniowe przystanki pozostają dokładnie jak w 471.
 */
 </style>
 
 <script>
 /* =========================================================
-   WERSJA 473
-   Jeżeli układ dwóch kierunków nadal potrzebuje kilku pikseli,
-   ścieśniamy tylko elementy NIEBĘDĄCE przystankami.
-
-   Nie dotykamy wysokości wierszy przystankowych.
+   WERSJA 474 — PODZIAŁ KOLUMN WG RZECZYWISTEJ WYSOKOŚCI
    ========================================================= */
-(function FWTP_WERSJA_473(){
+(function FWTP_WERSJA_474(){
+    "use strict";
 
-    function czyLinia150(){
+    let wTrakcie474 = false;
+    let zaplanowane474 = false;
+
+    function czy150(){
         return String(
-            new URLSearchParams(location.search).get("linia") || ""
+            window.aktualnaLinia ||
+            new URLSearchParams(location.search).get("linia") ||
+            ""
         ).trim() === "150";
     }
 
-    function popraw473(){
-        if(!czyLinia150()) return;
-
+    function pobierzUklad(){
         const tab =
             document.querySelector("#wynik .tabliczka") ||
             document.querySelector(".tabliczka");
 
-        if(!tab) return;
+        if(!tab) return null;
 
         const columns =
-            tab.querySelector(".trasa-columns");
-
-        if(!columns) return;
-
-        const cols =
-            Array.from(
-                columns.querySelectorAll(":scope > .trasa-kol")
+            tab.querySelector(
+                ".panel-prawy .trasa-columns.cols-2"
+            ) ||
+            tab.querySelector(
+                ".trasa-columns.cols-2"
             );
 
-        if(cols.length < 2) return;
+        if(!columns) return null;
 
-        tab.classList.add(
-            "dwa-kierunki-473"
-        );
+        const kolumny =
+            Array.from(
+                columns.querySelectorAll(
+                    ":scope > .trasa-kol"
+                )
+            );
+
+        if(kolumny.length !== 2){
+            return null;
+        }
 
         /*
-           Nie ustawiamy żadnego style.height/minHeight/lineHeight
-           na przystankach. Pozostawiamy renderer 471 bez zmian.
+           Obsługujemy obie nazwy list występujące w projekcie.
         */
+        const lista1 =
+            kolumny[0].querySelector(
+                ".trasa-lista-397"
+            ) ||
+            kolumny[0].querySelector(
+                ".trasa-lista"
+            );
+
+        const lista2 =
+            kolumny[1].querySelector(
+                ".trasa-lista-397"
+            ) ||
+            kolumny[1].querySelector(
+                ".trasa-lista"
+            );
+
+        if(!lista1 || !lista2){
+            return null;
+        }
+
+        return {
+            tab,
+            columns,
+            kolumny,
+            lista1,
+            lista2
+        };
     }
 
-    let raf = 0;
+    function dolDostepnegoObszaru474(
+        columns,
+        kolumna
+    ){
+        /*
+           Nie używamy clientHeight listy, bo lista może już wystawać
+           poza kartkę i sama zwiększać swój pomiar.
 
-    function schedule(){
-        cancelAnimationFrame(raf);
+           Granicą jest dół kontenera .trasa-columns, który ma wysokość
+           wynikającą z kartki 160 mm.
+        */
+        const rectColumns =
+            columns.getBoundingClientRect();
 
-        raf = requestAnimationFrame(
-            () => requestAnimationFrame(
-                popraw473
+        const cs =
+            getComputedStyle(kolumna);
+
+        const paddingBottom =
+            parseFloat(cs.paddingBottom) || 0;
+
+        return (
+            rectColumns.bottom -
+            paddingBottom
+        );
+    }
+
+    function elementyListy474(lista){
+        return Array.from(
+            lista.children
+        ).filter(
+            el =>
+                el.nodeType === 1
+        );
+    }
+
+    function pierwszyWychodzacy474(
+        lista,
+        limitDol
+    ){
+        const dzieci =
+            elementyListy474(lista);
+
+        for(
+            let i = 0;
+            i < dzieci.length;
+            i++
+        ){
+            const rect =
+                dzieci[i].getBoundingClientRect();
+
+            if(
+                rect.bottom >
+                limitDol + 0.5
+            ){
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    function czySeparator474(el){
+        return !!(
+            el &&
+            el.classList &&
+            el.classList.contains(
+                "trasa-separator"
             )
         );
     }
 
-    function start(){
-        schedule();
+    function poczatekPakietu474(
+        dzieci,
+        indexOverflow
+    ){
+        let start =
+            indexOverflow;
 
-        const host =
-            document.getElementById("wynik") ||
-            document.body;
+        /*
+           Jeżeli pierwszym elementem, który nie mieści się na kartce,
+           jest przystanek, zabieramy razem z nim wszystkie bezpośrednio
+           poprzedzające nagłówki.
 
-        new MutationObserver(
-            schedule
-        ).observe(
-            host,
+           To jest właśnie brakująca logika:
+           miejscowość / STREFA / "Trasa w kursach..." są częścią
+           pakietu i też biorą udział w podziale kolumn.
+        */
+        while(
+            start > 0 &&
+            czySeparator474(
+                dzieci[start - 1]
+            )
+        ){
+            start--;
+        }
+
+        return start;
+    }
+
+    function przeniesOd474(
+        lista1,
+        lista2,
+        start
+    ){
+        const dzieci =
+            elementyListy474(lista1);
+
+        if(
+            start < 0 ||
+            start >= dzieci.length
+        ){
+            return false;
+        }
+
+        const pakiet =
+            dzieci.slice(start);
+
+        if(!pakiet.length){
+            return false;
+        }
+
+        const przed =
+            lista2.firstChild;
+
+        /*
+           Zachowujemy kolejność elementów:
+           separator -> przystanek -> następne elementy.
+        */
+        for(const el of pakiet){
+            lista2.insertBefore(
+                el,
+                przed
+            );
+        }
+
+        return true;
+    }
+
+    function usunOsieroconySeparator474(lista){
+        const dzieci =
+            elementyListy474(lista);
+
+        if(!dzieci.length){
+            return;
+        }
+
+        /*
+           Na końcu lewej kolumny nie może zostać samotny:
+           - STREFA I,
+           - miejscowość,
+           - "Trasa w kursach..."
+           bez przystanku pod nim.
+
+           Przenosimy go na początek prawej kolumny w następnym kroku.
+        */
+        let i =
+            dzieci.length - 1;
+
+        while(
+            i >= 0 &&
+            czySeparator474(
+                dzieci[i]
+            )
+        ){
+            i--;
+        }
+
+        return i + 1;
+    }
+
+    function odswiezLaczenieOsi474(tab){
+        tab.querySelectorAll(
+            ".trasa-lista-397, .trasa-lista"
+        ).forEach(lista => {
+            const dzieci =
+                elementyListy474(lista);
+
+            dzieci.forEach(
+                (el, i) => {
+                    if(
+                        !el.classList.contains(
+                            "trasa-separator"
+                        )
+                    ){
+                        return;
+                    }
+
+                    el.classList.remove(
+                        "laczenie-osi-449"
+                    );
+
+                    const laczalny =
+                        el.classList.contains(
+                            "trasa-miejscowosc-429"
+                        ) ||
+                        el.classList.contains(
+                            "trasa-strefa-440"
+                        ) ||
+                        el.classList.contains(
+                            "trasa-graniczny-440"
+                        );
+
+                    if(!laczalny){
+                        return;
+                    }
+
+                    const przed =
+                        dzieci
+                            .slice(0, i)
+                            .some(
+                                x =>
+                                    x.matches?.(
+                                        ".trasa-stop,.trasa-extra-stop"
+                                    )
+                            );
+
+                    const po =
+                        dzieci
+                            .slice(i + 1)
+                            .some(
+                                x =>
+                                    x.matches?.(
+                                        ".trasa-stop,.trasa-extra-stop"
+                                    )
+                            );
+
+                    if(przed && po){
+                        el.classList.add(
+                            "laczenie-osi-449"
+                        );
+                    }
+                }
+            );
+        });
+    }
+
+    function popraw474(){
+        zaplanowane474 = false;
+
+        if(
+            wTrakcie474 ||
+            !czy150()
+        ){
+            return;
+        }
+
+        const u =
+            pobierzUklad();
+
+        if(!u){
+            return;
+        }
+
+        wTrakcie474 = true;
+
+        try{
+            const limitDol =
+                dolDostepnegoObszaru474(
+                    u.columns,
+                    u.kolumny[0]
+                );
+
+            /*
+               1. Najpierw sprawdzamy RZECZYWISTE położenie każdego
+                  elementu lewej kolumny.
+               2. Gdy cokolwiek wychodzi poza dół kartki, przenosimy
+                  ten element i wszystko po nim do prawej kolumny.
+               3. Jeśli przed przystankiem stoi miejscowość / strefa /
+                  opis kursów, przenosimy ten nagłówek razem z nim.
+            */
+            let guard = 0;
+
+            while(guard < 20){
+                guard++;
+
+                const dzieci =
+                    elementyListy474(
+                        u.lista1
+                    );
+
+                if(!dzieci.length){
+                    break;
+                }
+
+                const overflow =
+                    pierwszyWychodzacy474(
+                        u.lista1,
+                        limitDol
+                    );
+
+                if(overflow < 0){
+                    /*
+                       Nawet jeśli wszystko geometrycznie się mieści,
+                       nie zostawiamy samotnego separatora na samym dole.
+                    */
+                    const trailing =
+                        usunOsieroconySeparator474(
+                            u.lista1
+                        );
+
+                    if(
+                        trailing >= 0 &&
+                        trailing < dzieci.length
+                    ){
+                        przeniesOd474(
+                            u.lista1,
+                            u.lista2,
+                            trailing
+                        );
+                    }
+
+                    break;
+                }
+
+                const start =
+                    poczatekPakietu474(
+                        dzieci,
+                        overflow
+                    );
+
+                if(
+                    !przeniesOd474(
+                        u.lista1,
+                        u.lista2,
+                        start
+                    )
+                ){
+                    break;
+                }
+
+                /*
+                   Po zmianie DOM przeglądarka musi policzyć nowe pozycje.
+                */
+                void u.columns.offsetHeight;
+            }
+
+            odswiezLaczenieOsi474(
+                u.tab
+            );
+
+        } finally {
+            wTrakcie474 = false;
+        }
+    }
+
+    function plan474(){
+        if(zaplanowane474){
+            return;
+        }
+
+        zaplanowane474 = true;
+
+        /*
+           Czekamy aż wykonają się:
+           - główny renderer,
+           - miejscowości v469/v471,
+           - ponowne zawijanie v470,
+           - wcześniejsze korekty kolumn.
+
+           Dopiero wtedy mierzymy finalne, rzeczywiste wysokości.
+        */
+        requestAnimationFrame(
+            () =>
+                requestAnimationFrame(
+                    () =>
+                        requestAnimationFrame(
+                            popraw474
+                        )
+                )
+        );
+    }
+
+    function start474(){
+        plan474();
+
+        const wynik =
+            document.getElementById(
+                "wynik"
+            );
+
+        if(!wynik){
+            return;
+        }
+
+        const observer =
+            new MutationObserver(
+                () => {
+                    if(!wTrakcie474){
+                        plan474();
+                    }
+                }
+            );
+
+        observer.observe(
+            wynik,
             {
                 childList: true,
                 subtree: true
@@ -45146,11 +45561,11 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
     if(document.readyState === "loading"){
         document.addEventListener(
             "DOMContentLoaded",
-            start,
+            start474,
             {once:true}
         );
     }else{
-        start();
+        start474();
     }
 
 })();
