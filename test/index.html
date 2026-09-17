@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 490
+     WERSJA: 491
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -5169,13 +5169,13 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 </style>
 </head>
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 490
+     FWTP — WERSJA PLIKU: 491
      BAZA WIZUALNA / ROZKŁAD: 478
      LISTA PRZYSTANKÓW: CAŁKOWICIE NOWY SILNIK JSON
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 490
+     FWTP — WERSJA PLIKU: 491
      TABELA / WYGLĄD: zachowane
      LISTA PRZYSTANKÓW: JEDEN WSPÓLNY SILNIK JSON
 
@@ -5201,17 +5201,18 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
      - wykrywanie wspólnych odcinków wariantów z nowego JSON
      ========================================================= -->
 <!-- =========================================================
-     FWTP — WERSJA 490
+     FWTP — WERSJA 491
      POPRAWKA: TABELA ROZKŁADU
      Tabela nie korzysta już ze starej logiki kierunków/listy.
      Kursy są pobierane bezpośrednio z kursy[] wybranego
      przystanku w nowym JSON.
      ========================================================= -->
 <!-- =========================================================
-     FWTP — WERSJA 490
+     FWTP — WERSJA 491
      NAPRAWA: udzialWariantuANaAktywnymPrzystanku213
      Nie przywrócono starego silnika tras.
      ========================================================= -->
+<!-- FWTP — WERSJA 491: naprawa soboty i święta z osobnych rozklady[] -->
 <body>
 <header class="topbar">
 <div class="logo">FWTP</div>
@@ -7734,33 +7735,80 @@ function __bezCache_pobierzKursyDlaSymbolu(symbol){
     );
 }
 
-function pobierzKursyDlaSymbolu(symbol){
 
-    const p = v486CurrentStop();
+/* =========================================================
+   FWTP V491 — WEEKEND Z OSOBNYCH ROZKŁADÓW JSON
+   ========================================================= */
+function v491StopInSchedule(rozklad){
+    const activeId = v486StopId(v486CurrentStop());
+    const kierunki = Array.isArray(rozklad?.kierunki) ? rozklad.kierunki : [];
+    const kierunek = kierunki[aktualnyKierunek] || null;
 
-    if(!p){
-        return [];
+    if(!kierunek || !Array.isArray(kierunek.przystanki)){
+        return null;
     }
 
-    return v486Array(p.kursy)
-        .filter(kurs=>{
-            if(
-                czasNaMinuty(
-                    kurs?.czas
-                )===null
-            ){
-                return false;
-            }
+    return kierunek.przystanki.find(
+        p => v486StopId(p) === activeId
+    ) || null;
+}
 
-            return symbol===""
-                ? true
-                : grupaDnia(kurs)===symbol;
-        })
-        .map(kurs=>({
-            ...kurs,
-            _kierunekIndex: aktualnyKierunek,
-            _przystanekIndex: aktualnyPrzystanek
-        }));
+function v491CoursesBySchedule(){
+    const result = [];
+
+    (Array.isArray(daneLinii?.rozklady) ? daneLinii.rozklady : [])
+        .forEach((rozklad, rozkladIndex)=>{
+            const p = v491StopInSchedule(rozklad);
+            if(!p) return;
+
+            v486Array(p.kursy).forEach(kurs=>{
+                if(czasNaMinuty(kurs?.czas) === null) return;
+
+                result.push({
+                    ...kurs,
+                    _rozkladIndex: rozkladIndex,
+                    _rozkladNazwa: String(rozklad?.nazwa || ""),
+                    _kierunekIndex: aktualnyKierunek,
+                    _przystanekId: v486StopId(p)
+                });
+            });
+        });
+
+    return result;
+}
+
+function v491ScheduleDayType(kurs){
+    const n = String(kurs?._rozkladNazwa || "")
+        .toLocaleUpperCase("pl-PL");
+
+    if(n.includes("SOBOT") && !(n.includes("ŚWIĘ") || n.includes("SWIE"))){
+        return "6";
+    }
+
+    if(n.includes("NIEDZ") || n.includes("ŚWIĘ") || n.includes("SWIE")){
+        if(n.includes("SOBOT")) return "C";
+        return "7";
+    }
+
+    if(
+        n.includes("POWSZ") ||
+        n.includes("ROBOC") ||
+        n.includes("PONIEDZ") ||
+        n.includes("PIĄT") ||
+        n.includes("PIAT")
+    ){
+        return "D";
+    }
+
+    return grupaDnia(kurs);
+}
+
+function pobierzKursyDlaSymbolu(symbol){
+    return v491CoursesBySchedule()
+        .filter(kurs=>{
+            const typ=v491ScheduleDayType(kurs);
+            return typ===symbol;
+        });
 }
 
 
@@ -7902,81 +7950,23 @@ function __bezCache_dostepneGrupyDni(){
 }
 
 function dostepneGrupyDni(){
-
-    const p = v486CurrentStop();
-    const symbole = new Set();
-
-    v486Array(p?.kursy).forEach(kurs=>{
-        if(
-            czasNaMinuty(
-                kurs?.czas
-            )===null
-        ){
-            return;
-        }
-
-        const symbol = grupaDnia(kurs);
-
-        if(symbol){
-            symbole.add(symbol);
-        }
-    });
+    const typy=new Set(
+        v491CoursesBySchedule()
+            .map(v491ScheduleDayType)
+            .filter(Boolean)
+    );
 
     const wynik=[];
 
-    const maD=symbole.has("D");
-    const maC=symbole.has("C");
-    const ma6=symbole.has("6");
-    const ma7=symbole.has("7");
-    const maWeekendRozdzielony=ma6||ma7;
-
-    if(maD||maC||maWeekendRozdzielony){
-        wynik.push({
-            symbol:"D",
-            tytul:"DZIEŃ POWSZEDNI"
-        });
+    if(typy.has("D")){
+        wynik.push({symbol:"D",tytul:"DZIEŃ POWSZEDNI"});
     }
 
-    if(maWeekendRozdzielony){
-        wynik.push({
-            symbol:"6",
-            tytul:"SOBOTA"
-        });
-        wynik.push({
-            symbol:"7",
-            tytul:"ŚWIĘTO"
-        });
-    }else if(maD||maC){
-        wynik.push({
-            symbol:"C",
-            tytul:"SOBOTA I ŚWIĘTO"
-        });
-    }
-
-    [...symbole]
-        .filter(s=>!["D","C","6","7"].includes(s))
-        .forEach(symbol=>{
-            wynik.push({
-                symbol,
-                tytul:"ROZKŁAD "+symbol
-            });
-        });
-
-    /*
-       Awaryjnie: jeżeli kursy istnieją, ale symbol dnia w JSON
-       jest pusty/nietypowy, nadal pokazujemy tabelę zamiast
-       pozostawiać lewy panel pusty.
-    */
-    if(
-        !wynik.length &&
-        v486Array(p?.kursy).some(
-            kurs=>czasNaMinuty(kurs?.czas)!==null
-        )
-    ){
-        wynik.push({
-            symbol:"",
-            tytul:"ROZKŁAD JAZDY"
-        });
+    if(typy.has("6") || typy.has("7")){
+        wynik.push({symbol:"6",tytul:"SOBOTA"});
+        wynik.push({symbol:"7",tytul:"ŚWIĘTO"});
+    }else if(typy.has("C")){
+        wynik.push({symbol:"C",tytul:"SOBOTA I ŚWIĘTO"});
     }
 
     return wynik;
