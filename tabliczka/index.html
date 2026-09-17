@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 491
+     WERSJA: 492
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -46331,42 +46331,28 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 </style>
 
 
-<style id="wersja-491-laczenie-przystankow-przez-miejscowosc">
+<style id="wersja-492-linia-jako-element-przystanku">
 /* =========================================================
-   FWTP TABLICZKA — WERSJA 491
+   FWTP TABLICZKA — WERSJA 492
    BAZA: 490
 
    ZMIANA:
-   Pionowa linia NIE należy już do elementu miejscowości.
+   linia przechodząca przez separator miejscowości NIE jest
+   elementem miejscowości ani osobnym elementem listy.
 
-   Jest tworzona jako łącznik:
-       środek kropki poprzedniego przystanku
-                    |
-                    |
-             [ MIEJSCOWOŚĆ ]
-                    |
-                    |
-       środek kropki następnego przystanku
-
-   Łącznik jest dzieckiem kontenera listy, a nie separatora
-   miejscowości. Ma wyższy z-index od separatora i jego "-----".
+   Jest dzieckiem POPRZEDNIEGO PRZYSTANKU i zostaje wydłużona
+   aż do środka osi następnego przystanku.
    ========================================================= */
 
-.tabliczka .trasa-lista,
-.tabliczka .trasa-lista-397 {
-    position: relative !important;
+.tabliczka .trasa-stop,
+.tabliczka .trasa-extra-stop {
+    overflow: visible !important;
 }
 
-/* Wyłączamy wcześniejsze linie rysowane WEWNĄTRZ miejscowości. */
-.tabliczka
-.trasa-separator
-> .pionowa-os-477,
-.tabliczka
-.trasa-separator
-> .os-lacznik-453,
-.tabliczka
-.trasa-separator
-> .os-nad-miejscowoscia-489 {
+/* Usuwamy wcześniejsze próby rysowania osi wewnątrz separatora. */
+.tabliczka .trasa-separator > .pionowa-os-477,
+.tabliczka .trasa-separator > .os-lacznik-453,
+.tabliczka .trasa-separator > .os-nad-miejscowoscia-489 {
     display: none !important;
 }
 
@@ -46378,15 +46364,16 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 }
 
 /*
-   Nowy łącznik jest elementem LISTY.
-   Nie jest częścią miejscowości.
+   Łącznik jest fizycznym DZIECKIEM przystanku.
+   Pozycja left jest liczona w JS względem tego konkretnego
+   przystanku, na podstawie jego rzeczywistej .trasa-os.
 */
 .tabliczka
-.trasa-lista
-> .laczenie-przystankow-491,
+.trasa-stop
+> .przedluzenie-przystanku-492,
 .tabliczka
-.trasa-lista-397
-> .laczenie-przystankow-491 {
+.trasa-extra-stop
+> .przedluzenie-przystanku-492 {
     position: absolute !important;
     display: block !important;
 
@@ -46398,8 +46385,8 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
     background: #111 !important;
 
     /*
-       Musi przejść NAD separatorem miejscowości
-       i NAD jego poziomymi "-----".
+       Linia przystanku przechodzi NAD separatorem miejscowości
+       oraz nad jego poziomymi kreskami.
     */
     z-index: 2147483647 !important;
     pointer-events: none !important;
@@ -46407,30 +46394,24 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 </style>
 
 <script>
-/* =========================================================
-   WERSJA 491
-   ŁĄCZENIE KROPKI PRZYSTANKU Z KROPKĄ PRZYSTANKU
-   PRZEZ SEPARATOR MIEJSCOWOŚCI
-   ========================================================= */
-(function FWTP_WERSJA_491(){
+(function FWTP_WERSJA_492(){
     "use strict";
 
-    let zaplanowane491 = false;
-    let wTrakcie491 = false;
+    let zaplanowane492 = false;
 
-    function jest150_491(){
+    function linia150_492(){
         return String(
             new URLSearchParams(location.search).get("linia") || ""
         ).trim() === "150";
     }
 
-    function jestPrzystankiem491(el){
+    function jestStop492(el){
         return !!el?.matches?.(
             ".trasa-stop, .trasa-extra-stop"
         );
     }
 
-    function jestSeparatoremDoPrzejscia491(el){
+    function jestSeparator492(el){
         if(
             !el ||
             !el.classList?.contains("trasa-separator")
@@ -46446,8 +46427,9 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
                 .toUpperCase();
 
         /*
-           Nie łączymy przez nagłówki opisujące osobną trasę/kurs.
-           Łączymy przez miejscowość, strefę i granicę.
+           Nie przechodzimy przez nagłówek nowego wariantu.
+           Łączymy tylko przez elementy znajdujące się faktycznie
+           pomiędzy dwoma kolejnymi przystankami tej samej trasy.
         */
         if(tekst.includes("TRASA W KURSACH")){
             return false;
@@ -46461,127 +46443,114 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
         );
     }
 
-    function srodekOsi491(stop, listaRect){
-        const os =
-            stop.querySelector(".trasa-os");
-
-        if(!os){
-            return null;
-        }
-
-        /*
-           Pobieramy rzeczywistą geometrię osi/kropki przystanku.
-           Dzięki temu nie zakładamy na sztywno wysokości wiersza.
-        */
-        const kropka =
-            os.querySelector(
-                ".trasa-kropka, .trasa-dot, .kropka"
-            );
-
-        const rect =
-            (kropka || os).getBoundingClientRect();
-
-        return {
-            x:
-                rect.left -
-                listaRect.left +
-                rect.width / 2,
-
-            y:
-                rect.top -
-                listaRect.top +
-                rect.height / 2
-        };
-    }
-
-    function usun491(lista){
-        lista.querySelectorAll(
-            ":scope > .laczenie-przystankow-491"
+    function wyczysc492(tab){
+        tab.querySelectorAll(
+            ".przedluzenie-przystanku-492"
         ).forEach(el => el.remove());
     }
 
-    function zbudujDlaListy491(lista){
-        usun491(lista);
+    function srodekOsiWStopie492(stop){
+        const os = stop.querySelector(".trasa-os");
+        if(!os) return null;
 
-        const dzieci =
-            Array.from(lista.children)
-                .filter(
-                    el =>
-                        !el.classList.contains(
-                            "laczenie-przystankow-491"
-                        )
-                );
+        /*
+           .trasa-os jest stałym punktem osi danego przystanku.
+           Liczymy jej środek względem samego wiersza przystanku,
+           ponieważ nowa linia będzie dzieckiem tego wiersza.
+        */
+        const stopRect = stop.getBoundingClientRect();
+        const osRect = os.getBoundingClientRect();
 
-        const listaRect =
-            lista.getBoundingClientRect();
+        return {
+            x:
+                osRect.left -
+                stopRect.left +
+                osRect.width / 2,
+
+            y:
+                osRect.top -
+                stopRect.top +
+                osRect.height / 2
+        };
+    }
+
+    function polaczWLiscie492(lista){
+        const dzieci = Array.from(lista.children);
 
         for(let i = 0; i < dzieci.length; i++){
-            const pierwszy =
-                dzieci[i];
+            const poprzedniStop = dzieci[i];
 
-            if(!jestPrzystankiem491(pierwszy)){
+            if(!jestStop492(poprzedniStop)){
                 continue;
             }
 
             let j = i + 1;
-            const separatory = [];
+            let maSeparator = false;
 
-            /*
-               Po przystanku dopuszczamy wyłącznie serię separatorów
-               miejscowości/strefy/granicy.
-            */
             while(
                 j < dzieci.length &&
-                jestSeparatoremDoPrzejscia491(
-                    dzieci[j]
-                )
+                jestSeparator492(dzieci[j])
             ){
-                separatory.push(dzieci[j]);
+                maSeparator = true;
                 j++;
             }
 
-            if(!separatory.length){
+            if(!maSeparator){
                 continue;
             }
 
-            const drugi =
-                dzieci[j];
+            const nastepnyStop = dzieci[j];
 
-            if(!jestPrzystankiem491(drugi)){
+            if(!jestStop492(nastepnyStop)){
                 continue;
             }
 
-            const a =
-                srodekOsi491(
-                    pierwszy,
-                    listaRect
-                );
+            const start =
+                srodekOsiWStopie492(poprzedniStop);
 
-            const b =
-                srodekOsi491(
-                    drugi,
-                    listaRect
-                );
+            const koniecOs =
+                nastepnyStop.querySelector(".trasa-os");
 
-            if(!a || !b){
+            if(!start || !koniecOs){
+                continue;
+            }
+
+            const stopRect =
+                poprzedniStop.getBoundingClientRect();
+
+            const koniecRect =
+                koniecOs.getBoundingClientRect();
+
+            /*
+               Koniec liczymy względem POPRZEDNIEGO przystanku.
+               Dzięki temu jeden element należący do poprzedniego
+               przystanku dochodzi dokładnie do osi kolejnego.
+            */
+            const koniecY =
+                koniecRect.top -
+                stopRect.top +
+                koniecRect.height / 2;
+
+            if(koniecY <= start.y){
                 continue;
             }
 
             /*
-               To jest jedna ciągła linia OD PRZYSTANKU DO PRZYSTANKU.
-               Separator miejscowości tylko znajduje się pod nią.
+               Poprzedni przystanek staje się kontenerem dla własnego
+               przedłużenia osi.
             */
-            const top =
-                Math.min(a.y, b.y);
+            const computed =
+                getComputedStyle(poprzedniStop);
 
-            const bottom =
-                Math.max(a.y, b.y);
+            if(computed.position === "static"){
+                poprzedniStop.style.position = "relative";
+            }
 
             const lacznik =
                 document.createElement("span");
 
             lacznik.className =
-                "laczenie-przystankow-491";
+                "przedluzenie-przystanku-492";
 
             lacznik.setAttribute(
                 "aria-hidden",
@@ -46589,107 +46558,85 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
             );
 
             lacznik.style.left =
-                (a.x - 1.125) + "px";
+                (start.x - 1.125) + "px";
 
             lacznik.style.top =
-                top + "px";
+                start.y + "px";
 
             lacznik.style.height =
-                Math.max(
-                    0,
-                    bottom - top
-                ) + "px";
+                (koniecY - start.y) + "px";
 
-            lista.appendChild(lacznik);
+            poprzedniStop.appendChild(lacznik);
         }
     }
 
-    function wykonaj491(){
-        if(!jest150_491()){
-            return;
-        }
-
-        if(wTrakcie491){
+    function wykonaj492(){
+        if(!linia150_492()){
             return;
         }
 
         const tab =
-            document.querySelector(
-                "#wynik .tabliczka"
-            ) ||
-            document.querySelector(
-                ".tabliczka"
-            );
+            document.querySelector("#wynik .tabliczka") ||
+            document.querySelector(".tabliczka");
 
         if(!tab){
             return;
         }
 
-        wTrakcie491 = true;
+        wyczysc492(tab);
 
-        try{
-            tab.querySelectorAll(
-                ".trasa-lista, .trasa-lista-397"
-            ).forEach(
-                zbudujDlaListy491
-            );
-        }finally{
-            wTrakcie491 = false;
-        }
+        tab.querySelectorAll(
+            ".trasa-lista, .trasa-lista-397"
+        ).forEach(polaczWLiscie492);
     }
 
-    function plan491(){
-        if(zaplanowane491){
-            return;
-        }
+    function plan492(){
+        if(zaplanowane492) return;
 
-        zaplanowane491 = true;
+        zaplanowane492 = true;
 
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
-                    zaplanowane491 = false;
-                    wykonaj491();
+                    zaplanowane492 = false;
+                    wykonaj492();
                 });
             });
         });
     }
 
     /*
-       Bez MutationObservera:
-       nie chcemy ponownie stworzyć pętli/mrugania.
-
-       Kilka opóźnionych wykonań wystarcza, aby poczekać na
-       istniejące poprawki układu/kolumn.
+       Bez MutationObservera — żeby nie wróciło mruganie.
+       Powtarzamy tylko kilka razy podczas początkowego renderu,
+       ponieważ starsze moduły jeszcze ustawiają kolumny.
     */
-    function start491(){
-        plan491();
-
-        setTimeout(plan491, 100);
-        setTimeout(plan491, 300);
-        setTimeout(plan491, 700);
-        setTimeout(plan491, 1400);
+    function start492(){
+        plan492();
+        setTimeout(plan492, 100);
+        setTimeout(plan492, 300);
+        setTimeout(plan492, 700);
+        setTimeout(plan492, 1400);
     }
 
     if(document.readyState === "loading"){
         document.addEventListener(
             "DOMContentLoaded",
-            start491,
+            start492,
             {once:true}
         );
     }else{
-        start491();
+        start492();
     }
 
     window.addEventListener(
         "load",
-        plan491,
+        plan492,
         {once:true}
     );
 
     window.addEventListener(
         "resize",
-        plan491
+        plan492
     );
 })();
 </script>
