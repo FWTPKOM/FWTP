@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 469
+     WERSJA: 470
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -44688,7 +44688,7 @@ body .tabliczka:has(.kierunki-dwa)
 
 <!-- =========================================================
      FWTP — POPRAWKA DWUKIERUNKOWA LINII 150
-     WERSJA PLIKU: 469
+     WERSJA PLIKU: 470
      BAZA: WERSJA 465
      ========================================================= -->
 
@@ -45851,6 +45851,222 @@ body .tabliczka:has(.kierunki-dwa)
         new MutationObserver(() => {
             if(!blokada469){
                 plan469();
+            }
+        }).observe(
+            host,
+            {
+                childList:true,
+                subtree:true
+            }
+        );
+    }
+})();
+</script>
+
+
+<!-- =========================================================
+     FWTP — WERSJA PLIKU: 470
+     BAZA: WERSJA 469
+
+     POPRAWKA:
+     - początek osi tylko w PIERWSZEJ kolumnie całej trasy;
+     - następna kolumna jest KONTYNUACJĄ, więc pion wchodzi od góry;
+     - zmiana kierunku nie może powodować ponownego oznaczania
+       pierwszego przystanku każdej kolumny jako początku trasy.
+     ========================================================= -->
+
+<style id="wersja-470-kontynuacja-kolumn">
+/*
+   Prawdziwy pierwszy przystanek CAŁEGO widoku:
+   linia zaczyna się dokładnie w środku kropki.
+*/
+body .tabliczka:has(.kierunki-dwa)
+.trasa-lista-397 > .v470-poczatek-calej-trasy .trasa-os::before {
+    top: 50% !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/*
+   Pierwszy przystanek kolejnej kolumny NIE jest początkiem trasy.
+   Jest kontynuacją poprzedniej kolumny, dlatego pion musi wejść
+   od samej górnej krawędzi wiersza, dojść do kropki i iść dalej.
+*/
+body .tabliczka:has(.kierunki-dwa)
+.trasa-lista-397 > .v470-kontynuacja-z-poprzedniej-kolumny .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/*
+   Kasujemy wpływ wcześniejszych klas "pierwszy stop" w kolumnach
+   będących kontynuacją.
+*/
+body .tabliczka:has(.kierunki-dwa)
+.trasa-lista-397 > .v470-kontynuacja-z-poprzedniej-kolumny.pierwszy-stop-444 .trasa-os::before,
+body .tabliczka:has(.kierunki-dwa)
+.trasa-lista-397 > .v470-kontynuacja-z-poprzedniej-kolumny.v465-pierwszy-widoczny .trasa-os::before,
+body .tabliczka:has(.kierunki-dwa)
+.trasa-lista-397 > .v470-kontynuacja-z-poprzedniej-kolumny.v467-pierwszy .trasa-os::before,
+body .tabliczka:has(.kierunki-dwa)
+.trasa-lista-397 > .v470-kontynuacja-z-poprzedniej-kolumny.v468-pierwszy-stop .trasa-os::before,
+body .tabliczka:has(.kierunki-dwa)
+.trasa-lista-397 > .v470-kontynuacja-z-poprzedniej-kolumny.v469-poczatek .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   FWTP — WERSJA 470
+   POCZĄTEK TRASY A KONTYNUACJA W NASTĘPNEJ KOLUMNIE
+   ========================================================= */
+(function(){
+    "use strict";
+
+    let blokada470 = false;
+    let pending470 = false;
+
+    function jestStop470(el){
+        return !!el && el.matches?.(".trasa-stop,.trasa-extra-stop");
+    }
+
+    function poprawTabliczke470(tabliczka){
+        const columns = tabliczka.querySelector(".trasa-columns");
+        if(!columns) return;
+
+        /*
+           Bardzo ważne:
+           list nie traktujemy już jako niezależnych tras.
+
+           Są to tylko KOLEJNE KOLUMNY tej samej listy.
+           Dlatego:
+             lista 1 / stop 1 = prawdziwy początek,
+             lista 2 / stop 1 = kontynuacja,
+             lista 3 / stop 1 = kontynuacja itd.
+        */
+        const listy = Array.from(
+            columns.querySelectorAll(".trasa-lista-397")
+        );
+
+        if(!listy.length) return;
+
+        const pierwszeStopy = [];
+
+        listy.forEach(lista => {
+            const stop = Array.from(lista.children).find(jestStop470);
+            if(stop){
+                pierwszeStopy.push(stop);
+            }
+        });
+
+        if(!pierwszeStopy.length) return;
+
+        /*
+           Czyścimy WYŁĄCZNIE klasy v470.
+        */
+        columns.querySelectorAll(
+            ".v470-poczatek-calej-trasy, .v470-kontynuacja-z-poprzedniej-kolumny"
+        ).forEach(row => {
+            row.classList.remove(
+                "v470-poczatek-calej-trasy",
+                "v470-kontynuacja-z-poprzedniej-kolumny"
+            );
+        });
+
+        /*
+           Tylko pierwszy stop pierwszej kolumny jest początkiem całej osi.
+        */
+        const pierwszyCalejTrasy = pierwszeStopy[0];
+
+        pierwszyCalejTrasy.classList.add(
+            "v470-poczatek-calej-trasy"
+        );
+
+        /*
+           Każdy pierwszy stop następnej kolumny jest kontynuacją.
+           Usuwamy z niego stare klasy początku, bo to one powodowały
+           brak kreski nad kropką po zmianie kierunku.
+        */
+        for(let i = 1; i < pierwszeStopy.length; i++){
+            const row = pierwszeStopy[i];
+
+            row.classList.remove(
+                "pierwszy-stop-444",
+                "v465-pierwszy-widoczny",
+                "v467-pierwszy",
+                "v468-pierwszy-stop",
+                "v469-poczatek"
+            );
+
+            /*
+               Jeżeli v469 nadało temu stopowi klasę zwykłego środka,
+               zostawiamy ją — v470 ma wyższy priorytet i jawnie
+               wymusza pełną linię od góry do dołu.
+            */
+            row.classList.add(
+                "v470-kontynuacja-z-poprzedniej-kolumny"
+            );
+        }
+    }
+
+    function popraw470(){
+        if(blokada470) return;
+        blokada470 = true;
+
+        try{
+            const linia = String(
+                (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
+                new URLSearchParams(location.search).get("linia") ||
+                ""
+            ).trim();
+
+            if(linia !== "150") return;
+
+            document
+                .querySelectorAll(".tabliczka:has(.kierunki-dwa)")
+                .forEach(poprawTabliczke470);
+
+        }finally{
+            blokada470 = false;
+        }
+    }
+
+    function plan470(){
+        if(pending470) return;
+
+        pending470 = true;
+
+        requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+                pending470 = false;
+                popraw470();
+            })
+        );
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            plan470,
+            {once:true}
+        );
+    }else{
+        plan470();
+    }
+
+    window.addEventListener("load", plan470);
+    document.addEventListener("fwtp-v464-ready", plan470);
+
+    const host = document.getElementById("wynik");
+
+    if(host){
+        new MutationObserver(() => {
+            if(!blokada470){
+                plan470();
             }
         }).observe(
             host,
