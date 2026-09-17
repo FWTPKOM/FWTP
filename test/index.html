@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 487
+     WERSJA: 488
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -5169,13 +5169,13 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 </style>
 </head>
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 487
+     FWTP — WERSJA PLIKU: 488
      BAZA WIZUALNA / ROZKŁAD: 478
      LISTA PRZYSTANKÓW: CAŁKOWICIE NOWY SILNIK JSON
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 487
+     FWTP — WERSJA PLIKU: 488
      TABELA / WYGLĄD: zachowane
      LISTA PRZYSTANKÓW: JEDEN WSPÓLNY SILNIK JSON
 
@@ -5189,9 +5189,16 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA 487
+     FWTP — WERSJA 488
      POPRAWKA PO FIZYCZNYM USUNIĘCIU STAREGO SILNIKA:
      usunięto pozostałe odwołania do skasowanych __bezCache_*
+     ========================================================= -->
+
+<!-- =========================================================
+     FWTP — WERSJA 488
+     - przywrócona tabela rozkładu po usunięciu starego silnika
+     - pełne kurs.trasa, także przystanki przed wybranym
+     - wykrywanie wspólnych odcinków wariantów z nowego JSON
      ========================================================= -->
 <body>
 <header class="topbar">
@@ -12494,7 +12501,7 @@ function listaTrasyDoWyswietlenia(){
     return memoTabliczki(
         "listaTrasyDoWyswietlenia",
         "",
-        ()=>__bezCache_listaTrasyDoWyswietlenia()
+        ()=>listaTrasyDoWyswietlenia()
     );
 }
 
@@ -15448,16 +15455,14 @@ function v486BuildRoutes(){
 
         if(!fullIds.length) continue;
 
-        const activePosition = fullIds.indexOf(activeId);
-        if(activePosition < 0) continue;
-
-        const ids = fullIds.slice(activePosition);
-
         /*
-           TECH nie trafia na listę pasażerską, ale nie zmieniamy
-           kolejności pozostałych ID.
+           V488 — NIE OBCINAMY trasy na aktywnym przystanku.
+           Jeżeli kurs jest zapisany przy tym przystanku, pokazujemy
+           jego pełny fizyczzny przebieg: także przystanki wcześniejsze.
         */
-        const items = ids
+        if(!fullIds.includes(activeId)) continue;
+
+        const items = fullIds
             .map(id => map.get(id))
             .filter(Boolean)
             .filter(x => v486StopType(x.p) !== "TECH");
@@ -15482,12 +15487,6 @@ function v486BuildRoutes(){
         groups.get(routeKey).courses.push(kurs);
     }
 
-    /*
-       To NIE wybiera trasy "na podstawie popularności".
-       Każda unikalna kurs.trasa pozostaje osobnym rzeczywistym
-       przebiegiem. Sortowanie wpływa tylko na kolejność kolumn:
-       najpierw przebieg z największą liczbą kursów, potem dłuższy.
-    */
     return Array.from(groups.values())
         .sort((a,b)=>
             (b.courses.length-a.courses.length) ||
@@ -15517,13 +15516,68 @@ function v486TravelMinutes(route,item){
     let diff = t1 - t0;
 
     /*
-       Obsługa przejścia przez północ.
+       V488:
+       - wcześniejsze przystanki mają czas ujemny względem tabliczki,
+       - przejście przez północ korygujemy tylko przy oczywistym
+         skoku do następnej doby.
     */
-    while(diff < 0){
+    if(diff < -12*60){
         diff += 24*60;
     }
 
+    if(diff > 12*60){
+        diff -= 24*60;
+    }
+
     return diff;
+}
+
+
+/*
+   V488 — WSPÓLNA TRASA I ODGAŁĘZIENIA
+
+   JSON jest poprawny: każdy kurs ma pełne kurs.trasa.
+   HTML musi z tych pełnych przebiegów wykryć wspólne fragmenty.
+
+   Dla każdego ID liczymy, w ilu rzeczywistych przebiegach występuje.
+   Dzięki temu wspólny odcinek nie jest traktowany jako trzy niezależne
+   trasy. Informacja jest dołączona do elementów renderowanych.
+*/
+function v486RouteUsage(routes){
+    const usage = new Map();
+
+    for(const route of routes){
+        const unique = new Set(route.ids);
+
+        for(const id of unique){
+            usage.set(
+                id,
+                (usage.get(id)||0)+1
+            );
+        }
+    }
+
+    return usage;
+}
+
+function v486MarkSharedRoutes(routes){
+    const usage = v486RouteUsage(routes);
+
+    for(const route of routes){
+        route.items = route.items.map(item=>({
+            ...item,
+            _v488Usage:
+                usage.get(
+                    v486StopId(item.p)
+                )||1,
+            _v488Shared:
+                (usage.get(
+                    v486StopId(item.p)
+                )||1)>1
+        }));
+    }
+
+    return routes;
 }
 
 function v486RouteLabel(route){
@@ -15625,6 +15679,7 @@ function v486RenderRouteColumn(route){
             selected ? "wybrany" : "",
             first ? "kraniec-poczatek" : "",
             last ? "kraniec-koniec koniec-trasy-210" : "",
+            item?._v488Shared ? "v488-wspolny" : "v488-galaz",
             czyNZ(p) ? "nz" : ""
         ].filter(Boolean).join(" ");
 
@@ -15770,7 +15825,9 @@ function renderuj(){
     }
 
     const routes=
-        v486BuildRoutes();
+        v486MarkSharedRoutes(
+            v486BuildRoutes()
+        );
 
     if(!routes.length){
         pokazBlad(
