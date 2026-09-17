@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 456
+     WERSJA: 457
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -8014,6 +8014,40 @@ function nazwaKierunku(
         k?.kierunek||
         ""
     ).trim();
+}
+
+
+/* =========================================================
+   WERSJA 457 — KIERUNEK 150 JAK 167:
+   KRANIEC PODSTAWOWY / KRANIEC WYDŁUŻENIA
+   ========================================================= */
+function nazwaKierunkuDoTabliczki457(kierunek457){
+    let nazwa457 =
+        String(
+            nazwaKierunku(kierunek457) || ""
+        ).trim();
+
+    /*
+       Linia 150 ma na tej trasie dwa pasażerskie krańce:
+       - podstawowy: DZIEKANÓW LEŚNY
+       - wydłużony: IZABELIN-DZIEKANÓWEK
+
+       Tak samo jak 167 pokazuje:
+       STARE BEMOWO / FORT RADIOWO
+    */
+    if(
+        String(aktualnaLinia || "").trim() === "150" &&
+        normalizuj(nazwa457).includes(
+            normalizuj("DZIEKANÓW LEŚNY")
+        )
+    ){
+        nazwa457 =
+            "DZIEKANÓW LEŚNY / IZABELIN-DZIEKANÓWEK";
+    }
+
+    return bezMiejscowosciWKierunkuIOpisie457(
+        nazwa457
+    );
 }
 
 function wypelnijKierunki(){
@@ -20444,29 +20478,64 @@ function rzeczywistyKraniecKombinacjiDwukierunkowej(item){
    Zmiana wykonywana PRZED renderowaniem HTML, a nie przez
    MutationObserver po wyrenderowaniu.
    ========================================================= */
-function bezMiejscowosciWKierunkuIOpisie456(tekst456){
-    const wartosc456 = String(tekst456 || "").trim();
+function bezMiejscowosciWKierunkuIOpisie457(tekst457){
+    let wartosc457 = String(tekst457 || "").trim();
 
-    if(
-        !wartosc456 ||
-        typeof rozdzielNazweIMiejscowosc !== "function"
-    ){
-        return wartosc456;
+    if(!wartosc457){
+        return wartosc457;
     }
 
-    const rozdzielona456 =
-        rozdzielNazweIMiejscowosc(wartosc456);
+    /*
+       1. Sama nazwa przystanku:
+          DZIEKANÓW LEŚNY (DZIEKANÓW LEŚNY)
+          -> DZIEKANÓW LEŚNY
+    */
+    if(typeof rozdzielNazweIMiejscowosc === "function"){
+        const rozdzielona457 =
+            rozdzielNazweIMiejscowosc(wartosc457);
 
-    if(
-        rozdzielona456 &&
-        String(rozdzielona456.miejscowosc || "").trim()
-    ){
-        return String(
-            rozdzielona456.nazwa || wartosc456
-        ).trim();
+        if(
+            rozdzielona457 &&
+            String(rozdzielona457.miejscowosc || "").trim()
+        ){
+            return String(
+                rozdzielona457.nazwa || wartosc457
+            ).trim();
+        }
     }
 
-    return wartosc456;
+    /*
+       2. Miejscowość na końcu pełnego opisu:
+          i - kurs wydłużony do krańca
+          IZABELIN-DZIEKANÓWEK (IZABELIN-DZIEKANÓWEK)
+          -> ... IZABELIN-DZIEKANÓWEK
+
+       Usuwamy nawias wyłącznie wtedy, gdy tekst bezpośrednio
+       przed nim kończy się dokładnie tą samą nazwą.
+    */
+    const dopasowanie457 =
+        wartosc457.match(/\s*\(([^()]+)\)\s*$/);
+
+    if(dopasowanie457){
+        const miejscowosc457 =
+            String(dopasowanie457[1] || "").trim();
+
+        const bezNawiasu457 =
+            wartosc457
+                .slice(0, dopasowanie457.index)
+                .trimEnd();
+
+        if(
+            normalizuj(bezNawiasu457)
+                .endsWith(
+                    normalizuj(miejscowosc457)
+                )
+        ){
+            wartosc457 = bezNawiasu457;
+        }
+    }
+
+    return wartosc457;
 }
 
 function opisKombinacjiDwukierunkowej(item){
@@ -20538,7 +20607,7 @@ function renderLegendaDwukierunkowa(){
                 '<span class="legenda-myslnik">-</span>'+
                 '<span class="legenda-opis">'+
                 escapeHtml(
-                    bezMiejscowosciWKierunkuIOpisie456(
+                    bezMiejscowosciWKierunkuIOpisie457(
                         opis
                     )
                 )+
@@ -20695,7 +20764,7 @@ function renderLegenda(){
             '<span class="legenda-myslnik">-</span>'+
             '<span class="legenda-opis">'+
             escapeHtml(
-                bezMiejscowosciWKierunkuIOpisie456(
+                bezMiejscowosciWKierunkuIOpisie457(
                     tekst
                 )
             )+
@@ -21262,7 +21331,7 @@ function renderuj(){
                             '<div class="kierunki-dwa-wiersz">'+
                             '<span class="kierunki-dwa-strzalka">→</span>'+
                             escapeHtml(
-                                bezMiejscowosciWKierunkuIOpisie456(
+                                bezMiejscowosciWKierunkuIOpisie457(
                                     info.nazwa
                                 )
                             )+
@@ -21310,12 +21379,8 @@ function renderuj(){
                 : (
                     '<div class="kierunek">'+
                     escapeHtml(
-                        bezMiejscowosciWKierunkuIOpisie456(
-                            String(
-                                nazwaKierunku(
-                                    kierunek
-                                )
-                            )
+                        nazwaKierunkuDoTabliczki457(
+                            kierunek
                         ).toUpperCase()
                     )+
                     '</div>'
@@ -21685,7 +21750,11 @@ function pokazBlad(tekst){
         .getElementById("wynik")
         .innerHTML=
             '<div class="blad">'+
-            escapeHtml(tekst)+
+            escapeHtml(
+                bezMiejscowosciWKierunkuIOpisie457(
+                    tekst
+                )
+            )+
             '</div>';
 }
 
@@ -37269,7 +37338,9 @@ function renderLegendaDwukierunkowa(){
                 '<span class="legenda-myslnik">-</span>'+
                 '<span class="legenda-opis">'+
                 escapeHtml(
-                    opis
+                    bezMiejscowosciWKierunkuIOpisie457(
+                        opis
+                    )
                 )+
                 '</span>'+
                 '</div>'
@@ -37424,7 +37495,9 @@ function renderLegenda(){
             '<span class="legenda-myslnik">-</span>'+
             '<span class="legenda-opis">'+
             escapeHtml(
-                tekst
+                bezMiejscowosciWKierunkuIOpisie457(
+                    tekst
+                )
             )+
             '</span>'+
             '</div>'
@@ -37959,7 +38032,9 @@ function renderuj(){
                             '<div class="kierunki-dwa-wiersz">'+
                             '<span class="kierunki-dwa-strzalka">→</span>'+
                             escapeHtml(
-                                info.nazwa
+                                bezMiejscowosciWKierunkuIOpisie457(
+                                    info.nazwa
+                                )
                             )+
                             '</div>'
                     )
@@ -38005,10 +38080,8 @@ function renderuj(){
                 : (
                     '<div class="kierunek">'+
                     escapeHtml(
-                        String(
-                            nazwaKierunku(
-                                kierunek
-                            )
+                        nazwaKierunkuDoTabliczki457(
+                            kierunek
                         ).toUpperCase()
                     )+
                     '</div>'
@@ -38334,7 +38407,11 @@ function pokazBlad(tekst){
         .getElementById("wynik")
         .innerHTML=
             '<div class="blad">'+
-            escapeHtml(tekst)+
+            escapeHtml(
+                bezMiejscowosciWKierunkuIOpisie457(
+                    tekst
+                )
+            )+
             '</div>';
 }
 
