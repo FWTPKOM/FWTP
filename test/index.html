@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 492
+     WERSJA: 493
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -5169,13 +5169,13 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 </style>
 </head>
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 492
+     FWTP — WERSJA PLIKU: 493
      BAZA WIZUALNA / ROZKŁAD: 478
      LISTA PRZYSTANKÓW: CAŁKOWICIE NOWY SILNIK JSON
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 492
+     FWTP — WERSJA PLIKU: 493
      TABELA / WYGLĄD: zachowane
      LISTA PRZYSTANKÓW: JEDEN WSPÓLNY SILNIK JSON
 
@@ -5201,21 +5201,22 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
      - wykrywanie wspólnych odcinków wariantów z nowego JSON
      ========================================================= -->
 <!-- =========================================================
-     FWTP — WERSJA 492
+     FWTP — WERSJA 493
      POPRAWKA: TABELA ROZKŁADU
      Tabela nie korzysta już ze starej logiki kierunków/listy.
      Kursy są pobierane bezpośrednio z kursy[] wybranego
      przystanku w nowym JSON.
      ========================================================= -->
 <!-- =========================================================
-     FWTP — WERSJA 492
+     FWTP — WERSJA 493
      NAPRAWA: udzialWariantuANaAktywnymPrzystanku213
      Nie przywrócono starego silnika tras.
      ========================================================= -->
-<!-- FWTP — WERSJA 492
-     NAPRAWA: JSON ma klucz "rozkłady", nie "rozklady".
-     Dla 150: blok 0 = D/DF, blok 1 = C (soboty, niedziele i święta).
--->
+<!-- =========================================================
+     FWTP — WERSJA 493
+     V490 pozostaje bazą dla dnia powszedniego.
+     Weekend C jest tylko dołożony z drugiego bloku "rozkłady".
+     ========================================================= -->
 <body>
 <header class="topbar">
 <div class="logo">FWTP</div>
@@ -7740,42 +7741,35 @@ function __bezCache_pobierzKursyDlaSymbolu(symbol){
 
 
 /* =========================================================
-   FWTP V492 — ROZKŁADY[] Z POLSKIM KLUCZEM
-   JSON używa: daneLinii["rozkłady"].
+   FWTP V493 — WEEKEND DODANY DO DZIAŁAJĄCEGO DNIA POWSZEDNIEGO
+   =========================================================
+   V490 poprawnie pokazywał D/DF. Tego mechanizmu NIE zmieniamy.
+   Dla C/6/7 tylko dokładamy kursy tego samego ID przystanku
+   z pozostałych bloków daneLinii["rozkłady"].
    ========================================================= */
-function v492Rozklady(){
-    return Array.isArray(daneLinii?.["rozkłady"])
-        ? daneLinii["rozkłady"]
-        : (
-            Array.isArray(daneLinii?.rozklady)
-                ? daneLinii.rozklady
-                : []
-        );
-}
-
-function v492AktywnyId(){
-    return v486StopId(v486CurrentStop());
-}
-
-function v492KursyZeWszystkichRozkladow(){
-    const activeId=v492AktywnyId();
+function v493KursyInnychRozkladowDlaAktywnegoPrzystanku(){
+    const active=v486CurrentStop();
+    const activeId=v486StopId(active);
     const wynik=[];
 
-    v492Rozklady().forEach((rozklad,ri)=>{
+    const rozklady=Array.isArray(daneLinii?.["rozkłady"])
+        ? daneLinii["rozkłady"]
+        : [];
+
+    rozklady.forEach((rozklad,ri)=>{
         const kierunek=v486Array(rozklad?.kierunki)[aktualnyKierunek];
-        if(!kierunek) return;
+        if(!kierunek)return;
 
         const p=v486Array(kierunek.przystanki)
             .find(x=>v486StopId(x)===activeId);
 
-        if(!p) return;
+        if(!p)return;
 
         v486Array(p.kursy).forEach(k=>{
-            if(czasNaMinuty(k?.czas)===null) return;
+            if(czasNaMinuty(k?.czas)===null)return;
             wynik.push({
                 ...k,
-                _v492RozkladIndex:ri,
-                _v492RozkladNazwa:String(rozklad?.nazwa||"")
+                _v493RozkladIndex:ri
             });
         });
     });
@@ -7783,41 +7777,36 @@ function v492KursyZeWszystkichRozkladow(){
     return wynik;
 }
 
-function v492TypDnia(k){
-    const n=String(k?._v492RozkladNazwa||"")
-        .toLocaleUpperCase("pl-PL");
-
-    if(
-        n.includes("SOBOT") &&
-        (
-            n.includes("NIEDZ") ||
-            n.includes("ŚWIĘ") ||
-            n.includes("SWIE")
-        )
-    ) return "C";
-
-    if(n.includes("SOBOT")) return "6";
-
-    if(
-        n.includes("NIEDZ") ||
-        n.includes("ŚWIĘ") ||
-        n.includes("SWIE")
-    ) return "7";
-
-    return "D";
-}
-
 function pobierzKursyDlaSymbolu(symbol){
-    return v492KursyZeWszystkichRozkladow()
-        .filter(k=>{
-            const typ=v492TypDnia(k);
 
-            if(symbol==="C"){
-                return typ==="C";
-            }
+    /*
+       Dzień powszedni: dokładnie mechanizm z działającej V490.
+       Dzięki temu D i DF znów są widoczne.
+    */
+    if(symbol==="D"){
+        const p=v486CurrentStop();
 
-            return typ===symbol;
-        });
+        return v486Array(p?.kursy)
+            .filter(kurs=>{
+                if(czasNaMinuty(kurs?.czas)===null){
+                    return false;
+                }
+
+                return grupaDnia(kurs)==="D";
+            })
+            .map(kurs=>({
+                ...kurs,
+                _kierunekIndex:aktualnyKierunek,
+                _przystanekIndex:aktualnyPrzystanek
+            }));
+    }
+
+    /*
+       Weekend: szukamy dokładnego ID przystanku we wszystkich
+       blokach "rozkłady". W przesłanym 150.json weekend ma uwagi C.
+    */
+    return v493KursyInnychRozkladowDlaAktywnegoPrzystanku()
+        .filter(kurs=>grupaDnia(kurs)===symbol);
 }
 
 
@@ -7959,34 +7948,35 @@ function __bezCache_dostepneGrupyDni(){
 }
 
 function dostepneGrupyDni(){
-    const typy=new Set(
-        v492KursyZeWszystkichRozkladow()
-            .map(v492TypDnia)
-    );
 
     const wynik=[];
 
-    if(typy.has("D")){
+    const d=pobierzKursyDlaSymbolu("D");
+    const c=pobierzKursyDlaSymbolu("C");
+    const s6=pobierzKursyDlaSymbolu("6");
+    const s7=pobierzKursyDlaSymbolu("7");
+
+    if(d.length){
         wynik.push({
             symbol:"D",
             tytul:"DZIEŃ POWSZEDNI"
         });
     }
 
-    if(typy.has("C")){
+    if(c.length){
         wynik.push({
             symbol:"C",
             tytul:"SOBOTA I ŚWIĘTO"
         });
     }else{
-        if(typy.has("6")){
+        if(s6.length){
             wynik.push({
                 symbol:"6",
                 tytul:"SOBOTA"
             });
         }
 
-        if(typy.has("7")){
+        if(s7.length){
             wynik.push({
                 symbol:"7",
                 tytul:"ŚWIĘTO"
