@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 448
+     WERSJA: 449
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -41380,12 +41380,28 @@ function dopasujKolumnyTrasy() {
                 /* WERSJA 448 — przywrócenie działającego podziału kolumn z 435.
                    STREFA jest nakładką dodawaną dopiero po renderze i nie może
                    ingerować w algorytm dzielenia trasy na kolumny. */
+                /* WERSJA 449 — linia 150: dwie kolumny mają być
+                   zbalansowane wysokością, a nie zapełniać pierwszą
+                   kolumnę aż do samego dołu. Rezerwujemy też miejsce
+                   na STREFA I, która jest dokładana dopiero po renderze. */
+                const linia449=String(aktualnaLinia||"").trim();
+                const sumaWysokosci449=wysokosci.reduce((a,b)=>a+Math.max(0,b||0),0);
+                const rezerwaStrefy449=(linia449==="150" ? 28 : 0);
+                const limitKolumny449=(
+                    linia449==="150" && ileKolumn===2
+                )
+                    ? Math.min(
+                        dostepna-rezerwaStrefy449,
+                        Math.ceil((sumaWysokosci449+rezerwaStrefy449)/2)+8
+                      )
+                    : dostepna;
+
                 if(
                     grupy[
                         grupy.length-1
                     ].length&&
                     suma+wymagane>
-                        dostepna
+                        limitKolumny449
                 ){
                     if(
                         grupy.length<
@@ -42948,5 +42964,116 @@ window.addEventListener(
 })();
 </script>
 
+
+<style>
+/* =========================================================
+   WERSJA 449 — CIĄGŁOŚĆ OSI / PRAWDZIWY KONIEC WYDŁUŻENIA
+   ========================================================= */
+
+/* Separator leżący POMIĘDZY dwoma przystankami nie może przecinać
+   pionowej osi trasy. Klasa jest nadawana tylko takim separatorom,
+   więc nie dotyczy WARSZAWY/STREFY przed pierwszym przystankiem ani
+   SADOWY rozpoczynającej drugą kolumnę. */
+.tabliczka .trasa-separator.laczenie-osi-449 {
+    background-image: linear-gradient(
+        to right,
+        transparent 0,
+        transparent 29px,
+        currentColor 29px,
+        currentColor 31.25px,
+        transparent 31.25px,
+        transparent 100%
+    ) !important;
+    background-repeat: no-repeat !important;
+    background-size: 100% 100% !important;
+}
+
+/* Miejscowości mają szarą oś tak samo jak szare kreski/nazwa. */
+.tabliczka .trasa-separator.trasa-miejscowosc-429.laczenie-osi-449 {
+    color: #565656 !important;
+}
+
+/* Prawdziwy koniec wydłużenia: kropka zostaje w standardowej pozycji
+   pierwszego wiersza nazwy, a pionowa linia dochodzi wyłącznie do jej
+   środka. Nie ma żadnego odcinka poniżej kropki. */
+.tabliczka .trasa-stop.koniec-wydluzenia-446 .trasa-os::before,
+.tabliczka .trasa-extra-stop.koniec-wydluzenia-446 .trasa-os::before {
+    top: 0 !important;
+    bottom: calc(100% - 7.25px) !important;
+    height: auto !important;
+}
+.tabliczka .trasa-stop.koniec-wydluzenia-446 .trasa-os::after,
+.tabliczka .trasa-extra-stop.koniec-wydluzenia-446 .trasa-os::after {
+    content: "" !important;
+    display: block !important;
+    left: 1px !important;
+    top: 3px !important;
+    width: 8.5px !important;
+    height: 8.5px !important;
+    transform: none !important;
+    border-radius: 50% !important;
+    background: currentColor !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   WERSJA 449 — ŁĄCZENIE OSI PRZEZ SEPARATORY
+   ========================================================= */
+(function(){
+    "use strict";
+
+    let blokada449=false;
+
+    function ustawLaczenieOsi449(){
+        if(blokada449) return;
+        blokada449=true;
+        try{
+            document.querySelectorAll(".trasa-lista-397").forEach(lista=>{
+                const dzieci=[...lista.children];
+                dzieci.forEach((el,i)=>{
+                    if(!el.classList.contains("trasa-separator")) return;
+                    el.classList.remove("laczenie-osi-449");
+
+                    let maStopPrzed=false;
+                    for(let p=i-1;p>=0;p--){
+                        if(dzieci[p].matches(".trasa-stop,.trasa-extra-stop")){
+                            maStopPrzed=true;
+                            break;
+                        }
+                    }
+
+                    let maStopPo=false;
+                    for(let n=i+1;n<dzieci.length;n++){
+                        if(dzieci[n].matches(".trasa-stop,.trasa-extra-stop")){
+                            maStopPo=true;
+                            break;
+                        }
+                    }
+
+                    if(maStopPrzed && maStopPo){
+                        el.classList.add("laczenie-osi-449");
+                    }
+                });
+            });
+        } finally {
+            blokada449=false;
+        }
+    }
+
+    function plan449(){
+        requestAnimationFrame(()=>requestAnimationFrame(ustawLaczenieOsi449));
+    }
+
+    document.addEventListener("DOMContentLoaded",()=>{
+        plan449();
+        const wynik=document.getElementById("wynik");
+        if(wynik){
+            new MutationObserver(plan449).observe(wynik,{childList:true,subtree:true});
+        }
+    });
+    window.addEventListener("load",plan449);
+})();
+</script>
 </body>
 </html>
