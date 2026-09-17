@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 468
+     WERSJA: 469
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -44417,74 +44417,56 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 </style>
 
 
+<style id="wersja-469-dwa-kierunki-miejscowosci">
+/* =========================================================
+   WERSJA 469 — LINIA 150
+   MIEJSCOWOŚCI / STREFA I W DWÓCH KIERUNKACH
+   BEZ ZMIANY WYSOKOŚCI I UKŁADU PRZYSTANKÓW
+   ========================================================= */
+
+/* Nawias z miejscowością ukrywamy wizualnie przez osobny span.
+   Nie przebudowujemy .trasa-nazwa i nie ruszamy jej istniejących
+   elementów odpowiedzialnych za wysokość/zwijanie. */
+.tabliczka.linia-150-v469 .miejscowosc-w-nazwie-v469 {
+    display: none !important;
+}
+</style>
+
 <script>
 /* =========================================================
-   WERSJA 468 — LINIA 150
-   MIEJSCOWOŚCI + STREFA I W WIDOKU DWÓCH KIERUNKÓW
+   WERSJA 469
    =========================================================
+   468 ingerowała w textContent .trasa-nazwa. To mogło usuwać
+   lub przebudowywać elementy, które starszy renderer wykorzystuje
+   do wyliczania wysokości wierszy. Efektem były przystanki wyglądające
+   jak "zwinięte".
 
-   POPRAWKA DO 467:
-   v467 szukała tylko list ".trasa-lista-397".
-   Widok przystanku obsługiwanego w dwóch kierunkach korzysta
-   jednak z wcześniejszego renderera i zwykłej klasy:
-       .trasa-lista
-
-   Dlatego v467 nie znajdowała żadnej listy i nic nie zmieniała.
-
-   v468:
-   - działa na KAŻDEJ .trasa-lista w panelu trasy,
-   - usuwa "(Miejscowość)" z widocznej nazwy,
-   - dodaje separator miejscowości w istniejącym stylu v429,
-   - dodaje STREFA I w istniejącym stylu v440,
-   - po powrocie z miejscowości podwarszawskich dodaje WARSZAWA,
-   - nie zmienia JSON,
-   - nie zmienia kursów,
-   - zachowuje działającą poprawkę osi z v465.
+   469:
+   - bazuje ponownie na działającej 465,
+   - NIE ustawia textContent całego .trasa-nazwa,
+   - NIE zmienia wysokości .trasa-stop,
+   - NIE zmienia klas układu kolumn,
+   - tylko opakowuje końcowe "(Miejscowość)" w ukrywany span,
+   - dodaje separatory jako rodzeństwo wierszy.
    ========================================================= */
-(function FWTP_WERSJA_468(){
+(function FWTP_WERSJA_469(){
 
-    function czyLinia150_468(){
+    function linia150(){
         return String(
             new URLSearchParams(location.search).get("linia") || ""
         ).trim() === "150";
     }
 
-    function norm468(v){
+    function norm(v){
         return String(v || "")
             .replace(/\u00a0/g, " ")
             .replace(/\s+/g, " ")
             .trim();
     }
 
-    function rozdziel468(tekst){
-        const t = norm468(tekst);
-
-        /*
-           Najpierw korzystamy z istniejącej funkcji projektu,
-           bo ona zna listę prawdziwych miejscowości i nie pomyli
-           nawiasu będącego częścią właściwej nazwy przystanku.
-        */
-        if(
-            typeof rozdzielNazweIMiejscowosc === "function"
-        ){
-            try{
-                const r =
-                    rozdzielNazweIMiejscowosc(t);
-
-                if(r){
-                    return {
-                        nazwa: norm468(r.nazwa || t),
-                        miejscowosc: norm468(r.miejscowosc || "")
-                    };
-                }
-            }catch(e){}
-        }
-
-        /*
-           Fallback tylko wtedy, gdy starsza funkcja nie jest dostępna.
-        */
-        const m =
-            t.match(/^(.*?)\s*\(([^()]*)\)\s*$/);
+    function rozbijPelnaNazwe(tekst){
+        const t = norm(tekst);
+        const m = t.match(/^(.*?)\s*\(([^()]*)\)\s*$/);
 
         if(!m){
             return {
@@ -44494,409 +44476,308 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
         }
 
         return {
-            nazwa: norm468(m[1]),
-            miejscowosc: norm468(m[2])
+            nazwa: norm(m[1]),
+            miejscowosc: norm(m[2])
         };
     }
 
-    function pelnaNazwa468(row){
-        if(!row){
-            return "";
-        }
-
-        if(row.dataset.fwtpPelnaNazwa468){
-            return row.dataset.fwtpPelnaNazwa468;
-        }
-
-        const nazwa =
-            row.querySelector(".trasa-nazwa");
-
-        if(!nazwa){
-            return "";
-        }
-
-        const tekst =
-            norm468(nazwa.textContent);
-
-        row.dataset.fwtpPelnaNazwa468 =
-            tekst;
-
-        return tekst;
-    }
-
-    function ustawNazweBezMiejscowosci468(
-        row,
-        czystaNazwa
-    ){
-        const nazwa =
-            row.querySelector(".trasa-nazwa");
-
-        if(!nazwa || !czystaNazwa){
-            return;
-        }
-
-        const aktywna =
-            nazwa.querySelector(
-                ".trasa-nazwa-aktywna"
-            );
+    function pobierzNazwe(row){
+        const el = row?.querySelector(".trasa-nazwa");
+        if(!el) return null;
 
         /*
-           Tak samo jak w działającej logice v432:
-           nie niszczymy .trasa-nazwa-aktywna, bo odpowiada ona
-           za czarne zaznaczenie wybranego przystanku.
+           Dataset przechowuje oryginalną nazwę. Dzięki temu kolejne
+           przebudowy nie próbują analizować już zmodyfikowanego tekstu.
         */
-        if(aktywna){
-            aktywna.textContent =
-                czystaNazwa.toUpperCase();
-        }else{
-            nazwa.textContent =
-                czystaNazwa.toUpperCase();
-        }
-    }
+        let pelna = row.dataset.pelnaNazwa469;
 
-    function separatorMiejscowosci468(nazwa){
-        const li =
-            document.createElement("li");
-
-        li.className =
-            "trasa-separator trasa-miejscowosc-429 fwtp-v468";
-
-        li.dataset.fwtpMiejscowosc468 =
-            norm468(nazwa).toUpperCase();
-
-        const span =
-            document.createElement("span");
-
-        span.className =
-            "trasa-separator-title";
-
-        span.textContent =
-            norm468(nazwa).toUpperCase();
-
-        li.appendChild(span);
-
-        return li;
-    }
-
-    function separatorStrefy468(){
-        const li =
-            document.createElement("li");
-
-        li.className =
-            "trasa-separator trasa-strefa-440 fwtp-strefa-v468";
-
-        const span =
-            document.createElement("span");
-
-        span.className =
-            "trasa-separator-title";
-
-        span.textContent =
-            "STREFA I";
-
-        li.appendChild(span);
-
-        return li;
-    }
-
-    function poprzedniSeparatorMiejscowosci468(row){
-        let el =
-            row.previousElementSibling;
-
-        while(el){
-            if(
-                el.classList.contains(
-                    "trasa-miejscowosc-429"
-                )
-            ){
-                return norm468(
-                    el.textContent
-                ).toUpperCase();
-            }
-
-            if(
-                el.matches(
-                    ".trasa-stop, .trasa-extra-stop"
-                )
-            ){
-                return "";
-            }
-
-            el =
-                el.previousElementSibling;
+        if(!pelna){
+            pelna = norm(el.textContent);
+            row.dataset.pelnaNazwa469 = pelna;
         }
 
-        return "";
+        const r = rozbijPelnaNazwe(pelna);
+
+        return {
+            row,
+            el,
+            pelna,
+            nazwa: r.nazwa,
+            miejscowosc: r.miejscowosc
+        };
     }
 
-    function listaMaMiejscowosci468(lista){
-        const rows =
-            Array.from(
-                lista.querySelectorAll(
-                    ":scope > .trasa-stop, :scope > .trasa-extra-stop"
-                )
-            );
+    function ukryjNawiasBezPrzebudowy(d){
+        if(!d || !d.miejscowosc) return;
 
-        return rows.some(
-            row => {
-                const r =
-                    rozdziel468(
-                        pelnaNazwa468(row)
-                    );
-
-                return !!r.miejscowosc;
-            }
-        );
-    }
-
-    function poprawListe468(lista){
         if(
-            !lista ||
-            lista.dataset.fwtpMiejscowosci468 === "1"
-        ){
-            return;
-        }
-
-        const rows =
-            Array.from(
-                lista.querySelectorAll(
-                    ":scope > .trasa-stop, :scope > .trasa-extra-stop"
-                )
-            );
-
-        if(!rows.length){
-            return;
-        }
-
-        /*
-           Najpierw sprawdzamy CAŁĄ listę.
-           Jeśli nie ma na niej żadnej miejscowości w nawiasie,
-           nie dokładamy WARSZAWY ani innych separatorów.
-        */
-        const maPozaWarszawa =
-            listaMaMiejscowosci468(lista);
-
-        if(!maPozaWarszawa){
-            lista.dataset.fwtpMiejscowosci468 = "1";
-            return;
-        }
-
-        let aktualnaMiejscowosc = null;
-
-        for(const row of rows){
-
-            const rozbita =
-                rozdziel468(
-                    pelnaNazwa468(row)
-                );
-
-            if(!rozbita.nazwa){
-                continue;
-            }
-
-            /*
-               Wiersz bez "(miejscowość)" po wyjeździe z gmin
-               podwarszawskich traktujemy tak samo jak v432:
-               jest to WARSZAWA.
-            */
-            const miejscowosc =
-                rozbita.miejscowosc ||
-                "WARSZAWA";
-
-            const klucz =
-                norm468(
-                    miejscowosc
-                ).toUpperCase();
-
-            if(
-                aktualnaMiejscowosc === null ||
-                aktualnaMiejscowosc !== klucz
-            ){
-                const juzJest =
-                    poprzedniSeparatorMiejscowosci468(
-                        row
-                    );
-
-                if(juzJest !== klucz){
-                    row.before(
-                        separatorMiejscowosci468(
-                            miejscowosc
-                        )
-                    );
-                }
-
-                aktualnaMiejscowosc =
-                    klucz;
-            }
-
-            /*
-               Nawias usuwamy tylko wtedy, gdy rzeczywiście
-               rozpoznaliśmy miejscowość.
-            */
-            if(rozbita.miejscowosc){
-                ustawNazweBezMiejscowosci468(
-                    row,
-                    rozbita.nazwa
-                );
-            }
-        }
-
-        lista.dataset.fwtpMiejscowosci468 = "1";
-    }
-
-    function dodajStrefeI468(panel){
-        if(!panel){
-            return;
-        }
-
-        /*
-           Jeżeli którykolwiek wcześniejszy renderer już dodał STREFA I,
-           nie tworzymy duplikatu.
-        */
-        if(
-            panel.querySelector(
-                ".trasa-strefa-440"
+            d.el.querySelector(
+                ".miejscowosc-w-nazwie-v469"
             )
         ){
             return;
         }
 
-        const listy =
-            Array.from(
-                panel.querySelectorAll(
-                    ".trasa-lista"
-                )
-            ).filter(
-                lista =>
-                    lista.querySelector(
-                        ":scope > .trasa-stop, :scope > .trasa-extra-stop"
-                    )
-            );
-
-        if(!listy.length){
-            return;
-        }
+        const wzorzec =
+            "(" + d.miejscowosc + ")";
 
         /*
-           Dla linii 150 cała prezentowana trasa ma oznaczenie STREFA I,
-           dokładnie tak jak w istniejącej logice v441.
+           Szukamy WYŁĄCZNIE węzła tekstowego zawierającego końcowy nawias.
+           Nie dotykamy pozostałych spanów, zaznaczenia aktywnego przystanku,
+           symboli, wariantów ani elementów technicznych.
         */
-        const pierwsza =
-            listy[0];
-
-        pierwsza.insertBefore(
-            separatorStrefy468(),
-            pierwsza.firstChild
-        );
-
-        const pierwszyStop =
-            pierwsza.querySelector(
-                ":scope > .trasa-stop, :scope > .trasa-extra-stop"
+        const walker =
+            document.createTreeWalker(
+                d.el,
+                NodeFilter.SHOW_TEXT
             );
 
-        if(pierwszyStop){
-            pierwszyStop.classList.add(
-                "pierwszy-stop-444"
-            );
+        const nodes = [];
+        let n;
+
+        while((n = walker.nextNode())){
+            nodes.push(n);
+        }
+
+        for(const node of nodes){
+            const raw = String(node.nodeValue || "");
+            const pos = raw.lastIndexOf(wzorzec);
+
+            if(pos < 0) continue;
+
+            const before = raw.slice(0, pos);
+            const after = raw.slice(pos + wzorzec.length);
+
+            const frag = document.createDocumentFragment();
+
+            if(before){
+                frag.appendChild(
+                    document.createTextNode(before)
+                );
+            }
+
+            const span = document.createElement("span");
+            span.className = "miejscowosc-w-nazwie-v469";
+            span.textContent = wzorzec;
+            frag.appendChild(span);
+
+            if(after){
+                frag.appendChild(
+                    document.createTextNode(after)
+                );
+            }
+
+            node.parentNode.replaceChild(frag, node);
+            return;
         }
     }
 
-    function popraw468(){
-        if(!czyLinia150_468()){
+    function separatorMiejscowosci(nazwa){
+        const el = document.createElement("div");
+
+        /*
+           Używamy istniejących klas projektu, więc wygląd pozostaje
+           taki sam jak w działającym widoku jednego kierunku.
+        */
+        el.className =
+            "trasa-separator trasa-miejscowosc-429 miejscowosc-v469";
+
+        el.dataset.miejscowosc469 =
+            norm(nazwa).toUpperCase();
+
+        el.textContent =
+            norm(nazwa).toUpperCase();
+
+        return el;
+    }
+
+    function separatorStrefy(){
+        const el = document.createElement("div");
+
+        el.className =
+            "trasa-separator trasa-strefa-440 strefa-v469";
+
+        const span = document.createElement("span");
+        span.className = "trasa-separator-title";
+        span.textContent = "STREFA I";
+
+        el.appendChild(span);
+
+        return el;
+    }
+
+    function istniejeSeparatorPrzed(row, nazwa){
+        let el = row.previousElementSibling;
+        const cel = norm(nazwa).toUpperCase();
+
+        while(el && !el.classList.contains("trasa-stop")){
+            if(
+                el.classList.contains("trasa-miejscowosc-429") &&
+                norm(el.textContent).toUpperCase() === cel
+            ){
+                return true;
+            }
+            el = el.previousElementSibling;
+        }
+
+        return false;
+    }
+
+    function poprawListe(lista){
+        if(!lista) return;
+
+        /*
+           Usuwamy tylko elementy utworzone przez poprzedni przebieg 469.
+           Nie ruszamy separatorów pochodzących z głównego renderera.
+        */
+        lista.querySelectorAll(
+            ":scope > .miejscowosc-v469, :scope > .strefa-v469"
+        ).forEach(el => el.remove());
+
+        const rows = Array.from(
+            lista.children
+        ).filter(
+            el => el.classList?.contains("trasa-stop")
+        );
+
+        if(!rows.length) return;
+
+        const dane = rows.map(pobierzNazwe);
+
+        /*
+           Tę logikę uruchamiamy tylko dla listy, na której rzeczywiście
+           istnieją nazwy z miejscowością w nawiasie.
+        */
+        if(!dane.some(d => d?.miejscowosc)){
             return;
         }
+
+        let poprzednia = null;
+        let strefaDodana = false;
+
+        for(const d of dane){
+            if(!d) continue;
+
+            ukryjNawiasBezPrzebudowy(d);
+
+            /*
+               Jeżeli brak nawiasu po odcinku podwarszawskim,
+               traktujemy ten fragment jako WARSZAWA.
+            */
+            const miejscowosc =
+                d.miejscowosc ||
+                "WARSZAWA";
+
+            const klucz =
+                norm(miejscowosc).toUpperCase();
+
+            if(poprzednia === klucz){
+                continue;
+            }
+
+            /*
+               STREFA I tylko raz — przed pierwszą miejscowością
+               spoza Warszawy.
+            */
+            if(
+                !strefaDodana &&
+                klucz !== "WARSZAWA"
+            ){
+                const juz =
+                    lista.querySelector(
+                        ":scope > .trasa-strefa-440"
+                    );
+
+                if(!juz){
+                    d.row.before(
+                        separatorStrefy()
+                    );
+                }
+
+                strefaDodana = true;
+            }
+
+            if(
+                !istniejeSeparatorPrzed(
+                    d.row,
+                    miejscowosc
+                )
+            ){
+                d.row.before(
+                    separatorMiejscowosci(
+                        miejscowosc
+                    )
+                );
+            }
+
+            poprzednia = klucz;
+        }
+    }
+
+    function popraw(){
+        if(!linia150()) return;
 
         const tab =
-            document.querySelector(
-                "#wynik .tabliczka"
-            ) ||
-            document.querySelector(
-                ".tabliczka"
-            );
+            document.querySelector("#wynik .tabliczka") ||
+            document.querySelector(".tabliczka");
 
-        if(!tab){
-            return;
-        }
+        if(!tab) return;
 
-        const panel =
-            tab.querySelector(
-                ".panel-prawy"
-            ) ||
-            tab;
+        tab.classList.add("linia-150-v469");
 
         /*
-           KLUCZOWA ZMIANA względem v467:
-           NIE ".trasa-lista-397", tylko wszystkie ".trasa-lista".
-           To obejmuje renderer dwóch kierunków.
+           Obsługujemy oba renderery:
+           - .trasa-lista-397 — nowszy/jeden kierunek,
+           - .trasa-lista     — starszy/dwa kierunki.
         */
-        const listy =
-            Array.from(
-                panel.querySelectorAll(
-                    ".trasa-lista"
-                )
-            );
-
-        listy.forEach(
-            poprawListe468
+        const listy = Array.from(
+            tab.querySelectorAll(
+                ".trasa-lista, .trasa-lista-397"
+            )
         );
 
-        dodajStrefeI468(
-            panel
+        [...new Set(listy)].forEach(
+            poprawListe
         );
     }
 
-    let timer468 = null;
+    let raf = 0;
 
-    function zaplanuj468(){
-        clearTimeout(
-            timer468
+    function zaplanuj(){
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(
+            () => requestAnimationFrame(popraw)
         );
-
-        timer468 =
-            setTimeout(
-                popraw468,
-                0
-            );
     }
 
-    function start468(){
-        zaplanuj468();
+    function start(){
+        zaplanuj();
 
         const host =
-            document.getElementById(
-                "wynik"
-            ) ||
+            document.getElementById("wynik") ||
             document.body;
 
         const observer =
             new MutationObserver(
                 mutations => {
                     /*
-                       Reagujemy tylko, gdy główny renderer dodał nowe
-                       węzły. Zmiana samego tekstu przez v468 nie powoduje
-                       zapętlenia poprawki.
+                       Nie reagujemy na własne spany/separatory 469.
+                       Reagujemy tylko na przebudowę głównego renderera.
                     */
-                    const jestNowaStruktura =
-                        mutations.some(
-                            m =>
-                                m.type === "childList" &&
-                                m.addedNodes.length > 0 &&
-                                Array.from(
-                                    m.addedNodes
-                                ).some(
-                                    n =>
-                                        n.nodeType === 1 &&
-                                        !n.classList?.contains(
-                                            "fwtp-v468"
-                                        ) &&
-                                        !n.classList?.contains(
-                                            "fwtp-strefa-v468"
-                                        )
-                                )
-                        );
+                    const obcaZmiana = mutations.some(m =>
+                        Array.from(m.addedNodes || []).some(n => {
+                            if(n.nodeType !== 1) return false;
 
-                    if(jestNowaStruktura){
-                        zaplanuj468();
+                            return !(
+                                n.classList?.contains("miejscowosc-v469") ||
+                                n.classList?.contains("strefa-v469") ||
+                                n.classList?.contains("miejscowosc-w-nazwie-v469")
+                            );
+                        })
+                    );
+
+                    if(obcaZmiana){
+                        zaplanuj();
                     }
                 }
             );
@@ -44913,11 +44794,11 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
     if(document.readyState === "loading"){
         document.addEventListener(
             "DOMContentLoaded",
-            start468,
+            start,
             {once:true}
         );
     }else{
-        start468();
+        start();
     }
 
 })();
