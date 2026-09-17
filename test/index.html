@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 488
+     WERSJA: 489
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -5169,13 +5169,13 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 </style>
 </head>
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 488
+     FWTP — WERSJA PLIKU: 489
      BAZA WIZUALNA / ROZKŁAD: 478
      LISTA PRZYSTANKÓW: CAŁKOWICIE NOWY SILNIK JSON
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 488
+     FWTP — WERSJA PLIKU: 489
      TABELA / WYGLĄD: zachowane
      LISTA PRZYSTANKÓW: JEDEN WSPÓLNY SILNIK JSON
 
@@ -5199,6 +5199,13 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
      - przywrócona tabela rozkładu po usunięciu starego silnika
      - pełne kurs.trasa, także przystanki przed wybranym
      - wykrywanie wspólnych odcinków wariantów z nowego JSON
+     ========================================================= -->
+<!-- =========================================================
+     FWTP — WERSJA 489
+     POPRAWKA: TABELA ROZKŁADU
+     Tabela nie korzysta już ze starej logiki kierunków/listy.
+     Kursy są pobierane bezpośrednio z kursy[] wybranego
+     przystanku w nowym JSON.
      ========================================================= -->
 <body>
 <header class="topbar">
@@ -7724,11 +7731,31 @@ function __bezCache_pobierzKursyDlaSymbolu(symbol){
 
 function pobierzKursyDlaSymbolu(symbol){
 
-    return memoTabliczki(
-        "pobierzKursyDlaSymbolu",
-        String(symbol||""),
-        ()=>__bezCache_pobierzKursyDlaSymbolu(symbol)
-    );
+    const p = v486CurrentStop();
+
+    if(!p){
+        return [];
+    }
+
+    return v486Array(p.kursy)
+        .filter(kurs=>{
+            if(
+                czasNaMinuty(
+                    kurs?.czas
+                )===null
+            ){
+                return false;
+            }
+
+            return symbol===""
+                ? true
+                : grupaDnia(kurs)===symbol;
+        })
+        .map(kurs=>({
+            ...kurs,
+            _kierunekIndex: aktualnyKierunek,
+            _przystanekIndex: aktualnyPrzystanek
+        }));
 }
 
 
@@ -7871,11 +7898,83 @@ function __bezCache_dostepneGrupyDni(){
 
 function dostepneGrupyDni(){
 
-    return memoTabliczki(
-        "dostepneGrupyDni",
-        "",
-        ()=>__bezCache_dostepneGrupyDni()
-    );
+    const p = v486CurrentStop();
+    const symbole = new Set();
+
+    v486Array(p?.kursy).forEach(kurs=>{
+        if(
+            czasNaMinuty(
+                kurs?.czas
+            )===null
+        ){
+            return;
+        }
+
+        const symbol = grupaDnia(kurs);
+
+        if(symbol){
+            symbole.add(symbol);
+        }
+    });
+
+    const wynik=[];
+
+    const maD=symbole.has("D");
+    const maC=symbole.has("C");
+    const ma6=symbole.has("6");
+    const ma7=symbole.has("7");
+    const maWeekendRozdzielony=ma6||ma7;
+
+    if(maD||maC||maWeekendRozdzielony){
+        wynik.push({
+            symbol:"D",
+            tytul:"DZIEŃ POWSZEDNI"
+        });
+    }
+
+    if(maWeekendRozdzielony){
+        wynik.push({
+            symbol:"6",
+            tytul:"SOBOTA"
+        });
+        wynik.push({
+            symbol:"7",
+            tytul:"ŚWIĘTO"
+        });
+    }else if(maD||maC){
+        wynik.push({
+            symbol:"C",
+            tytul:"SOBOTA I ŚWIĘTO"
+        });
+    }
+
+    [...symbole]
+        .filter(s=>!["D","C","6","7"].includes(s))
+        .forEach(symbol=>{
+            wynik.push({
+                symbol,
+                tytul:"ROZKŁAD "+symbol
+            });
+        });
+
+    /*
+       Awaryjnie: jeżeli kursy istnieją, ale symbol dnia w JSON
+       jest pusty/nietypowy, nadal pokazujemy tabelę zamiast
+       pozostawiać lewy panel pusty.
+    */
+    if(
+        !wynik.length &&
+        v486Array(p?.kursy).some(
+            kurs=>czasNaMinuty(kurs?.czas)!==null
+        )
+    ){
+        wynik.push({
+            symbol:"",
+            tytul:"ROZKŁAD JAZDY"
+        });
+    }
+
+    return wynik;
 }
 
 
