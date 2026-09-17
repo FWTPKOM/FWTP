@@ -2,18 +2,20 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 495
+     WERSJA: 496
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 495
+     FWTP — WERSJA PLIKU: 496
      BAZA: pełny kod użytkownika V493
-     ZMIANA: wspólne przystanki są łączone po nazwa_czysta + nr,
-     a opis "TRASA W KURSACH ..." pojawia się dopiero przy
-     rzeczywistym odgałęzieniu kurs.trasa.
+     POPRAWKI:
+     - tylko jeden nagłówek "czasy, trasa, przystanki"
+     - wspólne przystanki łączone po nazwa_czysta + nr
+     - obsługa: różne początki -> wspólny odcinek -> odgałęzienia
+     - "TRASA W KURSACH ..." dopiero przy rzeczywistej gałęzi
      ========================================================= -->
 
 <html lang="pl">
@@ -5179,63 +5181,22 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 
 <style>
 /* =========================================================
-   FWTP — WERSJA 495
-   WSPÓLNY CIĄG + ODGAŁĘZIENIA
+   FWTP — WERSJA 496 — wspólna trasa i gałęzie
    ========================================================= */
-
-.v495-trasa-wspolna{
-    width:100% !important;
-    max-width:none !important;
-}
-
-.v495-odgalezienia{
+.v496-kol{width:100%!important;max-width:none!important}
+.v496-galezie{
     display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
-    gap:10px;
+    grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+    gap:8px;
     align-items:start;
-    margin-top:0;
 }
-
-.v495-galaz{
-    min-width:0;
-}
-
-.v495-wariant{
-    list-style:none;
-    margin:6px 0 4px 0;
+.v496-galaz{min-width:0}
+.v496-opis{
+    margin:5px 0 3px 0!important;
     text-align:center;
 }
-
-.v495-lista-wspolna,
-.v495-lista-galezi,
-.v495-ponowne-polaczenie .trasa-lista{
-    margin-top:0;
-    margin-bottom:0;
-}
-
-/*
-   Element będący początkiem samej gałęzi nie jest fizycznym
-   początkiem całej linii.
-*/
-.v495-nie-poczatek{
-    font-weight:400 !important;
-}
-
-/*
-   Element kończący gałąź przed ponownym połączeniem nie jest
-   krańcem całej trasy.
-*/
-.v495-nie-koniec{
-    font-weight:400 !important;
-}
-
-.v495-nie-koniec .trasa-os::before{
-    content:"" !important;
-    display:block !important;
-    top:0 !important;
-    bottom:0 !important;
-    height:auto !important;
-}
+.v496-wspolna{margin-top:0!important;margin-bottom:0!important}
+.v496-galaz .trasa-lista{margin-top:0!important;margin-bottom:0!important}
 </style>
 
 </head>
@@ -15957,389 +15918,270 @@ function v486RenderRouteColumn(route){
 
 
 /* =========================================================
-   FWTP — WERSJA 495
-   WSPÓLNA TRASA + ODGAŁĘZIENIA
+   FWTP — WERSJA 496
+   WSPÓLNE PRZYSTANKI + RZECZYWISTE ODGAŁĘZIENIA
    =========================================================
-   ZASADY:
-   1. Źródłem przebiegu jest wyłącznie kurs.trasa.
-   2. Ten sam logiczny przystanek = nazwa_czysta + nr.
-   3. Wspólny odcinek kilku przebiegów jest wyświetlany tylko raz.
-   4. "TRASA W KURSACH ..." pojawia się dopiero w miejscu,
-      w którym rzeczywiste przebiegi się rozchodzą.
-   5. Nie ma żadnej logiki specjalnej dla konkretnego numeru linii.
+   - logiczny przystanek: nazwa_czysta + nr
+   - różne ID/LP tego samego słupka nie tworzą kopii
+   - wspólny fragment kilku kurs.trasa jest pokazany jeden raz
+   - opis wariantu jest dopiero przy odgałęzieniu
+   - brak specjalnych wyjątków dla numerów linii
    ========================================================= */
 
-function v495StopKey(p){
-    const name = v486StopName(p)
-        .toLocaleUpperCase("pl-PL")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g,"")
-        .replace(/\s+/g," ")
-        .trim();
-
-    const nr = v486Text(p?.nr)
-        .toLocaleUpperCase("pl-PL")
-        .trim();
-
-    return name + "\u001F" + nr;
+function v496StopKey(p){
+    return [
+        v486StopName(p)
+            .toLocaleUpperCase("pl-PL")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g,"")
+            .replace(/\s+/g," ")
+            .trim(),
+        v486Text(p?.nr).toLocaleUpperCase("pl-PL").trim()
+    ].join("\u001F");
 }
 
-function v495RouteKeys(route){
-    return v486Array(route?.items).map(x => v495StopKey(x?.p));
+function v496RouteKeys(route){
+    return v486Array(route?.items).map(x=>v496StopKey(x?.p));
 }
 
-function v495RouteVariantLabel(route){
-    const variants = Array.from(
-        new Set(
-            v486Array(route?.courses)
-                .map(k => v486Text(k?.wariant).toUpperCase())
-                .filter(Boolean)
-        )
-    );
-
-    if(!variants.length) return "";
-
-    return "TRASA W KURSACH " +
-        variants.map(x => "„"+x+"”").join(", ");
+function v496Varianty(route){
+    return Array.from(new Set(
+        v486Array(route?.courses)
+            .map(k=>v486Text(k?.wariant).toUpperCase())
+            .filter(Boolean)
+    ));
 }
 
-function v495SamePrefix(routes){
-    if(!routes.length) return 0;
-
-    const keys = routes.map(v495RouteKeys);
-    const min = Math.min(...keys.map(x => x.length));
-
-    let n = 0;
-    while(n < min){
-        const k = keys[0][n];
-        if(!keys.every(x => x[n] === k)) break;
-        n++;
-    }
-    return n;
+function v496OpisWariantow(routes){
+    const litery = Array.from(new Set(
+        routes.flatMap(v496Varianty)
+    ));
+    if(!litery.length) return "";
+    return "TRASA W KURSACH " + litery.map(x=>'„'+x+'”').join(", ");
 }
 
-function v495SameSuffix(routes, prefixLen){
-    if(routes.length < 2) return 0;
-
-    const keys = routes.map(v495RouteKeys);
-    const min = Math.min(...keys.map(x => x.length));
-
-    let n = 0;
-    while(n < min - prefixLen){
-        const k = keys[0][keys[0].length - 1 - n];
-
-        if(!keys.every(
-            x => x[x.length - 1 - n] === k
-        )){
-            break;
-        }
-        n++;
-    }
-    return n;
-}
-
-function v495TownSeparator(town){
-    return v486TownSeparator(town);
-}
-
-function v495ZoneSeparator(zone){
-    return v486ZoneSeparator(zone);
-}
-
-function v495RenderStop(item, route, pos, total, activeKey, extraClasses=""){
-    const p = item?.p;
+function v496RenderStop(item, route, aktywnyKey, first=false, last=false){
+    const p=item?.p;
     if(!p) return "";
 
-    const selected = v495StopKey(p) === activeKey;
-    const first = pos === 0;
-    const last = pos === total - 1;
-    const minutes = v486TravelMinutes(route,item);
+    const selected=v496StopKey(p)===aktywnyKey;
+    const minutes=v486TravelMinutes(route,item);
 
-    const classes = [
+    const cls=[
         "trasa-stop",
-        selected ? "wybrany" : "",
-        first ? "kraniec-poczatek" : "",
-        last ? "kraniec-koniec koniec-trasy-210" : "",
-        czyNZ(p) ? "nz" : "",
-        extraClasses
+        selected?"wybrany":"",
+        first?"kraniec-poczatek":"",
+        last?"kraniec-koniec koniec-trasy-210":"",
+        czyNZ(p)?"nz":""
     ].filter(Boolean).join(" ");
 
-    return (
-        '<li class="'+classes+'" data-v495-key="'+
-        escapeHtml(v495StopKey(p))+'">'+
-
+    return '<li class="'+cls+'">'+
         '<span class="trasa-czas">'+
-        (
-            minutes === null
-                ? ""
-                : escapeHtml(String(minutes))
-        )+
+        (minutes===null?"":escapeHtml(String(minutes)))+
         '</span>'+
-
         '<span class="trasa-os"></span>'+
-
         '<span class="trasa-nazwa">'+
-        (
-            selected
-                ? '<span class="trasa-nazwa-aktywna">'+
-                  escapeHtml(v486StopName(p).toUpperCase())+
-                  '</span>'
-                : escapeHtml(v486StopName(p).toUpperCase())
+        (selected
+            ? '<span class="trasa-nazwa-aktywna">'+escapeHtml(v486StopName(p).toUpperCase())+'</span>'
+            : escapeHtml(v486StopName(p).toUpperCase())
         )+
         '</span>'+
-
-        '<span class="trasa-nz">'+
-        (czyNZ(p) ? "ż" : "")+
-        '</span>'+
-        '</li>'
-    );
+        '<span class="trasa-nz">'+(czyNZ(p)?"ż":"")+'</span>'+
+        '</li>';
 }
 
-function v495RenderSequence(items, route, activeKey, options={}){
-    const showFirstTown = !!options.showFirstTown;
-    const showFirstZone = !!options.showFirstZone;
-    const noFirstTerminal = !!options.noFirstTerminal;
-    const noLastTerminal = !!options.noLastTerminal;
+function v496RenderItems(items,route,aktywnyKey,opts={}){
+    let html="";
+    let town=opts.previousTown||null;
+    let zone=opts.previousZone||null;
 
-    let html = "";
-    let previousTown = options.previousTown ?? null;
-    let previousZone = options.previousZone ?? null;
+    items.forEach((item,i)=>{
+        const p=item?.p;
+        if(!p)return;
 
-    items.forEach((item,pos)=>{
-        const p = item?.p;
-        if(!p) return;
+        const t=v486StopTown(p);
+        const z=v486StopZone(p);
 
-        const town = v486StopTown(p);
-        const zone = v486StopZone(p);
-
-        if(
-            town &&
-            town !== previousTown &&
-            (pos > 0 || showFirstTown)
-        ){
-            html += v495TownSeparator(town);
+        if(t && t!==town && (i>0 || opts.separatorAtStart)){
+            html+=v486TownSeparator(t);
+        }
+        if(z && z!==zone && (i>0 || opts.separatorAtStart)){
+            html+=v486ZoneSeparator(z);
         }
 
-        if(
-            zone &&
-            zone !== previousZone &&
-            (pos > 0 || showFirstZone)
-        ){
-            html += v495ZoneSeparator(zone);
-        }
-
-        const fakeRoute = {
-            ...route,
-            items
-        };
-
-        let extra = "";
-        if(noFirstTerminal && pos === 0){
-            extra += " v495-nie-poczatek";
-        }
-        if(noLastTerminal && pos === items.length-1){
-            extra += " v495-nie-koniec";
-        }
-
-        html += v495RenderStop(
-            item,
-            fakeRoute,
-            pos,
-            items.length,
-            activeKey,
-            extra
+        html+=v496RenderStop(
+            item,route,aktywnyKey,
+            !!opts.realFirst && i===0,
+            !!opts.realLast && i===items.length-1
         );
 
-        if(town) previousTown = town;
-        if(zone) previousZone = zone;
+        if(t)town=t;
+        if(z)zone=z;
     });
 
-    return {
-        html,
-        lastTown: previousTown,
-        lastZone: previousZone
-    };
+    return {html,town,zone};
 }
 
-function v495GroupBranches(routes, prefixLen, suffixLen){
-    const groups = new Map();
+/*
+   Szukamy najdłuższego wspólnego, kolejnego fragmentu wszystkich tras.
+   Nie wymagamy, żeby zaczynał się na indeksie 0. Dzięki temu:
+   różne początki -> połączenie -> wspólny pień -> odgałęzienie
+   działa poprawnie.
+*/
+function v496LongestCommonBlock(routes){
+    if(routes.length<2)return null;
 
-    routes.forEach(route=>{
-        const items = v486Array(route.items);
-        const end = Math.max(prefixLen, items.length - suffixLen);
-        const branchItems = items.slice(prefixLen,end);
-        const branchKey = branchItems
-            .map(x => v495StopKey(x.p))
-            .join("\u001E");
+    const arrays=routes.map(v496RouteKeys);
+    const base=arrays.reduce((a,b)=>a.length<=b.length?a:b);
 
-        if(!groups.has(branchKey)){
-            groups.set(branchKey,{
-                items:branchItems,
-                routes:[],
-                courses:[],
-                representative:route.representative
-            });
+    let best=null;
+
+    for(let start=0;start<base.length;start++){
+        for(let len=1;start+len<=base.length;len++){
+            const block=base.slice(start,start+len);
+            const positions=[];
+
+            let ok=true;
+            for(const arr of arrays){
+                let found=-1;
+                outer:
+                for(let p=0;p<=arr.length-block.length;p++){
+                    for(let j=0;j<block.length;j++){
+                        if(arr[p+j]!==block[j])continue outer;
+                    }
+                    found=p;
+                    break;
+                }
+                if(found<0){ok=false;break;}
+                positions.push(found);
+            }
+
+            if(ok && (!best || len>best.len)){
+                best={block,len,positions};
+            }
         }
-
-        const g = groups.get(branchKey);
-        g.routes.push(route);
-        g.courses.push(...v486Array(route.courses));
-    });
-
-    return Array.from(groups.values());
+    }
+    return best;
 }
 
-function v495RenderSharedRoutes(routes){
-    routes = v486Array(routes);
-    if(!routes.length) return "";
+function v496GroupExact(parts){
+    const m=new Map();
+    parts.forEach(x=>{
+        const key=x.items.map(i=>v496StopKey(i.p)).join("\u001E");
+        if(!m.has(key))m.set(key,{items:x.items,routes:[]});
+        m.get(key).routes.push(x.route);
+    });
+    return Array.from(m.values());
+}
 
-    const activeKey = v495StopKey(v486CurrentStop());
+function v496RenderBranchGroup(group,aktywnyKey,position){
+    if(!group.items.length)return "";
 
-    /*
-       Jeden rzeczywisty przebieg — zwykła pojedyncza lista.
-    */
-    if(routes.length === 1){
-        const route = routes[0];
-        const rendered = v495RenderSequence(
-            route.items,
-            route,
-            activeKey,
-            {showFirstTown:false,showFirstZone:false}
-        );
-
-        return (
-            '<div class="trasa-kol v486-trasa-kol v495-trasa-wspolna">'+
-            '<ul class="trasa-lista">'+
-            rendered.html+
-            '</ul>'+
-            '</div>'
-        );
-    }
-
-    const prefixLen = v495SamePrefix(routes);
-    const suffixLen = v495SameSuffix(routes,prefixLen);
-
-    const representative = routes[0];
-    const commonPrefix = representative.items.slice(0,prefixLen);
-    const commonSuffix = suffixLen
-        ? representative.items.slice(representative.items.length-suffixLen)
-        : [];
-
-    const branches = v495GroupBranches(
-        routes,
-        prefixLen,
-        suffixLen
+    const rep=group.routes[0];
+    const label=v496OpisWariantow(group.routes);
+    const r=v496RenderItems(
+        group.items,rep,aktywnyKey,
+        {
+            separatorAtStart:true,
+            realFirst:position==="before",
+            realLast:position==="after"
+        }
     );
 
-    let prefixRendered = {
-        html:"",
-        lastTown:null,
-        lastZone:null
-    };
+    return '<div class="v496-galaz">'+
+        (label
+            ? '<div class="trasa-separator v496-opis"><span class="trasa-separator-title">'+
+              escapeHtml(label)+'</span></div>'
+            : '')+
+        '<ul class="trasa-lista">'+r.html+'</ul>'+
+        '</div>';
+}
 
-    if(commonPrefix.length){
-        prefixRendered = v495RenderSequence(
-            commonPrefix,
-            representative,
-            activeKey,
-            {
-                showFirstTown:false,
-                showFirstZone:false,
-                noLastTerminal:true
-            }
+function v496RenderRoutes(routes){
+    routes=v486Array(routes);
+    if(!routes.length)return "";
+
+    const activeKey=v496StopKey(v486CurrentStop());
+
+    if(routes.length===1){
+        const r=v496RenderItems(
+            routes[0].items,routes[0],activeKey,
+            {realFirst:true,realLast:true}
         );
+        return '<div class="trasa-kol v496-kol"><ul class="trasa-lista">'+r.html+'</ul></div>';
     }
 
+    const common=v496LongestCommonBlock(routes);
+
     /*
-       Każde odgałęzienie zaczyna się opisem dopiero TU,
-       czyli po wspólnym prefiksie.
+       Jeżeli nie ma żadnego wspólnego kolejnego fragmentu,
+       są to rzeczywiście niezależne przebiegi.
     */
-    const branchHtml = branches.map((branch,index)=>{
-        const pseudoRoute = {
-            items:branch.items,
-            courses:branch.courses,
-            representative:branch.representative
-        };
+    if(!common || common.len===0){
+        return '<div class="trasa-kol v496-kol"><div class="v496-galezie">'+
+            routes.map(route=>
+                v496RenderBranchGroup({items:route.items,routes:[route]},activeKey,"whole")
+            ).join("")+
+            '</div></div>';
+    }
 
-        const label = v495RouteVariantLabel(pseudoRoute);
+    const before=[];
+    const after=[];
 
-        const rendered = v495RenderSequence(
-            branch.items,
-            pseudoRoute,
-            activeKey,
-            {
-                previousTown:prefixRendered.lastTown,
-                previousZone:prefixRendered.lastZone,
-                showFirstTown:true,
-                showFirstZone:true,
-                noFirstTerminal:true,
-                noLastTerminal:suffixLen>0
-            }
-        );
+    routes.forEach((route,ri)=>{
+        const p=common.positions[ri];
+        before.push({route,items:route.items.slice(0,p)});
+        after.push({route,items:route.items.slice(p+common.len)});
+    });
 
-        return (
-            '<div class="v495-galaz" data-v495-branch="'+index+'">'+
-            (
-                label
-                    ? '<div class="trasa-separator v486-wariant v495-wariant">'+
-                      '<span class="trasa-separator-title">'+
-                      escapeHtml(label)+
-                      '</span>'+
-                      '</div>'
-                    : ''
-            )+
-            '<ul class="trasa-lista v495-lista-galezi">'+
-            rendered.html+
-            '</ul>'+
-            '</div>'
-        );
-    }).join("");
+    const beforeGroups=v496GroupExact(before).filter(g=>g.items.length);
+    const afterGroups=v496GroupExact(after).filter(g=>g.items.length);
 
-    let suffixHtml = "";
+    const baseRoute=routes[0];
+    const commonItems=baseRoute.items.slice(
+        common.positions[0],
+        common.positions[0]+common.len
+    );
 
-    if(commonSuffix.length){
-        /*
-           Po ponownym połączeniu odgałęzień dalsza wspólna część
-           znowu jest tylko jedna.
-        */
-        const suffixRendered = v495RenderSequence(
-            commonSuffix,
-            representative,
-            activeKey,
-            {
-                showFirstTown:true,
-                showFirstZone:true,
-                noFirstTerminal:true
-            }
-        );
+    let html='<div class="trasa-kol v496-kol">';
 
-        suffixHtml =
-            '<div class="v495-ponowne-polaczenie">'+
-            '<ul class="trasa-lista">'+
-            suffixRendered.html+
-            '</ul>'+
+    /*
+       Różne początki: opisy dotyczą tylko tych różnych gałęzi.
+    */
+    if(beforeGroups.length){
+        html+='<div class="v496-galezie v496-przed">'+
+            beforeGroups.map(g=>v496RenderBranchGroup(g,activeKey,"before")).join("")+
             '</div>';
     }
 
-    return (
-        '<div class="trasa-kol v486-trasa-kol v495-trasa-wspolna">'+
-            (
-                commonPrefix.length
-                    ? '<ul class="trasa-lista v495-lista-wspolna">'+
-                      prefixRendered.html+
-                      '</ul>'
-                    : ''
-            )+
-            '<div class="v495-odgalezienia">'+
-            branchHtml+
-            '</div>'+
-            suffixHtml+
-        '</div>'
+    /*
+       Wspólny odcinek — dokładnie jeden raz, bez napisu wariantu.
+    */
+    const commonRendered=v496RenderItems(
+        commonItems,baseRoute,activeKey,
+        {
+            separatorAtStart:beforeGroups.length>0,
+            realFirst:beforeGroups.length===0,
+            realLast:afterGroups.length===0
+        }
     );
+    html+='<ul class="trasa-lista v496-wspolna">'+commonRendered.html+'</ul>';
+
+    /*
+       Dopiero tutaj, po wspólnym odcinku, pokazujemy opis gałęzi.
+    */
+    if(afterGroups.length){
+        html+='<div class="v496-galezie v496-po">'+
+            afterGroups.map(g=>v496RenderBranchGroup(g,activeKey,"after")).join("")+
+            '</div>';
+    }
+
+    html+='</div>';
+    return html;
 }
 
 function v486RenderRoutes(routes){
-    return v495RenderSharedRoutes(routes);
+    return v496RenderRoutes(routes);
 }
 
 /*
@@ -16489,14 +16331,9 @@ function renderuj(){
         );
 
     const headHtml=
-        routes
-            .map(
-                ()=>
-                    '<div class="trasa-head-label">'+
-                    'czasy, trasa, przystanki'+
-                    '</div>'
-            )
-            .join("");
+        '<div class="trasa-head-label">'+
+        'czasy, trasa, przystanki'+
+        '</div>';
 
     const html=
         '<div class="tabliczka-scroll">'+
