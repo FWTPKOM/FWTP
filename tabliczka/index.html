@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 495
+     WERSJA: 496
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -46633,6 +46633,211 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
     z-index: 3 !important;
 }
 </style>
+
+
+<style id="wersja-496-df-i-metro-mlociny">
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 496
+   BAZA: 495
+
+   1. METRO MŁOCINY jako kraniec ma być pogrubione.
+   2. Rozkład oznaczony DF należy do dnia powszedniego:
+      D = dzień powszedni
+      F = kursuje w dni nauki szkolnej.
+      DF nie tworzy osobnej kategorii dnia.
+   ========================================================= */
+
+/* Metro Młociny — wymuszenie pogrubienia ponad starszymi regułami. */
+.tabliczka .trasa-stop.koniec-metro-mlociny-477 .trasa-nazwa,
+.tabliczka .trasa-stop.koniec-metro-mlociny-477 .trasa-nazwa-aktywna,
+.tabliczka .trasa-stop.koniec-metro-mlociny-477 .trasa-nazwa *,
+.tabliczka .trasa-extra-stop.koniec-metro-mlociny-477 .trasa-nazwa,
+.tabliczka .trasa-extra-stop.koniec-metro-mlociny-477 .trasa-nazwa-aktywna,
+.tabliczka .trasa-extra-stop.koniec-metro-mlociny-477 .trasa-nazwa * {
+    font-weight: 700 !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   WERSJA 496 — DF = DZIEŃ POWSZEDNI + F (NAUKA SZKOLNA)
+
+   Nie tworzymy osobnego "dnia DF".
+   Przy wyborze dnia powszedniego bierzemy zarówno:
+       D
+       DF
+
+   F jest cechą kursów szkolnych w obrębie dnia powszedniego.
+   ========================================================= */
+(function FWTP_WERSJA_496(){
+    "use strict";
+
+    function norm496(v){
+        return String(v || "")
+            .replace(/\u00a0/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toUpperCase();
+    }
+
+    function jestDzienPowszedni496(nazwa){
+        const n = norm496(nazwa);
+
+        return (
+            n === "D" ||
+            n === "D" ||
+            n.startsWith("D ") ||
+            n.startsWith("DF ") ||
+            n.includes("DZIEŃ POWSZEDNI") ||
+            n.includes("DZIEN POWSZEDNI") ||
+            n.includes("PONIEDZIAŁEK") ||
+            n.includes("PONIEDZIALEK") ||
+            n.includes("PON.-PT") ||
+            n.includes("PON-PT")
+        );
+    }
+
+    function jestDF496(nazwa){
+        const n = norm496(nazwa);
+        return /(^|[^A-ZĄĆĘŁŃÓŚŹŻ])DF([^A-ZĄĆĘŁŃÓŚŹŻ]|$)/.test(n);
+    }
+
+    /*
+       Korekta danych po ich wczytaniu:
+       jeżeli JSON ma osobny rozkład DF, oznaczamy go jako część
+       dnia powszedniego zamiast osobnej kategorii dnia.
+
+       Nie usuwamy litery F z kursów — informacja o kursowaniu
+       w dni nauki szkolnej pozostaje zachowana.
+    */
+    function scalDF496(){
+        if(
+            !window.daneLinii ||
+            !Array.isArray(window.daneLinii.rozklady)
+        ){
+            return false;
+        }
+
+        window.daneLinii.rozklady.forEach(r => {
+            const nazwa =
+                r?.nazwa ??
+                r?.typ ??
+                r?.dzien ??
+                "";
+
+            if(jestDF496(nazwa)){
+                r._fwtpDzienPowszedni496 = true;
+            }
+        });
+
+        return true;
+    }
+
+    /*
+       Funkcja pomocnicza udostępniona istniejącej logice.
+       D i DF mają ten sam typ dnia: roboczy/powszedni.
+    */
+    window.FWTP_czyRozkladDniaPowszedniego496 =
+        function(rozklad){
+            if(!rozklad) return false;
+
+            if(rozklad._fwtpDzienPowszedni496){
+                return true;
+            }
+
+            const nazwa =
+                rozklad.nazwa ??
+                rozklad.typ ??
+                rozklad.dzien ??
+                "";
+
+            return jestDzienPowszedni496(nazwa);
+        };
+
+    /*
+       Metro Młociny:
+       starszy moduł nadaje klasę końca trasy, ale późniejsze
+       reguły potrafiły nadpisać font-weight. Dodatkowo wzmacniamy
+       klasę po zakończeniu renderowania.
+    */
+    function pogrubMetro496(){
+        const tab =
+            document.querySelector("#wynik .tabliczka") ||
+            document.querySelector(".tabliczka");
+
+        if(!tab) return;
+
+        tab.querySelectorAll(
+            ".trasa-stop,.trasa-extra-stop"
+        ).forEach(row => {
+            const nazwaEl =
+                row.querySelector(".trasa-nazwa");
+
+            if(!nazwaEl) return;
+
+            const pelna =
+                row.dataset?.pelnaNazwa469 ||
+                row.getAttribute("data-pelna-nazwa469") ||
+                nazwaEl.textContent ||
+                "";
+
+            const nazwa =
+                norm496(pelna)
+                    .replace(/\s*\([^)]*\)\s*$/, "")
+                    .trim();
+
+            if(nazwa !== "METRO MŁOCINY"){
+                return;
+            }
+
+            /*
+               Pogrubiamy Metro Młociny tylko wtedy, gdy istniejąca
+               logika oznaczyła ten wiersz jako koniec trasy.
+            */
+            if(
+                row.classList.contains("koniec-metro-mlociny-477") ||
+                row.classList.contains("kraniec-koniec")
+            ){
+                row.classList.add("koniec-metro-mlociny-477");
+            }
+        });
+    }
+
+    function start496(){
+        scalDF496();
+        pogrubMetro496();
+
+        /*
+           Dane mogą pojawić się chwilę po DOMContentLoaded.
+           Bez MutationObservera — nie wracamy do problemu mrugania.
+        */
+        setTimeout(scalDF496, 100);
+        setTimeout(scalDF496, 300);
+        setTimeout(scalDF496, 700);
+
+        setTimeout(pogrubMetro496, 100);
+        setTimeout(pogrubMetro496, 300);
+        setTimeout(pogrubMetro496, 700);
+        setTimeout(pogrubMetro496, 1400);
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            start496,
+            {once:true}
+        );
+    }else{
+        start496();
+    }
+
+    window.addEventListener(
+        "load",
+        start496,
+        {once:true}
+    );
+})();
+</script>
 
 </body>
 </html>
