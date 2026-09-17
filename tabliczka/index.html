@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 474
+     WERSJA: 475
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -44688,7 +44688,7 @@ body .tabliczka:has(.kierunki-dwa)
 
 <!-- =========================================================
      FWTP — POPRAWKA DWUKIERUNKOWA LINII 150
-     WERSJA PLIKU: 474
+     WERSJA PLIKU: 475
      BAZA: WERSJA 465
      ========================================================= -->
 
@@ -47231,6 +47231,248 @@ body .tabliczka.kierunki-dwa-474
     if(host){
         new MutationObserver(()=>{
             if(!busy474) queue474();
+        }).observe(host,{childList:true,subtree:true});
+    }
+})();
+</script>
+
+
+<!-- =========================================================
+     FWTP — WERSJA PLIKU: 475
+     BAZA: WERSJA 474
+
+     POPRAWKA:
+     - zawijanie nazw według szerokości referencyjnej zwykłej listy,
+       a nie szerokości rozciągniętej kolumny dwukierunkowej;
+     - zasada jest ogólna dla wszystkich przystanków, nie dla idx:30;
+     - nazwy jednowyrazowe pozostają zawsze w jednym wierszu;
+     - zachowany poprawny koniec na IZABELIN-DZIEKANÓWEK.
+     ========================================================= -->
+
+<style id="wersja-475-zawijanie-jak-zwykla-trasa">
+body .tabliczka.kierunki-dwa-475 .trasa-nazwa {
+    white-space: nowrap !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    hyphens: none !important;
+}
+
+body .tabliczka.kierunki-dwa-475 .trasa-nazwa.zawijaj {
+    white-space: normal !important;
+    line-height: .9 !important;
+}
+
+body .tabliczka.kierunki-dwa-475
+.trasa-stop:has(.trasa-nazwa.zawijaj),
+body .tabliczka.kierunki-dwa-475
+.trasa-extra-stop:has(.trasa-nazwa.zawijaj) {
+    min-height: 33px !important;
+}
+
+body .tabliczka.kierunki-dwa-475
+.trasa-stop:not(:has(.trasa-nazwa.zawijaj)),
+body .tabliczka.kierunki-dwa-475
+.trasa-extra-stop:not(:has(.trasa-nazwa.zawijaj)) {
+    min-height: 17px !important;
+}
+</style>
+
+<script>
+(function(){
+    "use strict";
+
+    let busy475 = false;
+    let queued475 = false;
+
+    function norm475(v){
+        return String(v || "")
+            .replace(/\s+/g," ")
+            .trim();
+    }
+
+    function ustawZawijanie475(columns){
+        const nazwy = Array.from(
+            columns.querySelectorAll(".trasa-lista-397 .trasa-nazwa")
+        );
+
+        if(!nazwy.length) return;
+
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        if(!ctx) return;
+
+        nazwy.forEach(el=>{
+            el.classList.remove("zawijaj");
+            el.style.removeProperty("white-space");
+        });
+
+        void columns.offsetWidth;
+
+        nazwy.forEach(el=>{
+            const txt = norm475(el.textContent);
+            if(!txt) return;
+
+            /*
+               Tak jak w normalnym rendererze:
+               nazwy jednowyrazowe nie są sztucznie łamane.
+            */
+            if(!/\s/.test(txt)){
+                el.classList.add("nazwa-jednowyrazowa");
+                return;
+            }
+
+            el.classList.remove("nazwa-jednowyrazowa");
+
+            const cs = getComputedStyle(el);
+
+            ctx.font =
+                `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+
+            const textWidth = ctx.measureText(txt).width;
+
+            /*
+               Kolumna dwóch kierunków jest szersza niż pole nazwy w
+               standardowej liście. Dlatego użycie clientWidth powodowało,
+               że np. "INSTYTUT EKOLOGII PAN" przestawał się zawijać.
+
+               145 px odpowiada praktycznej szerokości pola nazwy używanej
+               przez zwykły renderer. Jeżeli realne pole jest węższe,
+               bierzemy oczywiście realną szerokość.
+            */
+            const realWidth = el.getBoundingClientRect().width;
+            const referenceWidth = Math.min(
+                realWidth > 0 ? realWidth : 145,
+                145
+            );
+
+            if(textWidth > referenceWidth + 1){
+                el.classList.add("zawijaj");
+            }
+        });
+    }
+
+    function poprawKoniec475(lista){
+        const dzieci = Array.from(lista.children);
+
+        let idx = -1;
+
+        for(let i=0;i<dzieci.length;i++){
+            const el = dzieci[i];
+
+            if(
+                el.matches?.(".trasa-stop,.trasa-extra-stop") &&
+                norm475(
+                    el.querySelector(".trasa-nazwa")?.textContent
+                ).toLocaleUpperCase("pl-PL")
+                 .normalize("NFD")
+                 .replace(/[\u0300-\u036f]/g,"")
+                 .includes("IZABELIN-DZIEKANOWEK")
+            ){
+                idx = i;
+            }
+        }
+
+        if(idx < 0) return;
+
+        /*
+           Jeśli za Izabelinem są jeszcze elementy tej samej sztucznie
+           sklejonej gałęzi, usuwamy je. Zasada nie zależy od numeru
+           aktualnego przystanku.
+        */
+        let jestDalszyPowrot = false;
+
+        for(let i=idx+1;i<dzieci.length;i++){
+            const txt = norm475(dzieci[i].textContent)
+                .toLocaleUpperCase("pl-PL")
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g,"");
+
+            if(
+                txt.includes("DZIEKANOW LESNY") ||
+                txt.includes("INSTYTUT EKOLOGII PAN") ||
+                /TRASA W KURSACH/.test(txt)
+            ){
+                jestDalszyPowrot = true;
+                break;
+            }
+        }
+
+        if(jestDalszyPowrot){
+            for(let i=dzieci.length-1;i>idx;i--){
+                dzieci[i].remove();
+            }
+        }
+    }
+
+    function popraw475(tab){
+        const columns = tab.querySelector(".trasa-columns");
+        if(!columns) return;
+
+        tab.classList.remove(
+            "kierunki-dwa-472",
+            "kierunki-dwa-473"
+        );
+
+        tab.classList.add("kierunki-dwa-475");
+
+        columns
+            .querySelectorAll(".trasa-lista-397")
+            .forEach(poprawKoniec475);
+
+        ustawZawijanie475(columns);
+    }
+
+    function run475(){
+        if(busy475) return;
+        busy475 = true;
+
+        try{
+            const linia = String(
+                (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
+                new URLSearchParams(location.search).get("linia") ||
+                ""
+            ).trim();
+
+            if(linia !== "150") return;
+
+            document.querySelectorAll(".tabliczka").forEach(tab=>{
+                if(!tab.querySelector(".kierunki-dwa")) return;
+                popraw475(tab);
+            });
+        }finally{
+            busy475 = false;
+        }
+    }
+
+    function queue475(){
+        if(queued475) return;
+        queued475 = true;
+
+        requestAnimationFrame(()=>
+            requestAnimationFrame(()=>{
+                queued475 = false;
+                run475();
+            })
+        );
+    }
+
+    if(document.readyState==="loading"){
+        document.addEventListener("DOMContentLoaded",queue475,{once:true});
+    }else{
+        queue475();
+    }
+
+    window.addEventListener("load",queue475);
+    document.addEventListener("fwtp-v464-ready",queue475);
+
+    if(document.fonts?.ready){
+        document.fonts.ready.then(queue475);
+    }
+
+    const host=document.getElementById("wynik");
+    if(host){
+        new MutationObserver(()=>{
+            if(!busy475) queue475();
         }).observe(host,{childList:true,subtree:true});
     }
 })();
