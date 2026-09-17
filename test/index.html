@@ -2,14 +2,14 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 505
+     WERSJA: 506
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 505
+     FWTP — WERSJA PLIKU: 506
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
@@ -35,6 +35,10 @@
      - V505: opis gałęzi używa tej samej logiki widoczności liter co minuty
      - V505: kursy do METRO MARYMONT oznaczone F pokazują "TRASA W KURSACH „F”"
      - V505: ukryte A/B nadal dają "TRASA W KURSACH BEZ OZNACZEŃ"
+     - V506: końcowość jest sprawdzana po nazwa_czysta + nr, nie po samej nazwie
+     - V506: METRO MARYMONT 11 i 12 są rozróżniane
+     - V506: tylko ostatni pasażerski słupek kurs.trasa jest końcowy
+     - V506: METRO MŁOCINY jest końcowy, gdy faktycznie kończy dany kurs.trasa
      ========================================================= -->
 
 <html lang="pl">
@@ -16148,16 +16152,28 @@ function v502CzyRzeczywistyKoniec(item,route){
     const p=item?.p;
     if(!p)return false;
 
-    const itemName=v501StopNameKey(p);
-
     /*
-       Sprawdzamy wszystkie kursy należące do danego przebiegu.
-       Ostatni pasażerski przystanek kurs.trasa jest końcowym.
+       V506 — KLUCZOWA POPRAWKA
+
+       Do ŁĄCZENIA przebiegów możemy używać samej nazwy
+       (np. PROZY jako wspólny punkt).
+
+       Do ustalania PRZYSTANKU KOŃCOWEGO nie wolno jednak używać
+       samej nazwy, ponieważ:
+           METRO MARYMONT 11
+           METRO MARYMONT 12
+       to dwa różne słupki.
+
+       Końcowość sprawdzamy więc po:
+           nazwa_czysta + nr
+       czyli v496StopKey().
     */
+    const itemKey=v496StopKey(p);
     const stopMap=v486StopMap();
 
     for(const kurs of v486Array(route?.courses)){
         const ids=v486Array(kurs?.trasa);
+
         const passenger=ids
             .map(id=>stopMap.get(id))
             .filter(Boolean)
@@ -16165,18 +16181,33 @@ function v502CzyRzeczywistyKoniec(item,route){
 
         if(!passenger.length)continue;
 
-        const last=passenger[passenger.length-1]?.p;
-        if(last && v501StopNameKey(last)===itemName){
+        /*
+           TYLKO ostatni pasażerski element konkretnego kurs.trasa
+           może być końcowy.
+        */
+        const lastStop=passenger[passenger.length-1]?.p;
+
+        if(
+            lastStop &&
+            v496StopKey(lastStop)===itemKey
+        ){
             return true;
         }
     }
 
     /*
-       Fallback dla przebiegu reprezentatywnego.
+       Fallback tylko wtedy, gdy route nie ma przypisanych kursów.
+       Również tutaj porównujemy nazwa + nr, nigdy samą nazwę.
     */
-    const items=v486Array(route?.items);
-    if(items.length){
-        return v501StopNameKey(items[items.length-1]?.p)===itemName;
+    if(!v486Array(route?.courses).length){
+        const items=v486Array(route?.items);
+
+        if(items.length){
+            const lastItem=items[items.length-1]?.p;
+
+            return !!lastItem &&
+                v496StopKey(lastItem)===itemKey;
+        }
     }
 
     return false;
@@ -16194,8 +16225,17 @@ function v496RenderStop(item, route, aktywnyKey, first=false, last=false){
        kurs.trasa, oznaczamy go jako końcowy niezależnie od podziału
        wariantów i kolumn.
     */
+    /*
+       V506:
+       samo bycie ostatnim elementem aktualnie wyrenderowanego fragmentu
+       NIE oznacza końca trasy. Fragment może kończyć się tylko dlatego,
+       że zaczyna się odgałęzienie albo nastąpił podział kolumn.
+
+       Końcowość pochodzi wyłącznie z ostatniego pasażerskiego
+       przystanku rzeczywistego kurs.trasa.
+    */
     const realTerminal=
-        last || v502CzyRzeczywistyKoniec(item,route);
+        v502CzyRzeczywistyKoniec(item,route);
 
     const cls=[
         "trasa-stop",
