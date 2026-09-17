@@ -2,14 +2,14 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 501
+     WERSJA: 503
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 501
+     FWTP — WERSJA PLIKU: 503
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
@@ -26,6 +26,12 @@
      - V501: bez literek przy minutach opis brzmi tylko "TRASA W KURSACH"
      - V501: wspólny punkt odgałęzienia jest rozpoznawany także po samej nazwie
        (np. PROZY jest jeden raz przed rozgałęzieniem)
+     - V502: bez liter przy minutach napis = "TRASA W KURSACH BEZ OZNACZEŃ"
+     - V502: rzeczywisty ostatni przystanek kurs.trasa zawsze jest końcowy
+       (np. METRO MŁOCINY)
+     - V503: każda gałąź, także do METRO MARYMONT, wskazuje które kursy nią jadą
+     - V503: gdy przy minutach nie ma A/B, opis wariantu podaje konkretne godziny
+       kursów zamiast samego "TRASA W KURSACH BEZ OZNACZEŃ"
      ========================================================= -->
 
 <html lang="pl">
@@ -16019,18 +16025,64 @@ function v496Varianty(route){
     ));
 }
 
+function v503CzasKursu(kurs){
+    const raw=v486Text(kurs?.czas).trim();
+    if(!raw)return "";
+
+    /*
+       Zachowujemy czas z JSON-a. Usuwamy tylko zbędne sekundy,
+       jeśli format jest HH:MM:SS.
+    */
+    const m=raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if(m){
+        return String(Number(m[1]))+":"+m[2];
+    }
+
+    return raw;
+}
+
+function v503KursyGałęzi(routes){
+    const out=[];
+    const seen=new Set();
+
+    v486Array(routes).forEach(route=>{
+        v486Array(route?.courses).forEach(kurs=>{
+            const czas=v503CzasKursu(kurs);
+            if(!czas)return;
+
+            const key=v486CourseKey(kurs);
+            if(seen.has(key))return;
+            seen.add(key);
+
+            out.push({
+                czas,
+                sort:(()=>{
+                    const m=czas.match(/^(\d{1,2}):(\d{2})$/);
+                    if(!m)return Number.MAX_SAFE_INTEGER;
+                    let h=Number(m[1]);
+                    const min=Number(m[2]);
+                    /*
+                       Kursy po północy zostają w naturalnym porządku
+                       danych; sortujemy tylko czytelnie w obrębie godzin.
+                    */
+                    return h*60+min;
+                })()
+            });
+        });
+    });
+
+    out.sort((a,b)=>a.sort-b.sort);
+    return out.map(x=>x.czas);
+}
+
 function v496OpisWariantow(routes){
     const litery = Array.from(new Set(
         routes.flatMap(v496Varianty)
     ));
 
-    /*
-       V501:
-       litery w opisie wariantu wolno pokazać tylko wtedy,
-       gdy rozkład przy minutach rzeczywiście pokazuje oznaczenia.
-    */
     const rozkladPokazujeLitery = (()=>{
         const root=document.querySelector("#wynik") || document;
+
         const candidates=[
             ...root.querySelectorAll(
                 ".wariant, .wariant-minuta, .oznaczenie-wariantu, .minuta-wariant"
@@ -16041,10 +16093,6 @@ function v496OpisWariantow(routes){
             return true;
         }
 
-        /*
-           Sprawdzamy także tekst elementów minut, ale tylko pojedynczą
-           literę stojącą bezpośrednio przy liczbie.
-        */
         const minuteEls=[
             ...root.querySelectorAll(
                 ".minuta, .minuty td, .rozkład td, .rozklad td"
@@ -16056,12 +16104,71 @@ function v496OpisWariantow(routes){
         );
     })();
 
-    if(!rozkladPokazujeLitery || !litery.length){
-        return "TRASA W KURSACH";
+    /*
+       Jeżeli rozkład pokazuje litery, używamy oznaczeń A/B/...
+    */
+    if(rozkladPokazujeLitery && litery.length){
+        return "TRASA W KURSACH " +
+            litery.map(x=>'„'+x+'”').join(", ");
     }
 
-    return "TRASA W KURSACH " +
-        litery.map(x=>'„'+x+'”').join(", ");
+    /*
+       V503:
+       jeżeli przy minutach NIE MA literek, wskazujemy konkretne
+       kursy tej gałęzi po godzinach. Dotyczy to również gałęzi
+       kończącej na METRO MARYMONT.
+    */
+    const czasy=v503KursyGałęzi(routes);
+
+    if(czasy.length){
+        return "TRASA W KURSACH " + czasy.join(", ");
+    }
+
+    return "TRASA W KURSACH BEZ OZNACZEŃ";
+}
+
+
+/* =========================================================
+   FWTP — WERSJA 502
+   RZECZYWISTY PRZYSTANEK KOŃCOWY
+   ========================================================= */
+
+function v502CzyRzeczywistyKoniec(item,route){
+    const p=item?.p;
+    if(!p)return false;
+
+    const itemName=v501StopNameKey(p);
+
+    /*
+       Sprawdzamy wszystkie kursy należące do danego przebiegu.
+       Ostatni pasażerski przystanek kurs.trasa jest końcowym.
+    */
+    const stopMap=v486StopMap();
+
+    for(const kurs of v486Array(route?.courses)){
+        const ids=v486Array(kurs?.trasa);
+        const passenger=ids
+            .map(id=>stopMap.get(id))
+            .filter(Boolean)
+            .filter(x=>v486StopType(x.p)!=="TECH");
+
+        if(!passenger.length)continue;
+
+        const last=passenger[passenger.length-1]?.p;
+        if(last && v501StopNameKey(last)===itemName){
+            return true;
+        }
+    }
+
+    /*
+       Fallback dla przebiegu reprezentatywnego.
+    */
+    const items=v486Array(route?.items);
+    if(items.length){
+        return v501StopNameKey(items[items.length-1]?.p)===itemName;
+    }
+
+    return false;
 }
 
 function v496RenderStop(item, route, aktywnyKey, first=false, last=false){
@@ -16071,11 +16178,19 @@ function v496RenderStop(item, route, aktywnyKey, first=false, last=false){
     const selected=v496StopKey(p)===aktywnyKey;
     const minutes=v486TravelMinutes(route,item);
 
+    /*
+       V502: jeżeli jest to ostatni pasażerski przystanek rzeczywistego
+       kurs.trasa, oznaczamy go jako końcowy niezależnie od podziału
+       wariantów i kolumn.
+    */
+    const realTerminal=
+        last || v502CzyRzeczywistyKoniec(item,route);
+
     const cls=[
         "trasa-stop",
         selected?"wybrany":"",
         first?"kraniec-poczatek":"",
-        last?"kraniec-koniec koniec-trasy-210":"",
+        realTerminal?"kraniec-koniec koniec-trasy-210":"",
         czyNZ(p)?"nz":""
     ].filter(Boolean).join(" ");
 
@@ -16915,11 +17030,33 @@ function v498DopasujKolumnyTrasy(){
         ":scope > .trasa-kol:not(:last-child) .trasa-lista > li:last-child"
     );
 
-    pierwsza?.classList.remove(
-        "kraniec-koniec",
-        "koniec-trasy-210",
-        "ma-kontynuacje-trasy"
-    );
+    /*
+       V502:
+       granica kolumny nie jest końcem trasy, ALE nie wolno usuwać
+       oznaczenia, jeśli ten przystanek jest rzeczywistym końcem
+       któregoś kurs.trasa (np. METRO MŁOCINY).
+    */
+    if(pierwsza){
+        const key=pierwsza.getAttribute("data-v499-stop-key");
+        const p=key ? v499StopByKey(key) : null;
+
+        let prawdziwyKoniec=false;
+
+        if(p){
+            const routes=v486BuildRoutes();
+            prawdziwyKoniec=routes.some(route=>
+                v502CzyRzeczywistyKoniec({p},route)
+            );
+        }
+
+        if(!prawdziwyKoniec){
+            pierwsza.classList.remove(
+                "kraniec-koniec",
+                "koniec-trasy-210",
+                "ma-kontynuacje-trasy"
+            );
+        }
+    }
 }
 
 function v498UruchomDopasowanie(){
