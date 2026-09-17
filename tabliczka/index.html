@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 450
+     WERSJA: 451
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -42977,7 +42977,10 @@ window.addEventListener(
                     offset += (poprzedni + 1 - wart);
                     wart=baza+offset;
                 }
-                el.textContent=String(wart);
+                const nowaWartosc446=String(wart);
+                if(String(el.textContent||"").trim()!==nowaWartosc446){
+                    el.textContent=nowaWartosc446;
+                }
                 poprzedni=wart;
             });
         } finally {
@@ -43073,6 +43076,15 @@ window.addEventListener(
                     if(!el.classList.contains("trasa-separator")) return;
                     el.classList.remove("laczenie-osi-449");
 
+                    const laczalny451 =
+                        el.classList.contains("trasa-miejscowosc-429") ||
+                        el.classList.contains("trasa-strefa-440") ||
+                        el.classList.contains("trasa-graniczny-440");
+
+                    /* Zwykły nagłówek wariantu, np. „Trasa w kursach i”,
+                       NIGDY nie dostaje pionowej kreski. */
+                    if(!lacZalny451) return;
+
                     let maStopPrzed=false;
                     for(let p=i-1;p>=0;p--){
                         if(dzieci[p].matches(".trasa-stop,.trasa-extra-stop")){
@@ -43113,5 +43125,145 @@ window.addEventListener(
     window.addEventListener("load",plan449);
 })();
 </script>
+
+
+<style>
+/* =========================================================
+   WERSJA 451 — OŚ PRZEZ SEPARATORY
+   ========================================================= */
+/* Dokładnie ten sam X i ta sama grubość co .trasa-os::before. */
+.tabliczka .trasa-separator.laczenie-osi-449 {
+    background-image: linear-gradient(
+        to right,
+        transparent 0,
+        transparent 23.1px,
+        #111 23.1px,
+        #111 25.35px,
+        transparent 25.35px,
+        transparent 100%
+    ) !important;
+    background-position: 0 0 !important;
+    background-repeat: no-repeat !important;
+    background-size: 100% 100% !important;
+}
+/* Nagłówki wariantów nie mają pionowej osi. */
+.tabliczka .trasa-separator:not(.trasa-miejscowosc-429):not(.trasa-strefa-440):not(.trasa-graniczny-440) {
+    background-image: none !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   WERSJA 451 — DOMKNIĘCIE PODZIAŁU KOLUMN PO DODANIU STREF
+   ========================================================= */
+(function(){
+    "use strict";
+
+    let zaplanowane451=false;
+    let wTrakcie451=false;
+
+    function wysokoscKolumny451(kol){
+        const ul=kol?.querySelector(".trasa-lista-397");
+        if(!ul) return 0;
+        return ul.getBoundingClientRect().height;
+    }
+
+    function limitKolumny451(columns){
+        const kol=columns?.querySelector(".trasa-kol");
+        if(!kol) return 0;
+        const cs=getComputedStyle(kol);
+        return Math.max(0,
+            columns.clientHeight -
+            (parseFloat(cs.paddingTop)||0) -
+            (parseFloat(cs.paddingBottom)||0)
+        );
+    }
+
+    function przeniesPakiet451(zrodlo, cel){
+        const dzieci=[...zrodlo.children];
+        if(!dzieci.length) return false;
+
+        let start=dzieci.length-1;
+
+        /* Jeżeli na dole został separator należący do przenoszonego
+           przystanku, zabieramy go razem z tym przystankiem. */
+        while(start>0){
+            const prev=dzieci[start-1];
+            if(!prev?.classList?.contains("trasa-separator")) break;
+            start--;
+        }
+
+        const pakiet=dzieci.slice(start);
+        if(!pakiet.length) return false;
+        const pierwszy=cel.firstChild;
+        pakiet.forEach(el=>cel.insertBefore(el,pierwszy));
+        return true;
+    }
+
+    function poprawKolumny451(){
+        zaplanowane451=false;
+        if(wTrakcie451) return;
+
+        const columns=document.querySelector(".panel-prawy .trasa-columns.cols-2");
+        if(!columns) return;
+        const kolumny=[...columns.querySelectorAll(":scope > .trasa-kol")];
+        if(kolumny.length!==2) return;
+        const ul1=kolumny[0].querySelector(".trasa-lista-397");
+        const ul2=kolumny[1].querySelector(".trasa-lista-397");
+        if(!ul1||!ul2) return;
+
+        const limit=limitKolumny451(columns);
+        if(limit<=0) return;
+
+        wTrakcie451=true;
+        try{
+            /* Pierwsza kolumna ma być wypełniona maksymalnie, ale nic
+               nie może wyjść poza dół kartki. Po dodaniu STREFA I
+               znamy już prawdziwe wysokości wszystkich separatorów. */
+            let bezpiecznik=0;
+            while(wysokoscKolumny451(kolumny[0]) > limit+0.5 && bezpiecznik<100){
+                if(!przeniesPakiet451(ul1,ul2)) break;
+                bezpiecznik++;
+            }
+
+            /* Po przeniesieniu odświeżamy klasy łączenia osi. */
+            document.querySelectorAll(".trasa-lista-397").forEach(lista=>{
+                const dzieci=[...lista.children];
+                dzieci.forEach((el,i)=>{
+                    if(!el.classList.contains("trasa-separator")) return;
+                    el.classList.remove("laczenie-osi-449");
+                    const laczalny = el.classList.contains("trasa-miejscowosc-429") ||
+                        el.classList.contains("trasa-strefa-440") ||
+                        el.classList.contains("trasa-graniczny-440");
+                    if(!lacZalny) return;
+                    const przed=dzieci.slice(0,i).some(x=>x.matches?.(".trasa-stop,.trasa-extra-stop"));
+                    const po=dzieci.slice(i+1).some(x=>x.matches?.(".trasa-stop,.trasa-extra-stop"));
+                    if(przed&&po) el.classList.add("laczenie-osi-449");
+                });
+            });
+        } finally {
+            wTrakcie451=false;
+        }
+    }
+
+    function plan451(){
+        if(zaplanowane451) return;
+        zaplanowane451=true;
+        requestAnimationFrame(()=>requestAnimationFrame(poprawKolumny451));
+    }
+
+    document.addEventListener("DOMContentLoaded",()=>{
+        plan451();
+        const wynik=document.getElementById("wynik");
+        if(wynik){
+            new MutationObserver(()=>{
+                if(!wTrakcie451) plan451();
+            }).observe(wynik,{childList:true,subtree:true});
+        }
+    });
+    window.addEventListener("load",plan451);
+})();
+</script>
+
 </body>
 </html>
