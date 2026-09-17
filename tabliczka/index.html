@@ -1,12 +1,15 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 454
+     WERSJA: 453
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
 
 <html lang="pl">
+<!-- =========================================================
+     FWTP TABLICZKA — WERSJA 455
+     ========================================================= -->
 
 <head>
     <meta charset="UTF-8">
@@ -5185,6 +5188,15 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     position: relative !important;
 }
 </style>
+
+<style id="wersja-455-strefa">
+/* WERSJA 455 — STREFA: znaki "=" z odstępem 3 px */
+.tabliczka .trasa-separator.trasa-strefa-440::before,
+.tabliczka .trasa-separator.trasa-strefa-440::after {
+    letter-spacing: 3px !important;
+}
+</style>
+
 </head>
 
 <body>
@@ -43381,7 +43393,7 @@ body .tabliczka .trasa-lista-397 > .trasa-extra-stop.wspolny-koniec-446 > span.t
 
 <style>
 /* =========================================================
-   WERSJA 454 — OŚ NAD KRESKAMI SEPARATORÓW + WSPÓLNY KONIEC
+   WERSJA 455 — OŚ NAD KRESKAMI SEPARATORÓW + WSPÓLNY KONIEC
    ========================================================= */
 
 /* Stare tło z osią wyłączamy. Łącznik jest osobnym elementem,
@@ -43427,7 +43439,7 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 
 <script>
 /* =========================================================
-   WERSJA 454 — FIZYCZNY ŁĄCZNIK OSI + POGRUBIENIE JAK W 167
+   WERSJA 455 — FIZYCZNY ŁĄCZNIK OSI + POGRUBIENIE JAK W 167
    ========================================================= */
 (function(){
     "use strict";
@@ -43527,7 +43539,7 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 
 <script>
 /* =========================================================
-   WERSJA 454 — BEZ NAZW MIEJSCOWOŚCI W KIERUNKU I OPISIE
+   WERSJA 455 — BEZ NAZW MIEJSCOWOŚCI W KIERUNKU I OPISIE
    Tylko prezentacja. Dane źródłowe pozostają bez zmian.
    ========================================================= */
 (function(){
@@ -43620,6 +43632,108 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
         document.addEventListener("DOMContentLoaded", start454, {once:true});
     }else{
         start454();
+    }
+})();
+</script>
+
+
+<script>
+/* =========================================================
+   WERSJA 455 — KIERUNEK I OPIS/LEGENDA BEZ MIEJSCOWOŚCI
+   Zmiana wyłącznie prezentacyjna.
+   ========================================================= */
+(function(){
+    function usunMiejscowosc455(tekst){
+        let t = String(tekst || "");
+
+        /*
+          Najpierw istniejąca logika rozpoznawania miejscowości.
+          Działa dla pojedynczej nazwy, np.
+          "DZIEKANÓW LEŚNY (DZIEKANÓW LEŚNY)".
+        */
+        if(typeof rozdzielNazweIMiejscowosc === "function"){
+            const trimmed = t.trim();
+            const r = rozdzielNazweIMiejscowosc(trimmed);
+            if(r && String(r.miejscowosc || "").trim()){
+                return String(r.nazwa || trimmed).trim();
+            }
+        }
+
+        /*
+          W opisie miejscowość może znajdować się na końcu całego zdania:
+          "... IZABELIN-DZIEKANÓWEK (IZABELIN-DZIEKANÓWEK)".
+          Usuwamy tylko końcowy nawias, jeśli jego treść jest powtórzeniem
+          nazwy stojącej bezpośrednio przed nawiasem.
+        */
+        return t.replace(
+            /([A-ZĄĆĘŁŃÓŚŹŻ0-9][A-ZĄĆĘŁŃÓŚŹŻ0-9 .,'’\-\/]*?)\s*\(\s*([A-ZĄĆĘŁŃÓŚŹŻ0-9 .,'’\-\/]+)\s*\)\s*$/i,
+            function(calosc, przed, nawias){
+                const p = String(przed || "").trim();
+                const n = String(nawias || "").trim();
+                const ostatni = p.match(/([A-ZĄĆĘŁŃÓŚŹŻ0-9][A-ZĄĆĘŁŃÓŚŹŻ0-9\- ]*)$/i);
+                if(ostatni && normalizuj(ostatni[1]) === normalizuj(n)){
+                    return t.slice(0, t.length - calosc.length) + p;
+                }
+                return calosc;
+            }
+        );
+    }
+
+    function popraw455(){
+        const wynik = document.getElementById("wynik");
+        if(!wynik) return;
+
+        /*
+          Nie ruszamy prawego schematu trasy — tam miejscowości mają zostać.
+          Obrabiamy lewy panel i nagłówek tabliczki.
+        */
+        const kandydaci = wynik.querySelectorAll(
+            ".panel-lewy, .tabliczka-info, .tabliczka-header, .tabliczka-naglowek, "+
+            ".kierunek, .tabliczka-kierunek, .kierunek-nazwa, .nazwa-kierunku, "+
+            ".legenda, .tabliczka-legenda, .opis, .tabliczka-opis, .opis-przystanku, "+
+            ".opis-kierunku, [data-kierunek], [data-opis]"
+        );
+
+        kandydaci.forEach(kontener => {
+            if(kontener.closest(".panel-prawy, .trasa-columns, .trasa-lista, .trasa-lista-397")) return;
+
+            const walker = document.createTreeWalker(
+                kontener,
+                NodeFilter.SHOW_TEXT
+            );
+
+            const wezly = [];
+            while(walker.nextNode()) wezly.push(walker.currentNode);
+
+            wezly.forEach(node => {
+                const stary = node.nodeValue;
+                const nowy = usunMiejscowosc455(stary);
+                if(nowy !== stary) node.nodeValue = nowy;
+            });
+        });
+    }
+
+    function start455(){
+        popraw455();
+        const host = document.getElementById("wynik");
+        if(!host) return;
+
+        let zajety = false;
+        const observer = new MutationObserver(() => {
+            if(zajety) return;
+            zajety = true;
+            requestAnimationFrame(() => {
+                popraw455();
+                zajety = false;
+            });
+        });
+        observer.observe(host, {childList:true, subtree:true, characterData:true});
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener("DOMContentLoaded", start455, {once:true});
+    } else {
+        start455();
     }
 })();
 </script>
