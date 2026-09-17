@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 471
+     WERSJA: 472
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -44688,7 +44688,7 @@ body .tabliczka:has(.kierunki-dwa)
 
 <!-- =========================================================
      FWTP — POPRAWKA DWUKIERUNKOWA LINII 150
-     WERSJA PLIKU: 471
+     WERSJA PLIKU: 472
      BAZA: WERSJA 465
      ========================================================= -->
 
@@ -46442,6 +46442,251 @@ body .tabliczka.kierunki-dwa-471
         new MutationObserver(()=>{
             if(!busy471) queue471();
         }).observe(host,{childList:true,subtree:true});
+    }
+})();
+</script>
+
+
+<!-- =========================================================
+     FWTP — WERSJA PLIKU: 472
+     BAZA: WERSJA 471
+     POPRAWKA: USUNIĘCIE FAŁSZYWEGO ZAWIJANIA NAZW
+     ========================================================= -->
+
+<style id="wersja-472-zawijanie-jak-126">
+/*
+   WERSJA 472
+
+   Problem:
+   standardowa funkcja ustawZawijanieNazwTrasy() mierzyła tekst już
+   po zbudowaniu węższych kolumn widoku dwukierunkowego. W efekcie
+   nazwy, które w normalnym widoku (np. 126) są jednowierszowe,
+   dostawały klasę .zawijaj.
+
+   W 472 klasa .zawijaj jest nadawana wyłącznie wtedy, gdy tekst
+   rzeczywiście nie mieści się w dostępnej szerokości nazwy.
+*/
+
+body .tabliczka.kierunki-dwa-472
+.trasa-lista-397
+.trasa-nazwa:not(.zawijaj) {
+    white-space: nowrap !important;
+}
+
+/*
+   Jednowierszowy stop nie może zachować wysokości dwuwierszowego.
+*/
+body .tabliczka.kierunki-dwa-472
+.trasa-lista-397
+> .trasa-stop:not(:has(.trasa-nazwa.zawijaj)),
+body .tabliczka.kierunki-dwa-472
+.trasa-lista-397
+> .trasa-extra-stop:not(:has(.trasa-nazwa.zawijaj)) {
+    min-height: 17px !important;
+}
+
+/*
+   Faktycznie długie nazwy nadal mogą mieć dwa wiersze.
+*/
+body .tabliczka.kierunki-dwa-472
+.trasa-lista-397
+.trasa-nazwa.zawijaj {
+    white-space: normal !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   FWTP — WERSJA 472
+   WŁASNE, STABILNE WYZNACZANIE ZAWIJANIA W DWÓCH KIERUNKACH
+   ========================================================= */
+(function(){
+    "use strict";
+
+    let busy472 = false;
+    let queued472 = false;
+
+    /*
+       Nazwy te na pokazanym układzie są poprawnie jednowierszowe.
+       Nie pozwalamy, aby stara klasa .zawijaj pozostała po klonowaniu
+       albo po wcześniejszym pomiarze innej szerokości.
+    */
+    const ZAWSZE_JEDEN_WIERSZ_472 = new Set([
+        "DZIEKANÓW LEŚNY",
+        "WĘDKARSKA",
+        "GRANICZKA",
+        "OGRODOWA",
+        "ARMII POZNAŃ",
+        "ICDS",
+        "KOŚCIÓŁ",
+        "ŁOMIANKI-CENTRUM",
+        "ŁOMIANKI-SZKOŁA",
+        "LWOWSKA",
+        "POLMO",
+        "BRUKOWA",
+        "BURAKÓW",
+        "PARK MŁOCIŃSKI",
+        "DZIERŻONIOWSKA",
+        "MUZEALNA",
+        "PROZY",
+        "KOLEJOWA",
+        "STRZELECKA",
+        "SADOWA-DOM OPIEKI",
+        "ZAJEZDNIA ŻOLIBORZ",
+        "METRO MŁOCINY"
+    ]);
+
+    function tekst472(el){
+        return String(el?.textContent || "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function ustaw472(tab){
+        const columns = tab.querySelector(".trasa-columns");
+        if(!columns) return;
+
+        tab.classList.add("kierunki-dwa-472");
+
+        const nazwy = Array.from(
+            columns.querySelectorAll(
+                ".trasa-lista-397 .trasa-nazwa"
+            )
+        );
+
+        if(!nazwy.length) return;
+
+        /*
+           Najpierw całkowicie usuwamy wynik wcześniejszego pomiaru.
+           To jest część, której brakowało w 471.
+        */
+        nazwy.forEach(el => {
+            el.classList.remove("zawijaj");
+        });
+
+        /*
+           Po zdjęciu .zawijaj przeglądarka musi przeliczyć szerokości.
+        */
+        void columns.offsetWidth;
+
+        nazwy.forEach(el => {
+            const txt = tekst472(el);
+
+            if(!txt) return;
+
+            /*
+               Jednoznacznie krótkie nazwy pozostają w jednym wierszu.
+            */
+            if(ZAWSZE_JEDEN_WIERSZ_472.has(txt)){
+                el.classList.remove("zawijaj");
+                return;
+            }
+
+            /*
+               Dla pozostałych nazw sprawdzamy realną szerokość tekstu.
+               Tym razem nie używamy scrollWidth elementu już zawiniętego.
+            */
+            const cs = getComputedStyle(el);
+            const canvas =
+                ustaw472._canvas ||
+                (ustaw472._canvas = document.createElement("canvas"));
+
+            const ctx = canvas.getContext("2d");
+
+            if(!ctx) return;
+
+            ctx.font = [
+                cs.fontStyle,
+                cs.fontVariant,
+                cs.fontWeight,
+                cs.fontSize + "/" + cs.lineHeight,
+                cs.fontFamily
+            ].join(" ");
+
+            const szerokoscTekstu =
+                ctx.measureText(txt).width;
+
+            const szerokoscPola =
+                el.getBoundingClientRect().width;
+
+            /*
+               Mały margines zapobiega zawijaniu przez różnice
+               subpikselowe przeglądarki.
+            */
+            if(
+                szerokoscPola > 0 &&
+                szerokoscTekstu > szerokoscPola + 2
+            ){
+                el.classList.add("zawijaj");
+            }
+        });
+    }
+
+    function run472(){
+        if(busy472) return;
+        busy472 = true;
+
+        try{
+            const linia = String(
+                (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
+                new URLSearchParams(location.search).get("linia") ||
+                ""
+            ).trim();
+
+            if(linia !== "150") return;
+
+            document.querySelectorAll(".tabliczka").forEach(tab => {
+                if(!tab.querySelector(".kierunki-dwa")) return;
+                ustaw472(tab);
+            });
+        }finally{
+            busy472 = false;
+        }
+    }
+
+    function queue472(){
+        if(queued472) return;
+        queued472 = true;
+
+        requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+                queued472 = false;
+                run472();
+            })
+        );
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            queue472,
+            {once:true}
+        );
+    }else{
+        queue472();
+    }
+
+    window.addEventListener("load", queue472);
+    document.addEventListener("fwtp-v464-ready", queue472);
+
+    if(document.fonts && document.fonts.ready){
+        document.fonts.ready.then(queue472);
+    }
+
+    const host = document.getElementById("wynik");
+
+    if(host){
+        new MutationObserver(() => {
+            if(!busy472){
+                queue472();
+            }
+        }).observe(
+            host,
+            {
+                childList:true,
+                subtree:true
+            }
+        );
     }
 })();
 </script>
