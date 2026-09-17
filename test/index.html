@@ -2,14 +2,14 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 499
+     WERSJA: 500
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 499
+     FWTP — WERSJA PLIKU: 500
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
@@ -19,6 +19,9 @@
      - brak "TRASA W KURSACH ..." nad początkiem listy
      - STREFA I/II raz na górze, ponownie tylko po zmianie strefy
      - po powrocie wariantu dalsze wspólne przystanki bierze trasa bazowa
+     - V500: wszystkie MINIONE przystanki są wyłącznie z trasy podstawowej
+     - V500: warianty są pokazywane tylko ZA aktualnym przystankiem
+     - V500: historyczne odgałęzienia przed aktualnym przystankiem są ukryte
      ========================================================= -->
 
 <html lang="pl">
@@ -16175,8 +16178,132 @@ function v499PrzytnijGalazDoPowrotu(group,baseRoute,commonEndIndex){
     return group;
 }
 
+
+/* =========================================================
+   FWTP — WERSJA 500
+   MINIONE PRZYSTANKI = WYŁĄCZNIE TRASA PODSTAWOWA
+   =========================================================
+   Na tabliczce przystankowej pasażera interesuje:
+   - jak przebiegała trasa podstawowa do TEGO przystanku,
+   - jakie warianty mogą wystąpić DOPIERO DALEJ.
+
+   Dlatego wariant, który różnił się przed aktualnym przystankiem,
+   nie tworzy już osobnej gałęzi po lewej/górnej części listy.
+   ========================================================= */
+
+function v500CzyTrasaA(route){
+    return v486Array(route?.courses).some(
+        k=>v486Text(k?.wariant).toUpperCase()==="A"
+    );
+}
+
+function v500TrasaPodstawowa(routes){
+    /*
+       Najpierw szukamy jawnego wariantu A.
+       Jeżeli JSON nie ma A przy kursach, zachowujemy pierwszy
+       przebieg wyznaczony przez silnik jako bazowy.
+    */
+    return routes.find(v500CzyTrasaA) || routes[0] || null;
+}
+
+function v500IndexAktywnego(route,activeKey){
+    return v486Array(route?.items).findIndex(
+        x=>v496StopKey(x?.p)===activeKey
+    );
+}
+
+function v500PrzygotujTrasyOdAktualnegoPrzystanku(routes){
+    routes=v486Array(routes);
+    if(!routes.length)return routes;
+
+    const activeKey=v496StopKey(v486CurrentStop());
+    const base=v500TrasaPodstawowa(routes);
+    if(!base)return routes;
+
+    const baseIndex=v500IndexAktywnego(base,activeKey);
+
+    /*
+       Jeżeli z jakiegoś powodu aktywnego przystanku nie ma
+       w przebiegu podstawowym, nie zgadujemy — zostawiamy dane.
+    */
+    if(baseIndex<0)return routes;
+
+    const basePassed=base.items.slice(0,baseIndex+1);
+
+    return routes
+        .map(route=>{
+            const idx=v500IndexAktywnego(route,activeKey);
+
+            /*
+               Kurs niewykonujący aktualnego przystanku nie powinien
+               brać udziału w tabliczce tego przystanku.
+            */
+            if(idx<0)return null;
+
+            /*
+               KLUCZOWA ZMIANA V500:
+               wszystko DO aktualnego przystanku bierzemy z bazy.
+               Dopiero wszystko PO nim pochodzi z rzeczywistego
+               kurs.trasa danego wariantu.
+            */
+            const future=route.items.slice(idx+1);
+
+            return {
+                ...route,
+                items:[
+                    ...basePassed,
+                    ...future
+                ]
+            };
+        })
+        .filter(Boolean);
+}
+
+
+function v500PolaczIdentyczneTrasy(routes){
+    const map=new Map();
+
+    v486Array(routes).forEach(route=>{
+        const key=v486Array(route.items)
+            .map(x=>v496StopKey(x?.p))
+            .join("\u001E");
+
+        if(!map.has(key)){
+            map.set(key,{
+                ...route,
+                courses:[...v486Array(route.courses)]
+            });
+        }else{
+            const dst=map.get(key);
+            const seen=new Set(
+                dst.courses.map(k=>v486CourseKey(k))
+            );
+
+            v486Array(route.courses).forEach(k=>{
+                const ck=v486CourseKey(k);
+                if(!seen.has(ck)){
+                    seen.add(ck);
+                    dst.courses.push(k);
+                }
+            });
+        }
+    });
+
+    return Array.from(map.values());
+}
+
 function v496RenderRoutes(routes){
     routes=v486Array(routes);
+    if(!routes.length)return "";
+
+    /*
+       V500:
+       wszystkie przebiegi mają identyczną część minioną,
+       zaczerpniętą z trasy podstawowej. Różnić mogą się dopiero
+       ZA aktualnym przystankiem.
+    */
+    routes=v500PrzygotujTrasyOdAktualnegoPrzystanku(routes);
+    routes=v500PolaczIdentyczneTrasy(routes);
     if(!routes.length)return "";
 
     const activeKey=v496StopKey(v486CurrentStop());
