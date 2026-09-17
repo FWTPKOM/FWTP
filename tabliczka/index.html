@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 473
+     WERSJA: 474
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -44688,7 +44688,7 @@ body .tabliczka:has(.kierunki-dwa)
 
 <!-- =========================================================
      FWTP — POPRAWKA DWUKIERUNKOWA LINII 150
-     WERSJA PLIKU: 473
+     WERSJA PLIKU: 474
      BAZA: WERSJA 465
      ========================================================= -->
 
@@ -46944,6 +46944,293 @@ body .tabliczka.kierunki-dwa-473
     if(host){
         new MutationObserver(()=>{
             if(!busy473) queue473();
+        }).observe(host,{childList:true,subtree:true});
+    }
+})();
+</script>
+
+
+<!-- =========================================================
+     FWTP — WERSJA PLIKU: 474
+     BAZA: WERSJA 473
+
+     WAŻNA POPRAWKA:
+     1. usuwamy aktywne klasy 472/473, które nadpisywały normalne
+        zawijanie nazw;
+     2. zawijanie wykonuje ponownie ORYGINALNA funkcja strony
+        ustawZawijanieNazwTrasy(), tak jak dla zwykłych tras / linii 126;
+     3. logika końca IZABELIN-DZIEKANÓWEK nie jest już związana z jednym
+        konkretnym idx:30 — działa dla każdego przystanku, którego
+        widoczna dalsza trasa zawiera tę gałąź;
+     4. po końcu gałęzi nie zostaje separator miejscowości ani pion.
+     ========================================================= -->
+
+<style id="wersja-474-powrot-do-normalnego-renderera">
+/*
+   Nie tworzymy własnego mechanizmu zawijania.
+   Te reguły odpowiadają bazowemu zachowaniu strony.
+*/
+body .tabliczka.kierunki-dwa-474 .trasa-nazwa {
+    white-space: nowrap;
+}
+
+body .tabliczka.kierunki-dwa-474 .trasa-nazwa.zawijaj {
+    white-space: normal !important;
+}
+
+body .tabliczka.kierunki-dwa-474
+.trasa-stop:has(.trasa-nazwa.zawijaj),
+body .tabliczka.kierunki-dwa-474
+.trasa-extra-stop:has(.trasa-nazwa.zawijaj) {
+    min-height: 33px;
+}
+
+/* prawdziwy koniec gałęzi */
+body .tabliczka.kierunki-dwa-474
+.trasa-lista-397 > .v474-koniec-galezi .trasa-os::before {
+    top: 0 !important;
+    bottom: calc(100% - 8px) !important;
+    height: auto !important;
+}
+
+body .tabliczka.kierunki-dwa-474
+.trasa-lista-397 > .v474-koniec-galezi > .trasa-nazwa {
+    font-weight: 700 !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   FWTP — WERSJA 474
+   ========================================================= */
+(function(){
+    "use strict";
+
+    let busy474 = false;
+    let queued474 = false;
+
+    function norm474(v){
+        return String(v || "")
+            .toLocaleUpperCase("pl-PL")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function jestStop474(el){
+        return !!el && el.matches?.(".trasa-stop,.trasa-extra-stop");
+    }
+
+    function nazwa474(el){
+        return norm474(
+            el?.querySelector(".trasa-nazwa")?.textContent || ""
+        );
+    }
+
+    function wyczyscStareZawijanie474(tab){
+        /*
+           To był główny błąd 472/473:
+           klasy kierunki-dwa-472 i kierunki-dwa-473 pozostawały na
+           .tabliczka, więc ich CSS nadal wymuszał nasze eksperymentalne
+           nowrap/wrap nawet po dodaniu nowszej wersji.
+        */
+        tab.classList.remove(
+            "kierunki-dwa-472",
+            "kierunki-dwa-473"
+        );
+
+        /*
+           Usuwamy tylko wynik eksperymentalnych pomiarów.
+           Za chwilę oryginalna funkcja strony policzy .zawijaj od nowa.
+        */
+        tab.querySelectorAll(".trasa-nazwa.zawijaj").forEach(el=>{
+            el.classList.remove("zawijaj");
+            el.style.removeProperty("white-space");
+        });
+
+        tab.querySelectorAll(".trasa-stop,.trasa-extra-stop").forEach(row=>{
+            row.style.removeProperty("min-height");
+        });
+    }
+
+    function zakonczGalazNaIzabelinie474(lista){
+        const dzieci = Array.from(lista.children);
+
+        /*
+           Szukamy IZABELIN-DZIEKANÓWEK w AKTUALNIE WIDOCZNEJ liście.
+           Nie sprawdzamy idx:30 ani konkretnego bieżącego przystanku.
+           Dzięki temu ta sama zasada działa również np. przy idx:32
+           i przy innych wcześniejszych przystankach tej samej gałęzi.
+        */
+        let koniecIndex = -1;
+
+        for(let i=0;i<dzieci.length;i++){
+            if(
+                jestStop474(dzieci[i]) &&
+                nazwa474(dzieci[i]).includes("IZABELIN-DZIEKANOWEK")
+            ){
+                koniecIndex = i;
+            }
+        }
+
+        if(koniecIndex < 0){
+            return;
+        }
+
+        const koniec = dzieci[koniecIndex];
+
+        /*
+           Ten Izabelin ma być końcem tylko wtedy, gdy w tej liście
+           rzeczywiście reprezentuje gałąź wydłużoną. Rozpoznajemy ją po
+           separatorze "Trasa w kursach i" znajdującym się wcześniej.
+        */
+        let maSeparatorI = false;
+
+        for(let i=0;i<koniecIndex;i++){
+            const el = dzieci[i];
+
+            if(
+                el.classList?.contains("trasa-separator") &&
+                /Trasa\s+w\s+kursach\s+[„"]i[”"]/i.test(el.textContent || "")
+            ){
+                maSeparatorI = true;
+                break;
+            }
+        }
+
+        /*
+           Przy wejściu już WEWNĄTRZ gałęzi (np. idx:32) separator może
+           nie być potrzebny / może zostać pominięty przez renderer.
+           Wtedy wystarczy, że po Izabelinie zaczyna się ponownie
+           Dziekanów Leśny / dalszy fragment pełnej tablicy danych.
+        */
+        let poIzabelinieJestPowrot = false;
+
+        for(let i=koniecIndex+1;i<dzieci.length;i++){
+            const el = dzieci[i];
+
+            if(
+                jestStop474(el) &&
+                (
+                    nazwa474(el).includes("DZIEKANOW LESNY") ||
+                    nazwa474(el).includes("INSTYTUT EKOLOGII PAN")
+                )
+            ){
+                poIzabelinieJestPowrot = true;
+                break;
+            }
+        }
+
+        if(!maSeparatorI && !poIzabelinieJestPowrot){
+            return;
+        }
+
+        /*
+           Wszystko po końcu tej gałęzi należy do dalszego, technicznego
+           fragmentu pełnego przebiegu i nie powinno być pokazywane
+           pasażerowi w tej liście.
+        */
+        for(let i=dzieci.length-1;i>koniecIndex;i--){
+            const el = dzieci[i];
+
+            if(
+                jestStop474(el) ||
+                el.classList?.contains("miejscowosc-separator") ||
+                el.classList?.contains("trasa-separator")
+            ){
+                el.remove();
+            }
+        }
+
+        koniec.classList.remove(
+            "v471-srodek",
+            "v471-kontynuacja",
+            "v469-zwykly",
+            "v473-koniec"
+        );
+
+        koniec.classList.add(
+            "v474-koniec-galezi",
+            "kraniec-koniec"
+        );
+    }
+
+    function popraw474(tab){
+        const columns = tab.querySelector(".trasa-columns");
+        if(!columns) return;
+
+        wyczyscStareZawijanie474(tab);
+        tab.classList.add("kierunki-dwa-474");
+
+        /*
+           Najpierw ustalamy finalną zawartość list.
+        */
+        columns
+            .querySelectorAll(".trasa-lista-397")
+            .forEach(zakonczGalazNaIzabelinie474);
+
+        /*
+           A TERAZ dokładnie ten sam mechanizm, którego strona używa
+           przy normalnych trasach (w tym poprawnie wyglądającej 126).
+           Nie mierzymy już nazw własnym canvasem ani własnym scrollWidth.
+        */
+        if(typeof ustawZawijanieNazwTrasy === "function"){
+            ustawZawijanieNazwTrasy(columns);
+        }
+    }
+
+    function run474(){
+        if(busy474) return;
+        busy474 = true;
+
+        try{
+            const linia = String(
+                (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
+                new URLSearchParams(location.search).get("linia") ||
+                ""
+            ).trim();
+
+            if(linia !== "150") return;
+
+            document.querySelectorAll(".tabliczka").forEach(tab=>{
+                if(!tab.querySelector(".kierunki-dwa")) return;
+                popraw474(tab);
+            });
+        }finally{
+            busy474 = false;
+        }
+    }
+
+    function queue474(){
+        if(queued474) return;
+        queued474 = true;
+
+        requestAnimationFrame(()=>
+            requestAnimationFrame(()=>{
+                queued474 = false;
+                run474();
+            })
+        );
+    }
+
+    if(document.readyState==="loading"){
+        document.addEventListener("DOMContentLoaded",queue474,{once:true});
+    }else{
+        queue474();
+    }
+
+    window.addEventListener("load",queue474);
+    document.addEventListener("fwtp-v464-ready",queue474);
+
+    if(document.fonts?.ready){
+        document.fonts.ready.then(queue474);
+    }
+
+    const host=document.getElementById("wynik");
+    if(host){
+        new MutationObserver(()=>{
+            if(!busy474) queue474();
         }).observe(host,{childList:true,subtree:true});
     }
 })();
