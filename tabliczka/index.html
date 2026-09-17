@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 462
+     WERSJA: 463
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -44085,6 +44085,262 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 
 </script>
 
+
+
+<style>
+/* =========================================================
+   WERSJA 463 — LINIA 150 / POCZĄTEK IZABELIN-DZIEKANÓWEK
+   ========================================================= */
+
+/* Wybrany pierwszy przystanek: kreska zaczyna się dokładnie
+   w środku kropki i biegnie do końca wiersza. */
+.tabliczka.linia-150-v463
+.trasa-stop.poczatek-150-v463
+.trasa-os::before {
+    content:"" !important;
+    display:block !important;
+    top:7.25px !important;
+    bottom:0 !important;
+    height:auto !important;
+}
+
+/* Drugi fizyczny IZABELIN-DZIEKANÓWEK jest zwykłym przystankiem. */
+.tabliczka.linia-150-v463
+.trasa-stop.drugi-izabelin-150-v463 .trasa-nazwa,
+.tabliczka.linia-150-v463
+.trasa-stop.drugi-izabelin-150-v463 .trasa-nazwa-aktywna {
+    font-weight:400 !important;
+}
+
+/* Oś przechodzi przez drugi słupek normalnie dalej. */
+.tabliczka.linia-150-v463
+.trasa-stop.drugi-izabelin-150-v463
+.trasa-os::before {
+    content:"" !important;
+    display:block !important;
+    top:0 !important;
+    bottom:0 !important;
+    height:auto !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   WERSJA 463 — POPRAWKA LINII 150
+   =========================================================
+   v462 nie zadziałała, ponieważ zakładała, że drugi
+   IZABELIN-DZIEKANÓWEK jest bezpośrednim nextElementSibling
+   pierwszego. Po właściwym renderowaniu tabliczki nie możemy
+   na tym polegać.
+
+   v463:
+   - działa po całej wyrenderowanej kolejności .trasa-stop,
+   - rozpoznaje dwa pierwsze przystanki po czystej nazwie,
+   - usuwa z drugiego wszystkie klasy końca/krańca,
+   - wymusza prawidłową geometrię osi pierwszego i drugiego.
+   ========================================================= */
+(function FWTP_WERSJA_463(){
+
+    const N150_463 = "IZABELIN-DZIEKANÓWEK";
+
+    function linia150_463(){
+        return String(
+            new URLSearchParams(location.search).get("linia") || ""
+        ).trim() === "150";
+    }
+
+    function czystaNazwa463(row){
+        const el = row?.querySelector(".trasa-nazwa");
+        if(!el) return "";
+
+        const clone = el.cloneNode(true);
+
+        /* Usuwamy elementy pomocnicze, jeśli renderer je wstawił. */
+        clone.querySelectorAll(
+            ".trasa-wariant, .trasa-symbol, sup, sub"
+        ).forEach(x => x.remove());
+
+        let t = String(clone.textContent || "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toUpperCase();
+
+        /* Na wszelki wypadek usuwamy miejscowość z nawiasu. */
+        t = t.replace(/\s*\([^)]*\)\s*$/,"").trim();
+
+        return t;
+    }
+
+    function popraw463(){
+        if(!linia150_463()) return;
+
+        const tab =
+            document.querySelector("#wynik .tabliczka") ||
+            document.querySelector(".tabliczka");
+
+        if(!tab) return;
+
+        tab.classList.add("linia-150-v463");
+
+        const rows = Array.from(
+            tab.querySelectorAll(".trasa-stop")
+        );
+
+        rows.forEach(row => {
+            row.classList.remove(
+                "poczatek-150-v463",
+                "drugi-izabelin-150-v463"
+            );
+        });
+
+        /*
+           Interesuje nas początek aktualnie pokazanej trasy:
+           dwa pierwsze rzeczywiste przystanki o nazwie
+           IZABELIN-DZIEKANÓWEK.
+        */
+        const izabeliny = rows.filter(
+            row => czystaNazwa463(row) === N150_463
+        );
+
+        if(izabeliny.length < 2) return;
+
+        /*
+           Pierwszeństwo ma faktycznie wybrany wiersz.
+           Dla URL przystanek=idx:0 powinien to być pierwszy słupek.
+        */
+        let pierwszy = izabeliny.find(
+            row => row.classList.contains("wybrany")
+        );
+
+        if(!pierwszy){
+            pierwszy = izabeliny[0];
+        }
+
+        const indexPierwszego = rows.indexOf(pierwszy);
+
+        let drugi = null;
+
+        for(let i=indexPierwszego+1; i<rows.length; i++){
+            if(czystaNazwa463(rows[i]) === N150_463){
+                drugi = rows[i];
+                break;
+            }
+
+            /*
+               Jeżeli trafiliśmy już na inny zwykły przystanek,
+               nie szukamy przypadkowego IZABELINA z innej części
+               przebiegu/kierunku.
+            */
+            if(czystaNazwa463(rows[i])){
+                break;
+            }
+        }
+
+        /*
+           Gdy renderer rozdzielił dwa pierwsze słupki strukturą
+           techniczną, bierzemy drugi z pierwszej pary nazw.
+        */
+        if(!drugi){
+            const pos = izabeliny.indexOf(pierwszy);
+            if(pos >= 0 && izabeliny[pos+1]){
+                drugi = izabeliny[pos+1];
+            } else if(izabeliny[1] !== pierwszy){
+                drugi = izabeliny[1];
+            }
+        }
+
+        pierwszy.classList.add("poczatek-150-v463");
+
+        if(!drugi) return;
+
+        drugi.classList.remove(
+            "kraniec-poczatek",
+            "kraniec-koniec",
+            "kraniec-z-naglowka-423",
+            "kraniec-podstawowy-427",
+            "koniec-trasy-210",
+            "ma-kontynuacje-trasy",
+            "koniec-wariantu-bez-oznaczen-411",
+            "koniec-wariantu-419"
+        );
+
+        drugi.classList.add("drugi-izabelin-150-v463");
+
+        /*
+           Starszy kod może mieć inline font-weight lub pogrubienie
+           na wewnętrznym elemencie. Czyścimy je również bezpośrednio.
+        */
+        const nazwa = drugi.querySelector(".trasa-nazwa");
+        const aktywna = drugi.querySelector(".trasa-nazwa-aktywna");
+
+        if(nazwa){
+            nazwa.style.setProperty(
+                "font-weight",
+                "400",
+                "important"
+            );
+        }
+
+        if(aktywna){
+            aktywna.style.setProperty(
+                "font-weight",
+                "400",
+                "important"
+            );
+        }
+    }
+
+    let raf463 = 0;
+
+    function zaplanuj463(){
+        cancelAnimationFrame(raf463);
+        raf463 = requestAnimationFrame(
+            () => requestAnimationFrame(popraw463)
+        );
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            zaplanuj463,
+            {once:true}
+        );
+    }else{
+        zaplanuj463();
+    }
+
+    /*
+       Renderer wielokrotnie przebudowuje trasę po załadowaniu,
+       zmianie przystanku, kierunku i dopasowaniu kolumn.
+       Dlatego poprawkę nakładamy po każdej takiej zmianie.
+    */
+    const observer463 = new MutationObserver(zaplanuj463);
+
+    const startObserver463 = () => {
+        const host =
+            document.getElementById("wynik") ||
+            document.body;
+
+        observer463.observe(host,{
+            childList:true,
+            subtree:true
+        });
+
+        zaplanuj463();
+    };
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            startObserver463,
+            {once:true}
+        );
+    }else{
+        startObserver463();
+    }
+
+})();
+</script>
 
 </body>
 </html>
