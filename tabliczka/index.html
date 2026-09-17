@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 442
+     WERSJA: 443
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -4886,6 +4886,65 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     top: 8px !important;
     bottom: 0 !important;
     height: auto !important;
+}
+</style>
+
+
+<style>
+/* =========================================================
+   WERSJA 443 — KOREKTY WIZUALNE STREF / MIEJSCOWOŚCI / POCZĄTKU OSI
+   ========================================================= */
+
+/* Miejscowości: ta sama rodzina i krój co nazwy przystanków, 11 px. */
+.tabliczka .trasa-separator.trasa-miejscowosc-429 .trasa-separator-title {
+    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
+    font-size: 11px !important;
+    line-height: 12px !important;
+    font-weight: 400 !important;
+    font-style: normal !important;
+    letter-spacing: normal !important;
+    transform: none !important;
+}
+
+/* Znaki = przy STREFA I / II są dwa razy większe niż w v442. */
+.tabliczka .trasa-separator.trasa-strefa-440::before,
+.tabliczka .trasa-separator.trasa-strefa-440::after {
+    font-size: 22px !important;
+    line-height: 12px !important;
+    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
+    font-weight: 400 !important;
+}
+
+/*
+   Gdy STREFA I jest przed WARSZAWĄ, WARSZAWA nie jest już :first-child.
+   Sama miejscowość nie może wtedy rysować pionowej osi nad pierwszą kropką.
+*/
+.tabliczka .trasa-kol:first-child
+> .trasa-lista-397
+> .trasa-strefa-440:first-child
++ .trasa-miejscowosc-429 {
+    background-image: none !important;
+}
+
+/* Oś pierwszego przystanku zaczyna się dokładnie od środka pierwszej kropki. */
+.tabliczka .trasa-kol:first-child
+> .trasa-lista-397
+> .trasa-strefa-440:first-child
++ .trasa-miejscowosc-429
++ .trasa-stop .trasa-os::before,
+.tabliczka .trasa-kol:first-child
+> .trasa-lista-397
+> .trasa-strefa-440:first-child
++ .trasa-miejscowosc-429
++ .trasa-extra-stop .trasa-os::before,
+.tabliczka .trasa-kol:first-child
+> .trasa-lista-397
+> .trasa-strefa-440:first-child
++ .trasa-miejscowosc-429
++ .trasa-stop.aktywny-pierwszy .trasa-os::before {
+    top: 50% !important;
+    bottom: 0 !important;
+    height: 50% !important;
 }
 </style>
 
@@ -40621,6 +40680,73 @@ function dopasujKolumnyTrasy() {
         }
     }
 
+
+
+    /* =========================================================
+       WERSJA 443 — LINIA 150, WSPÓLNY KRANIEC PRZED WYDŁUŻENIEM „i”
+
+       Dane 150 potrafią wskazać początek wydłużenia o jeden wspólny fragment
+       za wcześnie. Na tabliczce wspólny przebieg ma kończyć się:
+           INSTYTUT EKOLOGII PAN -> DZIEKANÓW LEŚNY
+       a dopiero potem zaczyna się „Trasa w kursach „i””.
+
+       Usuwamy z początku sekcji i wyłącznie te punkty, które są już wspólnym
+       końcem trasy. Nie zmieniamy minut pozostałych przystanków wydłużenia.
+       ========================================================= */
+    if(String(aktualnaLinia||"").trim()==="150"){
+        const box443=html443=>{
+            const b=document.createElement("div");
+            b.innerHTML=html443||"";
+            return b;
+        };
+        const nazwa443=html443=>String(
+            box443(html443).querySelector(".trasa-nazwa")?.textContent||""
+        ).trim();
+        const sep443=html443=>String(
+            box443(html443).querySelector(".trasa-separator-title")?.textContent||""
+        ).trim();
+
+        const idxI443=wszystkie397.findIndex(
+            h=>/Trasa\s+w\s+kursach\s+[„\"]i[”\"]/i.test(sep443(h))
+        );
+
+        if(idxI443>0){
+            /* Jeżeli Dziekanów Leśny trafił na początek sekcji i,
+               przenosimy go przed nagłówek jako wspólny kraniec. */
+            let idxDz443=-1;
+            for(let j=idxI443+1;j<Math.min(wszystkie397.length,idxI443+5);j++){
+                if(normalizuj(nazwa443(wszystkie397[j]))===normalizuj("DZIEKANÓW LEŚNY")){
+                    idxDz443=j;
+                    break;
+                }
+            }
+
+            if(idxDz443>idxI443){
+                const dz443=wszystkie397.splice(idxDz443,1)[0];
+                wszystkie397.splice(idxI443,0,dz443);
+            }
+
+            /* Po przeniesieniu nagłówek przesunął się o 1. Usuwamy z sekcji i
+               powtórzony INSTYTUT EKOLOGII PAN, jeżeli jest pierwszym
+               przystankiem po nagłówku i występuje już bezpośrednio przed
+               wspólnym DZIEKANOWEM LEŚNYM. */
+            const idxI2_443=wszystkie397.findIndex(
+                h=>/Trasa\s+w\s+kursach\s+[„\"]i[”\"]/i.test(sep443(h))
+            );
+            if(idxI2_443>=2){
+                const przed1=nazwa443(wszystkie397[idxI2_443-1]);
+                const przed2=nazwa443(wszystkie397[idxI2_443-2]);
+                const po1=nazwa443(wszystkie397[idxI2_443+1]);
+                if(
+                    normalizuj(przed1)===normalizuj("DZIEKANÓW LEŚNY") &&
+                    normalizuj(przed2)===normalizuj("INSTYTUT EKOLOGII PAN") &&
+                    normalizuj(po1)===normalizuj("INSTYTUT EKOLOGII PAN")
+                ){
+                    wszystkie397.splice(idxI2_443+1,1);
+                }
+            }
+        }
+    }
 
     /*
        =========================================================
