@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 499
+     WERSJA: 500
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -46950,6 +46950,247 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
    - zwykła gałąź po METRO MARYMONT przed ZAJEZDNIĄ ŻOLIBORZ
      może nadal otrzymać "Trasa w kursach" bez oznaczenia.
    ========================================================= */
+</script>
+
+
+<style id="wersja-500-odgalezienie-prozy">
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 500
+   BAZA: 499
+
+   LINIA 150:
+   Rozpoznanie miejsca rozgałęzienia nie po literze rozkładu,
+   tylko po RÓŻNICY PRZEBIEGU.
+
+   PROZY:
+   - przed odgałęzieniem wspólny przebieg,
+   - za PROZY powstają dwie gałęzie,
+   - gałąź szkolna: "Trasa w kursach „f”",
+   - druga gałąź przez METRO MARYMONT:
+     "Trasa w kursach" bez oznaczenia.
+   ========================================================= */
+
+.tabliczka .trasa-separator.odgalezienie-500 {
+    display: flex !important;
+}
+</style>
+
+<script>
+(function FWTP_WERSJA_500(){
+    "use strict";
+
+    function norm500(v){
+        return String(v || "")
+            .replace(/\u00a0/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toUpperCase()
+            .replace(/[„”"]/g, "");
+    }
+
+    function czy150_500(){
+        return norm500(
+            new URLSearchParams(location.search).get("linia")
+        ) === "150";
+    }
+
+    function tekstWiersza500(el){
+        return norm500(
+            el?.dataset?.pelnaNazwa469 ||
+            el?.getAttribute?.("data-pelna-nazwa469") ||
+            el?.textContent ||
+            ""
+        );
+    }
+
+    function jestStop500(el){
+        return !!el?.matches?.(
+            ".trasa-stop,.trasa-extra-stop"
+        );
+    }
+
+    function znajdzStop500(lista, nazwa, start=0){
+        const dzieci = Array.from(lista.children);
+
+        for(let i=start; i<dzieci.length; i++){
+            if(
+                jestStop500(dzieci[i]) &&
+                tekstWiersza500(dzieci[i]).includes(
+                    norm500(nazwa)
+                )
+            ){
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    function maNaglowek500(lista, tekst){
+        return Array.from(lista.children).some(el => {
+            if(!el.classList?.contains("trasa-separator")){
+                return false;
+            }
+
+            return norm500(el.textContent) === norm500(tekst);
+        });
+    }
+
+    function utworzNaglowek500(tekst){
+        const li = document.createElement("li");
+        li.className =
+            "trasa-separator trasa-wariant-500 odgalezienie-500";
+
+        const span = document.createElement("span");
+        span.className = "trasa-separator-title";
+        span.textContent = tekst;
+
+        li.appendChild(span);
+        return li;
+    }
+
+    function wstawPrzedStop500(lista, index, tekst){
+        if(index < 0) return;
+
+        if(maNaglowek500(lista, tekst)){
+            return;
+        }
+
+        const dzieci = Array.from(lista.children);
+        const stop = dzieci[index];
+
+        if(!stop) return;
+
+        lista.insertBefore(
+            utworzNaglowek500(tekst),
+            stop
+        );
+    }
+
+    function poprawListe500(lista){
+        /*
+           Nie próbujemy już zgadywać miejsca z symbolu DF.
+
+           Szukamy FAKTYCZNEGO miejsca, w którym przebieg
+           linii 150 rozdziela się w wyrenderowanej liście.
+
+           PROZY jest ostatnim wspólnym punktem przed gałęziami.
+        */
+
+        const prozy =
+            znajdzStop500(lista, "PROZY");
+
+        if(prozy < 0){
+            return;
+        }
+
+        /*
+           GAŁĄŹ 1 — szkolna / F
+
+           Pierwszy stop po PROZY należący do gałęzi F.
+           Jeżeli renderer ma już "Trasa w kursach" bez litery
+           bezpośrednio za PROZY, nie używamy go jako F.
+        */
+        const dzieci0 = Array.from(lista.children);
+
+        let pierwszyStopPoProzy = -1;
+
+        for(let i=prozy+1; i<dzieci0.length; i++){
+            if(jestStop500(dzieci0[i])){
+                pierwszyStopPoProzy = i;
+                break;
+            }
+        }
+
+        /*
+           W linii 150 gałąź szkolna jest rozpoznawana po
+           faktycznej zmianie przebiegu za PROZY.
+           Nagłówek wstawiamy PRZED pierwszym przystankiem
+           tej gałęzi.
+        */
+        if(pierwszyStopPoProzy >= 0){
+            wstawPrzedStop500(
+                lista,
+                pierwszyStopPoProzy,
+                'Trasa w kursach „f”'
+            );
+        }
+
+        /*
+           GAŁĄŹ 2 — METRO MARYMONT -> ZAJEZDNIA ŻOLIBORZ
+
+           Użytkownik wskazał dokładne miejsce:
+           napis ma być PO METRO MARYMONT,
+           a PRZED ZAJEZDNIĄ ŻOLIBORZ.
+
+           Czyli technicznie wstawiamy separator bezpośrednio
+           przed wierszem ZAJEZDNIA ŻOLIBORZ, ale tylko jeśli
+           wcześniej w tej samej liście znajduje się
+           METRO MARYMONT.
+        */
+        const marymont =
+            znajdzStop500(lista, "METRO MARYMONT");
+
+        if(marymont >= 0){
+            const zajezdnia =
+                znajdzStop500(
+                    lista,
+                    "ZAJEZDNIA ŻOLIBORZ",
+                    marymont + 1
+                );
+
+            if(zajezdnia >= 0){
+                wstawPrzedStop500(
+                    lista,
+                    zajezdnia,
+                    "Trasa w kursach"
+                );
+            }
+        }
+    }
+
+    function wykonaj500(){
+        if(!czy150_500()) return;
+
+        const tab =
+            document.querySelector("#wynik .tabliczka") ||
+            document.querySelector(".tabliczka");
+
+        if(!tab) return;
+
+        tab.querySelectorAll(
+            ".trasa-lista,.trasa-lista-397"
+        ).forEach(poprawListe500);
+    }
+
+    function start500(){
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(wykonaj500);
+            });
+        });
+
+        setTimeout(wykonaj500, 250);
+        setTimeout(wykonaj500, 700);
+        setTimeout(wykonaj500, 1400);
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            start500,
+            {once:true}
+        );
+    }else{
+        start500();
+    }
+
+    window.addEventListener(
+        "load",
+        wykonaj500,
+        {once:true}
+    );
+})();
 </script>
 
 </body>
