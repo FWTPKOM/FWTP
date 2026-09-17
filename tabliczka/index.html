@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 428
+     WERSJA: 429
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -844,6 +844,44 @@
             margin: 14px 0 9px 0;
             padding: 0;
             min-height: 16px;
+        }
+
+
+
+        /* =========================================================
+           WERSJA 429 — MIEJSCOWOŚCI NAD ODCINKAMI TRASY
+
+           Nazwa miejscowości jest osobnym, wyśrodkowanym wierszem
+           pomiędzy poziomymi kreskami — jak na tabliczkach wzorcowych.
+           ========================================================= */
+        .trasa-separator.trasa-miejscowosc-429 {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin: 5px 0 3px 0;
+            min-height: 14px;
+            padding: 0;
+        }
+
+        .trasa-separator.trasa-miejscowosc-429::before,
+        .trasa-separator.trasa-miejscowosc-429::after {
+            content: "";
+            flex: 1 1 auto;
+            min-width: 8px;
+            border-top: 1px dashed #111;
+        }
+
+        .trasa-separator.trasa-miejscowosc-429 .trasa-separator-title {
+            display: inline-block;
+            width: auto;
+            flex: 0 0 auto;
+            padding: 0;
+            font-size: 13px;
+            line-height: 14px;
+            font-weight: 400;
+            text-align: center;
+            white-space: nowrap;
+            text-transform: uppercase;
         }
 
         .trasa-separator-title {
@@ -40337,7 +40375,7 @@ function dopasujKolumnyTrasy() {
             }
         }
     }
-
+\n\n    /*\n       =========================================================\n       WERSJA 429 — MIEJSCOWOŚCI NA LIŚCIE TRASY\n\n       Jeżeli nazwa przystanku kończy się nazwą miejscowości\n       zapisaną w nawiasie i ta miejscowość znajduje się na liście\n       MIEJSCOWOSCI, to:\n\n       1. usuwamy miejscowość i nawias z widocznej nazwy przystanku,\n       2. przed pierwszym przystankiem danej miejscowości dodajemy\n          osobny wyśrodkowany wiersz z nazwą miejscowości,\n       3. tej samej miejscowości nie powtarzamy przy kolejnych\n          przystankach,\n       4. po wyjeździe z miejscowości, gdy kolejny przystanek nie ma\n          miejscowości w nawiasie, dodajemy WARSZAWA,\n       5. WARSZAWA jest pokazywana tylko na trasach, na których\n          rzeczywiście występuje przynajmniej jedna inna miejscowość.\n\n       Nawiasy niebędące miejscowością (np. część właściwej nazwy)\n       pozostają bez zmian dzięki rozdzielNazweIMiejscowosc().\n       =========================================================\n    */\n    {\n        const informacje429 = wszystkie397.map((html429, indeks429) => {\n            const box429 = document.createElement("div");\n            box429.innerHTML = html429;\n\n            const row429 = box429.querySelector(\n                ".trasa-stop, .trasa-extra-stop"\n            );\n\n            const nazwaEl429 = row429?.querySelector(\n                ".trasa-nazwa"\n            );\n\n            if(!row429 || !nazwaEl429){\n                return {\n                    indeks: indeks429,\n                    jestPrzystankiem: false,\n                    miejscowosc: "",\n                    nazwaBezMiejscowosci: ""\n                };\n            }\n\n            const rozdzielona429 =\n                rozdzielNazweIMiejscowosc(\n                    nazwaEl429.textContent || ""\n                );\n\n            return {\n                indeks: indeks429,\n                jestPrzystankiem: true,\n                miejscowosc: String(\n                    rozdzielona429.miejscowosc || ""\n                ).trim(),\n                nazwaBezMiejscowosci: String(\n                    rozdzielona429.nazwa || ""\n                ).trim()\n            };\n        });\n\n        const maMiejscowoscPozaWarszawa429 =\n            informacje429.some(\n                info429 =>\n                    info429.jestPrzystankiem &&\n                    info429.miejscowosc\n            );\n\n        if(maMiejscowoscPozaWarszawa429){\n\n            const wynik429 = [];\n            let aktualnaMiejscowosc429 = null;\n\n            function separatorMiejscowosci429(nazwa429){\n                const li429 = document.createElement("li");\n                li429.className =\n                    "trasa-separator trasa-miejscowosc-429";\n\n                const span429 = document.createElement("span");\n                span429.className = "trasa-separator-title";\n                span429.textContent = String(nazwa429 || "").toUpperCase();\n\n                li429.appendChild(span429);\n                return li429.outerHTML;\n            }\n\n            for(let i429=0; i429<wszystkie397.length; i429++){\n                const html429 = wszystkie397[i429];\n                const info429 = informacje429[i429];\n\n                if(!info429?.jestPrzystankiem){\n                    /*\n                       Separatory wariantów nie zmieniają miejscowości.\n                       Dzięki temu po nagłówku wariantu nie powtarzamy\n                       bez potrzeby tej samej nazwy miejscowości.\n                    */\n                    wynik429.push(html429);\n                    continue;\n                }\n\n                const miejscowosc429 =\n                    info429.miejscowosc || "WARSZAWA";\n\n                if(\n                    aktualnaMiejscowosc429 === null ||\n                    normalizuj(aktualnaMiejscowosc429) !==\n                        normalizuj(miejscowosc429)\n                ){\n                    wynik429.push(\n                        separatorMiejscowosci429(miejscowosc429)\n                    );\n                    aktualnaMiejscowosc429 = miejscowosc429;\n                }\n\n                if(info429.miejscowosc){\n                    const box429 = document.createElement("div");\n                    box429.innerHTML = html429;\n\n                    const nazwaEl429 = box429.querySelector(\n                        ".trasa-stop .trasa-nazwa, "+\n                        ".trasa-extra-stop .trasa-nazwa"\n                    );\n\n                    if(nazwaEl429){\n                        nazwaEl429.textContent =\n                            info429.nazwaBezMiejscowosci;\n\n                        wynik429.push(\n                            box429.firstElementChild?.outerHTML || html429\n                        );\n                        continue;\n                    }\n                }\n\n                wynik429.push(html429);\n            }\n\n            wszystkie397.splice(\n                0,\n                wszystkie397.length,\n                ...wynik429\n            );\n        }\n    }\n
 
     const renderGrupy397=
         grupy=>{
