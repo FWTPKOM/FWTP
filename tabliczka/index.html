@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 472
+     WERSJA: 473
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -44688,7 +44688,7 @@ body .tabliczka:has(.kierunki-dwa)
 
 <!-- =========================================================
      FWTP — POPRAWKA DWUKIERUNKOWA LINII 150
-     WERSJA PLIKU: 472
+     WERSJA PLIKU: 473
      BAZA: WERSJA 465
      ========================================================= -->
 
@@ -46687,6 +46687,264 @@ body .tabliczka.kierunki-dwa-472
                 subtree:true
             }
         );
+    }
+})();
+</script>
+
+
+<!-- =========================================================
+     FWTP — WERSJA PLIKU: 473
+     BAZA: WERSJA 472
+     - zawijanie nazw wraca do mechanizmu normalnych tras
+     - usunięcie fałszywej miejscowości po IZABELIN-DZIEKANÓWEK
+     - usunięcie czarnej osi poniżej końca trasy
+     ========================================================= -->
+
+<style id="wersja-473-normalne-zawijanie-i-koniec">
+/*
+   472 wymuszała nowrap. W 473 cofamy to wymuszenie i pozwalamy
+   standardowemu mechanizmowi .zawijaj działać tak jak w zwykłej trasie.
+*/
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397 .trasa-nazwa {
+    white-space: nowrap !important;
+}
+
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397 .trasa-nazwa.zawijaj {
+    white-space: normal !important;
+}
+
+/* zwykły jednowierszowy stop */
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397
+> .trasa-stop:not(:has(.trasa-nazwa.zawijaj)),
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397
+> .trasa-extra-stop:not(:has(.trasa-nazwa.zawijaj)) {
+    min-height: 17px !important;
+}
+
+/* rzeczywiście zawinięta nazwa ma wysokość jak w normalnym rendererze */
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397
+> .trasa-stop:has(.trasa-nazwa.zawijaj),
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397
+> .trasa-extra-stop:has(.trasa-nazwa.zawijaj) {
+    min-height: 33px !important;
+}
+
+/*
+   IZABELIN-DZIEKANÓWEK jest końcem:
+   pion dochodzi tylko z góry do kropki.
+*/
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397 > .v473-koniec .trasa-os::before {
+    top: 0 !important;
+    bottom: calc(100% - 8px) !important;
+    height: auto !important;
+}
+
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397 > .v473-koniec > .trasa-nazwa {
+    font-weight: 700 !important;
+}
+
+/*
+   Wszystko, co ewentualnie zostało po końcu przez stare patche,
+   nie może już rysować pionowej osi.
+*/
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397 > .v473-po-koncu .trasa-os::before,
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397 > .v473-po-koncu .trasa-os::after {
+    display: none !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   FWTP — WERSJA 473
+   ========================================================= */
+(function(){
+    "use strict";
+
+    let busy473 = false;
+    let queued473 = false;
+
+    function norm473(v){
+        return String(v || "")
+            .toLocaleUpperCase("pl-PL")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function jestStop473(el){
+        return !!el && el.matches?.(".trasa-stop,.trasa-extra-stop");
+    }
+
+    function nazwa473(row){
+        return norm473(row?.querySelector(".trasa-nazwa")?.textContent || "");
+    }
+
+    /*
+       Używamy tego samego kryterium, które ma sens dla normalnej trasy:
+       mierzymy nazwę w jej REALNYM polu, ale na próbę w trybie nowrap.
+       Dzięki temu:
+       - INSTYTUT EKOLOGII PAN dostaje .zawijaj,
+       - DZIEKANÓW LEŚNY nie dostaje .zawijaj, jeśli mieści się w polu.
+    */
+    function ustawZawijanie473(columns){
+        const nazwy = Array.from(
+            columns.querySelectorAll(".trasa-lista-397 .trasa-nazwa")
+        );
+
+        nazwy.forEach(el => {
+            el.classList.remove("zawijaj");
+            el.style.whiteSpace = "nowrap";
+        });
+
+        void columns.offsetWidth;
+
+        nazwy.forEach(el => {
+            const dostepne = el.clientWidth;
+            const potrzebne = el.scrollWidth;
+
+            if(dostepne > 0 && potrzebne > dostepne + 1){
+                el.classList.add("zawijaj");
+            }
+
+            el.style.removeProperty("white-space");
+        });
+    }
+
+    function poprawKoniec473(lista){
+        const dzieci = Array.from(lista.children);
+
+        dzieci.forEach(el=>{
+            el.classList.remove("v473-koniec","v473-po-koncu");
+        });
+
+        let izabelinIndex = -1;
+
+        for(let i=0; i<dzieci.length; i++){
+            if(
+                jestStop473(dzieci[i]) &&
+                nazwa473(dzieci[i]).includes("IZABELIN-DZIEKANOWEK")
+            ){
+                izabelinIndex = i;
+            }
+        }
+
+        if(izabelinIndex < 0) return;
+
+        const izabelin = dzieci[izabelinIndex];
+
+        izabelin.classList.remove(
+            "v471-srodek",
+            "v471-kontynuacja",
+            "v469-zwykly"
+        );
+
+        izabelin.classList.add(
+            "v473-koniec",
+            "kraniec-koniec"
+        );
+
+        /*
+           W tym widoku po IZABELIN-DZIEKANÓWEK nie ma już nic z tej gałęzi.
+           Usuwamy więc późniejszy separator miejscowości DZIEKANÓW LEŚNY,
+           "Trasa w kursach m" i kolejne elementy gałęzi, które były
+           doklejane przez stary pełny przebieg.
+        */
+        for(let i=dzieci.length-1; i>izabelinIndex; i--){
+            const el = dzieci[i];
+
+            const txt = norm473(el.textContent || "");
+
+            if(
+                el.classList.contains("miejscowosc-separator") ||
+                el.classList.contains("trasa-separator") ||
+                jestStop473(el)
+            ){
+                el.remove();
+            }
+        });
+    }
+
+    function popraw473(tab){
+        const columns = tab.querySelector(".trasa-columns");
+        if(!columns) return;
+
+        tab.classList.add("kierunki-dwa-473");
+
+        /*
+           Najpierw kończymy gałąź dokładnie na Izabelinie.
+        */
+        columns.querySelectorAll(".trasa-lista-397").forEach(poprawKoniec473);
+
+        /*
+           Dopiero na finalnym układzie liczymy zawijanie.
+           To jest istotne, bo szerokości są już docelowe.
+        */
+        ustawZawijanie473(columns);
+    }
+
+    function run473(){
+        if(busy473) return;
+        busy473 = true;
+
+        try{
+            const linia = String(
+                (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
+                new URLSearchParams(location.search).get("linia") ||
+                ""
+            ).trim();
+
+            if(linia !== "150") return;
+
+            document.querySelectorAll(".tabliczka").forEach(tab=>{
+                if(!tab.querySelector(".kierunki-dwa")) return;
+                popraw473(tab);
+            });
+        }finally{
+            busy473 = false;
+        }
+    }
+
+    function queue473(){
+        if(queued473) return;
+        queued473 = true;
+
+        requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+                queued473 = false;
+                run473();
+            })
+        );
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener("DOMContentLoaded",queue473,{once:true});
+    }else{
+        queue473();
+    }
+
+    window.addEventListener("load",queue473);
+    document.addEventListener("fwtp-v464-ready",queue473);
+
+    if(document.fonts && document.fonts.ready){
+        document.fonts.ready.then(queue473);
+    }
+
+    const host = document.getElementById("wynik");
+    if(host){
+        new MutationObserver(()=>{
+            if(!busy473) queue473();
+        }).observe(host,{childList:true,subtree:true});
     }
 })();
 </script>
