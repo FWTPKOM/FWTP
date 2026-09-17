@@ -2,14 +2,14 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 511
+     WERSJA: 513
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 511
+     FWTP — WERSJA PLIKU: 513
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
@@ -15727,64 +15727,118 @@ function v486CourseAtStop(stop, representative){
    Niczego nie dodajemy, nie przestawiamy i nie dopasowujemy po nazwie.
 */
 function v486BuildRoutes(){
-    const active = v486CurrentStop();
-    const activeId = v486StopId(active);
-    const map = v486StopMap();
+    const active=v486CurrentStop();
+    if(!active)return [];
 
-    if(
-        !active ||
-        !activeId ||
-        !v486Array(active.kursy).length
-    ){
-        return [];
+    const stopMap=v486StopMap();
+
+    /*
+       FWTP V512
+       Pierwszeństwo ma model listy przygotowany przez VBA V39.
+       JavaScript NIE rekonstruuje już przebiegów z kursów, jeżeli
+       lista_przystankowa istnieje.
+    */
+    const model=active.lista_przystankowa;
+
+    if(model && Array.isArray(model.trasy) && model.trasy.length){
+        const groups=new Map();
+
+        model.trasy.forEach((trasaModel,index)=>{
+            const ids=v486Array(trasaModel?.trasa)
+                .map(v486Text)
+                .filter(Boolean);
+
+            const items=ids
+                .map(id=>stopMap.get(id))
+                .filter(Boolean)
+                .filter(x=>v486StopType(x.p)!=="TECH");
+
+            if(!items.length)return;
+
+            const terminalId=v486Text(
+                trasaModel?.koniec_trasy
+            ).trim();
+
+            const wariant=v486Text(
+                trasaModel?.wariant
+            ).trim();
+
+            /*
+               Klucz fizycznego przebiegu pozostaje dokładny.
+               Łączenie wspólnych punktów (np. PROZY) wykonuje
+               późniejszy renderer po nazwach, tak jak od V501.
+            */
+            const key=ids.join(">>");
+
+            if(!groups.has(key)){
+                groups.set(key,{
+                    ids,
+                    items,
+                    courses:[],
+                    variants:new Set(),
+                    terminalIds:new Set(),
+                    listaModel:true,
+                    order:index
+                });
+            }
+
+            const g=groups.get(key);
+
+            if(wariant){
+                g.variants.add(wariant);
+            }
+
+            if(terminalId){
+                g.terminalIds.add(terminalId);
+            }
+        });
+
+        return [...groups.values()];
     }
 
-    const groups = new Map();
+    /*
+       Fallback dla starszych JSON-ów bez lista_przystankowa.
+    */
+    const activeId=v486StopId(active);
+    const groups=new Map();
 
     for(const kurs of v486Array(active.kursy)){
-        const fullIds = v486Array(kurs?.trasa)
+        const fullIds=v486Array(kurs?.trasa)
             .map(v486Text)
             .filter(Boolean);
 
-        if(!fullIds.length) continue;
+        if(!fullIds.includes(activeId))continue;
 
-        /*
-           V488 — NIE OBCINAMY trasy na aktywnym przystanku.
-           Jeżeli kurs jest zapisany przy tym przystanku, pokazujemy
-           jego pełny fizyczzny przebieg: także przystanki wcześniejsze.
-        */
-        if(!fullIds.includes(activeId)) continue;
-
-        const items = fullIds
-            .map(id => map.get(id))
+        const items=fullIds
+            .map(id=>stopMap.get(id))
             .filter(Boolean)
-            .filter(x => v486StopType(x.p) !== "TECH");
+            .filter(x=>v486StopType(x.p)!=="TECH");
 
-        if(!items.length) continue;
+        if(!items.length)continue;
 
-        const normalizedIds = items.map(
-            x => v486StopId(x.p)
-        );
+        const key=fullIds.join(">>");
 
-        const routeKey = normalizedIds.join("\u001F");
-
-        if(!groups.has(routeKey)){
-            groups.set(routeKey,{
-                ids:normalizedIds,
+        if(!groups.has(key)){
+            groups.set(key,{
+                ids:fullIds,
                 items,
                 courses:[],
-                representative:kurs
+                variants:new Set(),
+                terminalIds:new Set()
             });
         }
 
-        groups.get(routeKey).courses.push(kurs);
+        const g=groups.get(key);
+        g.courses.push(kurs);
+
+        const w=v486Text(kurs?.wariant).trim();
+        if(w)g.variants.add(w);
+
+        const terminal=v486Text(kurs?.koniec_trasy).trim();
+        if(terminal)g.terminalIds.add(terminal);
     }
 
-    return Array.from(groups.values())
-        .sort((a,b)=>
-            (b.courses.length-a.courses.length) ||
-            (b.items.length-a.items.length)
-        );
+    return [...groups.values()];
 }
 
 /*
@@ -16096,11 +16150,26 @@ function v496RouteKeys(route){
 }
 
 function v496Varianty(route){
-    return Array.from(new Set(
-        v486Array(route?.courses)
-            .map(k=>v486Text(k?.wariant).toUpperCase())
-            .filter(Boolean)
-    ));
+    const out=new Set();
+
+    /*
+       FWTP V513:
+       V512 buduje przebiegi z lista_przystankowa, więc route.courses
+       może być puste. Litera wariantu jest wtedy w route.variants.
+    */
+    if(route?.variants instanceof Set){
+        route.variants.forEach(v=>{
+            const x=v486Text(v).trim().toUpperCase();
+            if(x)out.add(x);
+        });
+    }
+
+    v486Array(route?.courses).forEach(kurs=>{
+        const x=v486Text(kurs?.wariant).trim().toUpperCase();
+        if(x)out.add(x);
+    });
+
+    return [...out];
 }
 
 function v503CzasKursu(kurs){
@@ -16154,60 +16223,30 @@ function v503KursyGałęzi(routes){
 }
 
 function v496OpisWariantow(routes){
-    /*
-       FWTP V505
-
-       Nie próbujemy już zgadywać na podstawie klas HTML, czy przy
-       minutach jest widoczna litera.
-
-       Korzystamy DOKŁADNIE z tej samej funkcji, która w tym pliku
-       decyduje o wyświetleniu litery przy minucie:
-           czyPokazacWariantJakLiniaHTML(litera)
-
-       Dzięki temu:
-       - jeżeli kursy do METRO MARYMONT mają widoczne F -> napis F,
-       - jeżeli A/B są ukryte przy minutach -> nie pojawią się tutaj,
-       - jeżeli dana gałąź nie ma żadnego widocznego oznaczenia ->
-         "TRASA W KURSACH BEZ OZNACZEŃ".
-    */
-
-    const wszystkieLitery = Array.from(new Set(
-        v486Array(routes).flatMap(route=>
-            v486Array(route?.courses)
-                .map(kurs=>
-                    String(
-                        (
-                            typeof literaWariantuPoRzeczywistymPrzebiegu==="function"
-                                ? literaWariantuPoRzeczywistymPrzebiegu(kurs)
-                                : ""
-                        ) ||
-                        kurs?.wariant ||
-                        ""
-                    )
-                    .trim()
-                    .toUpperCase()
-                )
-                .filter(Boolean)
-        )
+    const litery=Array.from(new Set(
+        v486Array(routes)
+            .flatMap(route=>v496Varianty(route))
+            .map(x=>v486Text(x).trim().toUpperCase())
+            .filter(Boolean)
     ));
 
-    const widoczneLitery = wszystkieLitery.filter(litera=>{
+    /*
+       V513:
+       Ta sama zasada co przy minutach:
+       - jeżeli oznaczenie jest rzeczywiście pokazywane -> podaj literę,
+       - jeżeli oznaczenia są ukryte -> "BEZ OZNACZEŃ".
+       Dzięki temu gałąź F do Metro Marymont dostaje F.
+    */
+    const widoczne=litery.filter(litera=>{
         if(typeof czyPokazacWariantJakLiniaHTML==="function"){
             return czyPokazacWariantJakLiniaHTML(litera);
         }
-
-        /*
-           Awaryjnie, gdyby funkcja nie była dostępna:
-           litera z kursu pozostaje widoczna.
-        */
-        return true;
+        return litera==="F";
     });
 
-    if(widoczneLitery.length){
+    if(widoczne.length){
         return "TRASA W KURSACH " +
-            widoczneLitery
-                .map(litera=>'„'+litera+'”')
-                .join(", ");
+            widoczne.map(x=>'„'+x+'”').join(", ");
     }
 
     return "TRASA W KURSACH BEZ OZNACZEŃ";
@@ -16223,61 +16262,41 @@ function v502CzyRzeczywistyKoniec(item,route){
     const p=item?.p;
     if(!p)return false;
 
-    /*
-       FWTP V507 — KOŃCOWOŚĆ Z DOKŁADNEGO ID W JSON
-
-       JSON już zawiera pełną, uporządkowaną kurs.trasa.
-       Nie ma więc potrzeby zgadywać końca po nazwie ani nawet
-       po nazwie + numerze słupka.
-
-       Bierzemy dokładne ID renderowanego przystanku i porównujemy
-       je z OSTATNIM pasażerskim ID każdego kurs.trasa.
-
-       Przykład linii 150:
-       - Metro Młociny:
-         40|Metro Młociny|21  -> ostatni element -> KONIEC
-       - Metro Marymont 11:
-         36|Metro Marymont|11 -> przedostatni -> NIE jest końcem
-       - Metro Marymont 12:
-         37|Metro Marymont|12 -> ostatni -> KONIEC
-    */
     const itemId=v486StopId(p);
     if(!itemId)return false;
 
+    /*
+       FWTP V512:
+       jeżeli przebieg pochodzi z lista_przystankowa V39,
+       koniec jest już jawnie zapisany przez VBA.
+    */
+    if(route?.terminalIds instanceof Set && route.terminalIds.size){
+        return route.terminalIds.has(itemId);
+    }
+
+    /*
+       Fallback dla starego JSON.
+    */
     const stopMap=v486StopMap();
 
     for(const kurs of v486Array(route?.courses)){
+        const explicit=v486Text(kurs?.koniec_trasy).trim();
+
+        if(explicit){
+            if(explicit===itemId)return true;
+            continue;
+        }
+
         const trasa=v486Array(kurs?.trasa);
 
-        let lastPassengerId="";
-
-        /*
-           Idziemy od końca kurs.trasa i bierzemy pierwszy
-           znaleziony przystanek nie-TECH.
-        */
         for(let i=trasa.length-1;i>=0;i--){
             const id=v486Text(trasa[i]).trim();
             if(!id)continue;
 
             const found=stopMap.get(id);
+            if(found && v486StopType(found.p)==="TECH")continue;
 
-            /*
-               Jeżeli ID istnieje w mapie, respektujemy TECH.
-               Jeżeli z jakiegoś powodu nie ma go w mapie,
-               nadal traktujemy ostatnie ID z JSON jako wiarygodne.
-            */
-            if(found){
-                if(v486StopType(found.p)==="TECH")continue;
-                lastPassengerId=id;
-                break;
-            }
-
-            lastPassengerId=id;
-            break;
-        }
-
-        if(lastPassengerId && lastPassengerId===itemId){
-            return true;
+            return id===itemId;
         }
     }
 
@@ -17205,21 +17224,42 @@ function v498DopasujKolumnyTrasy(){
 
 function v508TerminalIds(){
     const active=v486CurrentStop();
-    const stopMap=v486StopMap();
     const out=new Set();
 
+    /*
+       FWTP V512 — źródło podstawowe: lista przygotowana przez VBA.
+    */
+    const model=active?.lista_przystankowa;
+
+    if(model && Array.isArray(model.trasy)){
+        model.trasy.forEach(route=>{
+            const id=v486Text(route?.koniec_trasy).trim();
+            if(id)out.add(id);
+        });
+
+        if(out.size)return out;
+    }
+
+    /*
+       Fallback: jawne koniec_trasy kursu, a dopiero potem ostatnie ID.
+    */
+    const stopMap=v486StopMap();
+
     for(const kurs of v486Array(active?.kursy)){
-        const trasa=v486Array(kurs?.trasa)
-            .map(v486Text)
-            .filter(Boolean);
+        const explicit=v486Text(kurs?.koniec_trasy).trim();
+
+        if(explicit){
+            out.add(explicit);
+            continue;
+        }
+
+        const trasa=v486Array(kurs?.trasa).map(v486Text).filter(Boolean);
 
         for(let i=trasa.length-1;i>=0;i--){
             const id=trasa[i];
             const found=stopMap.get(id);
 
-            if(found && v486StopType(found.p)==="TECH"){
-                continue;
-            }
+            if(found && v486StopType(found.p)==="TECH")continue;
 
             out.add(id);
             break;
@@ -21145,6 +21185,38 @@ html body .tabliczka
     z-index: 3 !important;
 }
 </style>
+
+
+<script>
+/* =========================================================
+   FWTP — WERSJA 512
+   JSON V39 = AUTORYTATYWNY MODEL LISTY PRZYSTANKOWEJ
+
+   Nowe pola:
+   przystanek.lista_przystankowa.trasy[]
+       .wariant
+       .koniec_trasy
+       .trasa[]
+
+   kurs.koniec_trasy
+
+   Jeżeli lista_przystankowa istnieje, przebiegi i końce są
+   pobierane z niej. Stary mechanizm pozostaje tylko jako fallback
+   dla JSON-ów wyeksportowanych przed V39.
+   ========================================================= */
+</script>
+
+
+<script>
+/* =========================================================
+   FWTP — WERSJA 513
+   - naprawa opisów TRASA W KURSACH dla lista_przystankowa V39/V40
+   - warianty są czytane z route.variants, nie tylko route.courses
+   - gałąź F do Metro Marymont zachowuje oznaczenie F
+   - fizycznie różne przebiegi do Metro Młociny i Metro Marymont
+     pozostają osobnymi gałęziami po wspólnym odcinku
+   ========================================================= */
+</script>
 
 </body>
 </html>
