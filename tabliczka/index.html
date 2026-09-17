@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 479
+     WERSJA: 480
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -47050,26 +47050,105 @@ body .tabliczka .trasa-extra-stop.koniec-478 > .trasa-nazwa {
 
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 479
+     FWTP — WERSJA PLIKU: 480
      BAZA: WERSJA 478
-     ZMIANA:
-     - ukrycie nazw miejscowości / separatorów miejscowości
-       przy liście przystanków;
-     - sama lista przystanków, czasy, kropki, osie i opisy
-       wariantów pozostają bez zmian.
-     ========================================================= -->
 
-<style id="wersja-479-bez-nazw-miejscowosci">
-/*
-   Usuwamy wyłącznie nagłówki miejscowości znajdujące się
-   wewnątrz listy trasy. Nie ukrywamy "Trasa w kursach ...".
-*/
-.trasa-lista-397 > .miejscowosc-separator,
-.trasa-lista-397 > .trasa-miejscowosc-429,
-.trasa-lista-397 > .trasa-separator.trasa-miejscowosc-429 {
-    display: none !important;
-}
-</style>
+     ZMIANA TYLKO JEDNA:
+     - usuwamy dopisek miejscowości z NAZWY PRZYSTANKU,
+       np. "PRZYSTANEK (ŁOMIANKI)" -> "PRZYSTANEK";
+     - separator przed grupą przystanków:
+       ---- ŁOMIANKI ----
+       ZOSTAJE bez zmian.
+     ========================================================= -->
+<script id="wersja-480-usun-miejscowosc-z-nazwy-przystanku">
+(function(){
+    "use strict";
+
+    let queued480 = false;
+
+    function poprawNazwy480(root){
+        if(!root) return;
+
+        root.querySelectorAll(
+            ".trasa-stop .trasa-nazwa, .trasa-extra-stop .trasa-nazwa"
+        ).forEach(el=>{
+            /*
+             * Usuwamy tylko końcowy dopisek w nawiasie z nazwy przystanku.
+             * Nie dotykamy separatorów .trasa-miejscowosc-429 /
+             * .miejscowosc-separator ani opisów "Trasa w kursach ...".
+             *
+             * Obsługuje także aktywny przystanek, ponieważ zmieniamy
+             * wyłącznie tekstowe węzły wewnątrz .trasa-nazwa.
+             */
+            const walker = document.createTreeWalker(
+                el,
+                NodeFilter.SHOW_TEXT
+            );
+
+            const nodes = [];
+            while(walker.nextNode()){
+                nodes.push(walker.currentNode);
+            }
+
+            if(!nodes.length) return;
+
+            const pelnyTekst = el.textContent || "";
+
+            // Tylko dopisek NA KOŃCU nazwy, np. "ABC (ŁOMIANKI)".
+            const match = pelnyTekst.match(/\s*\([^()]+\)\s*$/);
+            if(!match) return;
+
+            let pozostalo = match[0].length;
+
+            // Usuwamy od końca, żeby zachować istniejące elementy,
+            // np. span aktywnego przystanku i jego czarne tło.
+            for(let i = nodes.length - 1; i >= 0 && pozostalo > 0; i--){
+                const node = nodes[i];
+                const txt = node.nodeValue || "";
+
+                if(!txt) continue;
+
+                const ile = Math.min(pozostalo, txt.length);
+                node.nodeValue = txt.slice(0, txt.length - ile);
+                pozostalo -= ile;
+            }
+        });
+    }
+
+    function run480(){
+        document.querySelectorAll(".tabliczka").forEach(poprawNazwy480);
+    }
+
+    function queue480(){
+        if(queued480) return;
+        queued480 = true;
+
+        requestAnimationFrame(()=>{
+            requestAnimationFrame(()=>{
+                queued480 = false;
+                run480();
+            });
+        });
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener("DOMContentLoaded", queue480, {once:true});
+    }else{
+        queue480();
+    }
+
+    window.addEventListener("load", queue480);
+    document.addEventListener("fwtp-v464-ready", queue480);
+
+    const host = document.getElementById("wynik");
+    if(host){
+        new MutationObserver(queue480).observe(
+            host,
+            {childList:true, subtree:true}
+        );
+    }
+})();
+</script>
 
 </body>
 </html>
