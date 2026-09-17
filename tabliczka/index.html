@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 501
+     WERSJA: 502
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -47404,6 +47404,196 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
     window.addEventListener(
         "load",
         wykonaj501,
+        {once:true}
+    );
+})();
+</script>
+
+
+<script>
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 502
+   BAZA: 501
+
+   LINIA 150 — KOREKTA:
+   1. Usuwamy PROZY, jeżeli renderer umieścił je PO ostatnim
+      METRO MARYMONT. PROZY ma pozostać tylko w swoim
+      prawidłowym wcześniejszym miejscu przebiegu.
+   2. Przed ZAJEZDNIA ŻOLIBORZ ma być DOSŁOWNIE:
+      "Trasa w kursach bez oznaczeń"
+   ========================================================= */
+(function FWTP_WERSJA_502(){
+    "use strict";
+
+    function norm502(v){
+        return String(v || "")
+            .replace(/\u00a0/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toUpperCase();
+    }
+
+    function czy150_502(){
+        return norm502(
+            new URLSearchParams(location.search).get("linia")
+        ) === "150";
+    }
+
+    function nazwa502(row){
+        return norm502(
+            row?.dataset?.pelnaNazwa469 ||
+            row?.getAttribute?.("data-pelna-nazwa469") ||
+            row?.querySelector?.(".trasa-nazwa")?.textContent ||
+            row?.textContent ||
+            ""
+        )
+        .replace(/\s*\([^)]*\)\s*$/, "")
+        .trim();
+    }
+
+    function jestStop502(el){
+        return !!el?.matches?.(
+            ".trasa-stop,.trasa-extra-stop"
+        );
+    }
+
+    function utworzNaglowek502(){
+        const li = document.createElement("li");
+        li.className =
+            "trasa-separator trasa-wariant-bez-oznaczen-502";
+
+        const span = document.createElement("span");
+        span.className = "trasa-separator-title";
+        span.textContent =
+            "Trasa w kursach bez oznaczeń";
+
+        li.appendChild(span);
+        return li;
+    }
+
+    function poprawListe502(lista){
+        let dzieci = Array.from(lista.children);
+
+        /* -------------------------------------------------
+           A. OSTATNI METRO MARYMONT
+           ------------------------------------------------- */
+        let ostatniMarymontIndex = -1;
+
+        for(let i=0; i<dzieci.length; i++){
+            if(
+                jestStop502(dzieci[i]) &&
+                nazwa502(dzieci[i]) === "METRO MARYMONT"
+            ){
+                ostatniMarymontIndex = i;
+            }
+        }
+
+        /* -------------------------------------------------
+           B. PROZY NIE MOŻE BYĆ PO METRO MARYMONT
+           ------------------------------------------------- */
+        if(ostatniMarymontIndex >= 0){
+            for(
+                let i=dzieci.length-1;
+                i>ostatniMarymontIndex;
+                i--
+            ){
+                const el = dzieci[i];
+
+                if(
+                    jestStop502(el) &&
+                    nazwa502(el) === "PROZY"
+                ){
+                    el.remove();
+                }
+            }
+        }
+
+        /* odświeżamy dzieci po usunięciu błędnego PROZY */
+        dzieci = Array.from(lista.children);
+
+        /* -------------------------------------------------
+           C. ZAJEZDNIA ŻOLIBORZ
+              dokładny tekst:
+              "Trasa w kursach bez oznaczeń"
+           ------------------------------------------------- */
+        for(let i=0; i<dzieci.length; i++){
+            const el = dzieci[i];
+
+            if(
+                !jestStop502(el) ||
+                nazwa502(el) !== "ZAJEZDNIA ŻOLIBORZ"
+            ){
+                continue;
+            }
+
+            /*
+               Usuwamy stare nagłówki "Trasa w kursach"
+               bezpośrednio przed Zajezdnią, żeby nie było
+               dwóch podpisów.
+            */
+            let prev = el.previousElementSibling;
+
+            while(
+                prev &&
+                prev.classList?.contains("trasa-separator") &&
+                norm502(prev.textContent).startsWith(
+                    "TRASA W KURSACH"
+                )
+            ){
+                const doUsuniecia = prev;
+                prev = prev.previousElementSibling;
+                doUsuniecia.remove();
+            }
+
+            /*
+               Wstawiamy dokładnie żądany napis.
+            */
+            lista.insertBefore(
+                utworzNaglowek502(),
+                el
+            );
+        }
+    }
+
+    function wykonaj502(){
+        if(!czy150_502()) return;
+
+        const tab =
+            document.querySelector("#wynik .tabliczka") ||
+            document.querySelector(".tabliczka");
+
+        if(!tab) return;
+
+        tab.querySelectorAll(
+            ".trasa-lista,.trasa-lista-397"
+        ).forEach(poprawListe502);
+    }
+
+    function start502(){
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(wykonaj502);
+            });
+        });
+
+        setTimeout(wykonaj502, 250);
+        setTimeout(wykonaj502, 700);
+        setTimeout(wykonaj502, 1400);
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            start502,
+            {once:true}
+        );
+    }else{
+        start502();
+    }
+
+    window.addEventListener(
+        "load",
+        wykonaj502,
         {once:true}
     );
 })();
