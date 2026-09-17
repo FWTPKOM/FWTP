@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 489
+     WERSJA: 490
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -46199,21 +46199,37 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 </style>
 
 
-<style id="wersja-489-os-nad-calego-separatora">
+<style id="wersja-490-poprawka-osi">
 /* =========================================================
-   FWTP TABLICZKA — WERSJA 489
-   BAZA: 488 = powrót do 478
+   FWTP TABLICZKA — WERSJA 490
+   BAZA: 488 (= 478)
 
-   ZMIANA TYLKO JEDNA:
-   pionowa czarna oś ma być NAD całym elementem miejscowości,
-   w tym NAD jego poziomymi "-----".
+   DIAGNOZA:
+   W 477 istnieje już prawidłowy fizyczny element:
+       .pionowa-os-477
+   i jest on tworzony również dla zwykłego .trasa-lista
+   używanego w widoku dwóch kierunków.
 
-   Nie chowamy kresek. Nie maskujemy ich. Nie zmieniamy wysokości
-   separatorów. Czarna oś jest osobnym elementem DOM narysowanym
-   jako najwyższa warstwa separatora.
+   W 478 ten prawidłowy element został WYŁĄCZONY:
+       .pionowa-os-477 { display:none!important; }
+
+   a zamiast niego utworzono:
+       .trasa-separator-title::before
+
+   To była przyczyna problemu.
+
+   490:
+   - przywraca fizyczny .pionowa-os-477,
+   - wyłącza błędny pseudo-element 478,
+   - pionowa oś jest najwyższą warstwą CAŁEGO separatora,
+     czyli jest nad nazwą miejscowości i nad "-----".
    ========================================================= */
 
-/* Wyłączamy próbę z 478, gdzie oś była pseudo-elementem tytułu. */
+
+/* ---------------------------------------------------------
+   1. WYŁĄCZAMY BŁĘDNY SPOSÓB Z 478
+   --------------------------------------------------------- */
+
 .tabliczka
 .trasa-separator.laczenie-osi-449
 > .trasa-separator-title::before {
@@ -46221,26 +46237,42 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
     display: none !important;
 }
 
-/* Separator jest punktem odniesienia dla nowej osi. */
+
+/* ---------------------------------------------------------
+   2. SEPARATOR TWORZY WŁASNY KONTEKST WARSTW
+   --------------------------------------------------------- */
+
 .tabliczka
-.trasa-separator.laczenie-osi-449 {
+.trasa-separator.os-separatora-477 {
     position: relative !important;
-    overflow: visible !important;
     isolation: isolate !important;
+    overflow: visible !important;
 }
 
-/*
-   NOWA OŚ:
-   z-index ustawiony maksymalnie wysoko wewnątrz separatora.
-   Dzięki temu jest nad:
-   - ::before separatora,
-   - ::after separatora,
-   - napisem miejscowości,
-   - poziomymi "-----".
-*/
+
+/* ---------------------------------------------------------
+   3. POZIOME KRESKI MIEJSCOWOŚCI / STREFY SĄ POD OSIĄ
+   --------------------------------------------------------- */
+
 .tabliczka
-.trasa-separator.laczenie-osi-449
-> .os-nad-miejscowoscia-489 {
+.trasa-separator.os-separatora-477::before,
+.tabliczka
+.trasa-separator.os-separatora-477::after {
+    z-index: 1 !important;
+}
+
+
+/* ---------------------------------------------------------
+   4. PRZYWRACAMY PRAWDZIWĄ OŚ Z 477
+
+   To jest TEN ELEMENT, który JS 477 już dodaje do separatorów
+   znajdujących się pomiędzy przystankami — zarówno w
+   .trasa-lista-397, jak i w zwykłym .trasa-lista.
+   --------------------------------------------------------- */
+
+.tabliczka
+.trasa-separator.os-separatora-477
+> .pionowa-os-477 {
     position: absolute !important;
     display: block !important;
 
@@ -46257,124 +46289,46 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 
     background: #111 !important;
 
+    /*
+       Najwyższa warstwa separatora.
+       Oś jest NAD:
+       - poziomymi "-----",
+       - "=" strefy,
+       - elementem/nazwą miejscowości.
+    */
     z-index: 2147483647 !important;
+
     pointer-events: none !important;
 }
 
-/* Starsza dodatkowa oś z 477 nie może konkurować z 489. */
+
+/* ---------------------------------------------------------
+   5. NIE PODNOSIMY TYTUŁU NAD OŚ
+
+   W 478 tytuł miał własne kombinacje position/z-index.
+   Tutaj celowo nie może przykryć czarnej osi.
+   --------------------------------------------------------- */
+
 .tabliczka
-.trasa-separator.laczenie-osi-449
-> .pionowa-os-477 {
-    display: none !important;
+.trasa-separator.os-separatora-477
+> .trasa-separator-title {
+    z-index: 1 !important;
+}
+
+
+/* Metro Młociny — pozostaje z działającej 477/478. */
+.tabliczka
+.trasa-stop.koniec-metro-mlociny-477
+.trasa-nazwa,
+.tabliczka
+.trasa-stop.koniec-metro-mlociny-477
+.trasa-nazwa-aktywna,
+.tabliczka
+.trasa-stop.koniec-metro-mlociny-477
+.trasa-nazwa * {
+    font-weight: 700 !important;
 }
 </style>
-
-<script>
-/* =========================================================
-   WERSJA 489
-   Dodaje wyłącznie warstwę osi nad gotowymi separatorami.
-   Bez MutationObservera i bez ciągłego przeliczania.
-   ========================================================= */
-(function FWTP_WERSJA_489(){
-    "use strict";
-
-    let proby489 = 0;
-    let zakonczone489 = false;
-
-    function wykonaj489(){
-        if(zakonczone489) return true;
-
-        const linia =
-            String(
-                new URLSearchParams(location.search).get("linia") || ""
-            ).trim();
-
-        if(linia !== "150"){
-            zakonczone489 = true;
-            return true;
-        }
-
-        const tab =
-            document.querySelector("#wynik .tabliczka") ||
-            document.querySelector(".tabliczka");
-
-        if(!tab) return false;
-
-        const separatory =
-            Array.from(
-                tab.querySelectorAll(
-                    ".trasa-separator.laczenie-osi-449"
-                )
-            );
-
-        if(!separatory.length) return false;
-
-        let dodano = 0;
-
-        separatory.forEach(sep => {
-            /*
-               Nie dotykamy "Trasa w kursach...".
-               Oś dotyczy separatorów miejscowości/strefy/granicy,
-               które istniejąca logika oznaczyła laczenie-osi-449.
-            */
-            const tekst =
-                String(sep.textContent || "")
-                    .replace(/\s+/g, " ")
-                    .trim()
-                    .toUpperCase();
-
-            if(tekst.includes("TRASA W KURSACH")){
-                return;
-            }
-
-            let os =
-                sep.querySelector(
-                    ":scope > .os-nad-miejscowoscia-489"
-                );
-
-            if(!os){
-                os = document.createElement("span");
-                os.className = "os-nad-miejscowoscia-489";
-                os.setAttribute("aria-hidden", "true");
-                sep.appendChild(os);
-            }
-
-            dodano++;
-        });
-
-        if(dodano > 0){
-            zakonczone489 = true;
-            return true;
-        }
-
-        return false;
-    }
-
-    function czekaj489(){
-        proby489++;
-
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    if(wykonaj489()) return;
-                    if(proby489 >= 100) return;
-                    setTimeout(czekaj489, 100);
-                });
-            });
-        });
-    }
-
-    if(document.readyState === "loading"){
-        document.addEventListener(
-            "DOMContentLoaded",
-            czekaj489,
-            {once:true}
-        );
-    }else{
-        czekaj489();
-    }
-})();
-</script>
 
 </body>
 </html>
