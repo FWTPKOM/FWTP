@@ -2,14 +2,14 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 496
+     WERSJA: 497
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 496
+     FWTP — WERSJA PLIKU: 497
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
@@ -5197,6 +5197,43 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 }
 .v496-wspolna{margin-top:0!important;margin-bottom:0!important}
 .v496-galaz .trasa-lista{margin-top:0!important;margin-bottom:0!important}
+</style>
+
+
+<style>
+/* =========================================================
+   FWTP — WERSJA 497
+   AUTOMATYCZNY PODZIAŁ DŁUGIEJ LISTY NA 2 KOLUMNY
+   =========================================================
+   JS dodaje klasę .v497-dwie-kolumny tylko wtedy, gdy cała
+   lista przystanków nie mieści się w wysokości tabliczki.
+   ========================================================= */
+
+.trasa-columns.v497-dwie-kolumny{
+    display:grid !important;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important;
+    column-gap:0 !important;
+    align-items:start !important;
+}
+
+.trasa-columns.v497-dwie-kolumny > .v497-polowa{
+    min-width:0 !important;
+    width:100% !important;
+    box-sizing:border-box !important;
+}
+
+.trasa-columns.v497-dwie-kolumny > .v497-polowa + .v497-polowa{
+    border-left:1px solid #999;
+}
+
+.trasa-columns.v497-dwie-kolumny .trasa-lista{
+    margin-top:0 !important;
+    margin-bottom:0 !important;
+}
+
+.v497-polowa .trasa-stop:first-child{
+    margin-top:0 !important;
+}
 </style>
 
 </head>
@@ -16220,6 +16257,171 @@ window.FWTP486 = {
 };
 
 
+
+/* =========================================================
+   FWTP — WERSJA 497
+   AUTOMATYCZNE ŁAMANIE LISTY PRZYSTANKÓW
+   ========================================================= */
+
+function v497ResetSplit(){
+    const root=document.querySelector(".trasa-columns");
+    if(!root)return;
+
+    const left=root.querySelector(".v497-polowa-a");
+    const right=root.querySelector(".v497-polowa-b");
+
+    if(left && right){
+        const frag=document.createDocumentFragment();
+
+        [...left.childNodes].forEach(n=>frag.appendChild(n));
+        [...right.childNodes].forEach(n=>frag.appendChild(n));
+
+        root.replaceChildren(frag);
+    }
+
+    root.classList.remove("v497-dwie-kolumny");
+}
+
+function v497RouteAvailableHeight(root){
+    /*
+       Najpierw wykorzystujemy rzeczywistą wysokość prawego pola.
+       Jeżeli rodzic nie ma ograniczonej wysokości, punktem odniesienia
+       jest wysokość całej tabliczki.
+    */
+    const tabliczka=root.closest(".tabliczka");
+    if(!tabliczka)return 0;
+
+    const rootRect=root.getBoundingClientRect();
+    const tabRect=tabliczka.getBoundingClientRect();
+
+    return Math.max(0,tabRect.bottom-rootRect.top-4);
+}
+
+function v497TopLevelBlocks(root){
+    /*
+       Silnik V496 tworzy jeden .v496-kol. Dzielimy jego elementy
+       blokami, dzięki czemu nie przecinamy w połowie pojedynczego
+       wiersza przystanku ani opisu wariantu.
+    */
+    const main=root.querySelector(":scope > .v496-kol") ||
+               root.querySelector(":scope > .v486-trasa-kol") ||
+               root.firstElementChild;
+
+    if(!main)return {main:null,blocks:[]};
+
+    return {
+        main,
+        blocks:[...main.children]
+    };
+}
+
+function v497SplitLongRoute(){
+    v497ResetSplit();
+
+    const root=document.querySelector(".trasa-columns");
+    if(!root)return;
+
+    const available=v497RouteAvailableHeight(root);
+    if(available<=0)return;
+
+    /*
+       Dopóki całość mieści się w pierwszej kolumnie,
+       niczego nie zmieniamy.
+    */
+    if(root.scrollHeight<=available+2)return;
+
+    const info=v497TopLevelBlocks(root);
+    const main=info.main;
+    let blocks=info.blocks;
+
+    if(!main || !blocks.length)return;
+
+    /*
+       Jeżeli głównym blokiem jest jedna długa lista UL,
+       rozbijamy ją na bezpieczne bloki LI.
+    */
+    if(blocks.length===1 && blocks[0].matches("ul.trasa-lista")){
+        const ul=blocks[0];
+        blocks=[...ul.children];
+
+        const wrappers=blocks.map(li=>{
+            const copy=document.createElement("ul");
+            copy.className=ul.className;
+            copy.appendChild(li);
+            return copy;
+        });
+
+        blocks=wrappers;
+    }else{
+        blocks=blocks.map(x=>x);
+    }
+
+    if(blocks.length<2)return;
+
+    const left=document.createElement("div");
+    left.className="v497-polowa v497-polowa-a";
+
+    const right=document.createElement("div");
+    right.className="v497-polowa v497-polowa-b";
+
+    /*
+       Rozdział według rzeczywistej wysokości. Najpierw mierzymy
+       bloki w niewidocznym kontenerze o tej samej szerokości.
+    */
+    const probe=document.createElement("div");
+    probe.style.position="absolute";
+    probe.style.visibility="hidden";
+    probe.style.pointerEvents="none";
+    probe.style.width=Math.max(1,root.clientWidth/2)+"px";
+    document.body.appendChild(probe);
+
+    const heights=blocks.map(block=>{
+        const clone=block.cloneNode(true);
+        probe.appendChild(clone);
+        const h=clone.getBoundingClientRect().height;
+        clone.remove();
+        return h;
+    });
+
+    probe.remove();
+
+    const total=heights.reduce((a,b)=>a+b,0);
+    const target=total/2;
+
+    let sum=0;
+    let cut=1;
+    for(let i=0;i<heights.length-1;i++){
+        sum+=heights[i];
+        cut=i+1;
+        if(sum>=target)break;
+    }
+
+    /*
+       Przenosimy oryginalne elementy, nie ich kopie.
+    */
+    blocks.forEach((block,i)=>{
+        (i<cut?left:right).appendChild(block);
+    });
+
+    /*
+       Usuwamy pusty kontener V496 i wkładamy dwie kolumny.
+    */
+    if(main.parentNode===root){
+        main.remove();
+    }else{
+        root.replaceChildren();
+    }
+
+    root.append(left,right);
+    root.classList.add("v497-dwie-kolumny");
+}
+
+function v497ScheduleSplit(){
+    requestAnimationFrame(()=>{
+        requestAnimationFrame(v497SplitLongRoute);
+    });
+}
+
 function renderuj(){
 
     /*
@@ -16486,6 +16688,8 @@ function renderuj(){
             );
         });
     });
+
+    v497ScheduleSplit();
 }
 
 
@@ -19245,6 +19449,10 @@ window.addEventListener(
         })();
     
 })();
+window.addEventListener("resize",()=>{
+    clearTimeout(window.__v497ResizeTimer);
+    window.__v497ResizeTimer=setTimeout(v497ScheduleSplit,120);
+});
 </script>
 
 
