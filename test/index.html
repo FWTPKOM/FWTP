@@ -2,14 +2,14 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 506
+     WERSJA: 507
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 506
+     FWTP — WERSJA PLIKU: 507
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
@@ -39,6 +39,8 @@
      - V506: METRO MARYMONT 11 i 12 są rozróżniane
      - V506: tylko ostatni pasażerski słupek kurs.trasa jest końcowy
      - V506: METRO MŁOCINY jest końcowy, gdy faktycznie kończy dany kurs.trasa
+     - V507: koniec trasy jest ustalany po dokładnym ID ostatniego przystanku kurs.trasa
+     - V507: Metro Młociny 21 = koniec; Metro Marymont 11 = nie; Metro Marymont 12 = koniec
      ========================================================= -->
 
 <html lang="pl">
@@ -16153,60 +16155,60 @@ function v502CzyRzeczywistyKoniec(item,route){
     if(!p)return false;
 
     /*
-       V506 — KLUCZOWA POPRAWKA
+       FWTP V507 — KOŃCOWOŚĆ Z DOKŁADNEGO ID W JSON
 
-       Do ŁĄCZENIA przebiegów możemy używać samej nazwy
-       (np. PROZY jako wspólny punkt).
+       JSON już zawiera pełną, uporządkowaną kurs.trasa.
+       Nie ma więc potrzeby zgadywać końca po nazwie ani nawet
+       po nazwie + numerze słupka.
 
-       Do ustalania PRZYSTANKU KOŃCOWEGO nie wolno jednak używać
-       samej nazwy, ponieważ:
-           METRO MARYMONT 11
-           METRO MARYMONT 12
-       to dwa różne słupki.
+       Bierzemy dokładne ID renderowanego przystanku i porównujemy
+       je z OSTATNIM pasażerskim ID każdego kurs.trasa.
 
-       Końcowość sprawdzamy więc po:
-           nazwa_czysta + nr
-       czyli v496StopKey().
+       Przykład linii 150:
+       - Metro Młociny:
+         40|Metro Młociny|21  -> ostatni element -> KONIEC
+       - Metro Marymont 11:
+         36|Metro Marymont|11 -> przedostatni -> NIE jest końcem
+       - Metro Marymont 12:
+         37|Metro Marymont|12 -> ostatni -> KONIEC
     */
-    const itemKey=v496StopKey(p);
+    const itemId=v486StopId(p);
+    if(!itemId)return false;
+
     const stopMap=v486StopMap();
 
     for(const kurs of v486Array(route?.courses)){
-        const ids=v486Array(kurs?.trasa);
+        const trasa=v486Array(kurs?.trasa);
 
-        const passenger=ids
-            .map(id=>stopMap.get(id))
-            .filter(Boolean)
-            .filter(x=>v486StopType(x.p)!=="TECH");
-
-        if(!passenger.length)continue;
+        let lastPassengerId="";
 
         /*
-           TYLKO ostatni pasażerski element konkretnego kurs.trasa
-           może być końcowy.
+           Idziemy od końca kurs.trasa i bierzemy pierwszy
+           znaleziony przystanek nie-TECH.
         */
-        const lastStop=passenger[passenger.length-1]?.p;
+        for(let i=trasa.length-1;i>=0;i--){
+            const id=v486Text(trasa[i]).trim();
+            if(!id)continue;
 
-        if(
-            lastStop &&
-            v496StopKey(lastStop)===itemKey
-        ){
-            return true;
+            const found=stopMap.get(id);
+
+            /*
+               Jeżeli ID istnieje w mapie, respektujemy TECH.
+               Jeżeli z jakiegoś powodu nie ma go w mapie,
+               nadal traktujemy ostatnie ID z JSON jako wiarygodne.
+            */
+            if(found){
+                if(v486StopType(found.p)==="TECH")continue;
+                lastPassengerId=id;
+                break;
+            }
+
+            lastPassengerId=id;
+            break;
         }
-    }
 
-    /*
-       Fallback tylko wtedy, gdy route nie ma przypisanych kursów.
-       Również tutaj porównujemy nazwa + nr, nigdy samą nazwę.
-    */
-    if(!v486Array(route?.courses).length){
-        const items=v486Array(route?.items);
-
-        if(items.length){
-            const lastItem=items[items.length-1]?.p;
-
-            return !!lastItem &&
-                v496StopKey(lastItem)===itemKey;
+        if(lastPassengerId && lastPassengerId===itemId){
+            return true;
         }
     }
 
