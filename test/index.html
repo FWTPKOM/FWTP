@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 484
+     WERSJA: 485
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -5212,13 +5212,32 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 }
 </style>
 
+
+<style id="FWTP-V485-CSS">
+/* V485: tylko elementy wymagane przez nową semantykę JSON. */
+.v485-miejscowosc .trasa-separator-title{
+    text-align:center;
+    font-weight:700;
+}
+.v485-strefa .trasa-separator-title{
+    text-align:center;
+    font-weight:800;
+}
+.v485-wariant .trasa-separator-title{
+    font-weight:700;
+}
+.v485-trasa-kol{
+    min-width:0;
+}
+</style>
+
 </head>
 
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 484
-     BAZA WIZUALNA: 478
-     LISTA PRZYSTANKÓW: NOWY SILNIK kurs.trasa
+     FWTP — WERSJA PLIKU: 485
+     BAZA WIZUALNA / ROZKŁAD: 478
+     LISTA PRZYSTANKÓW: CAŁKOWICIE NOWY SILNIK JSON
      ========================================================= -->
 <body>
 
@@ -17292,279 +17311,190 @@ function wstawGalezieWPrzebieg304(lista){
 }
 
 
-
-/* =========================================================
-   WERSJA 484 — NOWY SILNIK LISTY PRZYSTANKÓW JSON V38+
-   =========================================================
-   Ta funkcja NIE korzysta z logiki wariantów 126/401/itd.
-   Fizyczny przebieg pochodzi wyłącznie z kurs.trasa.
-   ========================================================= */
-function listaTrasyZNowegoJSON484(){
-
-    const kierunek=
-        kierunekBazowy();
-
-    const baza=
-        Array.isArray(
-            kierunek?.przystanki
-        )
-            ? kierunek.przystanki
-            : [];
-
-    const aktywny=
-        baza[
-            Number(
-                aktualnyPrzystanek
-            )
-        ];
-
-    if(
-        !aktywny||
-        !Array.isArray(
-            aktywny.kursy
-        )
-    ){
-        return null;
-    }
-
-    const aktywneId=
-        String(
-            aktywny.id||
-            ""
-        ).trim();
-
-    if(!aktywneId){
-        return null;
-    }
-
-    /*
-       Mapa ID -> dokładny przystanek kierunku.
-       Nie dopasowujemy po nazwie.
-    */
-    const poId=
-        new Map();
-
-    baza.forEach(
-        (p,index)=>{
-
-            const id=
-                String(
-                    p?.id||
-                    ""
-                ).trim();
-
-            if(id){
-                poId.set(
-                    id,
-                    {
-                        p,
-                        index
-                    }
-                );
-            }
-        }
-    );
-
-    /*
-       Z kursów dostępnych NA WYBRANYM PRZYSTANKU pobieramy
-       rzeczywiste przebiegi.
-
-       Dla tabliczki interesuje nas wyłącznie część OD aktywnego
-       przystanku w dół — przystanki minięte nie mogą wrócić
-       na listę tylko dlatego, że kurs rozpoczął się wcześniej.
-    */
-    const grupy=
-        new Map();
-
-    aktywny.kursy.forEach(
-        kurs=>{
-
-            const cala=
-                Array.isArray(
-                    kurs?.trasa
-                )
-                    ? kurs.trasa
-                        .map(
-                            id=>
-                                String(
-                                    id||
-                                    ""
-                                ).trim()
-                        )
-                        .filter(Boolean)
-                    : [];
-
-            if(!cala.length){
-                return;
-            }
-
-            const pozycja=
-                cala.indexOf(
-                    aktywneId
-                );
-
-            if(pozycja<0){
-                return;
-            }
-
-            const dalsza=
-                cala.slice(
-                    pozycja
-                );
-
-            const klucz=
-                dalsza.join(
-                    "\u001F"
-                );
-
-            if(!grupy.has(klucz)){
-                grupy.set(
-                    klucz,
-                    {
-                        ids:dalsza,
-                        ile:0
-                    }
-                );
-            }
-
-            grupy.get(
-                klucz
-            ).ile++;
-        }
-    );
-
-    if(!grupy.size){
-        return null;
-    }
-
-    /*
-       Oś główna tabliczki = najczęściej występujący RZECZYWISTY
-       przebieg od tego przystanku.
-       Przy remisie wybieramy dłuższy rzeczywisty przebieg.
-
-       Nie tworzymy żadnych sztucznych gałęzi i nie dokładamy
-       przystanków z innego kursu.
-    */
-    const glowna=
-        Array.from(
-            grupy.values()
-        )
-        .sort(
-            (a,b)=>
-                (
-                    b.ile-
-                    a.ile
-                )||
-                (
-                    b.ids.length-
-                    a.ids.length
-                )
-        )[0];
-
-    const wynik=[];
-
-    glowna.ids.forEach(
-        id=>{
-
-            const znaleziony=
-                poId.get(id);
-
-            if(!znaleziony){
-                return;
-            }
-
-            const oryginal=
-                znaleziony.p;
-
-            if(
-                String(
-                    oryginal?.typ||
-                    ""
-                )
-                .trim()
-                .toUpperCase()==="TECH"
-            ){
-                return;
-            }
-
-            /*
-               Kopia tylko dla renderera listy.
-               Oryginalnego JSON nie zmieniamy.
-            */
-            const p={
-                ...oryginal
-            };
-
-            if(
-                String(
-                    oryginal?.nazwa_czysta||
-                    ""
-                ).trim()
-            ){
-                p.nazwa=
-                    String(
-                        oryginal.nazwa_czysta
-                    ).trim();
-            }
-
-            p.miejscowosc=
-                String(
-                    oryginal?.miejscowosc||
-                    ""
-                ).trim();
-
-            p.strefa=
-                String(
-                    oryginal?.strefa||
-                    ""
-                ).trim();
-
-            wynik.push(
-                {
-                    p,
-                    index:
-                        znaleziony.index,
-
-                    /*
-                       Flaga dla renderera:
-                       NIE uruchamiaj starej analizy
-                       "Trasa w kursach..." dla tego elementu.
-                    */
-                    _json484:true
-                }
-            );
-        }
-    );
-
-    return wynik.length
-        ? wynik
-        : null;
-}
-
-
 function __bezCache_listaTrasyDoWyswietlenia(){
 
-    /*
-       WERSJA 484:
-       nowy JSON ma pierwszeństwo absolutne.
-       Stary silnik pozostaje tylko dla plików bez kurs.trasa.
-    */
-    const nowa=
-        listaTrasyZNowegoJSON484();
-
-    if(nowa){
-        return nowa;
-    }
-
-    /*
-       Fallback wyłącznie dla starego formatu JSON.
-    */
     const baza=
         czyBiezacyPrzystanekDwukierunkowy()
             ? listaPelnejTrasyDoWyswietlenia()
-            : daneTrasWydluzonych().baza;
+            : daneTrasWydluzonych()
+                .baza;
 
-    return baza;
+    const oczyszczona=
+        przeniesMinieteGaleziePrzedAktywny(
+            baza
+        );
+
+    const poPoczatkuWariantu=
+        przytnijInneGaleziePrzedPoczatkiemWariantu(
+            oczyszczona
+        );
+
+    const bezPowtorzenia=
+        usunPowtorzenieNazwyPrzedAktywnym(
+            poPoczatkuWariantu
+        );
+
+    const bezPustychPrzyszlych=
+        usunPrzyszlePrzystankiBezMinuty(
+            bezPowtorzenia
+        );
+
+    const bezDuplikatowTegoSamegoStanu=
+        usunSztuczneDuplikatyWTymSamymStanieTrasy(
+            bezPustychPrzyszlych
+        );
+
+    const bezGranicy=
+        usunPowtorzenieNaGranicyWariantow(
+            bezDuplikatowTegoSamegoStanu
+        );
+
+    let wynik=
+        usunKolejnePowtorzeniaNazwyWDwukierunkowym(
+            bezGranicy
+        );
+
+    /*
+       =========================================================
+       FALLBACK DLA DOKŁADNEGO AKTYWNEGO PRZYSTANKU
+       =========================================================
+
+       Jeżeli rozkład jazdy i kierunek zostały poprawnie znalezione,
+       ale filtry wariantów usunęły wszystkie przystanki PO aktywnym,
+       odbudowujemy dalszą trasę z TEGO SAMEGO kursu, z którego
+       zostały policzone czasy przejazdu.
+
+       To jest dokładnie przypadek:
+           linia 170
+           kierunek RONDO STARZYŃSKIEGO
+           PKP ZACISZE-WILNO 02 (idx:5)
+
+       Godziny są poprawne, więc kurs został znaleziony.
+       Nie ma powodu, żeby lista kończyła się na aktywnym punkcie,
+       jeżeli czasyTrasy() ma czasy dla następnych przystanków.
+    */
+
+    const aktywnyPos=
+        wynik.findIndex(
+            element=>
+                Number(
+                    element?.index
+                )===
+                Number(
+                    aktualnyPrzystanek
+                )
+        );
+
+    const maCosPoAktywnym=
+        aktywnyPos>=0&&
+        aktywnyPos<
+            wynik.length-1;
+
+    if(
+        aktywnyPos>=0&&
+        !maCosPoAktywnym
+    ){
+
+        const czasy=
+            czasyTrasy();
+
+        const dalsze=
+            baza.filter(
+                element=>{
+
+                    const idx=
+                        Number(
+                            element?.index
+                        );
+
+                    if(
+                        !Number.isInteger(idx)||
+                        idx<=
+                            Number(
+                                aktualnyPrzystanek
+                            )
+                    ){
+                        return false;
+                    }
+
+                    /*
+                       Zostawiamy wyłącznie te punkty, dla których
+                       wybrany rzeczywisty kurs ma policzony czas.
+                       Dzięki temu nie dokładamy obcych gałęzi.
+                    */
+                    return(
+                        czasy[
+                            idx
+                        ]!==null&&
+                        czasy[
+                            idx
+                        ]!==undefined
+                    );
+                }
+            );
+
+        if(dalsze.length){
+
+            const klucze=
+                new Set(
+                    wynik.map(
+                        element=>
+                            [
+                                Number(
+                                    element?.index
+                                ),
+                                normalizuj(
+                                    element?.p?.nazwa
+                                ),
+                                String(
+                                    element?.p?.nr||""
+                                ).trim()
+                            ].join("|")
+                    )
+                );
+
+            dalsze.forEach(
+                element=>{
+
+                    const key=
+                        [
+                            Number(
+                                element?.index
+                            ),
+                            normalizuj(
+                                element?.p?.nazwa
+                            ),
+                            String(
+                                element?.p?.nr||""
+                            ).trim()
+                        ].join("|");
+
+                    if(!klucze.has(key)){
+                        wynik.push(
+                            element
+                        );
+                        klucze.add(key);
+                    }
+                }
+            );
+        }
+    }
+
+    /*
+       v206:
+       dla początku własnej grupy kursów zastępujemy wynik trasą
+       wyliczoną BEZPOŚREDNIO z kursów JSON po indeksach.
+    */
+    if(
+        czyAktywnyJestPoczatkiem206()
+    ){
+        wynik=
+            trasaZDokladnychKursow206(
+                wynik
+            );
+    }
+
+    return wstawGalezieWPrzebieg304(wynik);
 }
 
 function listaTrasyDoWyswietlenia(){
@@ -19862,15 +19792,11 @@ function renderTrasaKolumna(
                               );
 
                     const stanAktualny=
-                        element?._json484
-                            ? null
-                            : (
-                                element?._galaz304
-                                    ? element.stan304
-                                    : stanTrasyNaPrzystanku(
-                                        element
-                                    )
-                              );
+                        element?._galaz304
+                            ? element.stan304
+                            : stanTrasyNaPrzystanku(
+                                element
+                            );
 
                     let stanPoprzedni=null;
 
@@ -19984,12 +19910,9 @@ function renderTrasaKolumna(
                          już opisu nieaktualnej gałęzi.
                     */
                     let separator=
-                        element?._json484
+                        element?._galaz304
                             ? ''
                             : (
-                                element?._galaz304
-                                    ? ''
-                                    : (
                                 stanPoprzedni===null||
                                 przed||
                                 (
@@ -20006,7 +19929,6 @@ function renderTrasaKolumna(
                                         stanPoprzedni,
                                         stanAktualny
                                     )
-                                  )
                               );
 
                     /*
@@ -21325,17 +21247,9 @@ function renderuj(){
     const grupy=
         dostepneGrupyDni();
 
-    /*
-       WERSJA 484:
-       kolumny trasy powstają z FINALNEJ listy JSON,
-       a nie z pełnej starej listy kierunku.
-    */
-    const listaTrasy=
-        listaTrasyDoWyswietlenia();
-
     const fragmenty=
         podzielTrase(
-            listaTrasy
+            lista
         );
 
     const czasy=
@@ -21386,6 +21300,9 @@ function renderuj(){
                 grupy.length
             )
         );
+
+    const listaTrasy=
+        listaTrasyDoWyswietlenia();
 
     const pierwszyIndexTrasy=
         listaTrasy.length
@@ -38029,15 +37946,457 @@ function poprawWidok215(){
 }
 
 
+
+/* =========================================================
+   FWTP — WERSJA 485
+   CAŁKOWICIE NOWY SILNIK LISTY PRZYSTANKÓW
+   =========================================================
+   Stara logika listy (126 / 401 / 150 / wydłużenia / gałęzie /
+   stanTrasyNaPrzystanku / daneTrasWydluzonych itd.) NIE JEST
+   UŻYWANA przez renderer V485.
+
+   Jedynym źródłem fizycznego przebiegu jest:
+       kurs.trasa = [ID, ID, ID...]
+
+   Metadane:
+       p.id
+       p.nazwa_czysta
+       p.miejscowosc
+       p.strefa
+       p.typ
+   ========================================================= */
+
+function v485Text(v){
+    return String(v == null ? "" : v)
+        .replace(/\s+/g," ")
+        .trim();
+}
+
+function v485Array(v){
+    return Array.isArray(v) ? v : [];
+}
+
+function v485StopId(p){
+    return v485Text(p?.id);
+}
+
+function v485StopName(p){
+    return v485Text(p?.nazwa_czysta) || v485Text(p?.nazwa);
+}
+
+function v485StopType(p){
+    return v485Text(p?.typ).toLocaleUpperCase("pl-PL");
+}
+
+function v485StopTown(p){
+    return v485Text(p?.miejscowosc);
+}
+
+function v485StopZone(p){
+    return v485Text(p?.strefa);
+}
+
+function v485CurrentDirection(){
+    return kierunekBazowy() || null;
+}
+
+function v485BaseStops(){
+    return v485Array(
+        v485CurrentDirection()?.przystanki
+    );
+}
+
+function v485CurrentStop(){
+    return v485BaseStops()[
+        Number(aktualnyPrzystanek)
+    ] || null;
+}
+
+function v485StopMap(){
+    const map = new Map();
+
+    v485BaseStops().forEach((p,index)=>{
+        const id = v485StopId(p);
+
+        if(id && !map.has(id)){
+            map.set(id,{p,index});
+        }
+    });
+
+    return map;
+}
+
+function v485MinutesValue(value){
+    const m = /^(\d{1,2}):(\d{2})$/.exec(
+        v485Text(value)
+    );
+
+    if(!m) return null;
+
+    return Number(m[1]) * 60 + Number(m[2]);
+}
+
+function v485CourseKey(kurs){
+    /*
+       "numer" jest identyfikatorem konkretnego kursu w nowym JSON.
+       Jeżeli kiedyś go zabraknie, dokładamy czas/brygadę jako fallback.
+    */
+    return [
+        v485Text(kurs?.numer),
+        v485Text(kurs?.czas),
+        v485Text(kurs?.brygada)
+    ].join("|");
+}
+
+function v485CourseAtStop(stop, representative){
+    if(!stop || !representative) return null;
+
+    const numer = v485Text(representative.numer);
+
+    if(numer){
+        const exact = v485Array(stop.kursy).find(
+            k => v485Text(k?.numer) === numer
+        );
+
+        if(exact) return exact;
+    }
+
+    const key = v485CourseKey(representative);
+
+    return v485Array(stop.kursy).find(
+        k => v485CourseKey(k) === key
+    ) || null;
+}
+
+/*
+   Wszystkie RZECZYWISTE przebiegi dostępne z aktualnego przystanku.
+
+   Każdy kurs.trasa jest przycinany od dokładnego ID aktualnego słupka.
+   Niczego nie dodajemy, nie przestawiamy i nie dopasowujemy po nazwie.
+*/
+function v485BuildRoutes(){
+    const active = v485CurrentStop();
+    const activeId = v485StopId(active);
+    const map = v485StopMap();
+
+    if(
+        !active ||
+        !activeId ||
+        !v485Array(active.kursy).length
+    ){
+        return [];
+    }
+
+    const groups = new Map();
+
+    for(const kurs of v485Array(active.kursy)){
+        const fullIds = v485Array(kurs?.trasa)
+            .map(v485Text)
+            .filter(Boolean);
+
+        if(!fullIds.length) continue;
+
+        const activePosition = fullIds.indexOf(activeId);
+        if(activePosition < 0) continue;
+
+        const ids = fullIds.slice(activePosition);
+
+        /*
+           TECH nie trafia na listę pasażerską, ale nie zmieniamy
+           kolejności pozostałych ID.
+        */
+        const items = ids
+            .map(id => map.get(id))
+            .filter(Boolean)
+            .filter(x => v485StopType(x.p) !== "TECH");
+
+        if(!items.length) continue;
+
+        const normalizedIds = items.map(
+            x => v485StopId(x.p)
+        );
+
+        const routeKey = normalizedIds.join("\u001F");
+
+        if(!groups.has(routeKey)){
+            groups.set(routeKey,{
+                ids:normalizedIds,
+                items,
+                courses:[],
+                representative:kurs
+            });
+        }
+
+        groups.get(routeKey).courses.push(kurs);
+    }
+
+    /*
+       To NIE wybiera trasy "na podstawie popularności".
+       Każda unikalna kurs.trasa pozostaje osobnym rzeczywistym
+       przebiegiem. Sortowanie wpływa tylko na kolejność kolumn:
+       najpierw przebieg z największą liczbą kursów, potem dłuższy.
+    */
+    return Array.from(groups.values())
+        .sort((a,b)=>
+            (b.courses.length-a.courses.length) ||
+            (b.items.length-a.items.length)
+        );
+}
+
+/*
+   Czas przejazdu dla reprezentatywnego kursu danego rzeczywistego
+   przebiegu. Nie korzystamy z czasyTrasy() ani ze starego wyboru
+   wariantu.
+*/
+function v485TravelMinutes(route,item){
+    const active = v485CurrentStop();
+    const rep = route?.representative;
+
+    const activeCourse = v485CourseAtStop(active,rep);
+    const stopCourse = v485CourseAtStop(item?.p,rep);
+
+    const t0 = v485MinutesValue(activeCourse?.czas);
+    const t1 = v485MinutesValue(stopCourse?.czas);
+
+    if(t0 === null || t1 === null){
+        return null;
+    }
+
+    let diff = t1 - t0;
+
+    /*
+       Obsługa przejścia przez północ.
+    */
+    while(diff < 0){
+        diff += 24*60;
+    }
+
+    return diff;
+}
+
+function v485RouteLabel(route){
+    const letters = Array.from(
+        new Set(
+            v485Array(route?.courses)
+                .map(k => v485Text(k?.wariant))
+                .filter(Boolean)
+        )
+    );
+
+    if(!letters.length) return "";
+
+    return "Trasa w kursach " +
+        letters
+            .map(x => "„"+x.toLowerCase()+"”")
+            .join(", ");
+}
+
+/*
+   Separator miejscowości jest tworzony WYŁĄCZNIE z pola
+   miejscowosc z JSON. Nie czytamy nawiasów z nazwy.
+*/
+function v485TownSeparator(town){
+    if(!town) return "";
+
+    return (
+        '<li class="trasa-separator v485-miejscowosc">'+
+        '<span class="trasa-separator-title">'+
+        '--- '+escapeHtml(town.toUpperCase())+' ---'+
+        '</span>'+
+        '</li>'
+    );
+}
+
+/*
+   Separator strefy również korzysta WYŁĄCZNIE z JSON.
+*/
+function v485ZoneSeparator(zone){
+    if(!zone) return "";
+
+    return (
+        '<li class="trasa-separator v485-strefa">'+
+        '<span class="trasa-separator-title">'+
+        'STREFA '+escapeHtml(zone)+
+        '</span>'+
+        '</li>'
+    );
+}
+
+function v485RenderRouteColumn(route){
+    const activeId = v485StopId(
+        v485CurrentStop()
+    );
+
+    let previousTown = null;
+    let previousZone = null;
+
+    let rows = "";
+
+    route.items.forEach((item,pos)=>{
+        const p = item.p;
+        const town = v485StopTown(p);
+        const zone = v485StopZone(p);
+
+        /*
+           Miejscowość pokazujemy przy zmianie miejscowości.
+           Nie dopisujemy jej do nazwy przystanku.
+        */
+        if(
+            pos > 0 &&
+            town &&
+            town !== previousTown
+        ){
+            rows += v485TownSeparator(town);
+        }
+
+        /*
+           Strefa jest niezależna od miejscowości.
+           1/2 traktujemy jako informację graniczną zapisaną w JSON.
+        */
+        if(
+            pos > 0 &&
+            zone &&
+            zone !== previousZone
+        ){
+            rows += v485ZoneSeparator(zone);
+        }
+
+        const selected =
+            v485StopId(p) === activeId;
+
+        const first = pos === 0;
+        const last = pos === route.items.length-1;
+        const minutes = v485TravelMinutes(route,item);
+
+        const classes = [
+            "trasa-stop",
+            selected ? "wybrany" : "",
+            first ? "kraniec-poczatek" : "",
+            last ? "kraniec-koniec koniec-trasy-210" : "",
+            czyNZ(p) ? "nz" : ""
+        ].filter(Boolean).join(" ");
+
+        rows +=
+            '<li class="'+classes+'" data-v485-id="'+
+            escapeHtml(v485StopId(p))+'">'+
+
+            '<span class="trasa-czas">'+
+            (
+                minutes === null
+                    ? ""
+                    : escapeHtml(String(minutes))
+            )+
+            '</span>'+
+
+            '<span class="trasa-os"></span>'+
+
+            '<span class="trasa-nazwa">'+
+            (
+                selected
+                    ? '<span class="trasa-nazwa-aktywna">'+
+                      escapeHtml(
+                          v485StopName(p).toUpperCase()
+                      )+
+                      '</span>'
+                    : escapeHtml(
+                          v485StopName(p).toUpperCase()
+                      )
+            )+
+            '</span>'+
+
+            '<span class="trasa-nz">'+
+            (
+                czyNZ(p)
+                    ? "ż"
+                    : ""
+            )+
+            '</span>'+
+            '</li>';
+
+        if(town){
+            previousTown = town;
+        }
+
+        if(zone){
+            previousZone = zone;
+        }
+    });
+
+    const label = v485RouteLabel(route);
+
+    return (
+        '<div class="trasa-kol v485-trasa-kol">'+
+        '<ul class="trasa-lista">'+
+        (
+            label
+                ? '<li class="trasa-separator v485-wariant">'+
+                  '<span class="trasa-separator-title">'+
+                  escapeHtml(label)+
+                  '</span>'+
+                  '</li>'
+                : ''
+        )+
+        rows+
+        '</ul>'+
+        '</div>'
+    );
+}
+
+function v485RenderRoutes(routes){
+    return routes
+        .map(v485RenderRouteColumn)
+        .join("");
+}
+
+/*
+   Zachowujemy nazwy funkcji, których mogą dotykać inne części strony,
+   ale od V485 zwracają one WYŁĄCZNIE nowy model JSON.
+*/
+window.listaTrasyDoWyswietlenia = function(){
+    const routes = v485BuildRoutes();
+
+    return routes.length
+        ? routes[0].items.map(x=>({
+            p:x.p,
+            index:x.index,
+            _v485:true
+        }))
+        : [];
+};
+
+window.podzielTrase = function(){
+    return v485BuildRoutes().map((route,i)=>({
+        start:0,
+        lista:route.items.map(x=>({
+            p:x.p,
+            index:x.index,
+            _v485:true
+        })),
+        _v485Route:route,
+        _v485Index:i
+    }));
+};
+
+window.FWTP485 = {
+    routes:v485BuildRoutes,
+    currentStop:v485CurrentStop,
+    stopName:v485StopName
+};
+
+
 function renderuj(){
 
     /*
-       Każde nowe renderowanie zaczyna z czystym cache.
-       W obrębie jednego renderu te same ciężkie analizy są
-       wykonywane tylko raz.
+       =========================================================
+       WERSJA 485
+       =========================================================
+       Lewa część tabliczki i tabela rozkładu pozostają z V478.
+       Prawa lista przystanków jest renderowana CAŁKOWICIE nowym
+       silnikiem z kurs.trasa.
+       =========================================================
     */
-    wyczyscCacheTabliczki();
 
+    wyczyscCacheTabliczki();
 
     const kierunek=
         kierunekBazowy();
@@ -38058,16 +38417,18 @@ function renderuj(){
         return;
     }
 
+    const routes=
+        v485BuildRoutes();
+
+    if(!routes.length){
+        pokazBlad(
+            "Brak pola kurs.trasa dla kursów tego przystanku."
+        );
+        return;
+    }
+
     const grupy=
         dostepneGrupyDni();
-
-    const fragmenty=
-        podzielTrase(
-            lista
-        );
-
-    const czasy=
-        czasyTrasy();
 
     const numer=
         String(
@@ -38075,9 +38436,16 @@ function renderuj(){
             aktualnaLinia
         );
 
+    /*
+       Liczba kolumn trasy wynika z liczby UNIKALNYCH rzeczywistych
+       kurs.trasa dostępnych z wybranego przystanku.
+    */
+    const routeCount=
+        routes.length;
+
     const klasaTrasy=
-        fragmenty.length===2
-            ? " trasa-2-kol"
+        routeCount>1
+            ? " trasa-2-kol v485-wiele-tras"
             : "";
 
     const legenda=
@@ -38115,19 +38483,6 @@ function renderuj(){
             )
         );
 
-    const listaTrasy=
-        listaTrasyDoWyswietlenia();
-
-    const pierwszyIndexTrasy=
-        listaTrasy.length
-            ? listaTrasy[0].index
-            : -1;
-
-    const ostatniIndexTrasy=
-        listaTrasy.length
-            ? listaTrasy[listaTrasy.length-1].index
-            : -1;
-
     const kierunkiStopu=
         kierunkiAktywneDlaBiezacegoPrzystanku();
 
@@ -38154,15 +38509,17 @@ function renderuj(){
             : '';
 
     const trasaHtml=
-        fragmenty
+        v485RenderRoutes(
+            routes
+        );
+
+    const headHtml=
+        routes
             .map(
-                f=>
-                    renderTrasaKolumna(
-                        f,
-                        czasy,
-                        pierwszyIndexTrasy,
-                        ostatniIndexTrasy
-                    )
+                ()=>
+                    '<div class="trasa-head-label">'+
+                    'czasy, trasa, przystanki'+
+                    '</div>'
             )
             .join("");
 
@@ -38170,7 +38527,7 @@ function renderuj(){
         '<div class="tabliczka-scroll">'+
         '<article class="tabliczka'+
         klasaTrasy+
-        '">'+
+        ' v485-tabliczka">'+
 
         '<section class="panel-lewy">'+
 
@@ -38190,35 +38547,9 @@ function renderuj(){
                 : (
                     '<div class="kierunek">'+
                     escapeHtml(
-                        (function(){
-                            let n461 = String(
-                                nazwaKierunku(kierunek) || ""
-                            ).trim();
-
-                            const norm461 = s => String(s || "")
-                                .toLocaleUpperCase("pl-PL")
-                                .normalize("NFD")
-                                .replace(/[\u0300-\u036f]/g, "")
-                                .replace(/\s+/g, " ")
-                                .trim();
-
-                            if(
-                                String(aktualnaLinia || "").trim() === "150" &&
-                                norm461(n461).includes(
-                                    norm461("DZIEKANÓW LEŚNY")
-                                )
-                            ){
-                                n461 =
-                                    "DZIEKANÓW LEŚNY / IZABELIN-DZIEKANÓWEK";
-                            }else if(
-                                typeof window.bezMiejscowosciWKierunkuIOpisie458 === "function"
-                            ){
-                                n461 =
-                                    window.bezMiejscowosciWKierunkuIOpisie458(n461);
-                            }
-
-                            return n461.toUpperCase();
-                        })()
+                        window.bezMiejscowosciWKierunkuIOpisie458(
+                            nazwaKierunku(kierunek)
+                        ).toUpperCase()
                     )+
                     '</div>'
                 )
@@ -38237,12 +38568,14 @@ function renderuj(){
         '</div>'+
 
         '<div class="rozklady-wrap">'+
-        ('<div class="rozklady-grid '+kolKlasa+(
-                    grupy.some(g => g.tytul === "SOBOTA") &&
-                    grupy.some(g => g.tytul === "ŚWIĘTO")
-                        ? ' weekend-rowny'
-                        : ''
-                )+'">')+
+        '<div class="rozklady-grid '+kolKlasa+
+        (
+            grupy.some(g => g.tytul === "SOBOTA") &&
+            grupy.some(g => g.tytul === "ŚWIĘTO")
+                ? ' weekend-rowny'
+                : ''
+        )+
+        '">'+
         rozklady+
         '</div>'+
         '</div>'+
@@ -38258,9 +38591,7 @@ function renderuj(){
         '<div class="etykieta-przystanku">'+
         'Przystanek: '+
         escapeHtml(
-            String(
-                p.nazwa||""
-            ).toUpperCase()
+            v485StopName(p).toUpperCase()
         )+
         ' '+
         escapeHtml(
@@ -38273,19 +38604,10 @@ function renderuj(){
         '</section>'+
 
         '<aside class="panel-prawy">'+
-        '<div class="trasa-head cols-'+
-        fragmenty.length+
-        '">'+
-        '<div class="trasa-head-label">czasy, trasa, przystanki</div>'+ 
-        (
-            fragmenty.length===2
-                ? '<div class="trasa-head-label">czasy, trasa, przystanki</div>'
-                : ''
-        )+
+        '<div class="trasa-head v485-cols">'+
+        headHtml+
         '</div>'+
-        '<div class="trasa-columns cols-'+
-        fragmenty.length+
-        '">'+
+        '<div class="trasa-columns v485-cols">'+
         trasaHtml+
         '</div>'+
         '</aside>'+
@@ -38298,46 +38620,59 @@ function renderuj(){
         .innerHTML=
             html;
 
+    /*
+       Nowe kolumny są dynamiczne, dlatego ich siatkę ustawiamy
+       bez korzystania ze starych klas cols-1 / cols-2.
+    */
+    const tabliczka=
+        document.querySelector(
+            "#wynik .v485-tabliczka"
+        );
+
+    if(tabliczka){
+        const head=
+            tabliczka.querySelector(
+                ".trasa-head.v485-cols"
+            );
+
+        const columns=
+            tabliczka.querySelector(
+                ".trasa-columns.v485-cols"
+            );
+
+        const template=
+            "repeat("+
+            routeCount+
+            ", minmax(145px, 1fr))";
+
+        if(head){
+            head.style.display="grid";
+            head.style.gridTemplateColumns=template;
+        }
+
+        if(columns){
+            columns.style.display="grid";
+            columns.style.gridTemplateColumns=template;
+        }
+    }
+
     requestAnimationFrame(() => {
 
-        /*
-           Najpierw dopasowujemy szerokość tabel do napisu
-           "NIE KURSUJE", jeżeli taki napis występuje.
-        */
         dopasujSzerokoscNieKursuje();
-
-        /*
-           Dopiero POTEM wyrównujemy SOBOTĘ i ŚWIĘTO.
-           Dzięki temu nawet jeśli jedna z tych tabel została
-           poszerzona przez "NIE KURSUJE", druga dostanie
-           dokładnie tę samą szerokość.
-        */
         wyrownajSzerokoscWeekendow();
 
         requestAnimationFrame(() => {
 
-            /*
-               Powtarzamy wyrównanie po kolejnym przeliczeniu layoutu,
-               żeby szerokości były identyczne także po załadowaniu
-               fontów i ostatecznym ułożeniu treści.
-            */
             wyrownajSzerokoscWeekendow();
 
-            dopasujKolumnyTrasy();
-
             /*
-               WERSJA 184:
-               1. naturalny układ — minuty wszędzie w jednym rzędzie,
-               2. jeśli nie mieści się -> dzień powszedni 246 px,
-               3. jeśli nadal nie -> dzień powszedni 225 px,
-               4. jeśli nadal nie -> dwie strony.
+               Nie wywołujemy dopasujKolumnyTrasy(), ponieważ była to
+               część starego silnika listy. Siatka V485 jest ustawiona
+               bezpośrednio z liczby rzeczywistych kurs.trasa.
             */
+
             zastosujEtapyRozkladu184();
 
-            /*
-               v229: po zakończeniu przeliczeń szerokości sprawdzamy,
-               czy legenda nadal mieści się na dole strony.
-            */
             zaplanujLegende237(
                 document.querySelector(
                     "#wynik .tabliczka"
@@ -38345,8 +38680,6 @@ function renderuj(){
             );
         });
     });
-
-    poprawPierwszyAktywnyPrzystanek();
 }
 
 
