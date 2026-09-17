@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 481
+     WERSJA: 482
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -46841,162 +46841,245 @@ body .tabliczka.kierunki-dwa-473
 
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 481
-     BAZA: WERSJA 478
-     WYGLĄD: BEZ ZMIAN
-     LOGIKA TRASY: JSON V38+ JEST ŹRÓDŁEM PRAWDY
+     FWTP — WERSJA 482
+     BAZA WIZUALNA: 478
+     ZMIANA: NOWA LOGIKA LISTY PRZYSTANKÓW Z kurs.trasa
      ========================================================= -->
-<script id="wersja-481-json-route-engine">
+<script id="fwtp-v482-trasa-json">
 (function(){
-    "use strict";
+"use strict";
 
-    /*
-       V481 NIE ZMIENIA HTML/CSS TABLICZKI.
-       Podmieniamy wyłącznie dane, z których istniejący renderer
-       buduje przebieg. Stary wygląd, tabela godzin, proporcje,
-       typografia i układ pozostają z V478.
-    */
+/*
+    V482:
+    - NIE zmienia wyglądu tabliczki;
+    - NIE zmienia tabeli rozkładu;
+    - NIE zmienia nagłówka, numeru linii ani kierunków;
+    - zastępuje wyłącznie logikę budowania LISTY PRZYSTANKÓW.
 
-    function s481(v){
-        return String(v == null ? "" : v).replace(/\s+/g," ").trim();
+    Źródłem prawdy są:
+        przystanek.id
+        przystanek.nazwa_czysta
+        przystanek.miejscowosc
+        przystanek.strefa
+        kurs.trasa
+
+    Nie analizujemy już wariantów, nazw ani liczby kursów po to,
+    żeby zgadywać fizyczny przebieg.
+*/
+
+function v482txt(v){
+    return String(v == null ? "" : v).replace(/\s+/g," ").trim();
+}
+
+function v482arr(v){
+    return Array.isArray(v) ? v : [];
+}
+
+function v482Id(p){
+    return v482txt(p && p.id);
+}
+
+function v482Kierunek(){
+    try{
+        return kierunekBazowy();
+    }catch(e){
+        return null;
+    }
+}
+
+function v482Baza(){
+    return v482arr(v482Kierunek()?.przystanki);
+}
+
+function v482Aktywny(){
+    return v482Baza()[Number(aktualnyPrzystanek)] || null;
+}
+
+/*
+    Kursy znajdujące się przy AKTYWNYM przystanku są kursami,
+    które rzeczywiście ten przystanek obsługują.
+
+    Zbieramy z nich wszystkie kurs.trasa.
+    Dzięki temu:
+    - kurs podstawowy,
+    - wydłużenie,
+    - skrócenie,
+    - kurs zaczynający się później
+    są opisane przez JSON, a nie przez heurystyki JS.
+*/
+function v482TrasyAktywnego(){
+    const aktywny = v482Aktywny();
+    if(!aktywny) return [];
+
+    const wynik = [];
+    const widziane = new Set();
+
+    for(const kurs of v482arr(aktywny.kursy)){
+        const ids = v482arr(kurs?.trasa)
+            .map(v482txt)
+            .filter(Boolean);
+
+        if(!ids.length) continue;
+
+        const klucz = ids.join(">");
+        if(widziane.has(klucz)) continue;
+
+        widziane.add(klucz);
+        wynik.push(ids);
     }
 
-    function arr481(v){
-        return Array.isArray(v) ? v : [];
+    return wynik;
+}
+
+/*
+    Budujemy listę dokładnie z ID występujących w kurs.trasa.
+
+    Kolejność pochodzi z listy przystanków kierunku zapisanej w JSON.
+    To jest ważne, ponieważ jeden aktywny przystanek może obsługiwać
+    kilka fizycznych przebiegów, np.:
+        - część kursów zaczyna się w Dziekanowie Leśnym,
+        - część przyjeżdża z Izabelina-Dziekanówka.
+
+    Wtedy lista ma pokazać pełny możliwy ciąg, ale tylko punkty,
+    które faktycznie występują w co najmniej jednym kurs.trasa.
+*/
+function v482ListaZJSON(){
+    const baza = v482Baza();
+    const trasy = v482TrasyAktywnego();
+
+    if(!baza.length || !trasy.length){
+        return null;
     }
 
-    function id481(stop){
-        return s481(stop && stop.id);
+    const dozwolone = new Set();
+
+    for(const trasa of trasy){
+        for(const id of trasa){
+            dozwolone.add(id);
+        }
     }
 
-    function nazwa481(stop){
-        return s481(stop && stop.nazwa_czysta) || s481(stop && stop.nazwa);
-    }
+    const wynik = [];
 
-    function meta481(stop){
-        if(!stop || typeof stop !== "object") return stop;
+    baza.forEach((p,index)=>{
+        const id = v482Id(p);
 
-        /* Nowe pola JSON są nadrzędne. Nie parsujemy nawiasów w JS. */
-        if(s481(stop.nazwa_czysta)){
-            stop.nazwa_wyswietlana = s481(stop.nazwa_czysta);
+        if(!id || !dozwolone.has(id)){
+            return;
         }
 
-        stop.__fwtp481 = {
-            id: id481(stop),
-            nazwa: nazwa481(stop),
-            miejscowosc: s481(stop.miejscowosc),
-            strefa: s481(stop.strefa)
-        };
+        /*
+            Renderer V478 oczekuje obiektu:
+                { p: przystanek, index: indeks }
+            dlatego zachowujemy ten format.
+        */
+        wynik.push({
+            p,
+            index,
+            __v482:true
+        });
+    });
 
-        return stop;
+    return wynik.length ? wynik : null;
+}
+
+/*
+    Zachowujemy starą funkcję wyłącznie jako awaryjny fallback
+    dla starych JSON-ów bez kurs.trasa.
+*/
+const staraLista482 =
+    (typeof window.listaTrasyDoWyswietlenia === "function")
+        ? window.listaTrasyDoWyswietlenia
+        : null;
+
+window.listaTrasyDoWyswietlenia = function(){
+    const zJson = v482ListaZJSON();
+
+    if(zJson){
+        return zJson;
     }
 
-    function przygotuj481(root){
-        if(!root || typeof root !== "object") return root;
+    return staraLista482
+        ? staraLista482()
+        : [];
+};
 
-        const rozklady =
-            arr481(root["rozkłady"]).length ? arr481(root["rozkłady"]) :
-            arr481(root.rozklady);
+/*
+    renderuj() w V478 na samym początku robi:
+        const lista = kierunek.przystanki;
+        const fragmenty = podzielTrase(lista);
 
-        for(const r of rozklady){
-            const kierunki =
-                arr481(r && r.kierunki).length ? arr481(r.kierunki) :
-                arr481(root.kierunki);
+    To powodowało, że mimo poprawnej listaTrasyDoWyswietlenia()
+    kolumny mogły być nadal dzielone na podstawie starej pełnej listy.
 
-            for(const k of kierunki){
-                const stops = arr481(k && k.przystanki);
+    Podmieniamy tylko podzielTrase tak, aby gdy nowy JSON istnieje,
+    renderer dostał tę samą listę JSON-ową.
+*/
+const starePodziel482 =
+    (typeof window.podzielTrase === "function")
+        ? window.podzielTrase
+        : null;
 
-                const byId = new Map();
-                for(const st of stops){
-                    meta481(st);
-                    if(id481(st) && !byId.has(id481(st))){
-                        byId.set(id481(st),st);
-                    }
-                }
+window.podzielTrase = function(lista){
+    const zJson = v482ListaZJSON();
 
-                for(const st of stops){
-                    for(const kurs of arr481(st && st.kursy)){
-                        const ids = arr481(kurs && kurs.trasa)
-                            .map(s481)
-                            .filter(Boolean);
+    if(zJson){
+        return [{
+            start:0,
+            lista:zJson
+        }];
+    }
 
-                        if(!ids.length) continue;
+    return starePodziel482
+        ? starePodziel482(lista)
+        : [{start:0,lista:v482arr(lista)}];
+};
 
-                        /*
-                           Gotowy przebieg kursu z VBA.
-                           Dodajemy go jako dane pomocnicze; niczego
-                           nie wyznaczamy na podstawie częstotliwości,
-                           nazw ani wariantu.
-                        */
-                        kurs.__trasa481 = ids;
-                        kurs.__przystanki481 = ids
-                            .map(x => byId.get(x))
-                            .filter(Boolean);
-                    }
-                }
+/*
+    Nazwy na liście:
+    jeżeli VBA podało nazwa_czysta, renderer ma dostać właśnie ją.
+    Oryginalnego pola nazwa nie kasujemy — może być potrzebne
+    pozostałym elementom rozkładu.
+*/
+function v482PrzygotujNazwy(){
+    const baza = v482Baza();
+
+    for(const p of baza){
+        if(v482txt(p?.nazwa_czysta)){
+            if(!Object.prototype.hasOwnProperty.call(p,"__nazwaOryginalna482")){
+                p.__nazwaOryginalna482 = p.nazwa;
             }
+
+            p.nazwa = v482txt(p.nazwa_czysta);
         }
-
-        root.__FWTP_JSON_ROUTE_VERSION = 481;
-        return root;
     }
+}
 
-    /*
-       Przechwytujemy JSON natychmiast po response.json().
-       Dzięki temu wszystkie stare funkcje renderujące dostają już
-       przygotowane dane V481, ale ich HTML/CSS pozostaje nietknięty.
-    */
-    if(!Response.prototype.__fwtp481Json){
-        const oldJson = Response.prototype.json;
+/*
+    Uruchamiamy przygotowanie przed każdym renderem, ale nie
+    przebudowujemy samego renderera. Cały wygląd pozostaje z V478.
+*/
+const staryRender482 =
+    (typeof window.renderuj === "function")
+        ? window.renderuj
+        : null;
 
-        Response.prototype.json = async function(){
-            const data = await oldJson.call(this);
-
-            try{
-                const url = s481(this.url);
-                if(/\.json(?:$|\?)/i.test(url)){
-                    przygotuj481(data);
-                }
-            }catch(e){
-                console.warn("FWTP V481: przygotowanie JSON:",e);
-            }
-
-            return data;
-        };
-
-        Response.prototype.__fwtp481Json = true;
-    }
-
-    /*
-       Publiczne helpery dla istniejącego silnika V478.
-       Jeśli stara funkcja potrzebuje przebiegu, może dostać dokładnie
-       listę obiektów stopów odpowiadającą kurs.trasa.
-    */
-    window.FWTP481 = {
-        przygotuj: przygotuj481,
-
-        trasaKursu: function(kurs){
-            return arr481(kurs && kurs.__przystanki481);
-        },
-
-        idTrasyKursu: function(kurs){
-            return arr481(kurs && kurs.__trasa481);
-        },
-
-        nazwaStopu: nazwa481,
-
-        miejscowoscStopu: function(stop){
-            return s481(stop && stop.miejscowosc);
-        },
-
-        strefaStopu: function(stop){
-            return s481(stop && stop.strefa);
-        }
+if(staryRender482){
+    window.renderuj = function(){
+        v482PrzygotujNazwy();
+        return staryRender482.apply(this,arguments);
     };
+}
 
-    console.log(
-        "FWTP Tabliczka V481 — wygląd V478, logika przebiegu z JSON V38+"
-    );
+window.FWTP482 = {
+    lista: v482ListaZJSON,
+    trasyAktywnego: v482TrasyAktywnego
+};
+
+console.log(
+    "FWTP V482: wygląd V478 + lista przystanków budowana od nowa z kurs.trasa"
+);
+
 })();
 </script>
 
