@@ -2,14 +2,14 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 507
+     WERSJA: 508
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 507
+     FWTP — WERSJA PLIKU: 508
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
@@ -41,6 +41,9 @@
      - V506: METRO MŁOCINY jest końcowy, gdy faktycznie kończy dany kurs.trasa
      - V507: koniec trasy jest ustalany po dokładnym ID ostatniego przystanku kurs.trasa
      - V507: Metro Młociny 21 = koniec; Metro Marymont 11 = nie; Metro Marymont 12 = koniec
+     - V508: każdy wiersz przechowuje dokładne ID przystanku z JSON
+     - V508: po podziale na kolumny końce są nakładane ponownie z kurs.trasa
+     - V508: nie polegamy już na kontekście gałęzi podczas renderowania
      ========================================================= -->
 
 <html lang="pl">
@@ -16247,7 +16250,7 @@ function v496RenderStop(item, route, aktywnyKey, first=false, last=false){
         czyNZ(p)?"nz":""
     ].filter(Boolean).join(" ");
 
-    return '<li class="'+cls+'" data-v499-stop-key="'+escapeHtml(v496StopKey(p))+'">'+
+    return '<li class="'+cls+'" data-v499-stop-key="'+escapeHtml(v496StopKey(p))+'" data-v508-stop-id="'+escapeHtml(v486StopId(p))+'">'+
         '<span class="trasa-czas">'+
         (minutes===null?"":escapeHtml(String(minutes)))+
         '</span>'+
@@ -17112,10 +17115,92 @@ function v498DopasujKolumnyTrasy(){
     }
 }
 
+
+/* =========================================================
+   FWTP — WERSJA 508
+   KOŃCE TRAS — OSTATECZNE OZNACZENIE PO RENDERZE
+   =========================================================
+   V507 poprawnie czytał JSON, ale oznaczenie końca było wykonywane
+   podczas budowania poszczególnych grup/gałęzi. Późniejsze łączenie
+   tras i dzielenie na kolumny mogło zgubić kontekst przebiegu.
+
+   V508 robi to prościej i jednoznacznie:
+   1. z kursów AKTUALNEGO przystanku zbiera dokładne ID ostatniego
+      pasażerskiego przystanku każdego kurs.trasa;
+   2. po CAŁYM renderowaniu i po podziale na kolumny czyści stare
+      klasy końcowe;
+   3. nadaje klasę końcową tylko elementom o dokładnie takim ID.
+
+   Dla linii 150:
+   - 40|Metro Młociny|21  -> końcowy
+   - 36|Metro Marymont|11 -> NIE końcowy
+   - 37|Metro Marymont|12 -> końcowy
+   ========================================================= */
+
+function v508TerminalIds(){
+    const active=v486CurrentStop();
+    const stopMap=v486StopMap();
+    const out=new Set();
+
+    for(const kurs of v486Array(active?.kursy)){
+        const trasa=v486Array(kurs?.trasa)
+            .map(v486Text)
+            .filter(Boolean);
+
+        for(let i=trasa.length-1;i>=0;i--){
+            const id=trasa[i];
+            const found=stopMap.get(id);
+
+            if(found && v486StopType(found.p)==="TECH"){
+                continue;
+            }
+
+            out.add(id);
+            break;
+        }
+    }
+
+    return out;
+}
+
+function v508OznaczRzeczywisteKonce(){
+    const root=document.querySelector("#wynik .trasa-columns");
+    if(!root)return;
+
+    const terminalIds=v508TerminalIds();
+
+    root.querySelectorAll(".trasa-stop").forEach(stop=>{
+        /*
+           Najpierw zerujemy wcześniejsze oznaczenia. Dzięki temu
+           koniec fragmentu, gałęzi czy kolumny nie może udawać
+           końca rzeczywistego kursu.
+        */
+        stop.classList.remove(
+            "kraniec-koniec",
+            "koniec-trasy-210"
+        );
+
+        const id=(stop.getAttribute("data-v508-stop-id")||"").trim();
+
+        if(id && terminalIds.has(id)){
+            stop.classList.add(
+                "kraniec-koniec",
+                "koniec-trasy-210"
+            );
+        }
+    });
+}
+
 function v498UruchomDopasowanie(){
     requestAnimationFrame(()=>{
         requestAnimationFrame(()=>{
             v498DopasujKolumnyTrasy();
+
+            /*
+               V508: dopiero po ostatecznym układzie DOM/kolumn
+               nakładamy końce tras z dokładnych ID kurs.trasa.
+            */
+            v508OznaczRzeczywisteKonce();
         });
     });
 }
