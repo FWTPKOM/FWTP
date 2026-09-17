@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 476
+     WERSJA: 477
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -45572,74 +45572,112 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 </script>
 
 
-<style id="wersja-476-linia-150-koniec-i-warstwy">
+<style id="wersja-477-linia-150">
 /* =========================================================
-   WERSJA 476 — LINIA 150
+   WERSJA 477 — LINIA 150
    BAZA: 474
-   =========================================================
-   475 została pominięta, bo MutationObserver reagował na własne
-   zmiany i powodował ciągłe przeliczanie DOM.
 
-   476:
-   - ZERO MutationObserverów,
-   - Metro Młociny rozpoznawane jako ostatni STOP w lewej kolumnie,
-   - oś kończy się na kropce Metro Młociny,
-   - pionowa oś ma być nad poziomymi kreskami separatorów.
+   1. METRO MŁOCINY jest końcem pierwszego przebiegu.
+      Nie musi być ostatnim <li> całej listy, ponieważ pod nim
+      znajduje się kolejny blok "Trasa w kursach „d”".
+
+   2. Oś przez separator miejscowości/strefy jest osobną warstwą
+      NA poziomych kreskach. X = 23.1px, czyli dokładnie ten sam
+      co w istniejącej poprawce v451.
+
+   3. Nie używamy MutationObservera. Krótkie oczekiwanie kończy się
+      natychmiast po znalezieniu wyrenderowanej trasy.
    ========================================================= */
 
-/* Metro Młociny — prawdziwy koniec osi. */
+
+/* ---------------------------------------------------------
+   METRO MŁOCINY — KONIEC ODCINKA
+   --------------------------------------------------------- */
+
 .tabliczka.linia-150-v469
-.trasa-stop.koniec-metro-mlociny-476
+.trasa-columns
+.trasa-kol
+.trasa-lista-397
+> .trasa-stop.koniec-metro-mlociny-477
+.trasa-os::before,
+
+.tabliczka.linia-150-v469
+.trasa-columns
+.trasa-kol
+.trasa-lista
+> .trasa-stop.koniec-metro-mlociny-477
+.trasa-os::before,
+
+.tabliczka
+.trasa-stop.koniec-metro-mlociny-477
 .trasa-os::before {
+    content: "" !important;
+    display: block !important;
+
+    /* oś dochodzi od góry tylko do środka kropki */
     top: 0 !important;
     bottom: calc(100% - 7.25px) !important;
     height: auto !important;
 }
 
-.tabliczka.linia-150-v469
-.trasa-stop.koniec-metro-mlociny-476
-.trasa-nazwa {
+
+/* Metro Młociny jako kraniec — nazwa pogrubiona. */
+.tabliczka
+.trasa-stop.koniec-metro-mlociny-477
+.trasa-nazwa,
+.tabliczka
+.trasa-stop.koniec-metro-mlociny-477
+.trasa-nazwa-aktywna {
     font-weight: 700 !important;
 }
 
-/*
-   Pionowa oś separatora dostaje osobny element z wysokim z-index.
-   Nie używamy ::before/::after separatora, bo te są już używane
-   przez poziome kreski.
-*/
-.tabliczka.linia-150-v469
-.trasa-separator.os-przez-separator-476 {
+
+/* ---------------------------------------------------------
+   OŚ NAD POZIOMYMI KRESKAMI MIEJSCOWOŚCI / STREFY
+   --------------------------------------------------------- */
+
+.tabliczka
+.trasa-separator.os-separatora-477 {
     position: relative !important;
 }
 
-.tabliczka.linia-150-v469
-.trasa-separator.os-przez-separator-476
-> .os-przez-separator-476-line {
+/*
+   Osobny element osi.
+   23.1 px = X używany już przez v451.
+   Dzięki z-index:100 pionowa oś jest NAD kreskami "---".
+*/
+.tabliczka
+.trasa-separator.os-separatora-477
+> .pionowa-os-477 {
     position: absolute !important;
-    left: 29px !important;
+    display: block !important;
+
+    left: 23.1px !important;
     top: 0 !important;
     bottom: 0 !important;
-    width: 2px !important;
+
+    width: 2.25px !important;
+    height: auto !important;
+
     background: #111 !important;
-    z-index: 50 !important;
+
+    z-index: 100 !important;
     pointer-events: none !important;
 }
 </style>
 
+
 <script>
 /* =========================================================
-   WERSJA 476 — JEDNORAZOWA KOREKTA PO FINALNYM RENDERZE
+   WERSJA 477 — LINIA 150
    ========================================================= */
-(function FWTP_WERSJA_476(){
+(function FWTP_WERSJA_477(){
     "use strict";
 
-    function czy150(){
-        return String(
-            new URLSearchParams(location.search).get("linia") || ""
-        ).trim() === "150";
-    }
+    const START_477 = Date.now();
+    const MAX_CZEKANIA_477 = 10000;
 
-    function norm(v){
+    function norm477(v){
         return String(v || "")
             .replace(/\u00a0/g, " ")
             .replace(/\s+/g, " ")
@@ -45647,84 +45685,62 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
             .toUpperCase();
     }
 
-    function nazwa(row){
-        const el =
-            row?.querySelector(".trasa-nazwa");
+    function czy150_477(){
+        return norm477(
+            new URLSearchParams(
+                window.location.search
+            ).get("linia")
+        ) === "150";
+    }
 
-        if(!el) return "";
+    function nazwaStopu477(row){
+        if(!row){
+            return "";
+        }
 
-        return norm(el.textContent)
-            .replace(/\s*\([^)]*\)\s*$/, "")
+        /*
+           v469 zapisuje pełną nazwę w data-pelna-nazwa469.
+           To jest pewniejsze niż textContent po ukrywaniu miejscowości.
+        */
+        const pelna =
+            row.dataset?.pelnaNazwa469 ||
+            row.getAttribute(
+                "data-pelna-nazwa469"
+            ) ||
+            row.querySelector(
+                ".trasa-nazwa"
+            )?.textContent ||
+            "";
+
+        return norm477(pelna)
+            .replace(
+                /\s*\([^)]*\)\s*$/,
+                ""
+            )
             .trim();
     }
 
-    function listy(tab){
-        return Array.from(
-            tab.querySelectorAll(
-                ".trasa-lista-397, .trasa-lista"
+    function czyNaglowekTrasy477(el){
+        if(
+            !el ||
+            !el.classList?.contains(
+                "trasa-separator"
             )
-        ).filter(
-            (el, i, arr) =>
-                arr.indexOf(el) === i
-        );
-    }
-
-    function ustawMetroMlociny(tab){
-        tab.querySelectorAll(
-            ".koniec-metro-mlociny-476"
-        ).forEach(
-            el =>
-                el.classList.remove(
-                    "koniec-metro-mlociny-476"
-                )
-        );
-
-        /*
-           Nie próbujemy zgadywać po klasach końca wariantu.
-           Dla każdej listy sprawdzamy ostatni rzeczywisty .trasa-stop.
-           Jeżeli nim jest METRO MŁOCINY, to właśnie ten wiersz jest
-           krańcem tej prezentowanej trasy.
-        */
-        for(const lista of listy(tab)){
-            const stops =
-                Array.from(
-                    lista.children
-                ).filter(
-                    el =>
-                        el.classList?.contains(
-                            "trasa-stop"
-                        )
-                );
-
-            if(!stops.length){
-                continue;
-            }
-
-            const ostatni =
-                stops[stops.length - 1];
-
-            if(
-                nazwa(ostatni) ===
-                "METRO MŁOCINY"
-            ){
-                ostatni.classList.add(
-                    "koniec-metro-mlociny-476",
-                    "kraniec-koniec"
-                );
-
-                /*
-                   Usuwamy klasy, które mogły wymuszać dalsze
-                   prowadzenie osi mimo krańca.
-                */
-                ostatni.classList.remove(
-                    "ma-kontynuacje-trasy",
-                    "kraniec-podstawowy-427"
-                );
-            }
+        ){
+            return false;
         }
+
+        const txt =
+            norm477(
+                el.textContent
+            );
+
+        return txt.includes(
+            "TRASA W KURSACH"
+        );
     }
 
-    function czyStop(el){
+    function jestStopem477(el){
         return !!(
             el &&
             el.matches?.(
@@ -45733,26 +45749,133 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
         );
     }
 
-    function ustawOsSeparatorow(tab){
+    function znajdzNastepnyIstotny477(row){
+        let el =
+            row.nextElementSibling;
+
+        while(el){
+            /*
+               Miejscowość i strefa nie rozpoczynają nowego przebiegu.
+               Nagłówek "Trasa w kursach..." już tak.
+            */
+            if(
+                czyNaglowekTrasy477(el)
+            ){
+                return {
+                    typ: "NOWA_TRASA",
+                    el
+                };
+            }
+
+            if(
+                jestStopem477(el)
+            ){
+                return {
+                    typ: "STOP",
+                    el
+                };
+            }
+
+            el =
+                el.nextElementSibling;
+        }
+
+        return {
+            typ: "KONIEC_LISTY",
+            el: null
+        };
+    }
+
+    function oznaczMetroMlociny477(tab){
+        let znaleziono =
+            false;
+
+        const metroRows =
+            Array.from(
+                tab.querySelectorAll(
+                    ".trasa-stop"
+                )
+            ).filter(
+                row =>
+                    nazwaStopu477(row) ===
+                    "METRO MŁOCINY"
+            );
+
+        for(const row of metroRows){
+            const next =
+                znajdzNastepnyIstotny477(
+                    row
+                );
+
+            /*
+               Metro Młociny jest końcem:
+               - jeżeli zaraz po nim zaczyna się "Trasa w kursach..."
+               - albo jeżeli jest końcem całej listy.
+
+               Nie wymagamy, żeby było ostatnim .trasa-stop całego UL.
+            */
+            const jestKoncem =
+                next.typ === "NOWA_TRASA" ||
+                next.typ === "KONIEC_LISTY";
+
+            if(!jestKoncem){
+                continue;
+            }
+
+            row.classList.add(
+                "koniec-metro-mlociny-477",
+                "kraniec-koniec"
+            );
+
+            /*
+               Usuwamy klasy, które w starszych poprawkach mogły
+               wymuszać wizualną kontynuację osi.
+            */
+            row.classList.remove(
+                "ma-kontynuacje-trasy",
+                "kraniec-podstawowy-427",
+                "koniec-wariantu-bez-oznaczen-411",
+                "koniec-wariantu-419"
+            );
+
+            znaleziono =
+                true;
+        }
+
+        return znaleziono;
+    }
+
+    function ustawOsieSeparatorow477(tab){
         /*
-           Najpierw czyścimy wyłącznie elementy v476.
+           Czyścimy wyłącznie elementy utworzone przez v477.
+           Nie dotykamy separatorów ani ich poziomych kresek.
         */
         tab.querySelectorAll(
-            ".os-przez-separator-476-line"
+            ".pionowa-os-477"
         ).forEach(
             el => el.remove()
         );
 
         tab.querySelectorAll(
-            ".os-przez-separator-476"
+            ".os-separatora-477"
         ).forEach(
             el =>
                 el.classList.remove(
-                    "os-przez-separator-476"
+                    "os-separatora-477"
                 )
         );
 
-        for(const lista of listy(tab)){
+        const listy =
+            Array.from(
+                tab.querySelectorAll(
+                    ".trasa-lista-397, .trasa-lista"
+                )
+            ).filter(
+                (el, i, arr) =>
+                    arr.indexOf(el) === i
+            );
+
+        for(const lista of listy){
             const dzieci =
                 Array.from(
                     lista.children
@@ -45768,9 +45891,6 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
                         return;
                     }
 
-                    /*
-                       Dotyczy separatorów miejscowości i stref.
-                    */
                     const laczalny =
                         sep.classList.contains(
                             "trasa-miejscowosc-429"
@@ -45782,56 +45902,104 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
                             "trasa-graniczny-440"
                         );
 
-                    if(!lacZalny476(laczalny)){
+                    if(!laczalny){
                         return;
                     }
 
                     /*
-                       Oś ma przechodzić przez separator tylko wtedy,
-                       gdy w TEJ SAMEJ liście istnieje przystanek przed
-                       i przystanek po separatorze.
+                       Pionowa oś ma przechodzić przez separator tylko,
+                       gdy w tym samym przebiegu jest stop przed i po nim.
+
+                       Nagłówek "Trasa w kursach..." jest granicą:
+                       nie wolno łączyć osi poprzez dwa różne przebiegi.
                     */
-                    const przed =
-                        dzieci
-                            .slice(0, index)
-                            .some(czyStop);
+                    let stopPrzed =
+                        false;
 
-                    const po =
-                        dzieci
-                            .slice(index + 1)
-                            .some(czyStop);
+                    for(
+                        let i = index - 1;
+                        i >= 0;
+                        i--
+                    ){
+                        if(
+                            czyNaglowekTrasy477(
+                                dzieci[i]
+                            )
+                        ){
+                            break;
+                        }
 
-                    if(!(przed && po)){
+                        if(
+                            jestStopem477(
+                                dzieci[i]
+                            )
+                        ){
+                            stopPrzed = true;
+                            break;
+                        }
+                    }
+
+                    let stopPo =
+                        false;
+
+                    for(
+                        let i = index + 1;
+                        i < dzieci.length;
+                        i++
+                    ){
+                        if(
+                            czyNaglowekTrasy477(
+                                dzieci[i]
+                            )
+                        ){
+                            break;
+                        }
+
+                        if(
+                            jestStopem477(
+                                dzieci[i]
+                            )
+                        ){
+                            stopPo = true;
+                            break;
+                        }
+                    }
+
+                    if(
+                        !stopPrzed ||
+                        !stopPo
+                    ){
                         return;
                     }
 
                     sep.classList.add(
-                        "os-przez-separator-476"
+                        "os-separatora-477"
                     );
 
-                    const line =
+                    const os =
                         document.createElement(
                             "span"
                         );
 
-                    line.className =
-                        "os-przez-separator-476-line";
+                    os.className =
+                        "pionowa-os-477";
+
+                    os.setAttribute(
+                        "aria-hidden",
+                        "true"
+                    );
 
                     sep.appendChild(
-                        line
+                        os
                     );
                 }
             );
         }
     }
 
-    function lacZalny476(v){
-        return v === true;
-    }
-
-    function popraw476(){
-        if(!czy150()){
-            return;
+    function wykonaj477(){
+        if(!czy150_477()){
+            return true;
         }
 
         const tab =
@@ -45843,49 +46011,83 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
             );
 
         if(!tab){
+            return false;
+        }
+
+        /*
+           Czekamy aż v469 utworzy data-pelna-nazwa469 oraz aż
+           v474 zakończy finalny podział kolumn.
+        */
+        const maStop =
+            !!tab.querySelector(
+                '.trasa-stop[data-pelna-nazwa469]'
+            );
+
+        const maKolumny =
+            !!tab.querySelector(
+                ".trasa-columns.cols-2"
+            );
+
+        if(
+            !maStop ||
+            !maKolumny
+        ){
+            return false;
+        }
+
+        const metroOK =
+            oznaczMetroMlociny477(
+                tab
+            );
+
+        ustawOsieSeparatorow477(
+            tab
+        );
+
+        /*
+           Kończymy oczekiwanie dopiero, gdy faktycznie znaleźliśmy
+           Metro Młociny. Dzięki temu nie wykonujemy poprawki za wcześnie.
+        */
+        return metroOK;
+    }
+
+    function czekaj477(){
+        if(
+            wykonaj477()
+        ){
             return;
         }
 
-        ustawMetroMlociny(
-            tab
-        );
+        if(
+            Date.now() -
+            START_477 >
+            MAX_CZEKANIA_477
+        ){
+            return;
+        }
 
-        ustawOsSeparatorow(
-            tab
-        );
-    }
-
-    function start476(){
         /*
-           Bez MutationObservera.
-           Czekamy kilka klatek na:
-           - główny renderer,
-           - v469/v470/v471,
-           - podział kolumn v474,
-           i wykonujemy korektę JEDEN RAZ.
+           To NIE jest ciągłe przeliczanie.
+           Tylko czekamy na asynchroniczne wyrenderowanie JSON,
+           maksymalnie 10 sekund, a po sukcesie timer się kończy.
         */
-        requestAnimationFrame(
-            () =>
-                requestAnimationFrame(
-                    () =>
-                        requestAnimationFrame(
-                            () =>
-                                requestAnimationFrame(
-                                    popraw476
-                                )
-                        )
-                )
+        setTimeout(
+            czekaj477,
+            100
         );
     }
 
-    if(document.readyState === "loading"){
+    if(
+        document.readyState ===
+        "loading"
+    ){
         document.addEventListener(
             "DOMContentLoaded",
-            start476,
+            czekaj477,
             {once:true}
         );
     }else{
-        start476();
+        czekaj477();
     }
 
 })();
