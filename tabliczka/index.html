@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 466
+     WERSJA: 467
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -23334,7 +23334,7 @@ function dopasujKolumnyTrasy() {
                 czasy,
                 pierwszyIndex,
                 ostatniIndex,
-                true
+                false
             );
 
         const parserAktualnego=
@@ -23345,235 +23345,16 @@ function dopasujKolumnyTrasy() {
         parserAktualnego.innerHTML=
             htmlAktualnego;
 
-        /*
-         * WERSJA 466
-         * W układzie dwukierunkowym aktualny kierunek ma być budowany
-         * dokładnie tak jak zwykły widok jednego kierunku:
-         *
-         *   trasa podstawowa
-         *   -> wspólny kraniec podstawowy
-         *   -> "Trasa w kursach ..."
-         *   -> dalsza część wydłużenia
-         *   -> prawdziwy kraniec wydłużenia
-         *
-         * W 465 pobieraliśmy wyłącznie dzieci .trasa-lista.
-         * Przez to prawdziwa .trasa-extra była odrzucana i na tabliczce
-         * zostawał niepełny, sztucznie scalony przebieg.
-         */
-        const wszystkieHtml=[];
-
-        const listaBazowa466=
-            parserAktualnego.querySelector(
-                ":scope > .trasa-kol > .trasa-lista, .trasa-lista"
-            );
-
-        Array.from(
-            listaBazowa466?.children||
-            []
-        ).forEach(
-            row=>{
-                const kopia=row.cloneNode(true);
-
-                /*
-                 * Jeżeli istnieje realne wydłużenie, ostatni przystanek
-                 * bazy jest tylko wspólnym krańcem. Nie kończymy na nim osi.
-                 */
-                if(
-                    parserAktualnego.querySelector(
-                        ":scope > .trasa-kol > .trasa-extra, :scope > .trasa-extra"
-                    )
-                ){
-                    kopia.classList.remove(
-                        "kraniec-koniec",
-                        "koniec-trasy-210"
-                    );
-                }
-
-                wszystkieHtml.push(
-                    kopia.outerHTML
-                );
-            }
-        );
-
-        /*
-         * Do tego samego strumienia dokładamy wydłużenia.
-         * Dzięki temu splitter kolumn nie rozdziela logiki trasy:
-         * nagłówek wariantu i jego przystanki pozostają w poprawnej kolejności.
-         */
-        Array.from(
-            parserAktualnego.querySelectorAll(
-                ":scope > .trasa-kol > .trasa-extra, :scope > .trasa-extra"
+        const wszystkieHtml=
+            Array.from(
+                parserAktualnego.querySelector(
+                    ".trasa-lista"
+                )?.children||
+                []
             )
-        ).forEach(
-            extra=>{
-
-                const title=
-                    extra.querySelector(
-                        ":scope > .trasa-extra-title"
-                    );
-
-                if(title){
-                    wszystkieHtml.push(
-                        '<li class="trasa-separator trasa-extra-title-397">'+
-                            title.innerHTML+
-                        '</li>'
-                    );
-                }
-
-                Array.from(
-                    extra.querySelector(
-                        ":scope > .trasa-extra-lista"
-                    )?.children||
-                    []
-                ).forEach(
-                    row=>{
-                        const kopia=row.cloneNode(true);
-                        kopia.classList.add(
-                            "trasa-extra-stop-397"
-                        );
-
-                        wszystkieHtml.push(
-                            kopia.outerHTML
-                        );
-                    }
-                );
-            }
-        );
-
-        /*
-         * LINIA 150:
-         * wspólny DZIEKANÓW LEŚNY ma znaleźć się PRZED nagłówkiem "i".
-         * Renderer wydłużenia zawiera go na początku gałęzi, dlatego
-         * przenosimy rzeczywisty wiersz (razem z poprawnym czasem),
-         * zamiast tworzyć sztuczny przystanek.
-         */
-        if(
-            String(aktualnaLinia||"").trim()==="150"
-        ){
-            const box466=html=>{
-                const b=document.createElement("div");
-                b.innerHTML=html||"";
-                return b;
-            };
-
-            const nazwa466=html=>{
-                const pelna=String(
-                    box466(html).querySelector(
-                        ".trasa-nazwa"
-                    )?.textContent||""
-                ).trim();
-
-                const r=
-                    typeof rozdzielNazweIMiejscowosc==="function"
-                        ? rozdzielNazweIMiejscowosc(pelna)
-                        : {nazwa:pelna};
-
-                return normalizuj(
-                    String(r?.nazwa||pelna)
-                );
-            };
-
-            const tytul466=html=>
-                String(
-                    box466(html).querySelector(
-                        ".trasa-separator-title"
-                    )?.textContent||""
-                ).trim();
-
-            const jestI466=html=>
-                /Trasa\s+w\s+kursach\s+[„"]i[”"]/i.test(
-                    tytul466(html)
-                );
-
-            const N_DZ466=
-                normalizuj("DZIEKANÓW LEŚNY");
-
-            const N_IEP466=
-                normalizuj("INSTYTUT EKOLOGII PAN");
-
-            let idxI466=
-                wszystkieHtml.findIndex(
-                    jestI466
-                );
-
-            if(idxI466>=0){
-
-                /*
-                 * Szukamy DZIEKANOWA LEŚNEGO bezpośrednio w gałęzi i.
-                 * To ten rzeczywisty wiersz ma być wspólnym krańcem.
-                 */
-                let idxDz466=-1;
-
-                for(
-                    let j=idxI466+1;
-                    j<wszystkieHtml.length;
-                    j++
-                ){
-                    if(
-                        nazwa466(
-                            wszystkieHtml[j]
-                        )===N_DZ466
-                    ){
-                        idxDz466=j;
-                        break;
-                    }
-
-                    if(j>idxI466+10){
-                        break;
-                    }
-                }
-
-                if(idxDz466>idxI466){
-                    const dz466=
-                        wszystkieHtml.splice(
-                            idxDz466,
-                            1
-                        )[0];
-
-                    /*
-                     * Po splice indeks nagłówka się nie zmienił,
-                     * bo wyjęliśmy element znajdujący się za nim.
-                     */
-                    wszystkieHtml.splice(
-                        idxI466,
-                        0,
-                        dz466
-                    );
-                }
-
-                idxI466=
-                    wszystkieHtml.findIndex(
-                        jestI466
-                    );
-
-                /*
-                 * Na początku wydłużenia nie powtarzamy INSTYTUTU EKOLOGII PAN.
-                 * Jest już pokazany przed wspólnym krańcem.
-                 */
-                if(idxI466>=0){
-                    for(
-                        let j=idxI466+1;
-                        j<Math.min(
-                            wszystkieHtml.length,
-                            idxI466+6
-                        );
-                        j++
-                    ){
-                        if(
-                            nazwa466(
-                                wszystkieHtml[j]
-                            )===N_IEP466
-                        ){
-                            wszystkieHtml.splice(
-                                j,
-                                1
-                            );
-                            break;
-                        }
-                    }
-                }
-            }
-        }
+            .map(
+                el=>el.outerHTML
+            );
 
         const drugiHtml=
             renderElementyDrugiegoKierunkuTrasy();
@@ -44905,163 +44686,485 @@ body .tabliczka:has(.kierunki-dwa)
 </script>
 
 
-<style id="wersja-466-dwukierunkowe-wydluzenia-jak-jeden-kierunek">
-/* =========================================================
-   WERSJA 466 — DWA KIERUNKI: PRAWDZIWE WYDŁUŻENIE
-   ========================================================= */
+<!-- =========================================================
+     FWTP — POPRAWKA DWUKIERUNKOWA LINII 150
+     WERSJA PLIKU: 467
+     BAZA: WERSJA 465
+     ========================================================= -->
 
-/* Wspólny koniec trasy podstawowej przed nagłówkiem wydłużenia. */
+<style id="wersja-467-linia-150-dziekanow">
+/*
+   WERSJA 467
+   Dla przystanku INSTYTUT EKOLOGII PAN 02 w kierunku
+   IZABELIN-DZIEKANÓWEK:
+
+   INSTYTUT EKOLOGII PAN
+   DZIEKANÓW LEŚNY          <- wspólny kraniec, pogrubiony
+   Trasa w kursach „i”
+   WĘDKARSKA
+   ...
+   IZABELIN-DZIEKANÓWEK     <- koniec wydłużenia, pogrubiony
+*/
+
+/* Wspólny kraniec trasy podstawowej — linia przechodzi dalej. */
 body .tabliczka:has(.kierunki-dwa)
-.trasa-lista-397
-.trasa-stop.v466-wspolny-kraniec > .trasa-nazwa,
-body .tabliczka:has(.kierunki-dwa)
-.trasa-lista-397
-.trasa-extra-stop.v466-wspolny-kraniec > .trasa-nazwa {
-    font-weight:700 !important;
+.trasa-lista-397 > .v467-dziekanow-koniec-bazy > .trasa-nazwa {
+    font-weight: 700 !important;
 }
 
 body .tabliczka:has(.kierunki-dwa)
-.trasa-lista-397
-.trasa-stop.v466-wspolny-kraniec .trasa-os::before,
-body .tabliczka:has(.kierunki-dwa)
-.trasa-lista-397
-.trasa-extra-stop.v466-wspolny-kraniec .trasa-os::before {
-    top:0 !important;
-    bottom:0 !important;
-    height:auto !important;
+.trasa-lista-397 > .v467-dziekanow-koniec-bazy .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
 }
 
-/* Prawdziwy koniec wydłużenia. */
+/* Końcowy Izabelin-Dziekanówek — kreska tylko z góry do kropki. */
 body .tabliczka:has(.kierunki-dwa)
-.trasa-lista-397
-.trasa-stop.v466-koniec-wydluzenia > .trasa-nazwa,
-body .tabliczka:has(.kierunki-dwa)
-.trasa-lista-397
-.trasa-extra-stop.v466-koniec-wydluzenia > .trasa-nazwa {
-    font-weight:700 !important;
+.trasa-lista-397 > .v467-izabelin-koniec > .trasa-nazwa {
+    font-weight: 700 !important;
 }
 
 body .tabliczka:has(.kierunki-dwa)
-.trasa-lista-397
-.trasa-stop.v466-koniec-wydluzenia .trasa-os::before,
+.trasa-lista-397 > .v467-izabelin-koniec .trasa-os::before {
+    top: 0 !important;
+    bottom: calc(100% - 7.25px) !important;
+    height: auto !important;
+}
+
 body .tabliczka:has(.kierunki-dwa)
-.trasa-lista-397
-.trasa-extra-stop.v466-koniec-wydluzenia .trasa-os::before {
-    top:0 !important;
-    bottom:calc(100% - 7.25px) !important;
-    height:auto !important;
+.trasa-lista-397 > .v467-izabelin-koniec .trasa-os::after {
+    display: block !important;
+    content: "" !important;
+}
+
+/* Pierwszy widoczny przystanek: brak kreski ponad kropką. */
+body .tabliczka:has(.kierunki-dwa)
+.trasa-lista-397 > .v467-pierwszy .trasa-os::before {
+    top: 7.25px !important;
+    bottom: 0 !important;
+    height: auto !important;
 }
 </style>
 
 <script>
 /* =========================================================
-   WERSJA 466 — OZNACZENIE KRAŃCÓW PO FINALNYM PODZIALE KOLUMN
+   FWTP — WERSJA 467
+   LINIA 150 — DWUKIERUNKOWY INSTYTUT EKOLOGII PAN 02
+
+   Ta poprawka NIE przebudowuje całego widoku dwóch kierunków.
+   Działa na poprawnym układzie z WERSJI 465 i naprawia tylko
+   brakujący wspólny kraniec przed wydłużeniem "i".
    ========================================================= */
 (function(){
     "use strict";
 
-    function norm466(v){
-        return String(v||"")
+    let blokada467 = false;
+    let zaplanowane467 = false;
+
+    function norm467(v){
+        return String(v || "")
             .toLocaleUpperCase("pl-PL")
             .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g,"")
-            .replace(/\s+/g," ")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/\s+/g, " ")
             .trim();
     }
 
-    function nazwa466(row){
-        return norm466(
-            row?.querySelector(".trasa-nazwa")?.textContent||""
+    function jestStop467(el){
+        return !!el && el.matches?.(".trasa-stop,.trasa-extra-stop");
+    }
+
+    function nazwa467(el){
+        return norm467(
+            el?.querySelector(".trasa-nazwa")?.textContent || ""
         );
     }
 
-    function popraw466(){
-        const linia=String(
-            (typeof aktualnaLinia!=="undefined" ? aktualnaLinia : "") ||
-            new URLSearchParams(location.search).get("linia") ||
-            ""
-        ).trim();
+    function czas467(el){
+        const n = Number(
+            String(
+                el?.querySelector(".trasa-czas")?.textContent || ""
+            ).trim()
+        );
+        return Number.isFinite(n) ? n : null;
+    }
 
-        if(linia!=="150") return;
+    function ustawCzas467(el, value){
+        const box = el?.querySelector(".trasa-czas");
+        if(box && value !== null && Number.isFinite(Number(value))){
+            box.textContent = String(Number(value));
+        }
+    }
 
-        document.querySelectorAll(
-            ".tabliczka:has(.kierunki-dwa)"
-        ).forEach(tabliczka=>{
+    function separatorI467(lista){
+        return Array.from(lista.children).find(el =>
+            el.classList?.contains("trasa-separator") &&
+            /Trasa\s+w\s+kursach\s+[„"]i[”"]/i.test(el.textContent || "")
+        ) || null;
+    }
 
-            const rows=Array.from(
-                tabliczka.querySelectorAll(
-                    ".trasa-columns .trasa-lista-397 > *"
-                )
-            );
+    function pierwszyStop467(lista){
+        return Array.from(lista.children).find(jestStop467) || null;
+    }
 
-            rows.forEach(row=>{
-                row.classList?.remove(
-                    "v466-wspolny-kraniec",
-                    "v466-koniec-wydluzenia"
+    function poprzedniStop467(el){
+        let x = el?.previousElementSibling || null;
+        while(x && !jestStop467(x)){
+            x = x.previousElementSibling;
+        }
+        return x;
+    }
+
+    function nastepneStopy467(el){
+        const wynik = [];
+        let x = el?.nextElementSibling || null;
+
+        while(x){
+            if(jestStop467(x)){
+                wynik.push(x);
+            }
+            x = x.nextElementSibling;
+        }
+
+        return wynik;
+    }
+
+    /*
+       Pobiera rzeczywisty czas przejazdu wariantu I z danych JSON.
+       Nie wpisujemy "2" na sztywno — dla wybranego słupka wyszukujemy
+       wspólny kurs wariantu I na:
+       - aktualnym INSTYTUCIE EKOLOGII PAN,
+       - DZIEKANOWIE LEŚNYM.
+    */
+    function czasDoDziekanowa467(){
+        try{
+            if(
+                typeof daneLinii === "undefined" ||
+                !daneLinii
+            ){
+                return null;
+            }
+
+            const kierunekIndex =
+                Number(
+                    typeof aktualnyKierunek !== "undefined"
+                        ? aktualnyKierunek
+                        : new URLSearchParams(location.search).get("kierunek")
                 );
+
+            const idx =
+                Number(
+                    typeof aktualnyPrzystanek !== "undefined"
+                        ? aktualnyPrzystanek
+                        : String(
+                            new URLSearchParams(location.search).get("przystanek") || ""
+                        ).replace(/^idx:/i, "")
+                );
+
+            const rozklady = daneLinii.rozkłady || [];
+
+            for(const rozklad of rozklady){
+                const ps =
+                    rozklad?.kierunki?.[kierunekIndex]?.przystanki || [];
+
+                const startP = ps[idx];
+
+                if(
+                    !startP ||
+                    norm467(startP.nazwa).indexOf("INSTYTUT EKOLOGII PAN") < 0
+                ){
+                    continue;
+                }
+
+                const kursyStart =
+                    (startP.kursy || []).filter(k =>
+                        String(k?.wariant || "").trim().toUpperCase() === "I"
+                    );
+
+                for(let j = idx + 1; j < ps.length; j++){
+                    if(
+                        norm467(ps[j]?.nazwa).indexOf("DZIEKANOW LESNY") < 0
+                    ){
+                        continue;
+                    }
+
+                    for(const ks of kursyStart){
+                        const kd =
+                            (ps[j]?.kursy || []).find(k =>
+                                String(k?.numer || "") === String(ks?.numer || "") &&
+                                String(k?.wariant || "").trim().toUpperCase() === "I"
+                            );
+
+                        if(!kd) continue;
+
+                        if(typeof czasNaMinuty === "function"){
+                            const a = czasNaMinuty(ks.czas);
+                            const b = czasNaMinuty(kd.czas);
+
+                            if(a !== null && b !== null){
+                                let roznica = b - a;
+                                while(roznica < 0) roznica += 1440;
+                                return roznica;
+                            }
+                        }
+                    }
+
+                    /* Pierwszy Dziekanów za aktualnym słupkiem wystarczy. */
+                    break;
+                }
+            }
+        }catch(e){
+            console.warn("FWTP v467: czas do Dziekanowa", e);
+        }
+
+        return null;
+    }
+
+    function utworzDziekanow467(wzor, czas){
+        const row = wzor.cloneNode(true);
+
+        row.classList.remove(
+            "aktywny",
+            "aktywny-przystanek",
+            "current",
+            "selected",
+            "kraniec-koniec",
+            "koniec-wydluzenia-446",
+            "v465-koniec-wydluzenia",
+            "v465-pierwszy-widoczny"
+        );
+
+        row.classList.add(
+            "v467-dziekanow-koniec-bazy",
+            "wspolny-koniec-446",
+            "ma-kontynuacje-trasy"
+        );
+
+        const nazwa = row.querySelector(".trasa-nazwa");
+        if(nazwa){
+            nazwa.textContent = "DZIEKANÓW LEŚNY";
+        }
+
+        const nz = row.querySelector(".trasa-nz");
+        if(nz){
+            nz.textContent = "";
+        }
+
+        row.classList.remove("nz");
+
+        ustawCzas467(row, czas);
+
+        return row;
+    }
+
+    function poprawListe467(lista){
+        const sepI = separatorI467(lista);
+        if(!sepI) return false;
+
+        /*
+           Ta poprawka ma dotyczyć listy jadącej do IZABELIN-DZIEKANÓWKA.
+           Jeżeli za separatorem "i" nie ma Izabelina, nie ruszamy listy.
+        */
+        const poI = nastepneStopy467(sepI);
+
+        const izabelin = [...poI].reverse().find(row =>
+            nazwa467(row).indexOf("IZABELIN-DZIEKANOWEK") >= 0
+        );
+
+        if(!izabelin) return false;
+
+        const pierwszy = pierwszyStop467(lista);
+
+        /*
+           Nie wolno przywracać przystanków już miniętych.
+           Pierwszy stop listy pozostaje dokładnie tym, który WERSJA 465
+           już prawidłowo wybrała jako bieżący.
+        */
+        if(pierwszy){
+            lista.querySelectorAll(".v467-pierwszy")
+                .forEach(el => el.classList.remove("v467-pierwszy"));
+
+            pierwszy.classList.add("v467-pierwszy");
+        }
+
+        /*
+           W 465 układ jest:
+             INSTYTUT (aktywny)
+             Trasa w kursach "i"
+             INSTYTUT (powtórzony)
+             WĘDKARSKA ...
+
+           Powtórzony Instytut jest w rzeczywistości przystankiem już ZA
+           wspólnym DZIEKANOWEM LEŚNYM. Do widoku pasażerskiego go nie
+           pokazujemy, ale używamy jego wiersza jako wzoru HTML.
+        */
+        let powtorzonyInstytut = null;
+
+        for(const row of poI){
+            if(
+                nazwa467(row).indexOf("INSTYTUT EKOLOGII PAN") >= 0
+            ){
+                powtorzonyInstytut = row;
+                break;
+            }
+
+            /* Nie szukamy dalej niż początek gałęzi. */
+            if(
+                nazwa467(row).indexOf("WEDKARSKA") >= 0
+            ){
+                break;
+            }
+        }
+
+        /*
+           Najpierw sprawdzamy, czy Dziekanów już stoi przed separatorem.
+        */
+        let przedI = poprzedniStop467(sepI);
+        let dziekanow = (
+            przedI &&
+            nazwa467(przedI).indexOf("DZIEKANOW LESNY") >= 0
+        ) ? przedI : null;
+
+        if(!dziekanow){
+            const wzor =
+                powtorzonyInstytut ||
+                pierwszy ||
+                izabelin;
+
+            if(!wzor) return false;
+
+            let czasDziekanow =
+                czasDoDziekanowa467();
+
+            /*
+               Awaryjnie: jeśli JSON nie był jeszcze dostępny w momencie
+               pierwszego przebiegu, korzystamy z relacji czasów widocznych
+               w trasie. Observer uruchomi poprawkę ponownie po renderze.
+            */
+            if(czasDziekanow === null){
+                const pierwszyCzas = czas467(pierwszy);
+                czasDziekanow =
+                    pierwszyCzas === null
+                        ? 2
+                        : pierwszyCzas + 2;
+            }
+
+            dziekanow =
+                utworzDziekanow467(
+                    wzor,
+                    czasDziekanow
+                );
+
+            sepI.before(dziekanow);
+        }
+
+        dziekanow.classList.remove(
+            "kraniec-koniec",
+            "koniec-wydluzenia-446",
+            "v465-koniec-wydluzenia",
+            "v465-pierwszy-widoczny"
+        );
+
+        dziekanow.classList.add(
+            "v467-dziekanow-koniec-bazy",
+            "wspolny-koniec-446",
+            "ma-kontynuacje-trasy"
+        );
+
+        /*
+           Powtórzony INSTYTUT po nawrocie nie jest pokazywany.
+           Usuwamy WYŁĄCZNIE ten wpis znajdujący się za separatorem i.
+           Aktywnego Instytutu przed Dziekanowem nie dotykamy.
+        */
+        if(
+            powtorzonyInstytut &&
+            powtorzonyInstytut !== pierwszy
+        ){
+            powtorzonyInstytut.remove();
+        }
+
+        /*
+           Izabelin jest prawdziwym końcem wydłużenia.
+        */
+        lista.querySelectorAll(".v467-izabelin-koniec")
+            .forEach(el => el.classList.remove("v467-izabelin-koniec"));
+
+        izabelin.classList.add(
+            "v467-izabelin-koniec",
+            "kraniec-koniec",
+            "koniec-wydluzenia-446"
+        );
+
+        return true;
+    }
+
+    function popraw467(){
+        if(blokada467) return;
+
+        blokada467 = true;
+
+        try{
+            const linia = String(
+                (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
+                new URLSearchParams(location.search).get("linia") ||
+                ""
+            ).trim();
+
+            if(linia !== "150") return;
+
+            document.querySelectorAll(".tabliczka").forEach(tabliczka => {
+                if(!tabliczka.querySelector(".kierunki-dwa")) return;
+
+                /*
+                   Nie łączymy obu kierunków w jeden strumień.
+                   Każdą kolumnę/listę analizujemy osobno, więc żaden
+                   przystanek z drugiego kierunku nie zostanie przeniesiony
+                   do pierwszego i odwrotnie.
+                */
+                tabliczka
+                    .querySelectorAll(".trasa-lista-397")
+                    .forEach(poprawListe467);
             });
-
-            const idxI=rows.findIndex(row=>
-                row.classList?.contains("trasa-extra-title-397") &&
-                /Trasa\s+w\s+kursach\s+[„"]i[”"]/i.test(
-                    row.textContent||""
-                )
-            );
-
-            if(idxI<0) return;
-
-            for(let i=idxI-1;i>=0;i--){
-                if(
-                    rows[i].matches?.(".trasa-stop,.trasa-extra-stop") &&
-                    nazwa466(rows[i]).startsWith("DZIEKANOW LESNY")
-                ){
-                    rows[i].classList.add(
-                        "v466-wspolny-kraniec"
-                    );
-                    break;
-                }
-            }
-
-            for(let i=rows.length-1;i>idxI;i--){
-                if(
-                    rows[i].matches?.(".trasa-stop,.trasa-extra-stop") &&
-                    nazwa466(rows[i]).startsWith("IZABELIN-DZIEKANOWEK")
-                ){
-                    rows[i].classList.add(
-                        "v466-koniec-wydluzenia"
-                    );
-                    break;
-                }
-            }
-        });
+        }finally{
+            blokada467 = false;
+        }
     }
 
-    let pending=false;
+    function plan467(){
+        if(zaplanowane467) return;
 
-    function plan(){
-        if(pending) return;
-        pending=true;
-        requestAnimationFrame(()=>requestAnimationFrame(()=>{
-            pending=false;
-            popraw466();
-        }));
+        zaplanowane467 = true;
+
+        requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+                zaplanowane467 = false;
+                popraw467();
+            })
+        );
     }
 
-    if(document.readyState==="loading"){
+    if(document.readyState === "loading"){
         document.addEventListener(
             "DOMContentLoaded",
-            plan,
+            plan467,
             {once:true}
         );
     }else{
-        plan();
+        plan467();
     }
 
-    window.addEventListener("load",plan);
+    window.addEventListener("load", plan467);
+    document.addEventListener("fwtp-v464-ready", plan467);
 
-    const host=document.getElementById("wynik");
+    const host = document.getElementById("wynik");
+
     if(host){
-        new MutationObserver(plan).observe(
+        new MutationObserver(() => {
+            if(!blokada467){
+                plan467();
+            }
+        }).observe(
             host,
             {
                 childList:true,
