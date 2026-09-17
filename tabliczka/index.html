@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 502
+     WERSJA: 503
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -47595,6 +47595,368 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
         "load",
         wykonaj502,
         {once:true}
+    );
+})();
+</script>
+
+
+<style id="wersja-503-kolumny-trasy">
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 503
+   BAZA: 502
+
+   1. Bez czarnych pionowych łączników PRZEZ miejscowości.
+   2. Gdy 2. kolumna trasy się nie mieści -> powstaje 3. kolumna.
+   3. Proporcje głównej tabliczki:
+      lewa część 43%
+      prawa część 57%
+   ========================================================= */
+
+/* ---------------------------------------------------------
+   43% / 57%
+   --------------------------------------------------------- */
+.tabliczka .tabliczka-lewa {
+    width: 43% !important;
+    flex: 0 0 43% !important;
+    max-width: 43% !important;
+}
+
+.tabliczka .tabliczka-prawa {
+    width: 57% !important;
+    flex: 0 0 57% !important;
+    max-width: 57% !important;
+}
+
+/* fallback dla układu grid */
+.tabliczka {
+    --fwtp-lewa-503: 43%;
+    --fwtp-prawa-503: 57%;
+}
+
+/* ---------------------------------------------------------
+   USUNIĘCIE CZARNEJ PIONOWEJ KRESKI W SEPARATORACH
+   MIEJSCOWOŚCI / STREF.
+
+   Zostają:
+   - kropki,
+   - normalne osie pomiędzy kolejnymi przystankami,
+   - poziome "----- MIEJSCOWOŚĆ -----".
+
+   Nie ma pionowej czarnej kreski przechodzącej przez separator.
+   --------------------------------------------------------- */
+.tabliczka .trasa-separator > .pionowa-os-477,
+.tabliczka .trasa-separator > .os-lacznik-453,
+.tabliczka .trasa-separator > .os-nad-miejscowoscia-489,
+.tabliczka .trasa-stop > .kropka-do-kropki-493,
+.tabliczka .trasa-extra-stop > .kropka-do-kropki-493,
+.tabliczka .trasa-stop > .przedluzenie-przystanku-492,
+.tabliczka .trasa-extra-stop > .przedluzenie-przystanku-492,
+.tabliczka .trasa-lista > .laczenie-przystankow-491,
+.tabliczka .trasa-lista-397 > .laczenie-przystankow-491 {
+    display: none !important;
+}
+
+.tabliczka
+.trasa-separator.laczenie-osi-449
+> .trasa-separator-title::before {
+    content: none !important;
+    display: none !important;
+}
+
+/* separator nie rysuje pionowego tła */
+.tabliczka .trasa-separator.laczenie-osi-449 {
+    background-image: none !important;
+}
+
+/* ---------------------------------------------------------
+   TRZECIA KOLUMNA TRASY
+   --------------------------------------------------------- */
+.tabliczka .trasa-columns.trzy-kolumny-503 {
+    display: grid !important;
+    grid-template-columns:
+        minmax(0, 1fr)
+        minmax(0, 1fr)
+        minmax(0, 1fr) !important;
+    width: 100% !important;
+}
+
+.tabliczka
+.trasa-columns.trzy-kolumny-503
+> .trasa-kol {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+}
+
+/* trzecia kolumna ma takie samo rozdzielenie jak druga */
+.tabliczka
+.trasa-columns.trzy-kolumny-503
+> .trasa-kol:nth-child(3) {
+    border-left: 1px solid #888 !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 503
+   ========================================================= */
+(function FWTP_WERSJA_503(){
+    "use strict";
+
+    let pracuje503 = false;
+
+    function czy150_503(){
+        return String(
+            new URLSearchParams(location.search).get("linia") || ""
+        ).trim() === "150";
+    }
+
+    function listaKolumny503(kol){
+        return kol?.querySelector(
+            ":scope > .trasa-lista-397, :scope > .trasa-lista"
+        );
+    }
+
+    function dolElementow503(lista){
+        let max = -Infinity;
+
+        Array.from(lista.children).forEach(el => {
+            const r = el.getBoundingClientRect();
+
+            if(
+                getComputedStyle(el).display !== "none" &&
+                r.height > 0
+            ){
+                max = Math.max(max, r.bottom);
+            }
+        });
+
+        return max;
+    }
+
+    function limit503(columns){
+        /*
+           Dolna granica dostępnego obszaru listy.
+           Używamy wysokości faktycznego kontenera tras,
+           a nie liczby przystanków.
+        */
+        return columns.getBoundingClientRect().bottom - 2;
+    }
+
+    function separator503(el){
+        return !!el?.classList?.contains("trasa-separator");
+    }
+
+    function znajdzPoczatekPrzeniesienia503(lista, limit){
+        const dzieci = Array.from(lista.children);
+
+        for(let i = 0; i < dzieci.length; i++){
+            const r = dzieci[i].getBoundingClientRect();
+
+            if(r.bottom > limit){
+                let start = i;
+
+                /*
+                   Jeżeli przepełnienie zaczyna się na przystanku,
+                   zabieramy z nim nagłówki/separatory stojące
+                   bezpośrednio nad nim, aby nie zostawić:
+                   MIEJSCOWOŚCI / STREFY / "Trasa w kursach"
+                   samotnie na dole poprzedniej kolumny.
+                */
+                while(
+                    start > 0 &&
+                    separator503(dzieci[start - 1])
+                ){
+                    start--;
+                }
+
+                return start;
+            }
+        }
+
+        return -1;
+    }
+
+    function utworzTrzeciaKolumne503(columns, wzorKolumny){
+        const kol = wzorKolumny.cloneNode(false);
+
+        /*
+           Nie kopiujemy ID, żeby nie tworzyć duplikatów.
+        */
+        kol.removeAttribute("id");
+
+        const wzorLista = listaKolumny503(wzorKolumny);
+        const lista = document.createElement(
+            wzorLista?.tagName?.toLowerCase() || "ul"
+        );
+
+        if(wzorLista){
+            lista.className = wzorLista.className;
+        }else{
+            lista.className = "trasa-lista";
+        }
+
+        lista.removeAttribute("id");
+        kol.appendChild(lista);
+        columns.appendChild(kol);
+
+        return {
+            kol,
+            lista
+        };
+    }
+
+    function przeniesDoTrzeciej503(columns){
+        let kolumny = Array.from(
+            columns.querySelectorAll(":scope > .trasa-kol")
+        );
+
+        if(kolumny.length < 2){
+            return;
+        }
+
+        const druga = kolumny[1];
+        const lista2 = listaKolumny503(druga);
+
+        if(!lista2){
+            return;
+        }
+
+        const limit = limit503(columns);
+
+        /*
+           Jeśli wszystko w drugiej kolumnie mieści się
+           w dostępnej wysokości, niczego nie zmieniamy.
+        */
+        if(dolElementow503(lista2) <= limit){
+            return;
+        }
+
+        let trzecia;
+        let lista3;
+
+        if(kolumny.length >= 3){
+            trzecia = kolumny[2];
+            lista3 = listaKolumny503(trzecia);
+        }else{
+            const nowa =
+                utworzTrzeciaKolumne503(
+                    columns,
+                    druga
+                );
+
+            trzecia = nowa.kol;
+            lista3 = nowa.lista;
+        }
+
+        if(!lista3){
+            return;
+        }
+
+        /*
+           Najpierw ustalamy punkt przepełnienia.
+        */
+        const start =
+            znajdzPoczatekPrzeniesienia503(
+                lista2,
+                limit
+            );
+
+        if(start < 0){
+            return;
+        }
+
+        const dzieci =
+            Array.from(lista2.children);
+
+        for(let i = start; i < dzieci.length; i++){
+            lista3.appendChild(dzieci[i]);
+        }
+
+        columns.classList.add(
+            "trzy-kolumny-503"
+        );
+    }
+
+    function usunCzarneLaczniki503(tab){
+        tab.querySelectorAll(
+            [
+                ".trasa-separator > .pionowa-os-477",
+                ".trasa-separator > .os-lacznik-453",
+                ".trasa-separator > .os-nad-miejscowoscia-489",
+                ".trasa-stop > .kropka-do-kropki-493",
+                ".trasa-extra-stop > .kropka-do-kropki-493",
+                ".trasa-stop > .przedluzenie-przystanku-492",
+                ".trasa-extra-stop > .przedluzenie-przystanku-492",
+                ".trasa-lista > .laczenie-przystankow-491",
+                ".trasa-lista-397 > .laczenie-przystankow-491"
+            ].join(",")
+        ).forEach(el => el.remove());
+    }
+
+    function wykonaj503(){
+        if(pracuje503 || !czy150_503()){
+            return;
+        }
+
+        pracuje503 = true;
+
+        try{
+            const tab =
+                document.querySelector("#wynik .tabliczka") ||
+                document.querySelector(".tabliczka");
+
+            if(!tab){
+                return;
+            }
+
+            usunCzarneLaczniki503(tab);
+
+            tab.querySelectorAll(
+                ".trasa-columns"
+            ).forEach(przeniesDoTrzeciej503);
+
+        }finally{
+            pracuje503 = false;
+        }
+    }
+
+    function start503(){
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(wykonaj503);
+            });
+        });
+
+        /*
+           Renderer 150 wykonuje kilka późnych korekt układu.
+           Robimy tylko kilka jednorazowych przeliczeń,
+           bez MutationObservera i bez ciągłego mrugania.
+        */
+        setTimeout(wykonaj503, 250);
+        setTimeout(wykonaj503, 700);
+        setTimeout(wykonaj503, 1400);
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            start503,
+            {once:true}
+        );
+    }else{
+        start503();
+    }
+
+    window.addEventListener(
+        "load",
+        wykonaj503,
+        {once:true}
+    );
+
+    window.addEventListener(
+        "resize",
+        wykonaj503
     );
 })();
 </script>
