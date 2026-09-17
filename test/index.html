@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 483
+     WERSJA: 484
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -5214,6 +5214,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 
 </head>
 
+
+<!-- =========================================================
+     FWTP — WERSJA PLIKU: 484
+     BAZA WIZUALNA: 478
+     LISTA PRZYSTANKÓW: NOWY SILNIK kurs.trasa
+     ========================================================= -->
 <body>
 
 <header class="topbar">
@@ -17286,190 +17292,279 @@ function wstawGalezieWPrzebieg304(lista){
 }
 
 
-function __bezCache_listaTrasyDoWyswietlenia(){
+
+/* =========================================================
+   WERSJA 484 — NOWY SILNIK LISTY PRZYSTANKÓW JSON V38+
+   =========================================================
+   Ta funkcja NIE korzysta z logiki wariantów 126/401/itd.
+   Fizyczny przebieg pochodzi wyłącznie z kurs.trasa.
+   ========================================================= */
+function listaTrasyZNowegoJSON484(){
+
+    const kierunek=
+        kierunekBazowy();
 
     const baza=
-        czyBiezacyPrzystanekDwukierunkowy()
-            ? listaPelnejTrasyDoWyswietlenia()
-            : daneTrasWydluzonych()
-                .baza;
+        Array.isArray(
+            kierunek?.przystanki
+        )
+            ? kierunek.przystanki
+            : [];
 
-    const oczyszczona=
-        przeniesMinieteGaleziePrzedAktywny(
-            baza
-        );
-
-    const poPoczatkuWariantu=
-        przytnijInneGaleziePrzedPoczatkiemWariantu(
-            oczyszczona
-        );
-
-    const bezPowtorzenia=
-        usunPowtorzenieNazwyPrzedAktywnym(
-            poPoczatkuWariantu
-        );
-
-    const bezPustychPrzyszlych=
-        usunPrzyszlePrzystankiBezMinuty(
-            bezPowtorzenia
-        );
-
-    const bezDuplikatowTegoSamegoStanu=
-        usunSztuczneDuplikatyWTymSamymStanieTrasy(
-            bezPustychPrzyszlych
-        );
-
-    const bezGranicy=
-        usunPowtorzenieNaGranicyWariantow(
-            bezDuplikatowTegoSamegoStanu
-        );
-
-    let wynik=
-        usunKolejnePowtorzeniaNazwyWDwukierunkowym(
-            bezGranicy
-        );
-
-    /*
-       =========================================================
-       FALLBACK DLA DOKŁADNEGO AKTYWNEGO PRZYSTANKU
-       =========================================================
-
-       Jeżeli rozkład jazdy i kierunek zostały poprawnie znalezione,
-       ale filtry wariantów usunęły wszystkie przystanki PO aktywnym,
-       odbudowujemy dalszą trasę z TEGO SAMEGO kursu, z którego
-       zostały policzone czasy przejazdu.
-
-       To jest dokładnie przypadek:
-           linia 170
-           kierunek RONDO STARZYŃSKIEGO
-           PKP ZACISZE-WILNO 02 (idx:5)
-
-       Godziny są poprawne, więc kurs został znaleziony.
-       Nie ma powodu, żeby lista kończyła się na aktywnym punkcie,
-       jeżeli czasyTrasy() ma czasy dla następnych przystanków.
-    */
-
-    const aktywnyPos=
-        wynik.findIndex(
-            element=>
-                Number(
-                    element?.index
-                )===
-                Number(
-                    aktualnyPrzystanek
-                )
-        );
-
-    const maCosPoAktywnym=
-        aktywnyPos>=0&&
-        aktywnyPos<
-            wynik.length-1;
+    const aktywny=
+        baza[
+            Number(
+                aktualnyPrzystanek
+            )
+        ];
 
     if(
-        aktywnyPos>=0&&
-        !maCosPoAktywnym
+        !aktywny||
+        !Array.isArray(
+            aktywny.kursy
+        )
     ){
+        return null;
+    }
 
-        const czasy=
-            czasyTrasy();
+    const aktywneId=
+        String(
+            aktywny.id||
+            ""
+        ).trim();
 
-        const dalsze=
-            baza.filter(
-                element=>{
+    if(!aktywneId){
+        return null;
+    }
 
-                    const idx=
-                        Number(
-                            element?.index
-                        );
+    /*
+       Mapa ID -> dokładny przystanek kierunku.
+       Nie dopasowujemy po nazwie.
+    */
+    const poId=
+        new Map();
 
-                    if(
-                        !Number.isInteger(idx)||
-                        idx<=
-                            Number(
-                                aktualnyPrzystanek
-                            )
-                    ){
-                        return false;
+    baza.forEach(
+        (p,index)=>{
+
+            const id=
+                String(
+                    p?.id||
+                    ""
+                ).trim();
+
+            if(id){
+                poId.set(
+                    id,
+                    {
+                        p,
+                        index
                     }
+                );
+            }
+        }
+    );
 
-                    /*
-                       Zostawiamy wyłącznie te punkty, dla których
-                       wybrany rzeczywisty kurs ma policzony czas.
-                       Dzięki temu nie dokładamy obcych gałęzi.
-                    */
-                    return(
-                        czasy[
-                            idx
-                        ]!==null&&
-                        czasy[
-                            idx
-                        ]!==undefined
-                    );
-                }
-            );
+    /*
+       Z kursów dostępnych NA WYBRANYM PRZYSTANKU pobieramy
+       rzeczywiste przebiegi.
 
-        if(dalsze.length){
+       Dla tabliczki interesuje nas wyłącznie część OD aktywnego
+       przystanku w dół — przystanki minięte nie mogą wrócić
+       na listę tylko dlatego, że kurs rozpoczął się wcześniej.
+    */
+    const grupy=
+        new Map();
 
-            const klucze=
-                new Set(
-                    wynik.map(
-                        element=>
-                            [
-                                Number(
-                                    element?.index
-                                ),
-                                normalizuj(
-                                    element?.p?.nazwa
-                                ),
+    aktywny.kursy.forEach(
+        kurs=>{
+
+            const cala=
+                Array.isArray(
+                    kurs?.trasa
+                )
+                    ? kurs.trasa
+                        .map(
+                            id=>
                                 String(
-                                    element?.p?.nr||""
+                                    id||
+                                    ""
                                 ).trim()
-                            ].join("|")
-                    )
+                        )
+                        .filter(Boolean)
+                    : [];
+
+            if(!cala.length){
+                return;
+            }
+
+            const pozycja=
+                cala.indexOf(
+                    aktywneId
                 );
 
-            dalsze.forEach(
-                element=>{
+            if(pozycja<0){
+                return;
+            }
 
-                    const key=
-                        [
-                            Number(
-                                element?.index
-                            ),
-                            normalizuj(
-                                element?.p?.nazwa
-                            ),
-                            String(
-                                element?.p?.nr||""
-                            ).trim()
-                        ].join("|");
+            const dalsza=
+                cala.slice(
+                    pozycja
+                );
 
-                    if(!klucze.has(key)){
-                        wynik.push(
-                            element
-                        );
-                        klucze.add(key);
+            const klucz=
+                dalsza.join(
+                    "\u001F"
+                );
+
+            if(!grupy.has(klucz)){
+                grupy.set(
+                    klucz,
+                    {
+                        ids:dalsza,
+                        ile:0
                     }
+                );
+            }
+
+            grupy.get(
+                klucz
+            ).ile++;
+        }
+    );
+
+    if(!grupy.size){
+        return null;
+    }
+
+    /*
+       Oś główna tabliczki = najczęściej występujący RZECZYWISTY
+       przebieg od tego przystanku.
+       Przy remisie wybieramy dłuższy rzeczywisty przebieg.
+
+       Nie tworzymy żadnych sztucznych gałęzi i nie dokładamy
+       przystanków z innego kursu.
+    */
+    const glowna=
+        Array.from(
+            grupy.values()
+        )
+        .sort(
+            (a,b)=>
+                (
+                    b.ile-
+                    a.ile
+                )||
+                (
+                    b.ids.length-
+                    a.ids.length
+                )
+        )[0];
+
+    const wynik=[];
+
+    glowna.ids.forEach(
+        id=>{
+
+            const znaleziony=
+                poId.get(id);
+
+            if(!znaleziony){
+                return;
+            }
+
+            const oryginal=
+                znaleziony.p;
+
+            if(
+                String(
+                    oryginal?.typ||
+                    ""
+                )
+                .trim()
+                .toUpperCase()==="TECH"
+            ){
+                return;
+            }
+
+            /*
+               Kopia tylko dla renderera listy.
+               Oryginalnego JSON nie zmieniamy.
+            */
+            const p={
+                ...oryginal
+            };
+
+            if(
+                String(
+                    oryginal?.nazwa_czysta||
+                    ""
+                ).trim()
+            ){
+                p.nazwa=
+                    String(
+                        oryginal.nazwa_czysta
+                    ).trim();
+            }
+
+            p.miejscowosc=
+                String(
+                    oryginal?.miejscowosc||
+                    ""
+                ).trim();
+
+            p.strefa=
+                String(
+                    oryginal?.strefa||
+                    ""
+                ).trim();
+
+            wynik.push(
+                {
+                    p,
+                    index:
+                        znaleziony.index,
+
+                    /*
+                       Flaga dla renderera:
+                       NIE uruchamiaj starej analizy
+                       "Trasa w kursach..." dla tego elementu.
+                    */
+                    _json484:true
                 }
             );
         }
+    );
+
+    return wynik.length
+        ? wynik
+        : null;
+}
+
+
+function __bezCache_listaTrasyDoWyswietlenia(){
+
+    /*
+       WERSJA 484:
+       nowy JSON ma pierwszeństwo absolutne.
+       Stary silnik pozostaje tylko dla plików bez kurs.trasa.
+    */
+    const nowa=
+        listaTrasyZNowegoJSON484();
+
+    if(nowa){
+        return nowa;
     }
 
     /*
-       v206:
-       dla początku własnej grupy kursów zastępujemy wynik trasą
-       wyliczoną BEZPOŚREDNIO z kursów JSON po indeksach.
+       Fallback wyłącznie dla starego formatu JSON.
     */
-    if(
-        czyAktywnyJestPoczatkiem206()
-    ){
-        wynik=
-            trasaZDokladnychKursow206(
-                wynik
-            );
-    }
+    const baza=
+        czyBiezacyPrzystanekDwukierunkowy()
+            ? listaPelnejTrasyDoWyswietlenia()
+            : daneTrasWydluzonych().baza;
 
-    return wstawGalezieWPrzebieg304(wynik);
+    return baza;
 }
 
 function listaTrasyDoWyswietlenia(){
@@ -19767,11 +19862,15 @@ function renderTrasaKolumna(
                               );
 
                     const stanAktualny=
-                        element?._galaz304
-                            ? element.stan304
-                            : stanTrasyNaPrzystanku(
-                                element
-                            );
+                        element?._json484
+                            ? null
+                            : (
+                                element?._galaz304
+                                    ? element.stan304
+                                    : stanTrasyNaPrzystanku(
+                                        element
+                                    )
+                              );
 
                     let stanPoprzedni=null;
 
@@ -19885,9 +19984,12 @@ function renderTrasaKolumna(
                          już opisu nieaktualnej gałęzi.
                     */
                     let separator=
-                        element?._galaz304
+                        element?._json484
                             ? ''
                             : (
+                                element?._galaz304
+                                    ? ''
+                                    : (
                                 stanPoprzedni===null||
                                 przed||
                                 (
@@ -19904,6 +20006,7 @@ function renderTrasaKolumna(
                                         stanPoprzedni,
                                         stanAktualny
                                     )
+                                  )
                               );
 
                     /*
@@ -21222,9 +21325,17 @@ function renderuj(){
     const grupy=
         dostepneGrupyDni();
 
+    /*
+       WERSJA 484:
+       kolumny trasy powstają z FINALNEJ listy JSON,
+       a nie z pełnej starej listy kierunku.
+    */
+    const listaTrasy=
+        listaTrasyDoWyswietlenia();
+
     const fragmenty=
         podzielTrase(
-            lista
+            listaTrasy
         );
 
     const czasy=
@@ -21275,9 +21386,6 @@ function renderuj(){
                 grupy.length
             )
         );
-
-    const listaTrasy=
-        listaTrasyDoWyswietlenia();
 
     const pierwszyIndexTrasy=
         listaTrasy.length
@@ -46836,249 +46944,6 @@ body .tabliczka.kierunki-dwa-473
             }
         );
     }
-})();
-</script>
-
-
-<!-- =========================================================
-     FWTP — WERSJA 483
-     WYGLĄD / ROZKŁAD: Z WERSJI 478
-     LISTA PRZYSTANKÓW: NOWY SILNIK JSON OD ZERA
-     ========================================================= -->
-<script id="FWTP-V483-NOWY-SILNIK-LISTY">
-(function(){
-"use strict";
-
-const V483 = "483";
-
-function t483(v){
-    return String(v == null ? "" : v).replace(/\s+/g," ").trim();
-}
-function a483(v){
-    return Array.isArray(v) ? v : [];
-}
-function id483(p){
-    return t483(p?.id);
-}
-function typ483(p){
-    return t483(p?.typ).toLocaleUpperCase("pl-PL");
-}
-
-/*
- * Zwraca dokładny kierunek bazowy, ale NIE używa żadnej starej
- * analizy przebiegów 126/401/150 itd.
- */
-function kierunek483(){
-    const k = kierunekBazowy();
-    return k || null;
-}
-
-function listaBazowa483(){
-    return a483(kierunek483()?.przystanki);
-}
-
-function aktywny483(){
-    const lista = listaBazowa483();
-
-    /* idx w URL odnosi się do fizycznego wpisu na liście kierunku. */
-    return lista[Number(aktualnyPrzystanek)] || null;
-}
-
-function mapa483(){
-    const m = new Map();
-
-    listaBazowa483().forEach((p,index)=>{
-        const id = id483(p);
-        if(id){
-            m.set(id,{p,index});
-        }
-    });
-
-    return m;
-}
-
-/*
- * NOWA ZASADA:
- *
- * Tabliczka dla danego przystanku pokazuje trasę OD TEGO PRZYSTANKU.
- *
- * Każdy kurs przy przystanku ma kurs.trasa.
- * Szukamy ID aktywnego przystanku w kurs.trasa i odcinamy wszystko
- * przed nim. Nie ma żadnego zgadywania "co było wcześniej".
- *
- * Dzięki temu np. dla Dziekanów Leśny 01:
- * - kurs z Izabelina ma w JSON wcześniejsze przystanki,
- * - ale tabliczka na Dziekanów Leśny 01 zaczyna się właśnie tam.
- */
-function przebiegiOdAktywnego483(){
-    const aktywny = aktywny483();
-    const aktywneId = id483(aktywny);
-
-    if(!aktywny || !aktywneId){
-        return [];
-    }
-
-    const grupy = new Map();
-
-    for(const kurs of a483(aktywny.kursy)){
-        const cala = a483(kurs?.trasa).map(t483).filter(Boolean);
-        if(!cala.length) continue;
-
-        const pos = cala.indexOf(aktywneId);
-        if(pos < 0) continue;
-
-        const odTeraz = cala.slice(pos);
-        if(!odTeraz.length) continue;
-
-        const key = odTeraz.join("\u001f");
-
-        if(!grupy.has(key)){
-            grupy.set(key,{
-                ids: odTeraz,
-                ile: 0,
-                warianty: new Set(),
-                kursy: []
-            });
-        }
-
-        const g = grupy.get(key);
-        g.ile++;
-        g.kursy.push(kurs);
-
-        const w = t483(kurs?.wariant);
-        if(w) g.warianty.add(w);
-    }
-
-    return Array.from(grupy.values());
-}
-
-/*
- * Przebieg główny:
- * 1. przebieg obsługiwany przez największą liczbę kursów;
- * 2. przy remisie dłuższy;
- * 3. przy dalszym remisie kolejność z JSON.
- *
- * To NIE jest zgadywanie fizycznej trasy.
- * Fizyczna trasa każdego kandydata pochodzi w 100% z kurs.trasa.
- * Wybieramy jedynie, który z istniejących przebiegów jest osią główną
- * tabliczki.
- */
-function glownyPrzebieg483(){
-    const przebiegi = przebiegiOdAktywnego483();
-
-    if(!przebiegi.length){
-        return null;
-    }
-
-    return przebiegi
-        .slice()
-        .sort((x,y)=>
-            (y.ile-x.ile) ||
-            (y.ids.length-x.ids.length)
-        )[0];
-}
-
-/*
- * To jest CAŁA nowa logika listy.
- * Zwracamy dokładnie format oczekiwany przez stary renderer:
- *      { p, index }
- *
- * Nie wywołujemy:
- * - daneTrasWydluzonych()
- * - stanTrasyNaPrzystanku()
- * - wybierzNajdluzszyKurs()
- * - wstawGalezieWPrzebieg304()
- * - wyjątków 126 / 401 / 150
- */
-function lista483(){
-    const glowny = glownyPrzebieg483();
-    if(!glowny) return [];
-
-    const mapa = mapa483();
-    const wynik = [];
-
-    for(const id of glowny.ids){
-        const x = mapa.get(id);
-        if(!x) continue;
-        if(typ483(x.p) === "TECH") continue;
-
-        /*
-         * JSON jest nadrzędny również dla metadanych.
-         * Renderer może nadal czytać p.nazwa, dlatego na potrzeby
-         * listy tworzymy kopię obiektu z czystą nazwą.
-         */
-        const p = {
-            ...x.p,
-            nazwa:
-                t483(x.p?.nazwa_czysta) ||
-                t483(x.p?.nazwa),
-            miejscowosc:
-                t483(x.p?.miejscowosc),
-            strefa:
-                t483(x.p?.strefa)
-        };
-
-        wynik.push({
-            p,
-            index:x.index,
-            _json483:true
-        });
-    }
-
-    return wynik;
-}
-
-/*
- * Pełne zastąpienie starej funkcji.
- */
-window.listaTrasyDoWyswietlenia = function(){
-    return lista483();
-};
-
-/*
- * Renderer V478 wcześniej do podziału kolumn przekazywał pełną listę
- * kierunku. Od V483 ignorujemy ten argument i dzielimy WYŁĄCZNIE
- * nową listę utworzoną z kurs.trasa.
- */
-window.podzielTrase = function(){
-    const lista = lista483();
-
-    return [{
-        start:0,
-        lista
-    }];
-};
-
-/*
- * Funkcje późniejszych poprawek 150 nie mogą już przebudowywać listy.
- * Wyłączamy wyłącznie warstwy ingerujące w fizyczny przebieg.
- * Nie dotykamy tabeli godzin, nagłówka ani CSS.
- */
-[
-    "poprawTrase397",
-    "poprawTrase429",
-    "poprawTrase440",
-    "poprawTrase449",
-    "poprawTrase463",
-    "poprawTrase473",
-    "przelicz476"
-].forEach(n=>{
-    if(typeof window[n] === "function"){
-        window[n] = function(){};
-    }
-});
-
-window.FWTP483 = {
-    wersja:V483,
-    lista:lista483,
-    przebiegi:przebiegiOdAktywnego483,
-    glowny:glownyPrzebieg483
-};
-
-console.log(
-    "FWTP V483 — NOWY silnik listy: aktywny przystanek -> kurs.trasa -> lista"
-);
-
 })();
 </script>
 
