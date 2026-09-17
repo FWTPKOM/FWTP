@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 492
+     WERSJA: 493
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -46331,17 +46331,16 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 </style>
 
 
-<style id="wersja-492-linia-jako-element-przystanku">
+<style id="wersja-493-kropka-do-kropki">
 /* =========================================================
-   FWTP TABLICZKA — WERSJA 492
+   FWTP TABLICZKA — WERSJA 493
    BAZA: 490
 
-   ZMIANA:
-   linia przechodząca przez separator miejscowości NIE jest
-   elementem miejscowości ani osobnym elementem listy.
-
-   Jest dzieckiem POPRZEDNIEGO PRZYSTANKU i zostaje wydłużona
-   aż do środka osi następnego przystanku.
+   Linia jest elementem PRZYSTANKU.
+   Jej początek i koniec są liczone dokładnie ze środka kropki
+   .trasa-os::after:
+       left: 1px; width: 8.5px  -> środek X = 5.25px
+       top:  3px; height: 8.5px -> środek Y = 7.25px
    ========================================================= */
 
 .tabliczka .trasa-stop,
@@ -46349,7 +46348,7 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
     overflow: visible !important;
 }
 
-/* Usuwamy wcześniejsze próby rysowania osi wewnątrz separatora. */
+/* Wyłączamy wyłącznie stare łączniki separatora. */
 .tabliczka .trasa-separator > .pionowa-os-477,
 .tabliczka .trasa-separator > .os-lacznik-453,
 .tabliczka .trasa-separator > .os-nad-miejscowoscia-489 {
@@ -46363,77 +46362,54 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
     display: none !important;
 }
 
-/*
-   Łącznik jest fizycznym DZIECKIEM przystanku.
-   Pozycja left jest liczona w JS względem tego konkretnego
-   przystanku, na podstawie jego rzeczywistej .trasa-os.
-*/
 .tabliczka
 .trasa-stop
-> .przedluzenie-przystanku-492,
+> .kropka-do-kropki-493,
 .tabliczka
 .trasa-extra-stop
-> .przedluzenie-przystanku-492 {
+> .kropka-do-kropki-493 {
     position: absolute !important;
     display: block !important;
-
     width: 2.25px !important;
     margin: 0 !important;
     padding: 0 !important;
     border: 0 !important;
-
     background: #111 !important;
-
-    /*
-       Linia przystanku przechodzi NAD separatorem miejscowości
-       oraz nad jego poziomymi kreskami.
-    */
     z-index: 2147483647 !important;
     pointer-events: none !important;
 }
 </style>
 
 <script>
-(function FWTP_WERSJA_492(){
+(function FWTP_WERSJA_493(){
     "use strict";
 
-    let zaplanowane492 = false;
+    let zaplanowane493 = false;
 
-    function linia150_492(){
+    const DOT_CENTER_X_493 = 1 + 8.5 / 2;  // 5.25 px
+    const DOT_CENTER_Y_493 = 3 + 8.5 / 2;  // 7.25 px
+    const LINE_WIDTH_493   = 2.25;
+
+    function czy150_493(){
         return String(
             new URLSearchParams(location.search).get("linia") || ""
         ).trim() === "150";
     }
 
-    function jestStop492(el){
-        return !!el?.matches?.(
-            ".trasa-stop, .trasa-extra-stop"
-        );
+    function jestStop493(el){
+        return !!el?.matches?.(".trasa-stop,.trasa-extra-stop");
     }
 
-    function jestSeparator492(el){
-        if(
-            !el ||
-            !el.classList?.contains("trasa-separator")
-        ){
-            return false;
-        }
+    function jestSeparator493(el){
+        if(!el?.classList?.contains("trasa-separator")) return false;
 
-        const tekst =
-            String(el.textContent || "")
-                .replace(/\u00a0/g, " ")
-                .replace(/\s+/g, " ")
-                .trim()
-                .toUpperCase();
+        const tekst = String(el.textContent || "")
+            .replace(/\u00a0/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toUpperCase();
 
-        /*
-           Nie przechodzimy przez nagłówek nowego wariantu.
-           Łączymy tylko przez elementy znajdujące się faktycznie
-           pomiędzy dwoma kolejnymi przystankami tej samej trasy.
-        */
-        if(tekst.includes("TRASA W KURSACH")){
-            return false;
-        }
+        if(tekst.includes("TRASA W KURSACH")) return false;
 
         return (
             el.classList.contains("trasa-miejscowosc-429") ||
@@ -46443,201 +46419,132 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
         );
     }
 
-    function wyczysc492(tab){
-        tab.querySelectorAll(
-            ".przedluzenie-przystanku-492"
-        ).forEach(el => el.remove());
-    }
-
-    function srodekOsiWStopie492(stop){
+    function srodekKropkiWzgledem493(stop, bazaRect){
         const os = stop.querySelector(".trasa-os");
         if(!os) return null;
 
-        /*
-           .trasa-os jest stałym punktem osi danego przystanku.
-           Liczymy jej środek względem samego wiersza przystanku,
-           ponieważ nowa linia będzie dzieckiem tego wiersza.
-        */
-        const stopRect = stop.getBoundingClientRect();
         const osRect = os.getBoundingClientRect();
 
-        return {
-            x:
-                osRect.left -
-                stopRect.left +
-                osRect.width / 2,
+        /*
+           NIE bierzemy środka .trasa-os.
+           .trasa-os rozciąga się na wysokość całego wiersza.
 
-            y:
-                osRect.top -
-                stopRect.top +
-                osRect.height / 2
+           Bierzemy dokładnie środek widocznej kropki ::after:
+             X = lewa krawędź .trasa-os + 5.25 px
+             Y = górna krawędź .trasa-os + 7.25 px
+        */
+        return {
+            x: osRect.left - bazaRect.left + DOT_CENTER_X_493,
+            y: osRect.top  - bazaRect.top  + DOT_CENTER_Y_493
         };
     }
 
-    function polaczWLiscie492(lista){
+    function wyczysc493(tab){
+        tab.querySelectorAll(".kropka-do-kropki-493")
+            .forEach(el => el.remove());
+    }
+
+    function polacz493(lista){
         const dzieci = Array.from(lista.children);
 
         for(let i = 0; i < dzieci.length; i++){
-            const poprzedniStop = dzieci[i];
-
-            if(!jestStop492(poprzedniStop)){
-                continue;
-            }
+            const pierwszy = dzieci[i];
+            if(!jestStop493(pierwszy)) continue;
 
             let j = i + 1;
-            let maSeparator = false;
+            let separatorMiedzy = false;
 
-            while(
-                j < dzieci.length &&
-                jestSeparator492(dzieci[j])
-            ){
-                maSeparator = true;
+            while(j < dzieci.length && jestSeparator493(dzieci[j])){
+                separatorMiedzy = true;
                 j++;
             }
 
-            if(!maSeparator){
-                continue;
-            }
+            if(!separatorMiedzy) continue;
 
-            const nastepnyStop = dzieci[j];
+            const drugi = dzieci[j];
+            if(!jestStop493(drugi)) continue;
 
-            if(!jestStop492(nastepnyStop)){
-                continue;
-            }
+            const pierwszyRect = pierwszy.getBoundingClientRect();
 
-            const start =
-                srodekOsiWStopie492(poprzedniStop);
-
-            const koniecOs =
-                nastepnyStop.querySelector(".trasa-os");
-
-            if(!start || !koniecOs){
-                continue;
-            }
-
-            const stopRect =
-                poprzedniStop.getBoundingClientRect();
-
-            const koniecRect =
-                koniecOs.getBoundingClientRect();
-
-            /*
-               Koniec liczymy względem POPRZEDNIEGO przystanku.
-               Dzięki temu jeden element należący do poprzedniego
-               przystanku dochodzi dokładnie do osi kolejnego.
-            */
-            const koniecY =
-                koniecRect.top -
-                stopRect.top +
-                koniecRect.height / 2;
-
-            if(koniecY <= start.y){
-                continue;
-            }
-
-            /*
-               Poprzedni przystanek staje się kontenerem dla własnego
-               przedłużenia osi.
-            */
-            const computed =
-                getComputedStyle(poprzedniStop);
-
-            if(computed.position === "static"){
-                poprzedniStop.style.position = "relative";
-            }
-
-            const lacznik =
-                document.createElement("span");
-
-            lacznik.className =
-                "przedluzenie-przystanku-492";
-
-            lacznik.setAttribute(
-                "aria-hidden",
-                "true"
+            const a = srodekKropkiWzgledem493(
+                pierwszy,
+                pierwszyRect
             );
 
-            lacznik.style.left =
-                (start.x - 1.125) + "px";
+            const b = srodekKropkiWzgledem493(
+                drugi,
+                pierwszyRect
+            );
 
-            lacznik.style.top =
-                start.y + "px";
+            if(!a || !b || b.y <= a.y) continue;
 
-            lacznik.style.height =
-                (koniecY - start.y) + "px";
+            if(getComputedStyle(pierwszy).position === "static"){
+                pierwszy.style.position = "relative";
+            }
 
-            poprzedniStop.appendChild(lacznik);
+            const linia = document.createElement("span");
+            linia.className = "kropka-do-kropki-493";
+            linia.setAttribute("aria-hidden", "true");
+
+            /*
+               ŚRODEK czarnej linii = ŚRODEK kropki.
+               Nie środek kolumny .trasa-os.
+            */
+            linia.style.left =
+                (a.x - LINE_WIDTH_493 / 2) + "px";
+
+            linia.style.top = a.y + "px";
+            linia.style.height = (b.y - a.y) + "px";
+
+            pierwszy.appendChild(linia);
         }
     }
 
-    function wykonaj492(){
-        if(!linia150_492()){
-            return;
-        }
+    function wykonaj493(){
+        if(!czy150_493()) return;
 
         const tab =
             document.querySelector("#wynik .tabliczka") ||
             document.querySelector(".tabliczka");
 
-        if(!tab){
-            return;
-        }
+        if(!tab) return;
 
-        wyczysc492(tab);
+        wyczysc493(tab);
 
-        tab.querySelectorAll(
-            ".trasa-lista, .trasa-lista-397"
-        ).forEach(polaczWLiscie492);
+        tab.querySelectorAll(".trasa-lista,.trasa-lista-397")
+            .forEach(polacz493);
     }
 
-    function plan492(){
-        if(zaplanowane492) return;
-
-        zaplanowane492 = true;
+    function plan493(){
+        if(zaplanowane493) return;
+        zaplanowane493 = true;
 
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
-                    zaplanowane492 = false;
-                    wykonaj492();
+                    zaplanowane493 = false;
+                    wykonaj493();
                 });
             });
         });
     }
 
-    /*
-       Bez MutationObservera — żeby nie wróciło mruganie.
-       Powtarzamy tylko kilka razy podczas początkowego renderu,
-       ponieważ starsze moduły jeszcze ustawiają kolumny.
-    */
-    function start492(){
-        plan492();
-        setTimeout(plan492, 100);
-        setTimeout(plan492, 300);
-        setTimeout(plan492, 700);
-        setTimeout(plan492, 1400);
+    function start493(){
+        plan493();
+        setTimeout(plan493, 100);
+        setTimeout(plan493, 300);
+        setTimeout(plan493, 700);
+        setTimeout(plan493, 1400);
     }
 
     if(document.readyState === "loading"){
-        document.addEventListener(
-            "DOMContentLoaded",
-            start492,
-            {once:true}
-        );
+        document.addEventListener("DOMContentLoaded", start493, {once:true});
     }else{
-        start492();
+        start493();
     }
 
-    window.addEventListener(
-        "load",
-        plan492,
-        {once:true}
-    );
-
-    window.addEventListener(
-        "resize",
-        plan492
-    );
+    window.addEventListener("load", plan493, {once:true});
+    window.addEventListener("resize", plan493);
 })();
 </script>
 
