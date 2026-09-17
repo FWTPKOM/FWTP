@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 465
+     WERSJA: 467
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -44415,6 +44415,525 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
     font-weight: 400 !important;
 }
 </style>
+
+
+<script>
+/* =========================================================
+   WERSJA 467 — LINIA 150
+   PRZYSTANKI OBSŁUGIWANE W DWÓCH KIERUNKACH
+   =========================================================
+   Cel:
+   dla widoku takich przystanków zastosować dokładnie tę samą
+   prezentację miejscowości i strefy, jaka działa już dla
+   przystanków obsługiwanych w jednym kierunku:
+
+   1. "(Miejscowość)" znika z wyświetlanej nazwy przystanku.
+   2. Przed pierwszym przystankiem danej miejscowości pojawia się
+      separator:
+          ---- MIEJSCOWOŚĆ ----
+   3. Przy wejściu do strefy pojawia się:
+          === STREFA I ===
+   4. Nie zmieniamy danych kursów ani nazw w JSON.
+   5. Nie zmieniamy działającej poprawki osi z wersji 465.
+   ========================================================= */
+(function FWTP_WERSJA_467(){
+
+    function czyLinia150_467(){
+        return String(
+            new URLSearchParams(location.search).get("linia") || ""
+        ).trim() === "150";
+    }
+
+    function normalizuj467(txt){
+        return String(txt || "")
+            .replace(/\u00a0/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function rozbijNazwe467(txt){
+        const calosc = normalizuj467(txt);
+
+        /*
+           Ostatni nawias traktujemy jako nazwę miejscowości,
+           np.:
+           "Wędkarska (Dziekanów Polski)"
+           ->
+           nazwa: "Wędkarska"
+           miejscowosc: "Dziekanów Polski"
+        */
+        const m = calosc.match(
+            /^(.*?)\s*\(([^()]*)\)\s*$/
+        );
+
+        if(!m){
+            return {
+                nazwa: calosc,
+                miejscowosc: ""
+            };
+        }
+
+        return {
+            nazwa: normalizuj467(m[1]),
+            miejscowosc: normalizuj467(m[2])
+        };
+    }
+
+    function tekstElementu467(el){
+        if(!el){
+            return "";
+        }
+
+        return normalizuj467(
+            el.textContent || ""
+        );
+    }
+
+    function danePrzystanku467(row){
+        if(!row){
+            return null;
+        }
+
+        const nazwaEl =
+            row.querySelector(".trasa-nazwa");
+
+        if(!nazwaEl){
+            return null;
+        }
+
+        /*
+           Jeżeli wcześniejsza logika zapisała pełną nazwę w dataset,
+           korzystamy z niej. W przeciwnym razie czytamy bieżący tekst.
+        */
+        const pelna =
+            row.dataset.pelnaNazwa467 ||
+            tekstElementu467(nazwaEl);
+
+        if(!row.dataset.pelnaNazwa467){
+            row.dataset.pelnaNazwa467 = pelna;
+        }
+
+        const rozbita =
+            rozbijNazwe467(pelna);
+
+        return {
+            row,
+            nazwaEl,
+            pelna,
+            nazwa: rozbita.nazwa,
+            miejscowosc: rozbita.miejscowosc
+        };
+    }
+
+    function ustawCzystaNazwe467(dane){
+        if(
+            !dane ||
+            !dane.nazwaEl ||
+            !dane.nazwa
+        ){
+            return;
+        }
+
+        /*
+           Nie używamy zwykłego textContent na całym elemencie,
+           jeżeli wewnątrz istnieją elementy techniczne renderera.
+           Podmieniamy pierwszy tekstowy węzeł zawierający pełną nazwę.
+        */
+        let podmieniono = false;
+
+        for(
+            const node of Array.from(
+                dane.nazwaEl.childNodes
+            )
+        ){
+            if(node.nodeType !== Node.TEXT_NODE){
+                continue;
+            }
+
+            const tekst =
+                normalizuj467(
+                    node.nodeValue || ""
+                );
+
+            if(!tekst){
+                continue;
+            }
+
+            const rozbita =
+                rozbijNazwe467(tekst);
+
+            if(
+                rozbita.miejscowosc &&
+                rozbita.nazwa
+            ){
+                node.nodeValue =
+                    node.nodeValue.replace(
+                        tekst,
+                        rozbita.nazwa
+                    );
+
+                podmieniono = true;
+                break;
+            }
+        }
+
+        /*
+           Jeżeli nazwa jest prostym tekstem, bez dodatkowych elementów,
+           możemy bezpiecznie ustawić ją bez nawiasu.
+        */
+        if(
+            !podmieniono &&
+            dane.nazwaEl.children.length === 0
+        ){
+            dane.nazwaEl.textContent =
+                dane.nazwa;
+        }
+    }
+
+    function utworzSeparatorMiejscowosci467(
+        nazwa
+    ){
+        const sep =
+            document.createElement("div");
+
+        sep.className =
+            "trasa-separator trasa-miejscowosc-429 miejscowosc-v467";
+
+        sep.dataset.miejscowosc467 =
+            nazwa;
+
+        sep.textContent =
+            nazwa.toUpperCase();
+
+        return sep;
+    }
+
+    function utworzSeparatorStrefy467(){
+        const sep =
+            document.createElement("div");
+
+        sep.className =
+            "trasa-separator trasa-strefa strefa-v467";
+
+        sep.dataset.strefa467 =
+            "I";
+
+        sep.innerHTML =
+            "<span>STREFA I</span>";
+
+        return sep;
+    }
+
+    function poprzedniaMiejscowosc467(row){
+        let el =
+            row.previousElementSibling;
+
+        while(el){
+            if(
+                el.classList.contains(
+                    "miejscowosc-v467"
+                )
+            ){
+                return normalizuj467(
+                    el.dataset.miejscowosc467
+                );
+            }
+
+            if(
+                el.classList.contains(
+                    "trasa-stop"
+                )
+            ){
+                const d =
+                    danePrzystanku467(el);
+
+                if(
+                    d &&
+                    d.miejscowosc
+                ){
+                    return d.miejscowosc;
+                }
+            }
+
+            el =
+                el.previousElementSibling;
+        }
+
+        return "";
+    }
+
+    function maSeparatorBezposrednio467(
+        row,
+        miejscowosc
+    ){
+        let el =
+            row.previousElementSibling;
+
+        while(
+            el &&
+            !el.classList.contains("trasa-stop")
+        ){
+            if(
+                el.classList.contains(
+                    "trasa-miejscowosc-429"
+                )
+            ){
+                const txt =
+                    normalizuj467(
+                        el.textContent
+                    ).toUpperCase();
+
+                if(
+                    txt ===
+                    normalizuj467(
+                        miejscowosc
+                    ).toUpperCase()
+                ){
+                    return true;
+                }
+            }
+
+            el =
+                el.previousElementSibling;
+        }
+
+        return false;
+    }
+
+    function czyPotrzebnaStrefaI467(
+        miejscowosc
+    ){
+        /*
+           Dla linii 150 sekcja z miejscowościami podwarszawskimi
+           jest prezentowana pod nagłówkiem STREFA I.
+           Nie dokładamy strefy przed WARSZAWA.
+        */
+        const m =
+            normalizuj467(
+                miejscowosc
+            ).toUpperCase();
+
+        return (
+            m &&
+            m !== "WARSZAWA"
+        );
+    }
+
+    function maStrefePrzed467(row){
+        let el =
+            row.previousElementSibling;
+
+        while(el){
+            if(
+                el.classList.contains(
+                    "strefa-v467"
+                )
+            ){
+                return true;
+            }
+
+            const txt =
+                normalizuj467(
+                    el.textContent
+                ).toUpperCase();
+
+            if(
+                txt.includes("STREFA I")
+            ){
+                return true;
+            }
+
+            if(
+                el.classList.contains(
+                    "trasa-stop"
+                )
+            ){
+                break;
+            }
+
+            el =
+                el.previousElementSibling;
+        }
+
+        return false;
+    }
+
+    function poprawKolumne467(lista){
+        if(!lista){
+            return;
+        }
+
+        /*
+           Usuwamy wyłącznie separatory dodane przez v467.
+           Separatory głównego renderera pozostają nietknięte.
+        */
+        lista.querySelectorAll(
+            ":scope > .miejscowosc-v467, :scope > .strefa-v467"
+        ).forEach(
+            el => el.remove()
+        );
+
+        const rows =
+            Array.from(
+                lista.children
+            ).filter(
+                el =>
+                    el.classList &&
+                    el.classList.contains(
+                        "trasa-stop"
+                    )
+            );
+
+        let poprzedniaMiejscowosc = "";
+        let dodanoStrefeI = false;
+
+        for(const row of rows){
+            const d =
+                danePrzystanku467(row);
+
+            if(!d){
+                continue;
+            }
+
+            ustawCzystaNazwe467(d);
+
+            if(!d.miejscowosc){
+                continue;
+            }
+
+            const nowaMiejscowosc =
+                normalizuj467(
+                    d.miejscowosc
+                );
+
+            if(
+                nowaMiejscowosc.toUpperCase() ===
+                poprzedniaMiejscowosc.toUpperCase()
+            ){
+                continue;
+            }
+
+            /*
+               Najpierw STREFA I, potem separator miejscowości.
+               Jeżeli główny renderer już taki separator wstawił,
+               nie dublujemy go.
+            */
+            if(
+                !dodanoStrefeI &&
+                czyPotrzebnaStrefaI467(
+                    nowaMiejscowosc
+                ) &&
+                !maStrefePrzed467(row)
+            ){
+                row.parentNode.insertBefore(
+                    utworzSeparatorStrefy467(),
+                    row
+                );
+
+                dodanoStrefeI = true;
+            }
+
+            if(
+                !maSeparatorBezposrednio467(
+                    row,
+                    nowaMiejscowosc
+                )
+            ){
+                row.parentNode.insertBefore(
+                    utworzSeparatorMiejscowosci467(
+                        nowaMiejscowosc
+                    ),
+                    row
+                );
+            }
+
+            poprzedniaMiejscowosc =
+                nowaMiejscowosc;
+        }
+    }
+
+    function popraw467(){
+        if(!czyLinia150_467()){
+            return;
+        }
+
+        const tab =
+            document.querySelector(
+                "#wynik .tabliczka"
+            ) ||
+            document.querySelector(
+                ".tabliczka"
+            );
+
+        if(!tab){
+            return;
+        }
+
+        /*
+           Ta poprawka działa zarówno dla widoku jednego kierunku,
+           jak i dla przystanków występujących w dwóch kierunkach.
+        */
+        const listy =
+            Array.from(
+                tab.querySelectorAll(
+                    ".trasa-lista-397"
+                )
+            );
+
+        listy.forEach(
+            poprawKolumne467
+        );
+    }
+
+    let raf467 = 0;
+
+    function zaplanuj467(){
+        cancelAnimationFrame(
+            raf467
+        );
+
+        raf467 =
+            requestAnimationFrame(
+                () =>
+                    requestAnimationFrame(
+                        popraw467
+                    )
+            );
+    }
+
+    function start467(){
+        zaplanuj467();
+
+        const host =
+            document.getElementById("wynik") ||
+            document.body;
+
+        const observer467 =
+            new MutationObserver(
+                zaplanuj467
+            );
+
+        observer467.observe(
+            host,
+            {
+                childList: true,
+                subtree: true
+            }
+        );
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            start467,
+            {once:true}
+        );
+    }else{
+        start467();
+    }
+
+})();
+</script>
 
 </body>
 </html>
