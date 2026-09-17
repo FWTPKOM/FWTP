@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 490
+     WERSJA: 491
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -46329,6 +46329,370 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
     font-weight: 700 !important;
 }
 </style>
+
+
+<style id="wersja-491-laczenie-przystankow-przez-miejscowosc">
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 491
+   BAZA: 490
+
+   ZMIANA:
+   Pionowa linia NIE należy już do elementu miejscowości.
+
+   Jest tworzona jako łącznik:
+       środek kropki poprzedniego przystanku
+                    |
+                    |
+             [ MIEJSCOWOŚĆ ]
+                    |
+                    |
+       środek kropki następnego przystanku
+
+   Łącznik jest dzieckiem kontenera listy, a nie separatora
+   miejscowości. Ma wyższy z-index od separatora i jego "-----".
+   ========================================================= */
+
+.tabliczka .trasa-lista,
+.tabliczka .trasa-lista-397 {
+    position: relative !important;
+}
+
+/* Wyłączamy wcześniejsze linie rysowane WEWNĄTRZ miejscowości. */
+.tabliczka
+.trasa-separator
+> .pionowa-os-477,
+.tabliczka
+.trasa-separator
+> .os-lacznik-453,
+.tabliczka
+.trasa-separator
+> .os-nad-miejscowoscia-489 {
+    display: none !important;
+}
+
+.tabliczka
+.trasa-separator.laczenie-osi-449
+> .trasa-separator-title::before {
+    content: none !important;
+    display: none !important;
+}
+
+/*
+   Nowy łącznik jest elementem LISTY.
+   Nie jest częścią miejscowości.
+*/
+.tabliczka
+.trasa-lista
+> .laczenie-przystankow-491,
+.tabliczka
+.trasa-lista-397
+> .laczenie-przystankow-491 {
+    position: absolute !important;
+    display: block !important;
+
+    width: 2.25px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+
+    background: #111 !important;
+
+    /*
+       Musi przejść NAD separatorem miejscowości
+       i NAD jego poziomymi "-----".
+    */
+    z-index: 2147483647 !important;
+    pointer-events: none !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   WERSJA 491
+   ŁĄCZENIE KROPKI PRZYSTANKU Z KROPKĄ PRZYSTANKU
+   PRZEZ SEPARATOR MIEJSCOWOŚCI
+   ========================================================= */
+(function FWTP_WERSJA_491(){
+    "use strict";
+
+    let zaplanowane491 = false;
+    let wTrakcie491 = false;
+
+    function jest150_491(){
+        return String(
+            new URLSearchParams(location.search).get("linia") || ""
+        ).trim() === "150";
+    }
+
+    function jestPrzystankiem491(el){
+        return !!el?.matches?.(
+            ".trasa-stop, .trasa-extra-stop"
+        );
+    }
+
+    function jestSeparatoremDoPrzejscia491(el){
+        if(
+            !el ||
+            !el.classList?.contains("trasa-separator")
+        ){
+            return false;
+        }
+
+        const tekst =
+            String(el.textContent || "")
+                .replace(/\u00a0/g, " ")
+                .replace(/\s+/g, " ")
+                .trim()
+                .toUpperCase();
+
+        /*
+           Nie łączymy przez nagłówki opisujące osobną trasę/kurs.
+           Łączymy przez miejscowość, strefę i granicę.
+        */
+        if(tekst.includes("TRASA W KURSACH")){
+            return false;
+        }
+
+        return (
+            el.classList.contains("trasa-miejscowosc-429") ||
+            el.classList.contains("trasa-strefa-440") ||
+            el.classList.contains("trasa-graniczny-440") ||
+            /^STREFA\s+[IVX]+$/.test(tekst)
+        );
+    }
+
+    function srodekOsi491(stop, listaRect){
+        const os =
+            stop.querySelector(".trasa-os");
+
+        if(!os){
+            return null;
+        }
+
+        /*
+           Pobieramy rzeczywistą geometrię osi/kropki przystanku.
+           Dzięki temu nie zakładamy na sztywno wysokości wiersza.
+        */
+        const kropka =
+            os.querySelector(
+                ".trasa-kropka, .trasa-dot, .kropka"
+            );
+
+        const rect =
+            (kropka || os).getBoundingClientRect();
+
+        return {
+            x:
+                rect.left -
+                listaRect.left +
+                rect.width / 2,
+
+            y:
+                rect.top -
+                listaRect.top +
+                rect.height / 2
+        };
+    }
+
+    function usun491(lista){
+        lista.querySelectorAll(
+            ":scope > .laczenie-przystankow-491"
+        ).forEach(el => el.remove());
+    }
+
+    function zbudujDlaListy491(lista){
+        usun491(lista);
+
+        const dzieci =
+            Array.from(lista.children)
+                .filter(
+                    el =>
+                        !el.classList.contains(
+                            "laczenie-przystankow-491"
+                        )
+                );
+
+        const listaRect =
+            lista.getBoundingClientRect();
+
+        for(let i = 0; i < dzieci.length; i++){
+            const pierwszy =
+                dzieci[i];
+
+            if(!jestPrzystankiem491(pierwszy)){
+                continue;
+            }
+
+            let j = i + 1;
+            const separatory = [];
+
+            /*
+               Po przystanku dopuszczamy wyłącznie serię separatorów
+               miejscowości/strefy/granicy.
+            */
+            while(
+                j < dzieci.length &&
+                jestSeparatoremDoPrzejscia491(
+                    dzieci[j]
+                )
+            ){
+                separatory.push(dzieci[j]);
+                j++;
+            }
+
+            if(!separatory.length){
+                continue;
+            }
+
+            const drugi =
+                dzieci[j];
+
+            if(!jestPrzystankiem491(drugi)){
+                continue;
+            }
+
+            const a =
+                srodekOsi491(
+                    pierwszy,
+                    listaRect
+                );
+
+            const b =
+                srodekOsi491(
+                    drugi,
+                    listaRect
+                );
+
+            if(!a || !b){
+                continue;
+            }
+
+            /*
+               To jest jedna ciągła linia OD PRZYSTANKU DO PRZYSTANKU.
+               Separator miejscowości tylko znajduje się pod nią.
+            */
+            const top =
+                Math.min(a.y, b.y);
+
+            const bottom =
+                Math.max(a.y, b.y);
+
+            const lacznik =
+                document.createElement("span");
+
+            lacznik.className =
+                "laczenie-przystankow-491";
+
+            lacznik.setAttribute(
+                "aria-hidden",
+                "true"
+            );
+
+            lacznik.style.left =
+                (a.x - 1.125) + "px";
+
+            lacznik.style.top =
+                top + "px";
+
+            lacznik.style.height =
+                Math.max(
+                    0,
+                    bottom - top
+                ) + "px";
+
+            lista.appendChild(lacznik);
+        }
+    }
+
+    function wykonaj491(){
+        if(!jest150_491()){
+            return;
+        }
+
+        if(wTrakcie491){
+            return;
+        }
+
+        const tab =
+            document.querySelector(
+                "#wynik .tabliczka"
+            ) ||
+            document.querySelector(
+                ".tabliczka"
+            );
+
+        if(!tab){
+            return;
+        }
+
+        wTrakcie491 = true;
+
+        try{
+            tab.querySelectorAll(
+                ".trasa-lista, .trasa-lista-397"
+            ).forEach(
+                zbudujDlaListy491
+            );
+        }finally{
+            wTrakcie491 = false;
+        }
+    }
+
+    function plan491(){
+        if(zaplanowane491){
+            return;
+        }
+
+        zaplanowane491 = true;
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    zaplanowane491 = false;
+                    wykonaj491();
+                });
+            });
+        });
+    }
+
+    /*
+       Bez MutationObservera:
+       nie chcemy ponownie stworzyć pętli/mrugania.
+
+       Kilka opóźnionych wykonań wystarcza, aby poczekać na
+       istniejące poprawki układu/kolumn.
+    */
+    function start491(){
+        plan491();
+
+        setTimeout(plan491, 100);
+        setTimeout(plan491, 300);
+        setTimeout(plan491, 700);
+        setTimeout(plan491, 1400);
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            start491,
+            {once:true}
+        );
+    }else{
+        start491();
+    }
+
+    window.addEventListener(
+        "load",
+        plan491,
+        {once:true}
+    );
+
+    window.addEventListener(
+        "resize",
+        plan491
+    );
+})();
+</script>
 
 </body>
 </html>
