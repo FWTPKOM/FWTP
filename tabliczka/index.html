@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 476
+     WERSJA: 477
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -44688,7 +44688,7 @@ body .tabliczka:has(.kierunki-dwa)
 
 <!-- =========================================================
      FWTP — POPRAWKA DWUKIERUNKOWA LINII 150
-     WERSJA PLIKU: 476
+     WERSJA PLIKU: 473
      BAZA: WERSJA 465
      ========================================================= -->
 
@@ -46453,7 +46453,47 @@ body .tabliczka.kierunki-dwa-471
      POPRAWKA: USUNIĘCIE FAŁSZYWEGO ZAWIJANIA NAZW
      ========================================================= -->
 
+<style id="wersja-472-zawijanie-jak-126">
+/*
+   WERSJA 472
 
+   Problem:
+   standardowa funkcja ustawZawijanieNazwTrasy() mierzyła tekst już
+   po zbudowaniu węższych kolumn widoku dwukierunkowego. W efekcie
+   nazwy, które w normalnym widoku (np. 126) są jednowierszowe,
+   dostawały klasę .zawijaj.
+
+   W 472 klasa .zawijaj jest nadawana wyłącznie wtedy, gdy tekst
+   rzeczywiście nie mieści się w dostępnej szerokości nazwy.
+*/
+
+body .tabliczka.kierunki-dwa-472
+.trasa-lista-397
+.trasa-nazwa:not(.zawijaj) {
+    white-space: nowrap !important;
+}
+
+/*
+   Jednowierszowy stop nie może zachować wysokości dwuwierszowego.
+*/
+body .tabliczka.kierunki-dwa-472
+.trasa-lista-397
+> .trasa-stop:not(:has(.trasa-nazwa.zawijaj)),
+body .tabliczka.kierunki-dwa-472
+.trasa-lista-397
+> .trasa-extra-stop:not(:has(.trasa-nazwa.zawijaj)) {
+    min-height: 17px !important;
+}
+
+/*
+   Faktycznie długie nazwy nadal mogą mieć dwa wiersze.
+*/
+body .tabliczka.kierunki-dwa-472
+.trasa-lista-397
+.trasa-nazwa.zawijaj {
+    white-space: normal !important;
+}
+</style>
 
 <script>
 /* =========================================================
@@ -46503,10 +46543,83 @@ body .tabliczka.kierunki-dwa-471
     }
 
     function ustaw472(tab){
-        /* WERSJA 476:
-           WYŁĄCZONE. Zawijanie ma działać dokładnie jak w wersji 460.
+        const columns = tab.querySelector(".trasa-columns");
+        if(!columns) return;
+
+        tab.classList.add("kierunki-dwa-472");
+
+        const nazwy = Array.from(
+            columns.querySelectorAll(
+                ".trasa-lista-397 .trasa-nazwa"
+            )
+        );
+
+        if(!nazwy.length) return;
+
+        /*
+           Najpierw całkowicie usuwamy wynik wcześniejszego pomiaru.
+           To jest część, której brakowało w 471.
         */
-        return;
+        nazwy.forEach(el => {
+            el.classList.remove("zawijaj");
+        });
+
+        /*
+           Po zdjęciu .zawijaj przeglądarka musi przeliczyć szerokości.
+        */
+        void columns.offsetWidth;
+
+        nazwy.forEach(el => {
+            const txt = tekst472(el);
+
+            if(!txt) return;
+
+            /*
+               Jednoznacznie krótkie nazwy pozostają w jednym wierszu.
+            */
+            if(ZAWSZE_JEDEN_WIERSZ_472.has(txt)){
+                el.classList.remove("zawijaj");
+                return;
+            }
+
+            /*
+               Dla pozostałych nazw sprawdzamy realną szerokość tekstu.
+               Tym razem nie używamy scrollWidth elementu już zawiniętego.
+            */
+            const cs = getComputedStyle(el);
+            const canvas =
+                ustaw472._canvas ||
+                (ustaw472._canvas = document.createElement("canvas"));
+
+            const ctx = canvas.getContext("2d");
+
+            if(!ctx) return;
+
+            ctx.font = [
+                cs.fontStyle,
+                cs.fontVariant,
+                cs.fontWeight,
+                cs.fontSize + "/" + cs.lineHeight,
+                cs.fontFamily
+            ].join(" ");
+
+            const szerokoscTekstu =
+                ctx.measureText(txt).width;
+
+            const szerokoscPola =
+                el.getBoundingClientRect().width;
+
+            /*
+               Mały margines zapobiega zawijaniu przez różnice
+               subpikselowe przeglądarki.
+            */
+            if(
+                szerokoscPola > 0 &&
+                szerokoscTekstu > szerokoscPola + 2
+            ){
+                el.classList.add("zawijaj");
+            }
+        });
     }
 
     function run472(){
@@ -46588,7 +46701,40 @@ body .tabliczka.kierunki-dwa-471
      ========================================================= -->
 
 <style id="wersja-473-normalne-zawijanie-i-koniec">
-/* WERSJA 476: z 473 zostawiamy tutaj WYŁĄCZNIE obsługę końca trasy. */
+/*
+   472 wymuszała nowrap. W 473 cofamy to wymuszenie i pozwalamy
+   standardowemu mechanizmowi .zawijaj działać tak jak w zwykłej trasie.
+*/
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397 .trasa-nazwa {
+    white-space: nowrap !important;
+}
+
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397 .trasa-nazwa.zawijaj {
+    white-space: normal !important;
+}
+
+/* zwykły jednowierszowy stop */
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397
+> .trasa-stop:not(:has(.trasa-nazwa.zawijaj)),
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397
+> .trasa-extra-stop:not(:has(.trasa-nazwa.zawijaj)) {
+    min-height: 17px !important;
+}
+
+/* rzeczywiście zawinięta nazwa ma wysokość jak w normalnym rendererze */
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397
+> .trasa-stop:has(.trasa-nazwa.zawijaj),
+body .tabliczka.kierunki-dwa-473
+.trasa-lista-397
+> .trasa-extra-stop:has(.trasa-nazwa.zawijaj) {
+    min-height: 33px !important;
+}
+
 /*
    IZABELIN-DZIEKANÓWEK jest końcem:
    pion dochodzi tylko z góry do kropki.
@@ -46615,7 +46761,6 @@ body .tabliczka.kierunki-dwa-473
 .trasa-lista-397 > .v473-po-koncu .trasa-os::after {
     display: none !important;
 }
-
 </style>
 
 <script>
@@ -46653,21 +46798,27 @@ body .tabliczka.kierunki-dwa-473
        - DZIEKANÓW LEŚNY nie dostaje .zawijaj, jeśli mieści się w polu.
     */
     function ustawZawijanie473(columns){
-        /*
-           WERSJA 476 — DOKŁADNIE LOGIKA Z WERSJI 460.
-           Bez canvas, bez stałych szerokości, bez ręcznego nowrap.
-        */
-        if(!columns){
-            return;
-        }
+        const nazwy = Array.from(
+            columns.querySelectorAll(".trasa-lista-397 .trasa-nazwa")
+        );
 
-        if(typeof ustawZawijanieNazwTrasy === "function"){
-            ustawZawijanieNazwTrasy(columns);
-        }
+        nazwy.forEach(el => {
+            el.classList.remove("zawijaj");
+            el.style.whiteSpace = "nowrap";
+        });
 
-        if(typeof zabezpieczJednowyrazoweNazwy176 === "function"){
-            zabezpieczJednowyrazoweNazwy176(columns);
-        }
+        void columns.offsetWidth;
+
+        nazwy.forEach(el => {
+            const dostepne = el.clientWidth;
+            const potrzebne = el.scrollWidth;
+
+            if(dostepne > 0 && potrzebne > dostepne + 1){
+                el.classList.add("zawijaj");
+            }
+
+            el.style.removeProperty("white-space");
+        });
     }
 
     function poprawKoniec473(lista){
@@ -46800,87 +46951,334 @@ body .tabliczka.kierunki-dwa-473
 
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 476
+     FWTP — WERSJA PLIKU: 477
      BAZA: WERSJA 473
-     ZAWIJANIE: PRZYWRÓCONE DOKŁADNIE Z WERSJI 460
+     LINIA 150:
+     1. IZABELIN-DZIEKANÓWEK = rzeczywisty koniec lewej gałęzi.
+     2. W przebiegu powrotnym przy "m":
+        INSTYTUT EKOLOGII PAN -> DZIEKANÓW LEŚNY -> INSTYTUT EKOLOGII PAN.
+     3. Zawijanie pozostaje mechanizmem wersji 473.
      ========================================================= -->
-<script id="wersja-476-zawijanie-z-460">
+
+<style id="wersja-477-linia-150">
+/*
+   IZABELIN-DZIEKANÓWEK jest bezwzględnym końcem.
+   Ta reguła jest na końcu pliku, aby nie została nadpisana przez
+   wcześniejsze poprawki osi z 468/469/471.
+*/
+body .tabliczka.kierunki-dwa-473
+.trasa-columns
+.trasa-lista-397
+> .v477-izabelin-koniec .trasa-os::before {
+    top: 0 !important;
+    bottom: calc(100% - 8px) !important;
+    height: auto !important;
+}
+
+body .tabliczka.kierunki-dwa-473
+.trasa-columns
+.trasa-lista-397
+> .v477-izabelin-koniec > .trasa-nazwa {
+    font-weight: 700 !important;
+}
+
+/* Dziekanów pomiędzy dwoma Instytutami jest zwykłym przystankiem,
+   a nie krańcem tej części przebiegu. */
+body .tabliczka.kierunki-dwa-473
+.trasa-columns
+.trasa-lista-397
+> .v477-dziekanow-m > .trasa-nazwa {
+    font-weight: 400 !important;
+}
+
+body .tabliczka.kierunki-dwa-473
+.trasa-columns
+.trasa-lista-397
+> .v477-dziekanow-m .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+</style>
+
+<script id="wersja-477-poprawka-trasy-150">
 (function(){
     "use strict";
 
-    let zaplanowane476 = false;
+    let busy477 = false;
+    let queued477 = false;
 
-    function przelicz476(){
-        const linia = String(
-            (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
-            new URLSearchParams(location.search).get("linia") ||
-            ""
-        ).trim();
+    function norm477(v){
+        return String(v || "")
+            .toLocaleUpperCase("pl-PL")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
 
-        if(linia !== "150"){
-            return;
+    function jestStop477(el){
+        return !!el && el.matches?.(".trasa-stop,.trasa-extra-stop");
+    }
+
+    function nazwa477(row){
+        return norm477(
+            row?.querySelector(".trasa-nazwa")?.textContent || ""
+        );
+    }
+
+    function czas477(row){
+        const el = row?.querySelector(".trasa-czas");
+        if(!el) return null;
+
+        const m = String(el.textContent || "").match(/-?\d+/);
+        return m ? Number(m[0]) : null;
+    }
+
+    function ustawCzas477(row, value){
+        const el = row?.querySelector(".trasa-czas");
+        if(el && Number.isFinite(value)){
+            el.textContent = String(value);
+        }
+    }
+
+    function utworzDziekanow477(wzor, czas){
+        const row = wzor.cloneNode(true);
+
+        row.classList.remove(
+            "wybrany",
+            "aktywny-pierwszy",
+            "aktywny-poczatek-dwukierunkowy",
+            "aktywny-granica-wariantu",
+            "nieaktywny-duplikat",
+            "przed",
+            "nz",
+            "kraniec-poczatek",
+            "kraniec-koniec",
+            "koniec-trasy-210",
+            "v467-pierwszy",
+            "v467-dziekanow-koniec-bazy",
+            "v467-izabelin-koniec",
+            "v468-pierwszy-stop",
+            "v468-koniec-bazy",
+            "v468-koniec-wydluzenia",
+            "v469-poczatek",
+            "v469-koniec-bazy",
+            "v469-koniec",
+            "v471-poczatek",
+            "v471-koniec-bazy",
+            "v471-koniec",
+            "v473-koniec"
+        );
+
+        row.classList.add("v477-dziekanow-m");
+
+        const nazwa = row.querySelector(".trasa-nazwa");
+        if(nazwa){
+            nazwa.classList.remove("zawijaj");
+            nazwa.innerHTML = "";
+            nazwa.textContent = "DZIEKANÓW LEŚNY";
         }
 
-        document.querySelectorAll(".tabliczka").forEach(tabliczka=>{
-            const columns = tabliczka.querySelector(".trasa-columns");
+        const nz = row.querySelector(".trasa-nz");
+        if(nz){
+            nz.textContent = "";
+        }
 
-            if(!columns){
-                return;
+        ustawCzas477(row, czas);
+
+        return row;
+    }
+
+    function poprawDwaInstytuty477(lista){
+        const dzieci = Array.from(lista.children);
+
+        for(let i=0; i<dzieci.length; i++){
+            const pierwszy = dzieci[i];
+
+            if(
+                !jestStop477(pierwszy) ||
+                !nazwa477(pierwszy).includes("INSTYTUT EKOLOGII PAN")
+            ){
+                continue;
             }
 
             /*
-               DOKŁADNIE KOLEJNOŚĆ Z WERSJI 460:
-               1. zabezpieczenie nazw jednowyrazowych,
-               2. standardowe ustawZawijanieNazwTrasy(),
-               3. ponowne zabezpieczenie nazw jednowyrazowych.
+               Szukamy następnego rzeczywistego przystanku.
+               Pomiędzy nimi może znajdować się separator miejscowości,
+               ale w błędnym układzie ze zdjęcia oba INSTYTUTY są
+               kolejnymi punktami przebiegu.
             */
-            if(typeof zabezpieczJednowyrazoweNazwy176 === "function"){
-                zabezpieczJednowyrazoweNazwy176(tabliczka);
+            let j = i + 1;
+            while(j < dzieci.length && !jestStop477(dzieci[j])){
+                j++;
             }
 
-            if(typeof ustawZawijanieNazwTrasy === "function"){
-                ustawZawijanieNazwTrasy(columns);
+            if(j >= dzieci.length) continue;
+
+            const drugi = dzieci[j];
+
+            if(
+                !nazwa477(drugi).includes("INSTYTUT EKOLOGII PAN")
+            ){
+                continue;
             }
 
-            if(typeof zabezpieczJednowyrazoweNazwy176 === "function"){
-                zabezpieczJednowyrazoweNazwy176(tabliczka);
+            /*
+               Jeżeli Dziekanów został już dodany przez wcześniejsze
+               uruchomienie observera, niczego nie dublujemy.
+            */
+            let poprzedni = drugi.previousElementSibling;
+            while(poprzedni && !jestStop477(poprzedni)){
+                poprzedni = poprzedni.previousElementSibling;
             }
-        });
-    }
 
-    function kolejka476(){
-        if(zaplanowane476){
-            return;
+            if(
+                poprzedni &&
+                nazwa477(poprzedni).includes("DZIEKANOW LESNY")
+            ){
+                continue;
+            }
+
+            const c1 = czas477(pierwszy);
+            const c2 = czas477(drugi);
+
+            let czas = null;
+
+            if(c1 !== null && c2 !== null && c2 > c1){
+                czas = Math.round((c1 + c2) / 2);
+            }else if(c1 !== null){
+                czas = c1 + 2;
+            }else if(c2 !== null){
+                czas = Math.max(0, c2 - 2);
+            }
+
+            const dziekanow = utworzDziekanow477(drugi, czas);
+            drugi.before(dziekanow);
+
+            /* Po zmianie DOM zaczynamy skan od nowa. */
+            return true;
         }
 
-        zaplanowane476 = true;
+        return false;
+    }
+
+    function poprawIzabelin477(lista){
+        const dzieci = Array.from(lista.children);
+
+        dzieci.forEach(el=>{
+            el.classList.remove("v477-izabelin-koniec");
+        });
+
+        let izabelin = null;
+
+        for(const el of dzieci){
+            if(
+                jestStop477(el) &&
+                nazwa477(el).includes("IZABELIN-DZIEKANOWEK")
+            ){
+                izabelin = el;
+            }
+        }
+
+        if(!izabelin) return;
+
+        izabelin.classList.remove(
+            "v471-srodek",
+            "v471-kontynuacja",
+            "v469-zwykly",
+            "v469-koniec-bazy"
+        );
+
+        izabelin.classList.add(
+            "v477-izabelin-koniec",
+            "v473-koniec",
+            "kraniec-koniec"
+        );
+    }
+
+    function popraw477(tab){
+        const columns = tab.querySelector(".trasa-columns");
+        if(!columns) return;
+
+        const listy = Array.from(
+            columns.querySelectorAll(".trasa-lista-397")
+        );
+
+        listy.forEach(lista=>{
+            /* maksymalnie kilka przejść, żeby nie było możliwości pętli */
+            for(let n=0; n<4; n++){
+                if(!poprawDwaInstytuty477(lista)) break;
+            }
+
+            poprawIzabelin477(lista);
+        });
+
+        /*
+           Po wstawieniu brakującego przystanku liczymy zawijanie ponownie
+           dokładnie funkcją używaną już przez bazową wersję 473.
+        */
+        if(typeof ustawZawijanieNazwTrasy === "function"){
+            ustawZawijanieNazwTrasy(columns);
+        }
+
+        if(typeof zabezpieczJednowyrazoweNazwy176 === "function"){
+            zabezpieczJednowyrazoweNazwy176(tab);
+        }
+    }
+
+    function run477(){
+        if(busy477) return;
+        busy477 = true;
+
+        try{
+            const linia = String(
+                (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
+                new URLSearchParams(location.search).get("linia") ||
+                ""
+            ).trim();
+
+            if(linia !== "150") return;
+
+            document.querySelectorAll(".tabliczka").forEach(tab=>{
+                if(!tab.querySelector(".kierunki-dwa")) return;
+                popraw477(tab);
+            });
+        }finally{
+            busy477 = false;
+        }
+    }
+
+    function queue477(){
+        if(queued477) return;
+        queued477 = true;
 
         requestAnimationFrame(()=>{
             requestAnimationFrame(()=>{
-                zaplanowane476 = false;
-                przelicz476();
+                queued477 = false;
+                run477();
             });
         });
     }
 
     if(document.readyState === "loading"){
-        document.addEventListener("DOMContentLoaded", kolejka476, {once:true});
+        document.addEventListener("DOMContentLoaded", queue477, {once:true});
     }else{
-        kolejka476();
+        queue477();
     }
 
-    window.addEventListener("load", kolejka476);
-    window.addEventListener("resize", kolejka476);
-    document.addEventListener("fwtp-v464-ready", kolejka476);
+    window.addEventListener("load", queue477);
+    window.addEventListener("resize", queue477);
+    document.addEventListener("fwtp-v464-ready", queue477);
 
     if(document.fonts && document.fonts.ready){
-        document.fonts.ready.then(kolejka476);
+        document.fonts.ready.then(queue477);
     }
 
     const host = document.getElementById("wynik");
 
     if(host){
-        new MutationObserver(kolejka476).observe(
+        new MutationObserver(queue477).observe(
             host,
             {
                 childList:true,
