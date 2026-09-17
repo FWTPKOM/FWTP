@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 477
+     WERSJA: 478
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -43152,9 +43152,34 @@ window.addEventListener(
             if(sepI){
                 const all=[...wynik.querySelectorAll(".trasa-lista-397 > li")];
                 const posI=all.indexOf(sepI);
-                for(let k=all.length-1;k>posI;k--){
+
+                /*
+                   WERSJA 478 — kluczowa poprawka:
+                   usuwamy powtórzony DZIEKANÓW LEŚNY WYŁĄCZNIE wewnątrz
+                   gałęzi „i”, czyli od separatora „i” do pierwszego
+                   IZABELIN-DZIEKANÓWEK.
+
+                   Poprzednio pętla szła aż do końca całej tabliczki i
+                   usuwała także DZIEKANÓW LEŚNY z DRUGIEGO KIERUNKU.
+                */
+                let koniecI=all.length;
+                for(let k=posI+1;k<all.length;k++){
                     const el=all[k];
-                    if(el.matches(".trasa-stop,.trasa-extra-stop") && nazwa446(el)==="DZIEKANOW LESNY"){
+                    if(
+                        el.matches(".trasa-stop,.trasa-extra-stop") &&
+                        nazwa446(el)==="IZABELIN-DZIEKANOWEK"
+                    ){
+                        koniecI=k;
+                        break;
+                    }
+                }
+
+                for(let k=koniecI-1;k>posI;k--){
+                    const el=all[k];
+                    if(
+                        el.matches(".trasa-stop,.trasa-extra-stop") &&
+                        nazwa446(el)==="DZIEKANOW LESNY"
+                    ){
                         el.remove();
                     }
                 }
@@ -43214,6 +43239,16 @@ window.addEventListener(
                     el.textContent=nowaWartosc446;
                 }
                 poprzedni=wart;
+
+                /*
+                   WERSJA 478 — IZABELIN kończy pierwszy logiczny przebieg.
+                   Drugi kierunek zaczyna własne liczenie od bieżącego
+                   przystanku, więc nie wolno przenosić offsetu dalej.
+                */
+                if(nazwa446(row)==="IZABELIN-DZIEKANOWEK"){
+                    offset=0;
+                    poprzedni=null;
+                }
             });
         } finally {
             blokada446=false;
@@ -46951,341 +46986,65 @@ body .tabliczka.kierunki-dwa-473
 
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 477
+     FWTP — WERSJA PLIKU: 478
      BAZA: WERSJA 473
-     LINIA 150:
-     1. IZABELIN-DZIEKANÓWEK = rzeczywisty koniec lewej gałęzi.
-     2. W przebiegu powrotnym przy "m":
-        INSTYTUT EKOLOGII PAN -> DZIEKANÓW LEŚNY -> INSTYTUT EKOLOGII PAN.
-     3. Zawijanie pozostaje mechanizmem wersji 473.
+     - poprawka zakresu WERSJI 446
+     - Dziekanów Leśny nie jest usuwany z drugiego kierunku
+     - Izabelin-Dziekanówek jest prawdziwym końcem gałęzi i
+     - bez zmian w mechanizmie zawijania wersji 473
      ========================================================= -->
-
-<style id="wersja-477-linia-150">
-/*
-   IZABELIN-DZIEKANÓWEK jest bezwzględnym końcem.
-   Ta reguła jest na końcu pliku, aby nie została nadpisana przez
-   wcześniejsze poprawki osi z 468/469/471.
-*/
-body .tabliczka.kierunki-dwa-473
-.trasa-columns
-.trasa-lista-397
-> .v477-izabelin-koniec .trasa-os::before {
+<style id="wersja-478-koniec-izabelin">
+body .tabliczka .trasa-stop.koniec-478 .trasa-os::before,
+body .tabliczka .trasa-extra-stop.koniec-478 .trasa-os::before {
     top: 0 !important;
     bottom: calc(100% - 8px) !important;
     height: auto !important;
 }
-
-body .tabliczka.kierunki-dwa-473
-.trasa-columns
-.trasa-lista-397
-> .v477-izabelin-koniec > .trasa-nazwa {
+body .tabliczka .trasa-stop.koniec-478 > .trasa-nazwa,
+body .tabliczka .trasa-extra-stop.koniec-478 > .trasa-nazwa {
     font-weight: 700 !important;
 }
-
-/* Dziekanów pomiędzy dwoma Instytutami jest zwykłym przystankiem,
-   a nie krańcem tej części przebiegu. */
-body .tabliczka.kierunki-dwa-473
-.trasa-columns
-.trasa-lista-397
-> .v477-dziekanow-m > .trasa-nazwa {
-    font-weight: 400 !important;
-}
-
-body .tabliczka.kierunki-dwa-473
-.trasa-columns
-.trasa-lista-397
-> .v477-dziekanow-m .trasa-os::before {
-    top: 0 !important;
-    bottom: 0 !important;
-    height: auto !important;
-}
 </style>
-
-<script id="wersja-477-poprawka-trasy-150">
+<script id="wersja-478-dom">
 (function(){
     "use strict";
-
-    let busy477 = false;
-    let queued477 = false;
-
-    function norm477(v){
-        return String(v || "")
-            .toLocaleUpperCase("pl-PL")
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .replace(/\s+/g, " ")
-            .trim();
+    let blokada478=false;
+    function norm478(v){
+        return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim().toUpperCase();
     }
-
-    function jestStop477(el){
-        return !!el && el.matches?.(".trasa-stop,.trasa-extra-stop");
-    }
-
-    function nazwa477(row){
-        return norm477(
-            row?.querySelector(".trasa-nazwa")?.textContent || ""
-        );
-    }
-
-    function czas477(row){
-        const el = row?.querySelector(".trasa-czas");
-        if(!el) return null;
-
-        const m = String(el.textContent || "").match(/-?\d+/);
-        return m ? Number(m[0]) : null;
-    }
-
-    function ustawCzas477(row, value){
-        const el = row?.querySelector(".trasa-czas");
-        if(el && Number.isFinite(value)){
-            el.textContent = String(value);
-        }
-    }
-
-    function utworzDziekanow477(wzor, czas){
-        const row = wzor.cloneNode(true);
-
-        row.classList.remove(
-            "wybrany",
-            "aktywny-pierwszy",
-            "aktywny-poczatek-dwukierunkowy",
-            "aktywny-granica-wariantu",
-            "nieaktywny-duplikat",
-            "przed",
-            "nz",
-            "kraniec-poczatek",
-            "kraniec-koniec",
-            "koniec-trasy-210",
-            "v467-pierwszy",
-            "v467-dziekanow-koniec-bazy",
-            "v467-izabelin-koniec",
-            "v468-pierwszy-stop",
-            "v468-koniec-bazy",
-            "v468-koniec-wydluzenia",
-            "v469-poczatek",
-            "v469-koniec-bazy",
-            "v469-koniec",
-            "v471-poczatek",
-            "v471-koniec-bazy",
-            "v471-koniec",
-            "v473-koniec"
-        );
-
-        row.classList.add("v477-dziekanow-m");
-
-        const nazwa = row.querySelector(".trasa-nazwa");
-        if(nazwa){
-            nazwa.classList.remove("zawijaj");
-            nazwa.innerHTML = "";
-            nazwa.textContent = "DZIEKANÓW LEŚNY";
-        }
-
-        const nz = row.querySelector(".trasa-nz");
-        if(nz){
-            nz.textContent = "";
-        }
-
-        ustawCzas477(row, czas);
-
-        return row;
-    }
-
-    function poprawDwaInstytuty477(lista){
-        const dzieci = Array.from(lista.children);
-
-        for(let i=0; i<dzieci.length; i++){
-            const pierwszy = dzieci[i];
-
-            if(
-                !jestStop477(pierwszy) ||
-                !nazwa477(pierwszy).includes("INSTYTUT EKOLOGII PAN")
-            ){
-                continue;
-            }
-
-            /*
-               Szukamy następnego rzeczywistego przystanku.
-               Pomiędzy nimi może znajdować się separator miejscowości,
-               ale w błędnym układzie ze zdjęcia oba INSTYTUTY są
-               kolejnymi punktami przebiegu.
-            */
-            let j = i + 1;
-            while(j < dzieci.length && !jestStop477(dzieci[j])){
-                j++;
-            }
-
-            if(j >= dzieci.length) continue;
-
-            const drugi = dzieci[j];
-
-            if(
-                !nazwa477(drugi).includes("INSTYTUT EKOLOGII PAN")
-            ){
-                continue;
-            }
-
-            /*
-               Jeżeli Dziekanów został już dodany przez wcześniejsze
-               uruchomienie observera, niczego nie dublujemy.
-            */
-            let poprzedni = drugi.previousElementSibling;
-            while(poprzedni && !jestStop477(poprzedni)){
-                poprzedni = poprzedni.previousElementSibling;
-            }
-
-            if(
-                poprzedni &&
-                nazwa477(poprzedni).includes("DZIEKANOW LESNY")
-            ){
-                continue;
-            }
-
-            const c1 = czas477(pierwszy);
-            const c2 = czas477(drugi);
-
-            let czas = null;
-
-            if(c1 !== null && c2 !== null && c2 > c1){
-                czas = Math.round((c1 + c2) / 2);
-            }else if(c1 !== null){
-                czas = c1 + 2;
-            }else if(c2 !== null){
-                czas = Math.max(0, c2 - 2);
-            }
-
-            const dziekanow = utworzDziekanow477(drugi, czas);
-            drugi.before(dziekanow);
-
-            /* Po zmianie DOM zaczynamy skan od nowa. */
-            return true;
-        }
-
-        return false;
-    }
-
-    function poprawIzabelin477(lista){
-        const dzieci = Array.from(lista.children);
-
-        dzieci.forEach(el=>{
-            el.classList.remove("v477-izabelin-koniec");
-        });
-
-        let izabelin = null;
-
-        for(const el of dzieci){
-            if(
-                jestStop477(el) &&
-                nazwa477(el).includes("IZABELIN-DZIEKANOWEK")
-            ){
-                izabelin = el;
-            }
-        }
-
-        if(!izabelin) return;
-
-        izabelin.classList.remove(
-            "v471-srodek",
-            "v471-kontynuacja",
-            "v469-zwykly",
-            "v469-koniec-bazy"
-        );
-
-        izabelin.classList.add(
-            "v477-izabelin-koniec",
-            "v473-koniec",
-            "kraniec-koniec"
-        );
-    }
-
-    function popraw477(tab){
-        const columns = tab.querySelector(".trasa-columns");
-        if(!columns) return;
-
-        const listy = Array.from(
-            columns.querySelectorAll(".trasa-lista-397")
-        );
-
-        listy.forEach(lista=>{
-            /* maksymalnie kilka przejść, żeby nie było możliwości pętli */
-            for(let n=0; n<4; n++){
-                if(!poprawDwaInstytuty477(lista)) break;
-            }
-
-            poprawIzabelin477(lista);
-        });
-
-        /*
-           Po wstawieniu brakującego przystanku liczymy zawijanie ponownie
-           dokładnie funkcją używaną już przez bazową wersję 473.
-        */
-        if(typeof ustawZawijanieNazwTrasy === "function"){
-            ustawZawijanieNazwTrasy(columns);
-        }
-
-        if(typeof zabezpieczJednowyrazoweNazwy176 === "function"){
-            zabezpieczJednowyrazoweNazwy176(tab);
-        }
-    }
-
-    function run477(){
-        if(busy477) return;
-        busy477 = true;
-
+    function popraw478(){
+        if(blokada478) return;
+        if(String(window.aktualnaLinia||new URLSearchParams(location.search).get("linia")||"").trim()!=="150") return;
+        const wynik=document.getElementById("wynik");
+        if(!wynik) return;
+        blokada478=true;
         try{
-            const linia = String(
-                (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
-                new URLSearchParams(location.search).get("linia") ||
-                ""
-            ).trim();
+            wynik.querySelectorAll(".trasa-stop,.trasa-extra-stop").forEach(row=>{
+                const nazwa=norm478(row.querySelector(".trasa-nazwa")?.textContent||"");
+                row.classList.remove("koniec-478");
+                if(nazwa!=="IZABELIN-DZIEKANOWEK") return;
+                row.classList.add("koniec-478","kraniec-koniec","koniec-wydluzenia-446");
 
-            if(linia !== "150") return;
-
-            document.querySelectorAll(".tabliczka").forEach(tab=>{
-                if(!tab.querySelector(".kierunki-dwa")) return;
-                popraw477(tab);
+                /* Nie pokazujemy osobnego nagłówka miejscowości
+                   IZABELIN-DZIEKANÓWEK bezpośrednio nad krańcem. */
+                let prev=row.previousElementSibling;
+                if(prev && prev.classList.contains("trasa-miejscowosc-429")){
+                    const t=norm478(prev.querySelector(".trasa-separator-title")?.textContent||"");
+                    if(t==="IZABELIN-DZIEKANOWEK") prev.remove();
+                }
             });
         }finally{
-            busy477 = false;
+            blokada478=false;
         }
     }
-
-    function queue477(){
-        if(queued477) return;
-        queued477 = true;
-
-        requestAnimationFrame(()=>{
-            requestAnimationFrame(()=>{
-                queued477 = false;
-                run477();
-            });
-        });
-    }
-
-    if(document.readyState === "loading"){
-        document.addEventListener("DOMContentLoaded", queue477, {once:true});
-    }else{
-        queue477();
-    }
-
-    window.addEventListener("load", queue477);
-    window.addEventListener("resize", queue477);
-    document.addEventListener("fwtp-v464-ready", queue477);
-
-    if(document.fonts && document.fonts.ready){
-        document.fonts.ready.then(queue477);
-    }
-
-    const host = document.getElementById("wynik");
-
-    if(host){
-        new MutationObserver(queue477).observe(
-            host,
-            {
-                childList:true,
-                subtree:true
-            }
-        );
-    }
+    function plan(){requestAnimationFrame(()=>requestAnimationFrame(popraw478));}
+    document.addEventListener("DOMContentLoaded",()=>{
+        plan();
+        const wynik=document.getElementById("wynik");
+        if(wynik)new MutationObserver(()=>{if(!blokada478)plan();}).observe(wynik,{childList:true,subtree:true});
+    });
+    window.addEventListener("load",plan);
+    document.addEventListener("fwtp-v464-ready",plan);
 })();
 </script>
 
