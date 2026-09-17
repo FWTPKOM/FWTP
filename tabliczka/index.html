@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 469
+     WERSJA: 470
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      ========================================================= -->
@@ -44799,6 +44799,187 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
         );
     }else{
         start();
+    }
+
+})();
+</script>
+
+
+<script>
+/* =========================================================
+   WERSJA 470 — LINIA 150
+   PONOWNE PRZELICZENIE ZAWIJANIA PO USUNIĘCIU "(MIEJSCOWOŚĆ)"
+   =========================================================
+
+   Przyczyna problemu:
+   ustawZawijanieNazwTrasy() było wykonywane WCZEŚNIEJ, kiedy
+   w nazwie nadal znajdowało się np.:
+
+       INSTYTUT EKOLOGII PAN (DZIEKANÓW LEŚNY)
+
+   Taka długa nazwa dostawała klasę:
+       .zawijaj
+
+   Dopiero później v469 ukrywała:
+       (DZIEKANÓW LEŚNY)
+
+   ale klasa .zawijaj pozostawała. Dlatego krótka już nazwa
+   nadal była sztucznie wyświetlana w dwóch liniach.
+
+   v470 nie zmienia wyglądu separatorów miejscowości.
+   Po wykonaniu v469 jeszcze raz mierzymy WYŁĄCZNIE widoczną
+   nazwę i zdejmujemy .zawijaj tam, gdzie nie jest już potrzebne.
+   ========================================================= */
+(function FWTP_WERSJA_470(){
+
+    function czyLinia150_470(){
+        return String(
+            new URLSearchParams(location.search).get("linia") || ""
+        ).trim() === "150";
+    }
+
+    function przeliczNazwy470(){
+        if(!czyLinia150_470()){
+            return;
+        }
+
+        const tab =
+            document.querySelector("#wynik .tabliczka") ||
+            document.querySelector(".tabliczka");
+
+        if(!tab){
+            return;
+        }
+
+        const nazwy =
+            Array.from(
+                tab.querySelectorAll(
+                    ".trasa-nazwa"
+                )
+            );
+
+        /*
+           Najpierw zdejmujemy stare decyzje o zawijaniu.
+           To ważne, bo pomiar elementu już zawiniętego nie odpowiada
+           szerokości, jakiej potrzebuje on w jednym wierszu.
+        */
+        nazwy.forEach(
+            el => {
+                el.classList.remove(
+                    "zawijaj"
+                );
+            }
+        );
+
+        /*
+           Wymuszamy przeliczenie layoutu po:
+           - ukryciu "(Miejscowość)" przez v469,
+           - zdjęciu poprzedniej klasy .zawijaj.
+        */
+        void tab.offsetWidth;
+
+        nazwy.forEach(
+            el => {
+
+                /*
+                   Pomiar wykonujemy już na nazwie widocznej dla użytkownika.
+                   Span .miejscowosc-w-nazwie-v469 ma display:none,
+                   więc nie wpływa na scrollWidth.
+                */
+                const potrzebna =
+                    Math.ceil(
+                        el.scrollWidth
+                    ) >
+                    Math.ceil(
+                        el.clientWidth
+                    ) + 1;
+
+                if(potrzebna){
+                    el.classList.add(
+                        "zawijaj"
+                    );
+                }
+            }
+        );
+    }
+
+    let raf470 = 0;
+
+    function zaplanuj470(){
+        cancelAnimationFrame(
+            raf470
+        );
+
+        /*
+           Trzy klatki celowo:
+           1. główny renderer,
+           2. poprawka miejscowości v469,
+           3. dopiero pomiar widocznych nazw v470.
+        */
+        raf470 =
+            requestAnimationFrame(
+                () =>
+                    requestAnimationFrame(
+                        () =>
+                            requestAnimationFrame(
+                                przeliczNazwy470
+                            )
+                    )
+            );
+    }
+
+    function start470(){
+        zaplanuj470();
+
+        const host =
+            document.getElementById("wynik") ||
+            document.body;
+
+        const observer470 =
+            new MutationObserver(
+                mutations => {
+
+                    /*
+                       Interesują nas:
+                       - przebudowa trasy,
+                       - pojawienie się ukrytego span z miejscowością.
+
+                       Nie reagujemy na samo dodanie/usunięcie klasy
+                       .zawijaj, bo atrybutów nie obserwujemy.
+                    */
+                    const trzeba =
+                        mutations.some(
+                            m =>
+                                m.type === "childList" &&
+                                (
+                                    m.addedNodes.length ||
+                                    m.removedNodes.length
+                                )
+                        );
+
+                    if(trzeba){
+                        zaplanuj470();
+                    }
+                }
+            );
+
+        observer470.observe(
+            host,
+            {
+                childList: true,
+                subtree: true
+            }
+        );
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            start470,
+            {once:true}
+        );
+    }else{
+        start470();
     }
 
 })();
