@@ -2,14 +2,14 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 500
+     WERSJA: 501
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 500
+     FWTP — WERSJA PLIKU: 501
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
@@ -22,6 +22,10 @@
      - V500: wszystkie MINIONE przystanki są wyłącznie z trasy podstawowej
      - V500: warianty są pokazywane tylko ZA aktualnym przystankiem
      - V500: historyczne odgałęzienia przed aktualnym przystankiem są ukryte
+     - V501: ta sama miejscowość (np. WARSZAWA) nie jest powtarzana na gałęzi
+     - V501: bez literek przy minutach opis brzmi tylko "TRASA W KURSACH"
+     - V501: wspólny punkt odgałęzienia jest rozpoznawany także po samej nazwie
+       (np. PROZY jest jeden raz przed rozgałęzieniem)
      ========================================================= -->
 
 <html lang="pl">
@@ -15978,6 +15982,31 @@ function v496StopKey(p){
     ].join("\u001F");
 }
 
+
+/* =========================================================
+   FWTP — WERSJA 501
+   WSPÓLNY PUNKT TAKŻE PO SAMEJ NAZWIE PRZYSTANKU
+   ========================================================= */
+
+function v501StopNameKey(p){
+    return v486StopName(p)
+        .toLocaleUpperCase("pl-PL")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g,"")
+        .replace(/\s+/g," ")
+        .trim();
+}
+
+/*
+   Dla szukania wspólnego przebiegu używamy nazwy przystanku.
+   Numer słupka nadal pozostaje w danych i przy zwykłym
+   identyfikowaniu przystanku, ale nie powoduje sztucznego
+   rozgałęzienia, gdy obie trasy mają np. PROZY.
+*/
+function v501RouteNameKeys(route){
+    return v486Array(route?.items).map(x=>v501StopNameKey(x?.p));
+}
+
 function v496RouteKeys(route){
     return v486Array(route?.items).map(x=>v496StopKey(x?.p));
 }
@@ -15994,8 +16023,45 @@ function v496OpisWariantow(routes){
     const litery = Array.from(new Set(
         routes.flatMap(v496Varianty)
     ));
-    if(!litery.length) return "";
-    return "TRASA W KURSACH " + litery.map(x=>'„'+x+'”').join(", ");
+
+    /*
+       V501:
+       litery w opisie wariantu wolno pokazać tylko wtedy,
+       gdy rozkład przy minutach rzeczywiście pokazuje oznaczenia.
+    */
+    const rozkladPokazujeLitery = (()=>{
+        const root=document.querySelector("#wynik") || document;
+        const candidates=[
+            ...root.querySelectorAll(
+                ".wariant, .wariant-minuta, .oznaczenie-wariantu, .minuta-wariant"
+            )
+        ];
+
+        if(candidates.some(el=>/^[A-Z]$/i.test((el.textContent||"").trim()))){
+            return true;
+        }
+
+        /*
+           Sprawdzamy także tekst elementów minut, ale tylko pojedynczą
+           literę stojącą bezpośrednio przy liczbie.
+        */
+        const minuteEls=[
+            ...root.querySelectorAll(
+                ".minuta, .minuty td, .rozkład td, .rozklad td"
+            )
+        ];
+
+        return minuteEls.some(el=>
+            /\b\d{1,2}\s*[A-Z]\b/i.test((el.textContent||"").trim())
+        );
+    })();
+
+    if(!rozkladPokazujeLitery || !litery.length){
+        return "TRASA W KURSACH";
+    }
+
+    return "TRASA W KURSACH " +
+        litery.map(x=>'„'+x+'”').join(", ");
 }
 
 function v496RenderStop(item, route, aktywnyKey, first=false, last=false){
@@ -16071,7 +16137,7 @@ function v496RenderItems(items,route,aktywnyKey,opts={}){
 function v496LongestCommonBlock(routes){
     if(routes.length<2)return null;
 
-    const arrays=routes.map(v496RouteKeys);
+    const arrays=routes.map(v501RouteNameKeys);
     const base=arrays.reduce((a,b)=>a.length<=b.length?a:b);
 
     let best=null;
@@ -16107,7 +16173,7 @@ function v496LongestCommonBlock(routes){
 function v496GroupExact(parts){
     const m=new Map();
     parts.forEach(x=>{
-        const key=x.items.map(i=>v496StopKey(i.p)).join("\u001E");
+        const key=x.items.map(i=>v501StopNameKey(i.p)).join("\u001E");
         if(!m.has(key))m.set(key,{items:x.items,routes:[]});
         m.get(key).routes.push(x.route);
     });
@@ -16158,11 +16224,11 @@ function v499PrzytnijGalazDoPowrotu(group,baseRoute,commonEndIndex){
     if(!group?.items?.length)return group;
 
     const baseAfter=v486Array(baseRoute?.items).slice(commonEndIndex);
-    const baseKeys=new Set(baseAfter.map(x=>v496StopKey(x.p)));
+    const baseKeys=new Set(baseAfter.map(x=>v501StopNameKey(x.p)));
 
     let cut=-1;
     for(let i=0;i<group.items.length;i++){
-        if(baseKeys.has(v496StopKey(group.items[i].p))){
+        if(baseKeys.has(v501StopNameKey(group.items[i].p))){
             cut=i;
             break;
         }
@@ -16265,7 +16331,7 @@ function v500PolaczIdentyczneTrasy(routes){
 
     v486Array(routes).forEach(route=>{
         const key=v486Array(route.items)
-            .map(x=>v496StopKey(x?.p))
+            .map(x=>v501StopNameKey(x?.p))
             .join("\u001E");
 
         if(!map.has(key)){
@@ -16387,11 +16453,11 @@ function v496RenderRoutes(routes){
         */
         const baseAfterKey=
             baseRoute.items.slice(commonEnd)
-                .map(x=>v496StopKey(x.p))
+                .map(x=>v501StopNameKey(x.p))
                 .join("\u001E");
 
         const groups499=afterGroups.map(g=>{
-            const key=g.items.map(x=>v496StopKey(x.p)).join("\u001E");
+            const key=g.items.map(x=>v501StopNameKey(x.p)).join("\u001E");
 
             if(key===baseAfterKey){
                 return g;
@@ -16471,6 +16537,88 @@ window.FWTP486 = {
    FWTP — WERSJA 499
    STREFY + WARIANTY PO WSPÓLNYM ODCINKU
    ========================================================= */
+
+
+/* =========================================================
+   V501 — MIEJSCOWOŚĆ TYLKO RAZ DO CZASU JEJ ZMIANY
+   ========================================================= */
+
+function v501TownText(el){
+    return (el?.textContent||"")
+        .replace(/[-–—]/g," ")
+        .replace(/\s+/g," ")
+        .trim()
+        .toLocaleUpperCase("pl-PL");
+}
+
+function v501NormalizujMiejscowosci(root){
+    if(!root)return;
+
+    const seps=[
+        ...root.querySelectorAll(".trasa-separator")
+    ].filter(el=>{
+        const txt=v501TownText(el);
+        return txt &&
+               !txt.includes("TRASA W KURSACH") &&
+               !txt.includes("STREFA ");
+    });
+
+    let current="";
+
+    seps.forEach(el=>{
+        const town=v501TownText(el);
+
+        if(town===current){
+            el.remove();
+            return;
+        }
+
+        current=town;
+    });
+
+    /*
+       Odgałęzienia mogą ponownie wygenerować WARSZAWA mimo że
+       poprzedni wspólny odcinek nadal jest w Warszawie.
+       Usuwamy separator gałęzi, jeśli jest taki sam jak ostatnia
+       miejscowość występująca przed kontenerem gałęzi.
+    */
+    root.querySelectorAll(".v496-galezie").forEach(branchBox=>{
+        let prev=branchBox.previousElementSibling;
+        let inherited="";
+
+        while(prev && !inherited){
+            const candidates=[
+                ...prev.querySelectorAll?.(".trasa-separator")||[]
+            ].filter(el=>{
+                const t=v501TownText(el);
+                return t &&
+                       !t.includes("TRASA W KURSACH") &&
+                       !t.includes("STREFA ");
+            });
+
+            if(candidates.length){
+                inherited=v501TownText(candidates[candidates.length-1]);
+            }
+            prev=prev.previousElementSibling;
+        }
+
+        if(!inherited)return;
+
+        branchBox.querySelectorAll(".v496-galaz").forEach(branch=>{
+            const first=[...branch.querySelectorAll(".trasa-separator")]
+                .find(el=>{
+                    const t=v501TownText(el);
+                    return t &&
+                           !t.includes("TRASA W KURSACH") &&
+                           !t.includes("STREFA ");
+                });
+
+            if(first && v501TownText(first)===inherited){
+                first.remove();
+            }
+        });
+    });
+}
 
 function v499ZoneText(el){
     return (el?.textContent||"")
@@ -16618,6 +16766,7 @@ function v498DopasujKolumnyTrasy(){
        STREFA I/II jest najpierw ustawiana globalnie:
        raz na górze i ponownie dopiero po rzeczywistej zmianie.
     */
+    v501NormalizujMiejscowosci(columns);
     v499NormalizujStrefy(columns);
 
     /*
