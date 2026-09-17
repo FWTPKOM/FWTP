@@ -2,14 +2,14 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 504
+     WERSJA: 505
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 504
+     FWTP — WERSJA PLIKU: 505
      BAZA: pełny kod użytkownika V493
      POPRAWKI:
      - tylko jeden nagłówek "czasy, trasa, przystanki"
@@ -32,6 +32,9 @@
      - V503: obsługa gałęzi, także do METRO MARYMONT
      - V504: gdy przy minutach nie ma A/B, NIE wypisujemy godzin
      - V504: opis brzmi dokładnie "TRASA W KURSACH BEZ OZNACZEŃ"
+     - V505: opis gałęzi używa tej samej logiki widoczności liter co minuty
+     - V505: kursy do METRO MARYMONT oznaczone F pokazują "TRASA W KURSACH „F”"
+     - V505: ukryte A/B nadal dają "TRASA W KURSACH BEZ OZNACZEŃ"
      ========================================================= -->
 
 <html lang="pl">
@@ -16076,49 +16079,62 @@ function v503KursyGałęzi(routes){
 }
 
 function v496OpisWariantow(routes){
-    const litery = Array.from(new Set(
-        routes.flatMap(v496Varianty)
+    /*
+       FWTP V505
+
+       Nie próbujemy już zgadywać na podstawie klas HTML, czy przy
+       minutach jest widoczna litera.
+
+       Korzystamy DOKŁADNIE z tej samej funkcji, która w tym pliku
+       decyduje o wyświetleniu litery przy minucie:
+           czyPokazacWariantJakLiniaHTML(litera)
+
+       Dzięki temu:
+       - jeżeli kursy do METRO MARYMONT mają widoczne F -> napis F,
+       - jeżeli A/B są ukryte przy minutach -> nie pojawią się tutaj,
+       - jeżeli dana gałąź nie ma żadnego widocznego oznaczenia ->
+         "TRASA W KURSACH BEZ OZNACZEŃ".
+    */
+
+    const wszystkieLitery = Array.from(new Set(
+        v486Array(routes).flatMap(route=>
+            v486Array(route?.courses)
+                .map(kurs=>
+                    String(
+                        (
+                            typeof literaWariantuPoRzeczywistymPrzebiegu==="function"
+                                ? literaWariantuPoRzeczywistymPrzebiegu(kurs)
+                                : ""
+                        ) ||
+                        kurs?.wariant ||
+                        ""
+                    )
+                    .trim()
+                    .toUpperCase()
+                )
+                .filter(Boolean)
+        )
     ));
 
-    const rozkladPokazujeLitery = (()=>{
-        const root=document.querySelector("#wynik") || document;
-
-        const candidates=[
-            ...root.querySelectorAll(
-                ".wariant, .wariant-minuta, .oznaczenie-wariantu, .minuta-wariant"
-            )
-        ];
-
-        if(candidates.some(el=>/^[A-Z]$/i.test((el.textContent||"").trim()))){
-            return true;
+    const widoczneLitery = wszystkieLitery.filter(litera=>{
+        if(typeof czyPokazacWariantJakLiniaHTML==="function"){
+            return czyPokazacWariantJakLiniaHTML(litera);
         }
 
-        const minuteEls=[
-            ...root.querySelectorAll(
-                ".minuta, .minuty td, .rozkład td, .rozklad td"
-            )
-        ];
+        /*
+           Awaryjnie, gdyby funkcja nie była dostępna:
+           litera z kursu pozostaje widoczna.
+        */
+        return true;
+    });
 
-        return minuteEls.some(el=>
-            /\b\d{1,2}\s*[A-Z]\b/i.test((el.textContent||"").trim())
-        );
-    })();
-
-    /*
-       Jeżeli rozkład pokazuje litery, używamy oznaczeń A/B/...
-    */
-    if(rozkladPokazujeLitery && litery.length){
+    if(widoczneLitery.length){
         return "TRASA W KURSACH " +
-            litery.map(x=>'„'+x+'”').join(", ");
+            widoczneLitery
+                .map(litera=>'„'+litera+'”')
+                .join(", ");
     }
 
-    /*
-       V504:
-       jeżeli przy minutach NIE MA literek A/B/..., nie wypisujemy
-       żadnych godzin. Każda taka gałąź — również do METRO MARYMONT —
-       otrzymuje dokładnie opis:
-       "TRASA W KURSACH BEZ OZNACZEŃ".
-    */
     return "TRASA W KURSACH BEZ OZNACZEŃ";
 }
 
