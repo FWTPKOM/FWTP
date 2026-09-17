@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 464
+     WERSJA: 465
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-14
      ========================================================= -->
@@ -44410,6 +44410,276 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
             /* Nowy render usuwa stare .trasa-columns i tworzy nowe,
                więc dataset znika automatycznie. */
             planuj464();
+        }).observe(host, {childList:true, subtree:true});
+    }
+})();
+</script>
+
+
+
+<style id="wersja-465-krance-wydluzen-dwukierunkowych">
+/* =========================================================
+   WERSJA 465 — DWUKIERUNKOWE: KRANIEC BAZY + WYDŁUŻENIE
+   ========================================================= */
+
+/* Pierwszy widoczny przystanek: oś zaczyna się dokładnie w środku
+   kropki i biegnie tylko w dół. Nie może wystawać ponad kropkę. */
+body .tabliczka:has(.kierunki-dwa)
+.trasa-lista-397 > .trasa-stop.v465-pierwszy-widoczny .trasa-os::before,
+body .tabliczka:has(.kierunki-dwa)
+.trasa-lista-397 > .trasa-extra-stop.v465-pierwszy-widoczny .trasa-os::before {
+    top: 7.25px !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/* Wspólny kraniec trasy podstawowej, z którego część kursów jedzie dalej.
+   Nazwa jest pogrubiona, ale oś NIE kończy się na kropce — idzie dalej. */
+body .tabliczka:has(.kierunki-dwa)
+.trasa-stop.v465-koniec-bazy-z-wydluzeniem > .trasa-nazwa,
+body .tabliczka:has(.kierunki-dwa)
+.trasa-extra-stop.v465-koniec-bazy-z-wydluzeniem > .trasa-nazwa {
+    font-weight: 700 !important;
+}
+body .tabliczka:has(.kierunki-dwa)
+.trasa-stop.v465-koniec-bazy-z-wydluzeniem .trasa-os::before,
+body .tabliczka:has(.kierunki-dwa)
+.trasa-extra-stop.v465-koniec-bazy-z-wydluzeniem .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/* Prawdziwy ostatni przystanek wydłużenia: nazwa pogrubiona,
+   oś dochodzi wyłącznie od góry do środka kropki i tam się kończy. */
+body .tabliczka:has(.kierunki-dwa)
+.trasa-stop.v465-koniec-wydluzenia > .trasa-nazwa,
+body .tabliczka:has(.kierunki-dwa)
+.trasa-extra-stop.v465-koniec-wydluzenia > .trasa-nazwa {
+    font-weight: 700 !important;
+}
+body .tabliczka:has(.kierunki-dwa)
+.trasa-stop.v465-koniec-wydluzenia .trasa-os::before,
+body .tabliczka:has(.kierunki-dwa)
+.trasa-extra-stop.v465-koniec-wydluzenia .trasa-os::before {
+    top: 0 !important;
+    bottom: calc(100% - 7.25px) !important;
+    height: auto !important;
+}
+body .tabliczka:has(.kierunki-dwa)
+.trasa-stop.v465-koniec-wydluzenia .trasa-os::after,
+body .tabliczka:has(.kierunki-dwa)
+.trasa-extra-stop.v465-koniec-wydluzenia .trasa-os::after {
+    display: block !important;
+    content: "" !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   WERSJA 465 — KOLEJNOŚĆ: KRANIEC BAZY -> TYTUŁ -> WYDŁUŻENIE
+   =========================================================
+   Dla linii 150 w układzie dwukierunkowym:
+   ... DZIEKANÓW LEŚNY (pogrubiony, oś idzie dalej)
+       Trasa w kursach „i”
+       dalsze przystanki wariantu i
+       IZABELIN-DZIEKANÓWEK (pogrubiony, oś tylko od góry)
+   ========================================================= */
+(function(){
+    "use strict";
+
+    let blokada465 = false;
+
+    function norm465(v){
+        return String(v || "")
+            .toLocaleUpperCase("pl-PL")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    function nazwaRow465(row){
+        return norm465(row?.querySelector(".trasa-nazwa")?.textContent || "");
+    }
+
+    function jestStop465(el){
+        return !!el && el.matches?.(".trasa-stop,.trasa-extra-stop");
+    }
+
+    function utworzStop465(p, czas){
+        const li = document.createElement("li");
+        li.className = "trasa-stop v465-koniec-bazy-z-wydluzeniem wspolny-koniec-446 ma-kontynuacje-trasy";
+
+        if(typeof czyNZ === "function" && czyNZ(p)){
+            li.classList.add("nz");
+        }
+
+        const czasEl = document.createElement("span");
+        czasEl.className = "trasa-czas";
+        czasEl.textContent = (czas === null || czas === undefined) ? "" : String(czas);
+
+        const os = document.createElement("span");
+        os.className = "trasa-os";
+
+        const nazwa = document.createElement("span");
+        nazwa.className = "trasa-nazwa";
+        nazwa.textContent = String(p?.nazwa || "").toUpperCase();
+
+        const nz = document.createElement("span");
+        nz.className = "trasa-nz";
+        nz.textContent = (typeof czyNZ === "function" && czyNZ(p)) ? "ż" : "";
+
+        li.append(czasEl, os, nazwa, nz);
+        return li;
+    }
+
+    function daneKrancaBazy465(nazwaSzukana){
+        try{
+            if(typeof kierunekBazowy !== "function") return null;
+
+            const przystanki = kierunekBazowy()?.przystanki || [];
+            const czasy = (typeof czasyTrasy === "function") ? (czasyTrasy() || []) : [];
+
+            /* Szukamy wystąpienia ZA aktualnym przystankiem, bo ma to być
+               kraniec w kierunku dalszej jazdy. */
+            const start = (typeof aktualnyPrzystanek !== "undefined")
+                ? Number(aktualnyPrzystanek)
+                : 0;
+
+            for(let i=Math.max(0,start); i<przystanki.length; i++){
+                if(norm465(przystanki[i]?.nazwa) === norm465(nazwaSzukana)){
+                    return {
+                        p: przystanki[i],
+                        czas: Number.isFinite(Number(czasy[i])) ? Number(czasy[i]) : null
+                    };
+                }
+            }
+        }catch(e){
+            console.warn("FWTP v465: nie udało się pobrać krańca bazowego", e);
+        }
+        return null;
+    }
+
+    function pierwszyStopListy465(lista){
+        return Array.from(lista.children).find(jestStop465) || null;
+    }
+
+    function poprawListe150_465(lista){
+        const dzieci = ()=>Array.from(lista.children);
+
+        const sepI = dzieci().find(el=>
+            el.classList?.contains("trasa-separator") &&
+            /Trasa\s+w\s+kursach\s+[„\"]i[”\"]/i.test(el.textContent || "")
+        );
+
+        if(!sepI) return;
+
+        /* 1. DZIEKANÓW LEŚNY musi być bezpośrednio PRZED nagłówkiem i.
+              Jeżeli renderer go wcześniej pominął, odtwarzamy go z danych
+              kierunku bazowego wraz z czasem przejazdu. */
+        let przed = sepI.previousElementSibling;
+        while(przed && !jestStop465(przed)){
+            przed = przed.previousElementSibling;
+        }
+
+        if(!przed || nazwaRow465(przed) !== "DZIEKANOW LESNY"){
+            const dane = daneKrancaBazy465("DZIEKANÓW LEŚNY");
+            if(dane?.p){
+                const nowy = utworzStop465(dane.p, dane.czas);
+                sepI.before(nowy);
+                przed = nowy;
+            }
+        }
+
+        if(przed && nazwaRow465(przed) === "DZIEKANOW LESNY"){
+            przed.classList.remove("kraniec-koniec", "koniec-wydluzenia-446", "v465-koniec-wydluzenia");
+            przed.classList.add(
+                "wspolny-koniec-446",
+                "ma-kontynuacje-trasy",
+                "v465-koniec-bazy-z-wydluzeniem"
+            );
+        }
+
+        /* 2. Za nagłówkiem „Trasa w kursach i” nie powtarzamy już
+              DZIEKANOWA LEŚNEGO — to wspólny kraniec pokazany wyżej. */
+        let po = sepI.nextElementSibling;
+        while(po){
+            const nastepny = po.nextElementSibling;
+            if(jestStop465(po) && nazwaRow465(po) === "DZIEKANOW LESNY"){
+                po.remove();
+            }
+            po = nastepny;
+        }
+
+        /* 3. IZABELIN-DZIEKANÓWEK jest prawdziwym końcem wariantu i. */
+        const stopPoI = dzieci().slice(dzieci().indexOf(sepI)+1).filter(jestStop465);
+        const izabelin = [...stopPoI].reverse().find(row=>
+            nazwaRow465(row) === "IZABELIN-DZIEKANOWEK"
+        );
+
+        if(izabelin){
+            stopPoI.forEach(row=>row.classList.remove("v465-koniec-wydluzenia"));
+            izabelin.classList.add("kraniec-koniec", "koniec-wydluzenia-446", "v465-koniec-wydluzenia");
+        }
+    }
+
+    function popraw465(){
+        if(blokada465) return;
+        blokada465 = true;
+
+        try{
+            document.querySelectorAll(".tabliczka").forEach(tabliczka=>{
+                if(!tabliczka.querySelector(".kierunki-dwa")) return;
+
+                const listy = tabliczka.querySelectorAll(".trasa-lista-397");
+
+                /* Pierwszy rzeczywisty stop każdej listy — kreska od kropki w dół. */
+                listy.forEach(lista=>{
+                    lista.querySelectorAll(".v465-pierwszy-widoczny")
+                        .forEach(el=>el.classList.remove("v465-pierwszy-widoczny"));
+                    const pierwszy = pierwszyStopListy465(lista);
+                    if(pierwszy) pierwszy.classList.add("v465-pierwszy-widoczny");
+                });
+
+                const linia = String(
+                    (typeof aktualnaLinia !== "undefined" ? aktualnaLinia : "") ||
+                    new URLSearchParams(location.search).get("linia") ||
+                    ""
+                ).trim();
+
+                if(linia === "150"){
+                    listy.forEach(poprawListe150_465);
+                }
+            });
+        }finally{
+            blokada465 = false;
+        }
+    }
+
+    let planowane465 = false;
+    function plan465(){
+        if(planowane465) return;
+        planowane465 = true;
+        requestAnimationFrame(()=>requestAnimationFrame(()=>{
+            planowane465 = false;
+            popraw465();
+        }));
+    }
+
+    if(document.readyState === "loading"){
+        document.addEventListener("DOMContentLoaded", plan465, {once:true});
+    }else{
+        plan465();
+    }
+
+    window.addEventListener("load", plan465);
+    document.addEventListener("fwtp-v464-ready", plan465);
+
+    const host = document.getElementById("wynik");
+    if(host){
+        new MutationObserver(()=>{
+            if(!blokada465) plan465();
         }).observe(host, {childList:true, subtree:true});
     }
 })();
