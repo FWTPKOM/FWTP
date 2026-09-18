@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 542
+     WERSJA: 543
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -21854,41 +21854,6 @@ html body .tabliczka
 </script>
 
 
-<style id="fwtp-v542-os-przez-miejscowosc">
-/* =========================================================
-   FWTP — WERSJA 542
-   PIONOWA OŚ PRZEZ SEPARATOR MIEJSCOWOŚCI
-
-   Separator miejscowości pozostaje wizualnie bez zmian.
-   Dodajemy tylko pionowy łącznik pomiędzy kropką nad
-   separatorem i kropką pod separatorem.
-   ========================================================= */
-
-.tabliczka .trasa-separator.trasa-miejscowosc-429 {
-    position: relative !important;
-}
-
-/* Pionowa kreska w miejscu osi przystanków. */
-.tabliczka .trasa-separator.trasa-miejscowosc-429::after {
-    content: "" !important;
-    display: block !important;
-    position: absolute !important;
-
-    left: 23.5px !important;
-    top: 0 !important;
-    bottom: 0 !important;
-
-    width: 2.25px !important;
-    height: auto !important;
-
-    border: 0 !important;
-    background: #111 !important;
-
-    z-index: 2 !important;
-    pointer-events: none !important;
-}
-</style>
-
 <script>
 /* FWTP — WERSJA 542
    - separator godziny/minuty: right -1px -> 1px
@@ -21896,6 +21861,166 @@ html body .tabliczka
    - terminal z V541 pozostaje bez zmian
    - STREFA pozostaje bez zmian
 */
+</script>
+
+
+<style id="fwtp-v543-osobny-lacznik-miejscowosci">
+/* =========================================================
+   FWTP — WERSJA 543
+   ŁĄCZNIK PRZEZ SEPARATOR MIEJSCOWOŚCI
+
+   To jest OSOBNY element DOM.
+   Nie używamy ::before ani ::after separatora miejscowości.
+   ========================================================= */
+
+.tabliczka .trasa-lista {
+    position: relative;
+}
+
+.tabliczka .v543-lacznik-miejscowosci {
+    position: absolute;
+    display: block;
+    width: 2.25px;
+    background: #111;
+    z-index: 1;
+    pointer-events: none;
+}
+</style>
+
+<script>
+/* =========================================================
+   FWTP — WERSJA 543
+   Osobny łącznik osi przez separator miejscowości.
+   ========================================================= */
+
+function v543UsunLacznikiMiejscowosci(root) {
+    if (!root) return;
+
+    root.querySelectorAll(".v543-lacznik-miejscowosci")
+        .forEach(function(el) {
+            el.remove();
+        });
+}
+
+function v543SrodekKropki(stop, lista) {
+    if (!stop || !lista) return null;
+
+    const os = stop.querySelector(".trasa-os");
+    if (!os) return null;
+
+    const listaRect = lista.getBoundingClientRect();
+    const osRect = os.getBoundingClientRect();
+
+    /*
+       Zwykła kropka ma środek w osi .trasa-os.
+       Liczymy pozycję względem konkretnej .trasa-lista,
+       dzięki czemu nie zgadujemy left w pikselach.
+    */
+    return {
+        x: osRect.left - listaRect.left + (osRect.width / 2),
+        y: osRect.top - listaRect.top + (osRect.height / 2)
+    };
+}
+
+function v543DodajLacznikiMiejscowosci(root) {
+    if (!root) return;
+
+    v543UsunLacznikiMiejscowosci(root);
+
+    root.querySelectorAll(".trasa-lista").forEach(function(lista) {
+        const dzieci = Array.from(lista.children);
+
+        dzieci.forEach(function(separator, index) {
+            if (
+                !separator.classList.contains("trasa-separator") ||
+                !separator.classList.contains("trasa-miejscowosc-429")
+            ) {
+                return;
+            }
+
+            /*
+               Szukamy rzeczywistego przystanku NAD separatorem.
+               Jeśli go nie ma, separator jest przed pierwszym
+               przystankiem i NIE tworzymy żadnej kreski.
+            */
+            let poprzedniStop = null;
+
+            for (let i = index - 1; i >= 0; i--) {
+                if (dzieci[i].classList.contains("trasa-stop")) {
+                    poprzedniStop = dzieci[i];
+                    break;
+                }
+            }
+
+            if (!poprzedniStop) {
+                return;
+            }
+
+            /*
+               Szukamy rzeczywistego przystanku POD separatorem.
+            */
+            let nastepnyStop = null;
+
+            for (let i = index + 1; i < dzieci.length; i++) {
+                if (dzieci[i].classList.contains("trasa-stop")) {
+                    nastepnyStop = dzieci[i];
+                    break;
+                }
+            }
+
+            if (!nastepnyStop) {
+                return;
+            }
+
+            const start = v543SrodekKropki(poprzedniStop, lista);
+            const koniec = v543SrodekKropki(nastepnyStop, lista);
+
+            if (!start || !koniec || koniec.y <= start.y) {
+                return;
+            }
+
+            const lacznik = document.createElement("span");
+            lacznik.className = "v543-lacznik-miejscowosci";
+            lacznik.setAttribute("aria-hidden", "true");
+
+            /*
+               Początek: środek kropki przystanku nad separatorem.
+               Koniec:    środek kropki przystanku pod separatorem.
+            */
+            lacznik.style.left = start.x + "px";
+            lacznik.style.top = start.y + "px";
+            lacznik.style.height = (koniec.y - start.y) + "px";
+            lacznik.style.transform = "translateX(-50%)";
+
+            /*
+               Wstawiamy jako osobny element bezpośrednio do UL.
+               Nie jest częścią separatora miejscowości.
+            */
+            lista.appendChild(lacznik);
+        });
+    });
+}
+
+/*
+   Uruchomienie po zakończeniu bieżącego renderowania.
+   requestAnimationFrame jest potrzebny tylko po to, aby
+   getBoundingClientRect() dostał już finalne pozycje elementów.
+*/
+requestAnimationFrame(function() {
+    const root =
+        document.querySelector(".tabliczka .v514-lista") ||
+        document.querySelector(".tabliczka");
+
+    v543DodajLacznikiMiejscowosci(root);
+});
+
+window.addEventListener("resize", function() {
+    const root =
+        document.querySelector(".tabliczka .v514-lista") ||
+        document.querySelector(".tabliczka");
+
+    v543DodajLacznikiMiejscowosci(root);
+});
 </script>
 
 </body>
