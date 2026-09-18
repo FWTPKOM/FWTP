@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 555
+     WERSJA: 556
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -16986,59 +16986,134 @@ function v514ModelListy(){
 }
 
 function v514StopPoId(id){
-    const wanted=v486Text(id);
+    const wanted=v486Text(id).trim();
+    if(!wanted)return null;
 
     /*
-       FWTP V515:
-       Nie korzystamy z nieistniejącego v486ScheduleBlocks().
-       Przeszukujemy bezpośrednio daneLinii["rozkłady"] / daneLinii.rozklady.
+       FWTP V556:
+       Status, minuty i zaznaczenie przystanku muszą działać
+       WYŁĄCZNIE na dokładnym ID w aktualnym kierunku.
+
+       Nie szukamy po nazwie.
+       Nie szukamy pierwszego pasującego przystanku w innym
+       rozkładzie ani w innym kierunku.
+
+       Przykład:
+       "Izabelin-Dziekanówek 01"
+       i
+       "Izabelin-Dziekanówek 02"
+       są dwoma różnymi przystankami.
     */
-    const rozklady=v486Array(
-        daneLinii?.["rozkłady"] ?? daneLinii?.rozklady
-    );
-
-    for(const r of rozklady){
-        for(const k of v486Array(r?.kierunki)){
-            for(const p of v486Array(k?.przystanki)){
-                if(v486StopId(p)===wanted){
-                    return p;
-                }
-            }
-        }
-    }
-
-    return null;
+    return v486BaseStops().find(
+        p => v486StopId(p)===wanted
+    ) || null;
 }
 
 function v514MinutyDoPrzystanku(targetId){
     const active=v486CurrentStop();
     if(!active)return null;
 
-    const activeId=v486StopId(active);
+    const activeId=v486Text(
+        v486StopId(active)
+    ).trim();
+
+    const wantedId=v486Text(
+        targetId
+    ).trim();
+
+    if(!activeId || !wantedId){
+        return null;
+    }
+
+    /*
+       Dokładnie ten sam słupek.
+    */
+    if(wantedId===activeId){
+        return 0;
+    }
+
+    const target=v514StopPoId(wantedId);
+    if(!target)return null;
 
     for(const kurs of v486Array(active?.kursy)){
-        const trasa=v486Array(kurs?.trasa).map(v486Text);
+        const trasa=v486Array(kurs?.trasa)
+            .map(x=>v486Text(x).trim())
+            .filter(Boolean);
+
+        /*
+           FWTP V556:
+           indexOf() porównuje pełne ID.
+           Sama nazwa przystanku nie bierze udziału
+           w ustalaniu pozycji.
+        */
+        const activeIndex=
+            trasa.indexOf(activeId);
+
+        const targetIndex=
+            trasa.indexOf(wantedId);
 
         if(
-            !trasa.includes(activeId) ||
-            !trasa.includes(v486Text(targetId))
+            activeIndex < 0 ||
+            targetIndex < 0
         ){
             continue;
         }
 
-        const target=v514StopPoId(targetId);
-        if(!target)continue;
+        /*
+           Kurs na docelowym słupku również dopasowujemy
+           do tego samego konkretnego kursu.
+        */
+        const targetCourse=
+            v486CourseAtStop(
+                target,
+                kurs
+            );
 
-        const targetCourse=v486CourseAtStop(target,kurs);
-        const t0=v486MinutesValue(kurs?.czas);
-        const t1=v486MinutesValue(targetCourse?.czas);
+        if(!targetCourse){
+            continue;
+        }
 
-        if(t0===null || t1===null)continue;
+        const t0=
+            v486MinutesValue(
+                kurs?.czas
+            );
+
+        const t1=
+            v486MinutesValue(
+                targetCourse?.czas
+            );
+
+        if(
+            t0===null ||
+            t1===null
+        ){
+            continue;
+        }
 
         let diff=t1-t0;
 
         if(diff < -12*60)diff+=24*60;
         if(diff >  12*60)diff-=24*60;
+
+        /*
+           Dodatkowe zabezpieczenie kierunku:
+           przystanek fizycznie wcześniejszy w kurs.trasa
+           nie może zostać potraktowany jako przyszły tylko
+           dlatego, że czas przekracza północ.
+        */
+        if(
+            targetIndex < activeIndex &&
+            diff > 0
+        ){
+            diff=-Math.abs(diff);
+        }
+
+        if(
+            targetIndex > activeIndex &&
+            diff < 0
+        ){
+            diff=Math.abs(diff);
+        }
 
         return diff;
     }
@@ -22431,6 +22506,31 @@ html body .tabliczka
    Aktualny i przyszłe bez zmian.
    /FWTP/dane/, paczki, priorytety, objazdy i rozkłady
    specjalne bez zmian.
+   ========================================================= */
+</script>
+
+
+<script>
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 556
+
+   DOKŁADNE ROZRÓŻNIANIE PRZYSTANKÓW
+
+   Dla:
+   - wybranego przystanku,
+   - minut,
+   - statusu minięty / aktualny / przyszły,
+
+   używane jest WYŁĄCZNIE pełne pole "id".
+
+   Ta sama nazwa z innym numerem słupka NIE jest tym samym
+   przystankiem.
+
+   Łączenie wspólnych przebiegów po nazwie pozostaje bez zmian,
+   ponieważ dotyczy wyłącznie topologii/listy trasy.
+
+   /FWTP/dane/, paczki, priorytety, objazdy i rozkłady
+   specjalne pozostają bez zmian.
    ========================================================= */
 </script>
 
