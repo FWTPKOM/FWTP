@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 531
+     WERSJA: 532
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -14,6 +14,918 @@
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>FWTP - Tabliczki</title>
 <link href="../css/style.css" rel="stylesheet"/>
+
+<style>
+/* =========================================================
+   WERSJA 362 — OSTATNIA KROPKA DOKŁADNIE NA OSI
+   ========================================================= */
+
+/*
+   Ostatni przystanek ma używać dokładnie tej samej poziomej
+   pozycji kropki co zwykły przystanek. Różnica dotyczy tylko
+   długości pionowej linii — ma ona zakończyć się w środku kropki.
+
+   Geometria:
+   oś:   left 4.1px + 2.25px / 2 = 5.225px
+   kropka: left 1px + 8.5px / 2 = 5.25px
+   Różnica = tylko 0.025px.
+*/
+
+.trasa-stop.koniec-trasy-210 .trasa-os::after {
+    left: 1px !important;
+    right: auto !important;
+    width: 8.5px !important;
+    height: 8.5px !important;
+    transform: none !important;
+    box-sizing: border-box !important;
+}
+
+/*
+   Pionowa oś końcowego przystanku kończy się w środku kropki,
+   zamiast przechodzić pod nią.
+*/
+.trasa-stop.koniec-trasy-210 .trasa-os {
+    left: 4.1px !important;
+    width: 2.25px !important;
+}
+
+/*
+   Gdy element jest końcem wyłącznie dlatego, że kończy się
+   pierwsza kolumna, nie traktujemy go jako faktycznego końca
+   całej trasy. Linia może być kontynuowana zgodnie z istniejącą
+   logiką podziału kolumn.
+*/
+.trasa-stop.koniec-trasy-210:not(.ma-kontynuacje-trasy) .trasa-os::before {
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 363 — KOREKTA KIERUNKU OSTATNIEJ KROPKI
+   ========================================================= */
+
+/*
+   W 362 korekta poszła w prawo.
+   Teraz przesuwamy WYŁĄCZNIE końcową kropkę w lewo.
+   Oś oraz wszystkie zwykłe kropki pozostają bez zmian.
+*/
+.trasa-stop.koniec-trasy-210 .trasa-os::after {
+    left: 0px !important;
+    right: auto !important;
+    transform: none !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 364 — OSTATNIA KROPKA DOKŁADNIE NA TEJ SAMEJ OSI
+   ========================================================= */
+
+/*
+   WAŻNE:
+   Nie przesuwamy .trasa-os. To jest komórka/kolumna osi i musi
+   pozostać dokładnie tam, gdzie wszystkie pozostałe przystanki.
+   W 362 ustawienie left:4.1px na samym .trasa-os przesunęło cały
+   układ współrzędnych ostatniego punktu.
+*/
+.trasa-stop.koniec-trasy-210 .trasa-os {
+    left: auto !important;
+    right: auto !important;
+    width: auto !important;
+}
+
+/*
+   Identyczna geometria jak dla zwykłych przystanków:
+   linia:  left 4.1px, szerokość 2.25px -> środek 5.225px
+   kropka: left 1px,   szerokość 8.5px -> środek 5.25px
+*/
+.trasa-stop.koniec-trasy-210 .trasa-os::after {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+
+    left: 1px !important;
+    right: auto !important;
+    top: 3px !important;
+
+    width: 8.5px !important;
+    height: 8.5px !important;
+    min-width: 8.5px !important;
+    min-height: 8.5px !important;
+
+    transform: none !important;
+
+    border-radius: 50% !important;
+    background: currentColor !important;
+    box-sizing: border-box !important;
+    z-index: 5 !important;
+}
+
+/*
+   Linia ma tę samą pozycję poziomą co wszędzie.
+   Na faktycznym końcu kończy się w środku punktu.
+*/
+.trasa-stop.koniec-trasy-210 .trasa-os::before {
+    left: 4.1px !important;
+    width: 2.25px !important;
+    bottom: calc(100% - 7.25px) !important;
+    height: auto !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 368 — CIĄGŁOŚĆ OSI PRZY TRASIE WYDŁUŻONEJ
+   ========================================================= */
+
+/*
+   koniec-trasy-210 normalnie ucina kreskę na środku kropki.
+   Jeśli JS oznaczy ten sam wiersz jako ma-kontynuacje-trasy,
+   nie jest to koniec całej trasy, tylko koniec trasy podstawowej.
+   Dlatego kreska biegnie przez kropkę dalej w dół.
+*/
+.trasa-stop.koniec-trasy-210.ma-kontynuacje-trasy .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 372 — DWA KIERUNKI: PRAWDZIWE ZAWIJANIE
+   ========================================================= */
+
+/*
+   Przy trasie dwukolumnowej lewy panel ma ok. 50.5% tabliczki.
+   Stary nagłówek miał szerokość aż 560px, więc fizycznie wychodził
+   poza lewy panel i tekst kierunku wchodził na listę przystanków.
+
+   Przy dwóch kierunkach ograniczamy nagłówek do szerokości
+   RZECZYWISTEGO lewego panelu.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) {
+    width: calc(100% - 34px) !important;
+    height: auto !important;
+    min-height: 80px !important;
+    align-items: start !important;
+}
+
+/*
+   Kolumna z tekstem może się realnie zwężać.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .dane-linii {
+    min-width: 0 !important;
+    padding-top: 1px !important;
+}
+
+/*
+   LINIA ZWYKŁA maksymalnie wysoko.
+   Pierwszy kierunek zaczyna się prawie od razu pod nią.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .typ-linii {
+    top: -4px !important;
+    margin-bottom: 0 !important;
+}
+
+/*
+   To są PRAWDZIWE elementy generowane przez renderer.
+   W 371 błędnie stylowany był .kierunek, podczas gdy przy dwóch
+   kierunkach HTML używa .kierunki-dwa-wiersz.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
+    display: block !important;
+    position: static !important;
+    top: auto !important;
+
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+
+    margin: -1px 0 0 0 !important;
+    padding: 0 !important;
+    transform: none !important;
+}
+
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
+    display: block !important;
+
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+
+    white-space: normal !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    line-height: 18px !important;
+    transform: none !important;
+}
+
+/*
+   Strzałka pozostaje przy początku danego kierunku.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-strzalka {
+    margin-right: 7px !important;
+}
+
+/*
+   "Ważny od" NIE jest już absolutnie przyklejony do starego
+   80-pikselowego nagłówka. Ma znaleźć się pod pełną wysokością
+   obu kierunków, także gdy pierwszy zawinie się do dwóch wierszy.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .wazny {
+    position: static !important;
+    top: auto !important;
+    bottom: auto !important;
+
+    margin: 1px 0 0 0 !important;
+    padding: 0 !important;
+
+    line-height: 11px !important;
+}
+
+/*
+   Pole numeru zachowuje dotychczasowe 80px.
+   Tabela rozkładu zacznie się niżej tylko wtedy, gdy tekst dwóch
+   kierunków rzeczywiście potrzebuje większej wysokości.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .numer-linii-box {
+    align-self: start !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 373 — TYPOGRAFIA I ODSTĘPY DWÓCH KIERUNKÓW
+   ========================================================= */
+
+/*
+   W 372 własne line-height dla .kierunki-dwa-wiersz zmieniło
+   wizualnie typografię. Tutaj nie narzucamy nowego kroju/font-size;
+   dziedziczymy dokładnie font nagłówka z .dane-linii.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa,
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz,
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-strzalka {
+    font-family: inherit !important;
+    font-size: inherit !important;
+    font-weight: inherit !important;
+    font-style: inherit !important;
+    letter-spacing: inherit !important;
+}
+
+/*
+   Cały blok kierunków 5 px wyżej.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
+    margin-top: -5px !important;
+    margin-bottom: 0 !important;
+}
+
+/*
+   Mniejsza interlinia:
+   - pomiędzy pierwszą i drugą linią zawiniętego kierunku,
+   - pomiędzy pierwszym a drugim kierunkiem.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
+    line-height: 15px !important;
+    margin-top: 0 !important;
+    margin-bottom: -1px !important;
+}
+
+/*
+   "Ważny od" również bliżej drugiego kierunku.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .wazny {
+    margin-top: -1px !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 374 — ORYGINALNA CZCIONKA, +2PX ODSTĘPU, WAŻNY NA DOLE
+   ========================================================= */
+
+/*
+   Przywracamy dokładne parametry typografii używane wcześniej
+   przez nagłówek kierunku. Nie dziedziczymy font-size z rodzica,
+   bo właśnie to w 373 dało inny wygląd.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa,
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz,
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-strzalka {
+    font-family: "Arial Narrow", Arial, sans-serif !important;
+    font-size: 20px !important;
+    font-weight: 400 !important;
+    font-style: normal !important;
+    letter-spacing: 0 !important;
+}
+
+/*
+   Zostaje podniesienie całego bloku o 5 px.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
+    margin-top: -5px !important;
+    margin-bottom: 0 !important;
+}
+
+/*
+   W 373 było 15px / -1px.
+   Użytkownik chce o 2px większe odstępy:
+   17px interlinii i 1px po każdym kierunku.
+   Dotyczy to także zawiniętego ELSNERÓW.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
+    line-height: 17px !important;
+    margin-top: 0 !important;
+    margin-bottom: 1px !important;
+}
+
+/*
+   "Ważny od" wraca dokładnie na dolną krawędź pola numeru linii.
+   Nie bierze udziału w przepływie kierunków.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) {
+    position: relative !important;
+}
+
+.naglowek-tabliczki:has(.kierunki-dwa) .wazny {
+    position: absolute !important;
+    left: 204px !important;
+    bottom: 0 !important;
+    top: auto !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    font-family: "Arial Narrow", Arial, sans-serif !important;
+    line-height: 11px !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 375 — PRZYWRÓCENIE TYPOGRAFII
+   ========================================================= */
+
+/* Kierunki: dokładnie ten stos czcionek. */
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa,
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz,
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-strzalka {
+    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
+    font-size: 17px !important;
+    font-weight: 400 !important;
+    font-style: normal !important;
+    letter-spacing: 0 !important;
+}
+
+/*
+   Przywrócenie ustawienia nazw przystanków/trasy,
+   które było wcześniej i nie powinno było zostać naruszone.
+*/
+.stop-name,
+.trasa-nazwa {
+    transform: scaleY(1.30) !important;
+    transform-origin: left center !important;
+    letter-spacing: 0.75px !important;
+}
+
+/*
+   Zachowujemy poprawki układu z ostatniej wersji:
+   blok kierunków -5 px oraz odstępy z 374.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
+    margin-top: -5px !important;
+}
+
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
+    line-height: 17px !important;
+    margin-top: 0 !important;
+    margin-bottom: 1px !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 376 — KIERUNEK + "WAŻNY OD" JAK W PRZESŁANEJ V246
+   ========================================================= */
+
+/* Dokładna typografia kierunku z przesłanej wersji. */
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
+    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
+    font-size: 17px !important;
+    line-height: 18px !important;
+    font-weight: 400 !important;
+    letter-spacing: normal !important;
+
+    /* jedyna różnica funkcjonalna: pozwalamy zawinąć długi kierunek */
+    white-space: normal !important;
+
+    transform: scaleY(1.08) !important;
+    transform-origin: left center !important;
+
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+/* Strzałka jak w przesłanej wersji. */
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-strzalka {
+    display: inline-block !important;
+    margin-right: 7px !important;
+
+    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
+    font-size: 17px !important;
+    font-weight: 400 !important;
+}
+
+/*
+   Położenie kierunków zachowujemy zgodnie z obecną prośbą:
+   blok jest 5 px wyżej.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
+    position: relative !important;
+    top: -3px !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 12px !important;
+    transform: none !important;
+}
+
+/*
+   Nagłówek ma stałe 80 px — dokładnie tak jak w przesłanej wersji.
+   Dolna krawędź jest więc na tej samej wysokości co pole numeru linii.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) {
+    position: relative !important;
+    height: 80px !important;
+    min-height: 80px !important;
+    align-items: start !important;
+}
+
+/* Typografia "Ważny od" z przesłanej wersji. */
+.naglowek-tabliczki:has(.kierunki-dwa) .wazny {
+    position: absolute !important;
+    top: auto !important;
+    bottom: 1px !important;
+
+    /* zaczyna się w kolumnie danych, nie pod numerem linii */
+    left: 163px !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
+    font-size: 11px !important;
+    font-weight: 400 !important;
+    color: #000000 !important;
+    line-height: 1 !important;
+
+    transform: scaleY(1.08) !important;
+    transform-origin: center !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 377 — ODSTĘPY KIERUNKÓW MNIEJSZE O 2 PX
+   ========================================================= */
+
+/*
+   376: line-height 18px.
+   377: 16px, czyli o 2px mniej:
+   - między liniami zawiniętego kierunku,
+   - między pierwszym i drugim kierunkiem.
+*/
+.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
+    line-height: 16px !important;
+}
+
+/* Pozostałe ustawienia z 376 bez zmian. */
+</style>
+<style>
+/* =========================================================
+   WERSJA 379 — JEDEN KIERUNEK ZAWINIĘTY NA DWA WIERSZE
+   ========================================================= */
+
+/*
+   Nagłówek nadal ma dokładnie 80 px — tyle samo co ramka numeru linii.
+*/
+.naglowek-tabliczki {
+    position: relative;
+    height: 80px !important;
+    min-height: 80px !important;
+}
+
+/*
+   Dla zwykłego pojedynczego kierunku rezerwujemy dół nagłówka
+   na napis "Ważny od". Sam kierunek może mieć 1 albo 2 wiersze.
+*/
+.naglowek-tabliczki:not(:has(.kierunki-dwa)) .dane-linii {
+    position: relative !important;
+    height: 80px !important;
+    min-height: 80px !important;
+    box-sizing: border-box !important;
+    padding-bottom: 13px !important;
+}
+
+/*
+   Jeśli pojedynczy kierunek zawinie się na dwa wiersze (np. linia 401),
+   przesuwamy go wyżej, ale nie zmieniamy jego czcionki ani transformacji.
+*/
+.naglowek-tabliczki:not(:has(.kierunki-dwa)) .kierunek {
+    margin-bottom: 0 !important;
+}
+
+/*
+   "Ważny od" przy pojedynczym kierunku jest zawsze przyklejony
+   do dolnej krawędzi 80-pikselowego nagłówka — dokładnie tam,
+   gdzie kończy się ramka numeru linii.
+*/
+.naglowek-tabliczki:not(:has(.kierunki-dwa)) .wazny {
+    position: absolute !important;
+    left: 13px !important;
+    bottom: 1px !important;
+    top: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/*
+   Gdy kierunek faktycznie ma dwa wiersze, JS doda tę klasę.
+   Podnosimy wtedy tylko blok kierunku, żeby oba wiersze zmieściły się
+   nad "Ważny od", bez ruszania dolnego napisu.
+*/
+.naglowek-tabliczki.jeden-kierunek-dwa-wiersze-379 .typ-linii {
+    margin-bottom: 3px !important;
+}
+
+.naglowek-tabliczki.jeden-kierunek-dwa-wiersze-379 .kierunek {
+    top: -2px !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 380 — CIAŚNIEJSZY DWUWIERSZOWY POJEDYNCZY KIERUNEK
+   ========================================================= */
+
+/*
+   Tylko pojedynczy kierunek, który faktycznie zawinął się na 2 wiersze.
+   Zmniejszamy wysokość linii o 2 px, dzięki czemu drugi wiersz
+   (np. STOKŁOSY) jest bliżej pierwszego (URSYNÓW PŁD. / METRO).
+*/
+.naglowek-tabliczki.jeden-kierunek-dwa-wiersze-379 .kierunek {
+    line-height: 15px !important;
+}
+
+/*
+   "Ważny od" pozostaje dokładnie przy dolnej krawędzi
+   80-pikselowego nagłówka.
+*/
+.naglowek-tabliczki:not(:has(.kierunki-dwa)) .wazny {
+    bottom: 1px !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 385 — LOGIKA KOŃCA TRASY PRZENIESIONA Z v246
+   ========================================================= */
+
+/*
+   v246 nie uzależniała kreski pod krańcem od samego
+   "pokazWydluzenia". Sprawdzała, czy W TEJ KOLUMNIE naprawdę
+   istnieje wyrenderowana .trasa-extra.
+
+   Normalny prawdziwy kraniec: oś kończy się w środku kropki.
+   Zachowujemy obecną geometrię kropki 8.5 px -> środek 7.25 px.
+*/
+.tabliczka .trasa-kol:not(:has(.trasa-extra))
+.trasa-stop.kraniec-koniec .trasa-os::before,
+.tabliczka .trasa-kol:not(:has(.trasa-extra))
+.trasa-stop.koniec-trasy-210 .trasa-os::before,
+.tabliczka .trasa-kol:not(:has(.trasa-extra))
+.trasa-stop.koniec-trasy-210.ma-kontynuacje-trasy .trasa-os::before {
+    top: 0 !important;
+    bottom: calc(100% - 7.25px) !important;
+    height: auto !important;
+}
+
+/*
+   Dokładnie jak w v246:
+   dopiero rzeczywista .trasa-extra pod trasą podstawową oznacza,
+   że kreska z końcowej kropki ma iść dalej w dół.
+*/
+.tabliczka .trasa-kol:has(.trasa-extra)
+.trasa-stop.kraniec-koniec .trasa-os::before,
+.tabliczka .trasa-kol:has(.trasa-extra)
+.trasa-stop.koniec-trasy-210 .trasa-os::before {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/*
+   Podział na kolumny nadal NIE jest końcem całej trasy.
+   To również jest zasada z v246.
+*/
+.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
+.trasa-lista > .trasa-stop:last-child .trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 397 — jeden ciąg trasy do splittera
+   ========================================================= */
+.trasa-lista-397 > .trasa-extra-title-397 {
+    list-style: none !important;
+    margin: 9px auto 9px auto !important;
+    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
+    font-size: 13.5px !important;
+    line-height: 16px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0.75px !important;
+    text-align: center !important;
+    transform: scaleY(1.30) !important;
+    transform-origin: center !important;
+}
+
+.trasa-lista-397 > .trasa-extra-stop-397 {
+    display: grid;
+    grid-template-columns: 19px 12px minmax(0,1fr) 12px;
+    align-items: center;
+    min-height: 16.5px;
+    position: relative;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 398
+   Koniec pierwszej kolumny NIE jest końcem trasy.
+   ========================================================= */
+
+.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
+.trasa-lista > li:last-child {
+    font-weight: 400 !important;
+}
+
+.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
+.trasa-lista > li:last-child .trasa-nazwa {
+    font-weight: 400 !important;
+}
+
+.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
+.trasa-lista > li:last-child .trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+</style>
+<style>
+/* W407 — dokładnie pusty środek kropki NŻ w wariantach 338/kierunek 0 */
+.tabliczka.linia-338-k0-407
+.trasa-stop.stop-zadanie
+.trasa-os::after {
+    background: #fff !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 408 — NŻ dla przystanków wariantowych
+   =========================================================
+   Zwykła trasa ma:
+       .trasa-stop.nz .trasa-os::after
+
+   Warianty s / r,s mają:
+       .trasa-extra-stop.nz .trasa-os::after
+
+   Dlatego brakowało wyłącznie tego selektora.
+*/
+.tabliczka .trasa-extra-stop.nz .trasa-os::after {
+    background: #fff !important;
+    border: 2px solid currentColor !important;
+    box-sizing: border-box !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 410 — RECHNIEWSKIEGO jako kraniec kursów bez oznaczeń
+   ========================================================= */
+
+.tabliczka
+.trasa-stop.koniec-wariantu-bez-oznaczen-411
+.trasa-nazwa {
+    font-weight: 700 !important;
+}
+
+/*
+   RECHNIEWSKIEGO jest prawdziwym krańcem przebiegu bez oznaczenia.
+   Wariant g odgałęzia się wcześniej — od BOHATERIEWICZA.
+   Dlatego oś przy RECHNIEWSKIEGO kończy się dokładnie na kropce.
+*/
+.tabliczka
+.trasa-stop.koniec-wariantu-bez-oznaczen-411
+.trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    top: 0 !important;
+    bottom: calc(100% - 7.25px) !important;
+    height: auto !important;
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 421 — KRANIEC WARIANTU: POGRUBIONA TYLKO NAZWA
+   =========================================================
+   SKALNICOWA jest prawdziwym krańcem wariantu „s”, także gdy
+   wypada jako ostatni wiersz pierwszej kolumny.
+
+   Ważne:
+   - nazwa krańca jest pogrubiona,
+   - czas przejazdu pozostaje zwykłą grubością,
+   - pionowa oś kończy się dokładnie na kropce krańca.
+   ========================================================= */
+.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
+.trasa-lista > .trasa-stop.koniec-wariantu-419:last-child .trasa-nazwa {
+    font-weight: 700 !important;
+}
+
+.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
+.trasa-lista > .trasa-stop.koniec-wariantu-419:last-child .trasa-czas {
+    font-weight: 400 !important;
+}
+
+.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
+.trasa-lista > .trasa-stop.koniec-wariantu-419:last-child .trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    top: 0 !important;
+    bottom: calc(100% - 7.25px) !important;
+    height: auto !important;
+}
+
+
+/* =========================================================
+   WERSJA 422 — RÓWNY ODSTĘP MIĘDZY 3 TABELAMI DNI
+   =========================================================
+   Przy układzie: DZIEŃ POWSZEDNI / SOBOTA / ŚWIĘTO
+   odstęp jest realizowany przez grid gap, a nie marginesy
+   poszczególnych tabel. Dzięki temu oba odstępy są identyczne.
+   ========================================================= */
+.tabliczka .rozklady-grid.kol-3.weekend-rowny {
+    column-gap: 3px !important;
+}
+
+.tabliczka .rozklady-grid.kol-3.weekend-rowny > .dzien + .dzien {
+    margin-left: 0 !important;
+}
+</style>
+
+
+
+
+
+
+
+
+
+
+
+<style id="FWTP-V485-CSS">
+/* V485: tylko elementy wymagane przez nową semantykę JSON. */
+.v485-miejscowosc .trasa-separator-title{
+    text-align:center;
+    font-weight:700;
+}
+.v485-strefa .trasa-separator-title{
+    text-align:center;
+    font-weight:800;
+}
+.v485-wariant .trasa-separator-title{
+    font-weight:700;
+}
+.v485-trasa-kol{
+    min-width:0;
+}
+</style>
+
+<style>
+/* =========================================================
+   FWTP — WERSJA 496 — wspólna trasa i gałęzie
+   ========================================================= */
+.v496-kol{width:100%!important;max-width:none!important}
+.v496-galezie{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+    gap:8px;
+    align-items:start;
+}
+.v496-galaz{min-width:0}
+.v496-opis{
+    margin:5px 0 3px 0!important;
+    text-align:center;
+}
+.v496-wspolna{margin-top:0!important;margin-bottom:0!important}
+.v496-galaz .trasa-lista{margin-top:0!important;margin-bottom:0!important}
+</style>
+
+
+<style>
+/* =========================================================
+   FWTP — WERSJA 498
+   PODZIAŁ KOLUMN PRZENIESIONY ZE STAREJ DZIAŁAJĄCEJ LOGIKI
+   ========================================================= */
+
+.tabliczka .trasa-head.cols-1,
+.tabliczka .trasa-columns.cols-1{
+    grid-template-columns:1fr !important;
+}
+
+.tabliczka .trasa-head.cols-2,
+.tabliczka .trasa-columns.cols-2{
+    grid-template-columns:1fr 1fr !important;
+}
+
+.tabliczka.trasa-2-kol .trasa-columns{
+    display:grid !important;
+}
+
+.tabliczka .trasa-columns.cols-2 > .trasa-kol:not(:last-child){
+    border-right:1px solid #999;
+}
+
+/* Granica kolumny nie jest końcem całej trasy. */
+.tabliczka .trasa-columns.cols-2 > .trasa-kol:not(:last-child)
+.trasa-stop:last-child{
+    font-weight:400;
+}
+</style>
+
+
+<style>
+/* =========================================================
+   FWTP — WERSJA 510
+   RZECZYWISTY KONIEC Z kurs.trasa MA NAJWYŻSZY PRIORYTET
+   ========================================================= */
+
+/*
+   Starsze wersje zawierają reguły:
+       .trasa-kol:has(.trasa-extra) ...
+   które celowo przedłużają pionową oś.
+
+   Dla prawdziwego końca konkretnego kurs.trasa jest to błędne.
+   Klasa v510-rzeczywisty-koniec jest nakładana PO renderowaniu
+   wyłącznie na dokładne końcowe ID z JSON.
+*/
+
+/* Nazwa końcowego przystanku zawsze pogrubiona. */
+.tabliczka .trasa-stop.v510-rzeczywisty-koniec .trasa-nazwa,
+.tabliczka .trasa-stop.v510-rzeczywisty-koniec .trasa-nazwa-aktywna {
+    font-weight: 700 !important;
+}
+
+/*
+   Pionowa kreska kończy się dokładnie w środku końcowej kropki.
+   Ta reguła ma być ważniejsza również wtedy, gdy w tej samej
+   kolumnie istnieje .trasa-extra.
+*/
+.tabliczka .trasa-kol:has(.trasa-extra)
+.trasa-stop.v510-rzeczywisty-koniec .trasa-os::before,
+.tabliczka .trasa-stop.v510-rzeczywisty-koniec .trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    top: 0 !important;
+    bottom: calc(100% - 7.25px) !important;
+    height: auto !important;
+}
+
+/* Końcowa kropka pozostaje normalnie widoczna na osi. */
+.tabliczka .trasa-stop.v510-rzeczywisty-koniec .trasa-os::after {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 1px !important;
+    right: auto !important;
+    top: 3px !important;
+    width: 8.5px !important;
+    height: 8.5px !important;
+    min-width: 8.5px !important;
+    min-height: 8.5px !important;
+    border-radius: 50% !important;
+    background: currentColor !important;
+    transform: none !important;
+    box-sizing: border-box !important;
+    z-index: 5 !important;
+}
+</style>
+
+
+
+<!-- =========================================================
+     FWTP V532 — MIEJSCOWOŚĆ I STREFA
+     PONIŻSZE STYLE SĄ SKOPIOWANE 1:1 Z ORYGINALNEGO PLIKU.
+     NIE MODYFIKOWAĆ.
+     ========================================================= -->
 <style>
         /* =========================================================
            STRONA
@@ -885,13 +1797,15 @@
         .trasa-separator.trasa-miejscowosc-429::before,
         .trasa-separator.trasa-miejscowosc-429::after {
             content: "";
-            flex: 1 1 0;
-    min-width: 0;
-    max-width: none;
-    box-sizing: border-box;
-border-top-color: #565656 !important;
-           position: relative !important;
-    z-index: 0 !important;
+            flex: 1 1 auto;
+            min-width: 20px;
+
+            /* Około 2× mocniejsze kreski niż w v430. */
+            border-top: 2px dashed #777;
+
+            /* Kreski i tekst mają być nad pionową osią. */
+            position: relative;
+            z-index: 1;
         }
 
         /*
@@ -3899,771 +4813,7 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
         }
 
 </style>
-<style>
-/* =========================================================
-   WERSJA 362 — OSTATNIA KROPKA DOKŁADNIE NA OSI
-   ========================================================= */
 
-/*
-   Ostatni przystanek ma używać dokładnie tej samej poziomej
-   pozycji kropki co zwykły przystanek. Różnica dotyczy tylko
-   długości pionowej linii — ma ona zakończyć się w środku kropki.
-
-   Geometria:
-   oś:   left 4.1px + 2.25px / 2 = 5.225px
-   kropka: left 1px + 8.5px / 2 = 5.25px
-   Różnica = tylko 0.025px.
-*/
-
-.trasa-stop.koniec-trasy-210 .trasa-os::after {
-    left: 1px !important;
-    right: auto !important;
-    width: 8.5px !important;
-    height: 8.5px !important;
-    transform: none !important;
-    box-sizing: border-box !important;
-}
-
-/*
-   Pionowa oś końcowego przystanku kończy się w środku kropki,
-   zamiast przechodzić pod nią.
-*/
-.trasa-stop.koniec-trasy-210 .trasa-os {
-    left: 4.1px !important;
-    width: 2.25px !important;
-}
-
-/*
-   Gdy element jest końcem wyłącznie dlatego, że kończy się
-   pierwsza kolumna, nie traktujemy go jako faktycznego końca
-   całej trasy. Linia może być kontynuowana zgodnie z istniejącą
-   logiką podziału kolumn.
-*/
-.trasa-stop.koniec-trasy-210:not(.ma-kontynuacje-trasy) .trasa-os::before {
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 363 — KOREKTA KIERUNKU OSTATNIEJ KROPKI
-   ========================================================= */
-
-/*
-   W 362 korekta poszła w prawo.
-   Teraz przesuwamy WYŁĄCZNIE końcową kropkę w lewo.
-   Oś oraz wszystkie zwykłe kropki pozostają bez zmian.
-*/
-.trasa-stop.koniec-trasy-210 .trasa-os::after {
-    left: 0px !important;
-    right: auto !important;
-    transform: none !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 364 — OSTATNIA KROPKA DOKŁADNIE NA TEJ SAMEJ OSI
-   ========================================================= */
-
-/*
-   WAŻNE:
-   Nie przesuwamy .trasa-os. To jest komórka/kolumna osi i musi
-   pozostać dokładnie tam, gdzie wszystkie pozostałe przystanki.
-   W 362 ustawienie left:4.1px na samym .trasa-os przesunęło cały
-   układ współrzędnych ostatniego punktu.
-*/
-.trasa-stop.koniec-trasy-210 .trasa-os {
-    left: auto !important;
-    right: auto !important;
-    width: auto !important;
-}
-
-/*
-   Identyczna geometria jak dla zwykłych przystanków:
-   linia:  left 4.1px, szerokość 2.25px -> środek 5.225px
-   kropka: left 1px,   szerokość 8.5px -> środek 5.25px
-*/
-.trasa-stop.koniec-trasy-210 .trasa-os::after {
-    content: "" !important;
-    display: block !important;
-    position: absolute !important;
-
-    left: 1px !important;
-    right: auto !important;
-    top: 3px !important;
-
-    width: 8.5px !important;
-    height: 8.5px !important;
-    min-width: 8.5px !important;
-    min-height: 8.5px !important;
-
-    transform: none !important;
-
-    border-radius: 50% !important;
-    background: currentColor !important;
-    box-sizing: border-box !important;
-    z-index: 5 !important;
-}
-
-/*
-   Linia ma tę samą pozycję poziomą co wszędzie.
-   Na faktycznym końcu kończy się w środku punktu.
-*/
-.trasa-stop.koniec-trasy-210 .trasa-os::before {
-    left: 4.1px !important;
-    width: 2.25px !important;
-    bottom: calc(100% - 7.25px) !important;
-    height: auto !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 368 — CIĄGŁOŚĆ OSI PRZY TRASIE WYDŁUŻONEJ
-   ========================================================= */
-
-/*
-   koniec-trasy-210 normalnie ucina kreskę na środku kropki.
-   Jeśli JS oznaczy ten sam wiersz jako ma-kontynuacje-trasy,
-   nie jest to koniec całej trasy, tylko koniec trasy podstawowej.
-   Dlatego kreska biegnie przez kropkę dalej w dół.
-*/
-.trasa-stop.koniec-trasy-210.ma-kontynuacje-trasy .trasa-os::before {
-    top: 0 !important;
-    bottom: 0 !important;
-    height: auto !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 372 — DWA KIERUNKI: PRAWDZIWE ZAWIJANIE
-   ========================================================= */
-
-/*
-   Przy trasie dwukolumnowej lewy panel ma ok. 50.5% tabliczki.
-   Stary nagłówek miał szerokość aż 560px, więc fizycznie wychodził
-   poza lewy panel i tekst kierunku wchodził na listę przystanków.
-
-   Przy dwóch kierunkach ograniczamy nagłówek do szerokości
-   RZECZYWISTEGO lewego panelu.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) {
-    width: calc(100% - 34px) !important;
-    height: auto !important;
-    min-height: 80px !important;
-    align-items: start !important;
-}
-
-/*
-   Kolumna z tekstem może się realnie zwężać.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .dane-linii {
-    min-width: 0 !important;
-    padding-top: 1px !important;
-}
-
-/*
-   LINIA ZWYKŁA maksymalnie wysoko.
-   Pierwszy kierunek zaczyna się prawie od razu pod nią.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .typ-linii {
-    top: -4px !important;
-    margin-bottom: 0 !important;
-}
-
-/*
-   To są PRAWDZIWE elementy generowane przez renderer.
-   W 371 błędnie stylowany był .kierunek, podczas gdy przy dwóch
-   kierunkach HTML używa .kierunki-dwa-wiersz.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
-    display: block !important;
-    position: static !important;
-    top: auto !important;
-
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-
-    margin: -1px 0 0 0 !important;
-    padding: 0 !important;
-    transform: none !important;
-}
-
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
-    display: block !important;
-
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-
-    white-space: normal !important;
-    overflow-wrap: normal !important;
-    word-break: normal !important;
-
-    margin: 0 !important;
-    padding: 0 !important;
-
-    line-height: 18px !important;
-    transform: none !important;
-}
-
-/*
-   Strzałka pozostaje przy początku danego kierunku.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-strzalka {
-    margin-right: 7px !important;
-}
-
-/*
-   "Ważny od" NIE jest już absolutnie przyklejony do starego
-   80-pikselowego nagłówka. Ma znaleźć się pod pełną wysokością
-   obu kierunków, także gdy pierwszy zawinie się do dwóch wierszy.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .wazny {
-    position: static !important;
-    top: auto !important;
-    bottom: auto !important;
-
-    margin: 1px 0 0 0 !important;
-    padding: 0 !important;
-
-    line-height: 11px !important;
-}
-
-/*
-   Pole numeru zachowuje dotychczasowe 80px.
-   Tabela rozkładu zacznie się niżej tylko wtedy, gdy tekst dwóch
-   kierunków rzeczywiście potrzebuje większej wysokości.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .numer-linii-box {
-    align-self: start !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 373 — TYPOGRAFIA I ODSTĘPY DWÓCH KIERUNKÓW
-   ========================================================= */
-
-/*
-   W 372 własne line-height dla .kierunki-dwa-wiersz zmieniło
-   wizualnie typografię. Tutaj nie narzucamy nowego kroju/font-size;
-   dziedziczymy dokładnie font nagłówka z .dane-linii.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa,
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz,
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-strzalka {
-    font-family: inherit !important;
-    font-size: inherit !important;
-    font-weight: inherit !important;
-    font-style: inherit !important;
-    letter-spacing: inherit !important;
-}
-
-/*
-   Cały blok kierunków 5 px wyżej.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
-    margin-top: -5px !important;
-    margin-bottom: 0 !important;
-}
-
-/*
-   Mniejsza interlinia:
-   - pomiędzy pierwszą i drugą linią zawiniętego kierunku,
-   - pomiędzy pierwszym a drugim kierunkiem.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
-    line-height: 15px !important;
-    margin-top: 0 !important;
-    margin-bottom: -1px !important;
-}
-
-/*
-   "Ważny od" również bliżej drugiego kierunku.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .wazny {
-    margin-top: -1px !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 374 — ORYGINALNA CZCIONKA, +2PX ODSTĘPU, WAŻNY NA DOLE
-   ========================================================= */
-
-/*
-   Przywracamy dokładne parametry typografii używane wcześniej
-   przez nagłówek kierunku. Nie dziedziczymy font-size z rodzica,
-   bo właśnie to w 373 dało inny wygląd.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa,
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz,
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-strzalka {
-    font-family: "Arial Narrow", Arial, sans-serif !important;
-    font-size: 20px !important;
-    font-weight: 400 !important;
-    font-style: normal !important;
-    letter-spacing: 0 !important;
-}
-
-/*
-   Zostaje podniesienie całego bloku o 5 px.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
-    margin-top: -5px !important;
-    margin-bottom: 0 !important;
-}
-
-/*
-   W 373 było 15px / -1px.
-   Użytkownik chce o 2px większe odstępy:
-   17px interlinii i 1px po każdym kierunku.
-   Dotyczy to także zawiniętego ELSNERÓW.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
-    line-height: 17px !important;
-    margin-top: 0 !important;
-    margin-bottom: 1px !important;
-}
-
-/*
-   "Ważny od" wraca dokładnie na dolną krawędź pola numeru linii.
-   Nie bierze udziału w przepływie kierunków.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) {
-    position: relative !important;
-}
-
-.naglowek-tabliczki:has(.kierunki-dwa) .wazny {
-    position: absolute !important;
-    left: 204px !important;
-    bottom: 0 !important;
-    top: auto !important;
-
-    margin: 0 !important;
-    padding: 0 !important;
-
-    font-family: "Arial Narrow", Arial, sans-serif !important;
-    line-height: 11px !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 375 — PRZYWRÓCENIE TYPOGRAFII
-   ========================================================= */
-
-/* Kierunki: dokładnie ten stos czcionek. */
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa,
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz,
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-strzalka {
-    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
-    font-size: 17px !important;
-    font-weight: 400 !important;
-    font-style: normal !important;
-    letter-spacing: 0 !important;
-}
-
-/*
-   Przywrócenie ustawienia nazw przystanków/trasy,
-   które było wcześniej i nie powinno było zostać naruszone.
-*/
-.stop-name,
-.trasa-nazwa {
-    transform: scaleY(1.30) !important;
-    transform-origin: left center !important;
-    letter-spacing: 0.75px !important;
-}
-
-/*
-   Zachowujemy poprawki układu z ostatniej wersji:
-   blok kierunków -5 px oraz odstępy z 374.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
-    margin-top: -5px !important;
-}
-
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
-    line-height: 17px !important;
-    margin-top: 0 !important;
-    margin-bottom: 1px !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 376 — KIERUNEK + "WAŻNY OD" JAK W PRZESŁANEJ V246
-   ========================================================= */
-
-/* Dokładna typografia kierunku z przesłanej wersji. */
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
-    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
-    font-size: 17px !important;
-    line-height: 18px !important;
-    font-weight: 400 !important;
-    letter-spacing: normal !important;
-
-    /* jedyna różnica funkcjonalna: pozwalamy zawinąć długi kierunek */
-    white-space: normal !important;
-
-    transform: scaleY(1.08) !important;
-    transform-origin: left center !important;
-
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-}
-
-/* Strzałka jak w przesłanej wersji. */
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-strzalka {
-    display: inline-block !important;
-    margin-right: 7px !important;
-
-    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
-    font-size: 17px !important;
-    font-weight: 400 !important;
-}
-
-/*
-   Położenie kierunków zachowujemy zgodnie z obecną prośbą:
-   blok jest 5 px wyżej.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa {
-    position: relative !important;
-    top: -3px !important;
-    margin-top: 0 !important;
-    margin-bottom: 0 !important;
-    padding-bottom: 12px !important;
-    transform: none !important;
-}
-
-/*
-   Nagłówek ma stałe 80 px — dokładnie tak jak w przesłanej wersji.
-   Dolna krawędź jest więc na tej samej wysokości co pole numeru linii.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) {
-    position: relative !important;
-    height: 80px !important;
-    min-height: 80px !important;
-    align-items: start !important;
-}
-
-/* Typografia "Ważny od" z przesłanej wersji. */
-.naglowek-tabliczki:has(.kierunki-dwa) .wazny {
-    position: absolute !important;
-    top: auto !important;
-    bottom: 1px !important;
-
-    /* zaczyna się w kolumnie danych, nie pod numerem linii */
-    left: 163px !important;
-
-    margin: 0 !important;
-    padding: 0 !important;
-
-    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
-    font-size: 11px !important;
-    font-weight: 400 !important;
-    color: #000000 !important;
-    line-height: 1 !important;
-
-    transform: scaleY(1.08) !important;
-    transform-origin: center !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 377 — ODSTĘPY KIERUNKÓW MNIEJSZE O 2 PX
-   ========================================================= */
-
-/*
-   376: line-height 18px.
-   377: 16px, czyli o 2px mniej:
-   - między liniami zawiniętego kierunku,
-   - między pierwszym i drugim kierunkiem.
-*/
-.naglowek-tabliczki:has(.kierunki-dwa) .kierunki-dwa-wiersz {
-    line-height: 16px !important;
-}
-
-/* Pozostałe ustawienia z 376 bez zmian. */
-</style>
-<style>
-/* =========================================================
-   WERSJA 379 — JEDEN KIERUNEK ZAWINIĘTY NA DWA WIERSZE
-   ========================================================= */
-
-/*
-   Nagłówek nadal ma dokładnie 80 px — tyle samo co ramka numeru linii.
-*/
-.naglowek-tabliczki {
-    position: relative;
-    height: 80px !important;
-    min-height: 80px !important;
-}
-
-/*
-   Dla zwykłego pojedynczego kierunku rezerwujemy dół nagłówka
-   na napis "Ważny od". Sam kierunek może mieć 1 albo 2 wiersze.
-*/
-.naglowek-tabliczki:not(:has(.kierunki-dwa)) .dane-linii {
-    position: relative !important;
-    height: 80px !important;
-    min-height: 80px !important;
-    box-sizing: border-box !important;
-    padding-bottom: 13px !important;
-}
-
-/*
-   Jeśli pojedynczy kierunek zawinie się na dwa wiersze (np. linia 401),
-   przesuwamy go wyżej, ale nie zmieniamy jego czcionki ani transformacji.
-*/
-.naglowek-tabliczki:not(:has(.kierunki-dwa)) .kierunek {
-    margin-bottom: 0 !important;
-}
-
-/*
-   "Ważny od" przy pojedynczym kierunku jest zawsze przyklejony
-   do dolnej krawędzi 80-pikselowego nagłówka — dokładnie tam,
-   gdzie kończy się ramka numeru linii.
-*/
-.naglowek-tabliczki:not(:has(.kierunki-dwa)) .wazny {
-    position: absolute !important;
-    left: 13px !important;
-    bottom: 1px !important;
-    top: auto !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-/*
-   Gdy kierunek faktycznie ma dwa wiersze, JS doda tę klasę.
-   Podnosimy wtedy tylko blok kierunku, żeby oba wiersze zmieściły się
-   nad "Ważny od", bez ruszania dolnego napisu.
-*/
-.naglowek-tabliczki.jeden-kierunek-dwa-wiersze-379 .typ-linii {
-    margin-bottom: 3px !important;
-}
-
-.naglowek-tabliczki.jeden-kierunek-dwa-wiersze-379 .kierunek {
-    top: -2px !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 380 — CIAŚNIEJSZY DWUWIERSZOWY POJEDYNCZY KIERUNEK
-   ========================================================= */
-
-/*
-   Tylko pojedynczy kierunek, który faktycznie zawinął się na 2 wiersze.
-   Zmniejszamy wysokość linii o 2 px, dzięki czemu drugi wiersz
-   (np. STOKŁOSY) jest bliżej pierwszego (URSYNÓW PŁD. / METRO).
-*/
-.naglowek-tabliczki.jeden-kierunek-dwa-wiersze-379 .kierunek {
-    line-height: 15px !important;
-}
-
-/*
-   "Ważny od" pozostaje dokładnie przy dolnej krawędzi
-   80-pikselowego nagłówka.
-*/
-.naglowek-tabliczki:not(:has(.kierunki-dwa)) .wazny {
-    bottom: 1px !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 385 — LOGIKA KOŃCA TRASY PRZENIESIONA Z v246
-   ========================================================= */
-
-/*
-   v246 nie uzależniała kreski pod krańcem od samego
-   "pokazWydluzenia". Sprawdzała, czy W TEJ KOLUMNIE naprawdę
-   istnieje wyrenderowana .trasa-extra.
-
-   Normalny prawdziwy kraniec: oś kończy się w środku kropki.
-   Zachowujemy obecną geometrię kropki 8.5 px -> środek 7.25 px.
-*/
-.tabliczka .trasa-kol:not(:has(.trasa-extra))
-.trasa-stop.kraniec-koniec .trasa-os::before,
-.tabliczka .trasa-kol:not(:has(.trasa-extra))
-.trasa-stop.koniec-trasy-210 .trasa-os::before,
-.tabliczka .trasa-kol:not(:has(.trasa-extra))
-.trasa-stop.koniec-trasy-210.ma-kontynuacje-trasy .trasa-os::before {
-    top: 0 !important;
-    bottom: calc(100% - 7.25px) !important;
-    height: auto !important;
-}
-
-/*
-   Dokładnie jak w v246:
-   dopiero rzeczywista .trasa-extra pod trasą podstawową oznacza,
-   że kreska z końcowej kropki ma iść dalej w dół.
-*/
-.tabliczka .trasa-kol:has(.trasa-extra)
-.trasa-stop.kraniec-koniec .trasa-os::before,
-.tabliczka .trasa-kol:has(.trasa-extra)
-.trasa-stop.koniec-trasy-210 .trasa-os::before {
-    top: 0 !important;
-    bottom: 0 !important;
-    height: auto !important;
-}
-
-/*
-   Podział na kolumny nadal NIE jest końcem całej trasy.
-   To również jest zasada z v246.
-*/
-.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
-.trasa-lista > .trasa-stop:last-child .trasa-os::before {
-    content: "" !important;
-    display: block !important;
-    top: 0 !important;
-    bottom: 0 !important;
-    height: auto !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 397 — jeden ciąg trasy do splittera
-   ========================================================= */
-.trasa-lista-397 > .trasa-extra-title-397 {
-    list-style: none !important;
-    margin: 9px auto 9px auto !important;
-    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
-    font-size: 13.5px !important;
-    line-height: 16px !important;
-    font-weight: 400 !important;
-    letter-spacing: 0.75px !important;
-    text-align: center !important;
-    transform: scaleY(1.30) !important;
-    transform-origin: center !important;
-}
-
-.trasa-lista-397 > .trasa-extra-stop-397 {
-    display: grid;
-    grid-template-columns: 19px 12px minmax(0,1fr) 12px;
-    align-items: center;
-    min-height: 16.5px;
-    position: relative;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 398
-   Koniec pierwszej kolumny NIE jest końcem trasy.
-   ========================================================= */
-
-.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
-.trasa-lista > li:last-child {
-    font-weight: 400 !important;
-}
-
-.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
-.trasa-lista > li:last-child .trasa-nazwa {
-    font-weight: 400 !important;
-}
-
-.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
-.trasa-lista > li:last-child .trasa-os::before {
-    content: "" !important;
-    display: block !important;
-    top: 0 !important;
-    bottom: 0 !important;
-    height: auto !important;
-}
-</style>
-<style>
-/* W407 — dokładnie pusty środek kropki NŻ w wariantach 338/kierunek 0 */
-.tabliczka.linia-338-k0-407
-.trasa-stop.stop-zadanie
-.trasa-os::after {
-    background: #fff !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 408 — NŻ dla przystanków wariantowych
-   =========================================================
-   Zwykła trasa ma:
-       .trasa-stop.nz .trasa-os::after
-
-   Warianty s / r,s mają:
-       .trasa-extra-stop.nz .trasa-os::after
-
-   Dlatego brakowało wyłącznie tego selektora.
-*/
-.tabliczka .trasa-extra-stop.nz .trasa-os::after {
-    background: #fff !important;
-    border: 2px solid currentColor !important;
-    box-sizing: border-box !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 410 — RECHNIEWSKIEGO jako kraniec kursów bez oznaczeń
-   ========================================================= */
-
-.tabliczka
-.trasa-stop.koniec-wariantu-bez-oznaczen-411
-.trasa-nazwa {
-    font-weight: 700 !important;
-}
-
-/*
-   RECHNIEWSKIEGO jest prawdziwym krańcem przebiegu bez oznaczenia.
-   Wariant g odgałęzia się wcześniej — od BOHATERIEWICZA.
-   Dlatego oś przy RECHNIEWSKIEGO kończy się dokładnie na kropce.
-*/
-.tabliczka
-.trasa-stop.koniec-wariantu-bez-oznaczen-411
-.trasa-os::before {
-    content: "" !important;
-    display: block !important;
-    top: 0 !important;
-    bottom: calc(100% - 7.25px) !important;
-    height: auto !important;
-}
-</style>
-<style>
-/* =========================================================
-   WERSJA 421 — KRANIEC WARIANTU: POGRUBIONA TYLKO NAZWA
-   =========================================================
-   SKALNICOWA jest prawdziwym krańcem wariantu „s”, także gdy
-   wypada jako ostatni wiersz pierwszej kolumny.
-
-   Ważne:
-   - nazwa krańca jest pogrubiona,
-   - czas przejazdu pozostaje zwykłą grubością,
-   - pionowa oś kończy się dokładnie na kropce krańca.
-   ========================================================= */
-.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
-.trasa-lista > .trasa-stop.koniec-wariantu-419:last-child .trasa-nazwa {
-    font-weight: 700 !important;
-}
-
-.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
-.trasa-lista > .trasa-stop.koniec-wariantu-419:last-child .trasa-czas {
-    font-weight: 400 !important;
-}
-
-.tabliczka .trasa-columns > .trasa-kol:not(:last-child)
-.trasa-lista > .trasa-stop.koniec-wariantu-419:last-child .trasa-os::before {
-    content: "" !important;
-    display: block !important;
-    top: 0 !important;
-    bottom: calc(100% - 7.25px) !important;
-    height: auto !important;
-}
-
-
-/* =========================================================
-   WERSJA 422 — RÓWNY ODSTĘP MIĘDZY 3 TABELAMI DNI
-   =========================================================
-   Przy układzie: DZIEŃ POWSZEDNI / SOBOTA / ŚWIĘTO
-   odstęp jest realizowany przez grid gap, a nie marginesy
-   poszczególnych tabel. Dzięki temu oba odstępy są identyczne.
-   ========================================================= */
-.tabliczka .rozklady-grid.kol-3.weekend-rowny {
-    column-gap: 3px !important;
-}
-
-.tabliczka .rozklady-grid.kol-3.weekend-rowny > .dzien + .dzien {
-    margin-left: 0 !important;
-}
-</style>
 <style>
 /* =========================================================
    WERSJA 427 — KRANIEC KURSÓW PODSTAWOWYCH Z CIĄGŁĄ OSI
@@ -4756,6 +4906,7 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
             transform-origin: center !important;
         }
 </style>
+
 <style>
 /* =========================================================
    WERSJA 441 — STREFY I PRZYSTANKI GRANICZNE
@@ -4765,7 +4916,9 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     display:flex; align-items:center; gap:6px; margin:2px 0; padding:0;
     min-height:16px; width:100%; box-sizing:border-box; overflow:hidden;
 }
-
+.trasa-separator.trasa-strefa-440::before,
+.trasa-separator.trasa-strefa-440::after {
+    content:""; flex:1 1 0; min-width:0; border-top:2px double #1a1a1a;
 }
 .trasa-separator.trasa-strefa-440 .trasa-separator-title {
     flex:0 0 auto; width:auto; padding:0 3px; font-size:11px; line-height:12px;
@@ -4786,6 +4939,7 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     font-weight:400; white-space:nowrap; transform:none;
 }
 </style>
+
 <style>
 /* =========================================================
    WERSJA 442 — KOREKTA WYGLĄDU STREF I MIEJSCOWOŚCI
@@ -4800,17 +4954,17 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 /* STREFA I / STREFA II — po bokach znaki = zamiast linii ciągłej. */
 .tabliczka .trasa-separator.trasa-strefa-440::before,
 .tabliczka .trasa-separator.trasa-strefa-440::after {
-     content: "================" !important;
-    border: 0 !important;
+    content: "==============================" !important;
     border-top: 0 !important;
-    color: #1a1a1a !important;
-    font-family: "Courier New", Courier, monospace !important;
-    font-size: 24px !important;
-    font-weight: 700 !important;
-    line-height: 20px !important;
-    letter-spacing: -2px !important;
-    white-space: nowrap !important;
+    height: 12px !important;
+    line-height: 10px !important;
     overflow: hidden !important;
+    white-space: nowrap !important;
+    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
+    font-size: 11px !important;
+    font-weight: 400 !important;
+    letter-spacing: 0 !important;
+    color: #1a1a1a !important;
 }
 
 /*
@@ -4839,6 +4993,7 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     height: auto !important;
 }
 </style>
+
 <style>
 /* =========================================================
    WERSJA 443 — KOREKTY WIZUALNE STREF / MIEJSCOWOŚCI / POCZĄTKU OSI
@@ -4896,6 +5051,7 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     height: 50% !important;
 }
 </style>
+
 <style>
 /* =========================================================
    WERSJA 444 — MIEJSCOWOŚCI / STREFA / POCZĄTEK OSI
@@ -4925,6 +5081,12 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     transform-origin: center !important;
 }
 
+/* Znaki = pozostają duże. */
+.tabliczka .trasa-separator.trasa-strefa-440::before,
+.tabliczka .trasa-separator.trasa-strefa-440::after {
+    font-size: 22px !important;
+    line-height: 17px !important;
+}
 
 /* Pierwsza oś ma zaczynać się na środku pierwszej kropki, niezależnie
    od separatorów wstawionych przed pierwszym przystankiem. */
@@ -4935,6 +5097,7 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     height: 50% !important;
 }
 </style>
+
 <style>
 /* =========================================================
    WERSJA 446 — MIEJSCOWOŚCI / STREFA / AKTYWNY PRZYSTANEK
@@ -4978,7 +5141,10 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     font-size: 18px !important;
     line-height: 19px !important;
 }
-
+.tabliczka .trasa-separator.trasa-strefa-440::before,
+.tabliczka .trasa-separator.trasa-strefa-440::after {
+    line-height: 19px !important;
+}
 
 /* Wspólny punkt przed wydłużeniem — jak STARE BEMOWO na 167:
    nazwa pogrubiona, czas zwykły, oś biegnie dalej. */
@@ -5006,6 +5172,7 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     content: none !important;
 }
 </style>
+
 <style>
 /* =========================================================
    WERSJA 448 — STYL MIEJSCOWOŚCI / STREFA / KONIEC TRASY
@@ -5065,6 +5232,7 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     height: auto !important;
 }
 </style>
+
 <style>
 /* =========================================================
    WERSJA 450 — PEŁNA PIERWSZA KOLUMNA / OŚ / ZNAKI =
@@ -5118,6 +5286,21 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
 }
 </style>
 
+<style id="wersja-455-strefa">
+/* WERSJA 455 — STREFA: znaki "=" z odstępem 3 px */
+.tabliczka .trasa-separator.trasa-strefa-440::before,
+.tabliczka .trasa-separator.trasa-strefa-440::after {
+    letter-spacing: 3px !important;
+}
+</style>
+
+<style id="wersja-456-strefa">
+/* WERSJA 456 — odstęp pomiędzy znakami "=" przy STREFA I / II */
+.tabliczka .trasa-separator.trasa-strefa-440::before,
+.tabliczka .trasa-separator.trasa-strefa-440::after {
+    letter-spacing: 3px !important;
+}
+</style>
 
 <style id="wersja-460-miejscowosci">
 /* WERSJA 460 — poziome myślniki przy nazwach miejscowości */
@@ -5126,131 +5309,239 @@ body.tabliczka-w-trakcie-ladowania #tabliczkaLoaderHost {
     border-top-color: #8b8b8b !important;
 }
 </style>
-<style id="FWTP-V485-CSS">
-/* V485: tylko elementy wymagane przez nową semantykę JSON. */
-.v485-miejscowosc .trasa-separator-title{
-    text-align:center;
-    font-weight:700;
-}
-.v485-strefa .trasa-separator-title{
-    text-align:center;
-    font-weight:800;
-}
-.v485-wariant .trasa-separator-title{
-    font-weight:700;
-}
-.v485-trasa-kol{
-    min-width:0;
-}
-</style>
 
 <style>
 /* =========================================================
-   FWTP — WERSJA 496 — wspólna trasa i gałęzie
-   ========================================================= */
-.v496-kol{width:100%!important;max-width:none!important}
-.v496-galezie{
-    display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
-    gap:8px;
-    align-items:start;
-}
-.v496-galaz{min-width:0}
-.v496-opis{
-    margin:5px 0 3px 0!important;
-    text-align:center;
-}
-.v496-wspolna{margin-top:0!important;margin-bottom:0!important}
-.v496-galaz .trasa-lista{margin-top:0!important;margin-bottom:0!important}
-</style>
-
-
-<style>
-/* =========================================================
-   FWTP — WERSJA 498
-   PODZIAŁ KOLUMN PRZENIESIONY ZE STAREJ DZIAŁAJĄCEJ LOGIKI
+   WERSJA 449 — CIĄGŁOŚĆ OSI / PRAWDZIWY KONIEC WYDŁUŻENIA
    ========================================================= */
 
-.tabliczka .trasa-head.cols-1,
-.tabliczka .trasa-columns.cols-1{
-    grid-template-columns:1fr !important;
+/* Separator leżący POMIĘDZY dwoma przystankami nie może przecinać
+   pionowej osi trasy. Klasa jest nadawana tylko takim separatorom,
+   więc nie dotyczy WARSZAWY/STREFY przed pierwszym przystankiem ani
+   SADOWY rozpoczynającej drugą kolumnę. */
+.tabliczka .trasa-separator.laczenie-osi-449 {
+    background-image: linear-gradient(
+        to right,
+        transparent 0,
+        transparent 29px,
+        currentColor 29px,
+        currentColor 31.25px,
+        transparent 31.25px,
+        transparent 100%
+    ) !important;
+    background-repeat: no-repeat !important;
+    background-size: 100% 100% !important;
 }
 
-.tabliczka .trasa-head.cols-2,
-.tabliczka .trasa-columns.cols-2{
-    grid-template-columns:1fr 1fr !important;
+/* Miejscowości mają szarą oś tak samo jak szare kreski/nazwa. */
+.tabliczka .trasa-separator.trasa-miejscowosc-429.laczenie-osi-449 {
+    color: #565656 !important;
 }
 
-.tabliczka.trasa-2-kol .trasa-columns{
-    display:grid !important;
-}
-
-.tabliczka .trasa-columns.cols-2 > .trasa-kol:not(:last-child){
-    border-right:1px solid #999;
-}
-
-/* Granica kolumny nie jest końcem całej trasy. */
-.tabliczka .trasa-columns.cols-2 > .trasa-kol:not(:last-child)
-.trasa-stop:last-child{
-    font-weight:400;
-}
-</style>
-
-
-<style>
-/* =========================================================
-   FWTP — WERSJA 510
-   RZECZYWISTY KONIEC Z kurs.trasa MA NAJWYŻSZY PRIORYTET
-   ========================================================= */
-
-/*
-   Starsze wersje zawierają reguły:
-       .trasa-kol:has(.trasa-extra) ...
-   które celowo przedłużają pionową oś.
-
-   Dla prawdziwego końca konkretnego kurs.trasa jest to błędne.
-   Klasa v510-rzeczywisty-koniec jest nakładana PO renderowaniu
-   wyłącznie na dokładne końcowe ID z JSON.
-*/
-
-/* Nazwa końcowego przystanku zawsze pogrubiona. */
-.tabliczka .trasa-stop.v510-rzeczywisty-koniec .trasa-nazwa,
-.tabliczka .trasa-stop.v510-rzeczywisty-koniec .trasa-nazwa-aktywna {
-    font-weight: 700 !important;
-}
-
-/*
-   Pionowa kreska kończy się dokładnie w środku końcowej kropki.
-   Ta reguła ma być ważniejsza również wtedy, gdy w tej samej
-   kolumnie istnieje .trasa-extra.
-*/
-.tabliczka .trasa-kol:has(.trasa-extra)
-.trasa-stop.v510-rzeczywisty-koniec .trasa-os::before,
-.tabliczka .trasa-stop.v510-rzeczywisty-koniec .trasa-os::before {
-    content: "" !important;
-    display: block !important;
+/* Prawdziwy koniec wydłużenia: kropka zostaje w standardowej pozycji
+   pierwszego wiersza nazwy, a pionowa linia dochodzi wyłącznie do jej
+   środka. Nie ma żadnego odcinka poniżej kropki. */
+.tabliczka .trasa-stop.koniec-wydluzenia-446 .trasa-os::before,
+.tabliczka .trasa-extra-stop.koniec-wydluzenia-446 .trasa-os::before {
     top: 0 !important;
     bottom: calc(100% - 7.25px) !important;
     height: auto !important;
 }
-
-/* Końcowa kropka pozostaje normalnie widoczna na osi. */
-.tabliczka .trasa-stop.v510-rzeczywisty-koniec .trasa-os::after {
+.tabliczka .trasa-stop.koniec-wydluzenia-446 .trasa-os::after,
+.tabliczka .trasa-extra-stop.koniec-wydluzenia-446 .trasa-os::after {
     content: "" !important;
     display: block !important;
-    position: absolute !important;
     left: 1px !important;
-    right: auto !important;
     top: 3px !important;
     width: 8.5px !important;
     height: 8.5px !important;
-    min-width: 8.5px !important;
-    min-height: 8.5px !important;
+    transform: none !important;
     border-radius: 50% !important;
     background: currentColor !important;
-    transform: none !important;
-    box-sizing: border-box !important;
-    z-index: 5 !important;
+}
+</style>
+
+<style>
+/* =========================================================
+   WERSJA 451 — OŚ PRZEZ SEPARATORY
+   ========================================================= */
+/* Dokładnie ten sam X i ta sama grubość co .trasa-os::before. */
+.tabliczka .trasa-separator.laczenie-osi-449 {
+    background-image: linear-gradient(
+        to right,
+        transparent 0,
+        transparent 23.1px,
+        #111 23.1px,
+        #111 25.35px,
+        transparent 25.35px,
+        transparent 100%
+    ) !important;
+    background-position: 0 0 !important;
+    background-repeat: no-repeat !important;
+    background-size: 100% 100% !important;
+}
+/* Nagłówki wariantów nie mają pionowej osi. */
+.tabliczka .trasa-separator:not(.trasa-miejscowosc-429):not(.trasa-strefa-440):not(.trasa-graniczny-440) {
+    background-image: none !important;
+}
+</style>
+
+<style>
+/* =========================================================
+   WERSJA 452 — OŚ PRZEZ MIEJSCOWOŚCI + DZIEKANÓW LEŚNY
+   ========================================================= */
+
+/* Klasa laczenie-osi-449 jest teraz faktycznie nadawana przez JS.
+   Oś jest dokładnie w tym samym X co środek .trasa-os:
+   19 px pierwszej kolumny + 4.1 px położenia osi. */
+.tabliczka .trasa-lista-397 > .trasa-separator.trasa-miejscowosc-429.laczenie-osi-449,
+.tabliczka .trasa-lista-397 > .trasa-separator.trasa-strefa-440.laczenie-osi-449,
+.tabliczka .trasa-lista-397 > .trasa-separator.trasa-graniczny-440.laczenie-osi-449 {
+    background-image: linear-gradient(
+        to right,
+        transparent 0,
+        transparent 23.1px,
+        #111 23.1px,
+        #111 25.35px,
+        transparent 25.35px,
+        transparent 100%
+    ) !important;
+    background-position: left top !important;
+    background-repeat: no-repeat !important;
+    background-size: 100% 100% !important;
+}
+
+/* Nagłówki wariantów, np. Trasa w kursach „i”, nigdy nie łączą osi. */
+.tabliczka .trasa-lista-397 > .trasa-separator:not(.trasa-miejscowosc-429):not(.trasa-strefa-440):not(.trasa-graniczny-440) {
+    background-image: none !important;
+}
+
+/* Wspólny DZIEKANÓW LEŚNY przed wydłużeniem ma być pogrubiony
+   dokładnie jak wspólny koniec trasy na linii 167. */
+body .tabliczka .trasa-lista-397 > .trasa-stop.wspolny-koniec-446 > span.trasa-nazwa,
+body .tabliczka .trasa-lista-397 > .trasa-extra-stop.wspolny-koniec-446 > span.trasa-nazwa {
+    font-weight: 700 !important;
+}
+body .tabliczka .trasa-lista-397 > .trasa-stop.wspolny-koniec-446 > span.trasa-czas,
+body .tabliczka .trasa-lista-397 > .trasa-extra-stop.wspolny-koniec-446 > span.trasa-czas {
+    font-weight: 400 !important;
+}
+</style>
+
+<style id="wersja-474-linia-150-podzial-wg-rzeczywistej-wysokosci">
+/* =========================================================
+   WERSJA 474 — LINIA 150
+   BAZA: 471
+
+   WAŻNE:
+   Nie zmieniamy wysokości przystanków.
+
+   Naprawa polega na tym, że przy podziale na dwie kolumny
+   liczymy rzeczywistą wysokość WSZYSTKICH elementów:
+   - przystanków,
+   - miejscowości,
+   - STREFA I,
+   - "Trasa w kursach...",
+   - pozostałych separatorów.
+
+   Dzięki temu separator nie może wejść na nazwę przystanku,
+   a druga część trasy jest przenoszona do prawej kolumny
+   zanim wyjdzie poza dół kartki.
+   ========================================================= */
+
+/*
+   Nazwa miejscowości może być dwuliniowa.
+   Separator musi wtedy dostać rzeczywistą wysokość tekstu,
+   zamiast zachowywać wysokość jak dla jednej linii.
+*/
+.tabliczka.linia-150-v469
+.trasa-columns.cols-2
+.trasa-separator.trasa-miejscowosc-429 {
+    height: auto !important;
+    min-height: 22px !important;
+    overflow: visible !important;
+    align-items: center !important;
+}
+
+.tabliczka.linia-150-v469
+.trasa-columns.cols-2
+.trasa-separator.trasa-miejscowosc-429
+.trasa-separator-title {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    height: auto !important;
+    max-height: none !important;
+}
+
+/*
+   STREFA I i nagłówki "Trasa w kursach..." również mają zachować
+   własną naturalną wysokość. Nie ściskamy ich na przystanki.
+*/
+.tabliczka.linia-150-v469
+.trasa-columns.cols-2
+.trasa-separator.trasa-strefa-440,
+.tabliczka.linia-150-v469
+.trasa-columns.cols-2
+.trasa-separator:not(.trasa-miejscowosc-429):not(.trasa-strefa-440):not(.trasa-graniczny-440) {
+    height: auto !important;
+}
+
+/*
+   Celowo BRAK reguł dla:
+   .trasa-stop
+   .trasa-extra-stop
+   .trasa-nazwa
+   .trasa-os
+
+   Czyli jedno- i dwuliniowe przystanki pozostają dokładnie jak w 471.
+*/
+</style>
+
+<style id="wersja-495-z-index">
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 495
+   BAZA: 494
+
+   WARSTWY:
+   0 = miejscowości i ich "-----"
+   2 = pionowa kreska łącząca przystanki
+   3 = przystanki i kropki
+   ========================================================= */
+
+/* MIEJSCOWOŚCI — najniższa warstwa */
+.tabliczka .trasa-separator.trasa-miejscowosc-429,
+.tabliczka .trasa-separator.trasa-miejscowosc-429::before,
+.tabliczka .trasa-separator.trasa-miejscowosc-429::after,
+.tabliczka .trasa-separator.trasa-miejscowosc-429 > .trasa-separator-title {
+    position: relative !important;
+    z-index: 0 !important;
+}
+
+/* PIONOWA KRESKA — nad miejscowością */
+.tabliczka
+.trasa-stop
+> .kropka-do-kropki-493,
+.tabliczka
+.trasa-extra-stop
+> .kropka-do-kropki-493 {
+    z-index: 2 !important;
+}
+
+/* PRZYSTANKI — nad kreską */
+.tabliczka .trasa-stop,
+.tabliczka .trasa-extra-stop {
+    position: relative !important;
+}
+
+/* OŚ / KROPKA PRZYSTANKU — najwyższa warstwa */
+.tabliczka .trasa-stop .trasa-os,
+.tabliczka .trasa-extra-stop .trasa-os,
+.tabliczka .trasa-stop .trasa-os::before,
+.tabliczka .trasa-stop .trasa-os::after,
+.tabliczka .trasa-extra-stop .trasa-os::before,
+.tabliczka .trasa-extra-stop .trasa-os::after {
+    z-index: 3 !important;
 }
 </style>
 
@@ -20574,123 +20865,11 @@ window.addEventListener("resize",()=>{
 
 
 
-<style>
-/* =========================================================
-   WERSJA 449 — CIĄGŁOŚĆ OSI / PRAWDZIWY KONIEC WYDŁUŻENIA
-   ========================================================= */
 
-/* Separator leżący POMIĘDZY dwoma przystankami nie może przecinać
-   pionowej osi trasy. Klasa jest nadawana tylko takim separatorom,
-   więc nie dotyczy WARSZAWY/STREFY przed pierwszym przystankiem ani
-   SADOWY rozpoczynającej drugą kolumnę. */
-.tabliczka .trasa-separator.laczenie-osi-449 {
-    background-image: linear-gradient(
-        to right,
-        transparent 0,
-        transparent 29px,
-        currentColor 29px,
-        currentColor 31.25px,
-        transparent 31.25px,
-        transparent 100%
-    ) !important;
-    background-repeat: no-repeat !important;
-    background-size: 100% 100% !important;
-}
 
-/* Miejscowości mają szarą oś tak samo jak szare kreski/nazwa. */
-.tabliczka .trasa-separator.trasa-miejscowosc-429.laczenie-osi-449 {
-    color: #565656 !important;
-}
 
-/* Prawdziwy koniec wydłużenia: kropka zostaje w standardowej pozycji
-   pierwszego wiersza nazwy, a pionowa linia dochodzi wyłącznie do jej
-   środka. Nie ma żadnego odcinka poniżej kropki. */
-.tabliczka .trasa-stop.koniec-wydluzenia-446 .trasa-os::before,
-.tabliczka .trasa-extra-stop.koniec-wydluzenia-446 .trasa-os::before {
-    top: 0 !important;
-    bottom: calc(100% - 7.25px) !important;
-    height: auto !important;
-}
-.tabliczka .trasa-stop.koniec-wydluzenia-446 .trasa-os::after,
-.tabliczka .trasa-extra-stop.koniec-wydluzenia-446 .trasa-os::after {
-    content: "" !important;
-    display: block !important;
-    left: 1px !important;
-    top: 3px !important;
-    width: 8.5px !important;
-    height: 8.5px !important;
-    transform: none !important;
-    border-radius: 50% !important;
-    background: currentColor !important;
-}
-</style>
 
-<style>
-/* =========================================================
-   WERSJA 451 — OŚ PRZEZ SEPARATORY
-   ========================================================= */
-/* Dokładnie ten sam X i ta sama grubość co .trasa-os::before. */
-.tabliczka .trasa-separator.laczenie-osi-449 {
-    background-image: linear-gradient(
-        to right,
-        transparent 0,
-        transparent 23.1px,
-        #111 23.1px,
-        #111 25.35px,
-        transparent 25.35px,
-        transparent 100%
-    ) !important;
-    background-position: 0 0 !important;
-    background-repeat: no-repeat !important;
-    background-size: 100% 100% !important;
-}
-/* Nagłówki wariantów nie mają pionowej osi. */
-.tabliczka .trasa-separator:not(.trasa-miejscowosc-429):not(.trasa-strefa-440):not(.trasa-graniczny-440) {
-    background-image: none !important;
-}
-</style>
 
-<style>
-/* =========================================================
-   WERSJA 452 — OŚ PRZEZ MIEJSCOWOŚCI + DZIEKANÓW LEŚNY
-   ========================================================= */
-
-/* Klasa laczenie-osi-449 jest teraz faktycznie nadawana przez JS.
-   Oś jest dokładnie w tym samym X co środek .trasa-os:
-   19 px pierwszej kolumny + 4.1 px położenia osi. */
-.tabliczka .trasa-lista-397 > .trasa-separator.trasa-miejscowosc-429.laczenie-osi-449,
-.tabliczka .trasa-lista-397 > .trasa-separator.trasa-strefa-440.laczenie-osi-449,
-.tabliczka .trasa-lista-397 > .trasa-separator.trasa-graniczny-440.laczenie-osi-449 {
-    background-image: linear-gradient(
-        to right,
-        transparent 0,
-        transparent 23.1px,
-        #111 23.1px,
-        #111 25.35px,
-        transparent 25.35px,
-        transparent 100%
-    ) !important;
-    background-position: left top !important;
-    background-repeat: no-repeat !important;
-    background-size: 100% 100% !important;
-}
-
-/* Nagłówki wariantów, np. Trasa w kursach „i”, nigdy nie łączą osi. */
-.tabliczka .trasa-lista-397 > .trasa-separator:not(.trasa-miejscowosc-429):not(.trasa-strefa-440):not(.trasa-graniczny-440) {
-    background-image: none !important;
-}
-
-/* Wspólny DZIEKANÓW LEŚNY przed wydłużeniem ma być pogrubiony
-   dokładnie jak wspólny koniec trasy na linii 167. */
-body .tabliczka .trasa-lista-397 > .trasa-stop.wspolny-koniec-446 > span.trasa-nazwa,
-body .tabliczka .trasa-lista-397 > .trasa-extra-stop.wspolny-koniec-446 > span.trasa-nazwa {
-    font-weight: 700 !important;
-}
-body .tabliczka .trasa-lista-397 > .trasa-stop.wspolny-koniec-446 > span.trasa-czas,
-body .tabliczka .trasa-lista-397 > .trasa-extra-stop.wspolny-koniec-446 > span.trasa-czas {
-    font-weight: 400 !important;
-}
-</style>
 
 <style>
 /* =========================================================
@@ -20739,43 +20918,9 @@ body .tabliczka .trasa-extra-stop.ma-kontynuacje-trasy > .trasa-czas {
 </style>
 
 
-<style id="wersja-463-miniete-miejscowosci">
-/* =========================================================
-   WERSJA 463 — MINIĘTA MIEJSCOWOŚĆ = SZARA OŚ
-   =========================================================
-   Jeżeli separator miejscowości znajduje się już przed aktywnym
-   przystankiem, pionowy łącznik osi na wysokości nazwy miejscowości
-   ma taki sam szary kolor jak minięte przystanki.
-   ========================================================= */
 
-.tabliczka
-.trasa-lista-397
-> .trasa-separator.trasa-miejscowosc-429.miejscowosc-przed-463
-> .os-lacznik-453 {
-    background: #777 !important;
-}
-</style>
 
-<style id="wersja-464-dwa-kierunki-jak-zwykla-trasa">
-/* =========================================================
-   WERSJA 464 — DWA KIERUNKI: MIEJSCOWOŚCI / STREFA / KOLORY
-   =========================================================
-   Gdy wybrany słupek jest obsługiwany w obu kierunkach, finalna
-   lista otrzymuje ten sam wygląd co zwykła lista jednego kierunku:
-   - miejscowość nie jest dopisywana w nawiasie do każdego stopu,
-   - miejscowości są osobnymi separatorami,
-   - działa STREFA I dla linii oznaczonych jako w całości strefa I,
-   - separatory korzystają z tej samej osi i kolorystyki v449-v463.
-   ========================================================= */
 
-/* Po nadaniu klas przez v464 listy dwukierunkowe korzystają z
-   istniejącego wyglądu .trasa-lista-397. */
-.tabliczka:has(.kierunki-dwa)
-.trasa-lista-397
-> .trasa-separator.trasa-miejscowosc-429 {
-    box-sizing: border-box;
-}
-</style>
 
 <style id="wersja-465-krance-wydluzen-dwukierunkowych">
 /* =========================================================
@@ -21540,127 +21685,7 @@ setTimeout(v521PoprawNumerStrefy, 0);
 </script>
 
 
-<style id="fwtp-v523-dokladne-style-v504">
-/* =========================================================
-   FWTP V523
-   DOKŁADNY KOŃCOWY WYGLĄD Z DZIAŁAJĄCEJ WERSJI 504.
-   Bez gridów i bez nowych mechanizmów separatorów.
-   ========================================================= */
 
-/* ---------- MIEJSCOWOŚĆ ---------- */
-html body .tabliczka .trasa-separator.trasa-miejscowosc-429 {
-    display: flex !important;
-    align-items: center !important;
-    gap: 7px !important;
-    margin: 0 !important;
-    min-height: 22px !important;
-    padding: 5px 0 3px 0 !important;
-    box-sizing: border-box !important;
-    position: relative !important;
-    z-index: 0 !important;
-    background: transparent !important;
-}
-
- .tabliczka .trasa-separator.trasa-miejscowosc-429::before,
- .tabliczka .trasa-separator.trasa-miejscowosc-429::after {
-    position: relative !important;
-    z-index: 0 !important;
-    border-top-color: #565656 !important;
-    background: transparent !important;
-    flex: 1 1 0;
-    min-width: 0;
-    max-width: none;
-    box-sizing: border-box;
-      content: "";
-      list-style: none;
-
-}
-
-.tabliczka .trasa-separator.trasa-miejscowosc-429 > .trasa-separator-title {
-    display: inline-block !important;
-    width: auto !important;
-    max-width: 145px !important;
-    flex: 0 1 auto !important;
-    padding: 0 2px !important;
-    box-sizing: border-box !important;
-    color: #565656 !important;
-    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
-    font-size: 14px !important;
-    line-height: 15px !important;
-    font-weight: 500 !important;
-    letter-spacing: 1.8px !important;
-    text-align: center !important;
-    white-space: normal !important;
-    overflow-wrap: normal !important;
-    word-break: normal !important;
-    text-transform: uppercase !important;
-    transform: scaleY(1.30) !important;
-    transform-origin: center !important;
-    position: relative !important;
-    z-index: 2 !important;
-    background: #fff !important;
-}
-
-/* ---------- STREFA ---------- */
-html body .tabliczka .trasa-separator.trasa-strefa-440 {
-    display: flex !important;
-    align-items: center !important;
-    gap: 6px !important;
-    margin: 2px 0 !important;
-    padding: 0 !important;
-    min-height: 21px !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-    overflow: hidden !important;
-}
-
-html body .tabliczka .trasa-separator.trasa-strefa-440 > .trasa-separator-title {
-    display: block !important;
-    flex: 0 0 auto !important;
-    width: auto !important;
-    padding: 0 3px !important;
-    color: #1a1a1a !important;
-    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
-    font-size: 20px !important;
-    line-height: 21px !important;
-    font-weight: 400 !important;
-    letter-spacing: .75px !important;
-    text-align: center !important;
-    white-space: nowrap !important;
-    transform: scaleY(1.30) !important;
-    transform-origin: center !important;
-}
-
-html body .tabliczka .trasa-separator.trasa-strefa-440::before,
-html body .tabliczka .trasa-separator.trasa-strefa-440::after {
-    content: "================" !important;
-    display: block !important;
-    flex: 1 1 0 !important;
-    width: auto !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    height: 21px !important;
-    border: 0 !important;
-    border-top: 0 !important;
-    box-sizing: border-box !important;
-    color: #1a1a1a !important;
-    background: transparent !important;
-    font-family: "Courier New", Courier, monospace !important;
-    font-size: 24px !important;
-    font-weight: 700 !important;
-    line-height: 20px !important;
-    letter-spacing: 3px !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    position: relative !important;
-    z-index: 1 !important;
-}
-
-/* Oś przez separator, jak w działającej wersji. */
-html body .tabliczka .trasa-separator.laczenie-osi-449 {
-    position: relative !important;
-}
-</style>
 
 <script>
 /* FWTP — WERSJA 523
@@ -21670,39 +21695,7 @@ html body .tabliczka .trasa-separator.laczenie-osi-449 {
 </script>
 
 
-<style id="fwtp-v524-strefa-dokladnie">
-/* =========================================================
-   FWTP — WERSJA 524
-   STREFA — dokładnie według podanych ustawień.
-   ========================================================= */
 
-html body .tabliczka .trasa-separator.trasa-strefa-440 {
-    display: flex !important;
-    align-items: center !important;
-    gap: 6px !important;
-    margin: 2px 0 !important;
-    padding: 0 !important;
-    min-height: 16px !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-    overflow: hidden !important;
-}
-
-
-    /* Usuwamy wcześniejsze ustawienia znaków "=". */
-    width: auto !important;
-    max-width: none !important;
-    height: 0 !important;
-    color: initial !important;
-    background: transparent !important;
-    font-size: 0 !important;
-    line-height: 0 !important;
-    letter-spacing: 0 !important;
-
-    border: 0 !important;
-    border-top: 2px double #1a1a1a !important;
-}
-</style>
 
 <script>
 /* FWTP — WERSJA 524
@@ -21711,33 +21704,7 @@ html body .tabliczka .trasa-separator.trasa-strefa-440 {
 </script>
 
 
-<style id="fwtp-v525-strefa-final">
-/* =========================================================
-   FWTP — WERSJA 525
-   ELEMENT STREFY:
-   class="trasa-separator trasa-strefa-440"
-   ========================================================= */
 
-.trasa-separator.trasa-strefa-440 {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin: 2px 0;
-    padding: 0;
-    min-height: 16px;
-    width: 100%;
-    box-sizing: border-box;
-    overflow: hidden;
-}
-
-.trasa-separator.trasa-strefa-440::before,
-.trasa-separator.trasa-strefa-440::after {
-    content: "";
-    flex: 1 1 0;
-    min-width: 0;
-    border-top: 2px double #1a1a1a;
-}
-</style>
 
 
 
@@ -21754,89 +21721,20 @@ html body .tabliczka .trasa-separator.trasa-strefa-440 {
    ========================================================= */
 </script>
 
-<style id="fwtp-v531-miejscowosc-geometria">
+<script>
 /* =========================================================
-   FWTP — WERSJA 531
-   MIEJSCOWOŚCI — geometria jak w działającej /tabliczka/
+   FWTP — WERSJA 530
+   Renderer miejscowości:
+   class="trasa-separator trasa-miejscowosc-429"
    ========================================================= */
+</script>
 
-.tabliczka .trasa-separator.trasa-miejscowosc-429 {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    display: flex !important;
-    align-items: center !important;
-    gap: 4px !important;
-    margin: 0 !important;
-    min-height: 18px !important;
-    height: auto !important;
-    overflow: visible !important;
-    box-sizing: border-box !important;
-    position: relative !important;
-    z-index: 1 !important;
-    background-color: transparent !important;
-}
-
-.tabliczka .trasa-separator.trasa-miejscowosc-429::before,
-.tabliczka .trasa-separator.trasa-miejscowosc-429::after {
-    content: "" !important;
-    flex: 1 1 0 !important;
-    min-width: 0 !important;
-    max-width: none !important;
-    box-sizing: border-box !important;
-    border-top: 2px dashed #565656 !important;
-    background: transparent !important;
-    position: relative !important;
-    z-index: 0 !important;
-}
-
-.tabliczka .trasa-separator.trasa-miejscowosc-429 > .trasa-separator-title {
-    display: inline-block !important;
-    width: auto !important;
-    max-width: 145px !important;
-    min-width: 0 !important;
-    flex: 0 1 auto !important;
-    margin: 0 !important;
-    padding: 0 2px !important;
-    box-sizing: border-box !important;
-
-    color: #565656 !important;
-    font-family: Calibri, "Segoe UI", Arial, sans-serif !important;
-    font-size: 14px !important;
-    line-height: 15px !important;
-    font-weight: 500 !important;
-    letter-spacing: 1.8px !important;
-    text-align: center !important;
-    text-transform: uppercase !important;
-
-    white-space: normal !important;
-    overflow: visible !important;
-    text-overflow: clip !important;
-    overflow-wrap: normal !important;
-    word-break: normal !important;
-    hyphens: none !important;
-
-    transform: scaleY(1.30) !important;
-    transform-origin: center !important;
-    position: relative !important;
-    z-index: 0 !important;
-    background: transparent !important;
-}
-
-/* Pierwsza miejscowość po STREFA I — jak w działającej tabliczce. */
-.tabliczka
-.trasa-kol:first-child
-> .trasa-lista-397
-> .trasa-strefa-440:first-child
-+ .trasa-miejscowosc-429 {
-    background-image: none !important;
-}
-</style>
 
 <script>
-/* FWTP — WERSJA 531
-   Miejscowość ma wyłącznie:
-   class="trasa-separator trasa-miejscowosc-429"
+/* FWTP — WERSJA 532
+   MIEJSCOWOŚĆ + STREFA:
+   style i logika wizualna przekopiowane 1:1 z pliku oryginalnego.
+   Bez własnych korekt CSS V530/V531.
 */
 </script>
 
