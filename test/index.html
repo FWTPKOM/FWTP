@@ -2,13 +2,57 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 513
+     WERSJA: 514
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
-
+<!-- =========================================================
+     FWTP — WERSJA PLIKU: 514
+     BAZA: pełny kod użytkownika V493
+     POPRAWKI:
+     - tylko jeden nagłówek "czasy, trasa, przystanki"
+     - wspólne przystanki łączone po nazwa_czysta + nr
+     - obsługa: różne początki -> wspólny odcinek -> odgałęzienia
+     - "TRASA W KURSACH ..." dopiero przy rzeczywistej gałęzi
+     - brak "TRASA W KURSACH ..." nad początkiem listy
+     - STREFA I/II raz na górze, ponownie tylko po zmianie strefy
+     - po powrocie wariantu dalsze wspólne przystanki bierze trasa bazowa
+     - V500: wszystkie MINIONE przystanki są wyłącznie z trasy podstawowej
+     - V500: warianty są pokazywane tylko ZA aktualnym przystankiem
+     - V500: historyczne odgałęzienia przed aktualnym przystankiem są ukryte
+     - V501: ta sama miejscowość (np. WARSZAWA) nie jest powtarzana na gałęzi
+     - V501: bez literek przy minutach opis brzmi tylko "TRASA W KURSACH"
+     - V501: wspólny punkt odgałęzienia jest rozpoznawany także po samej nazwie
+       (np. PROZY jest jeden raz przed rozgałęzieniem)
+     - V502: bez liter przy minutach napis = "TRASA W KURSACH BEZ OZNACZEŃ"
+     - V502: rzeczywisty ostatni przystanek kurs.trasa zawsze jest końcowy
+       (np. METRO MŁOCINY)
+     - V503: obsługa gałęzi, także do METRO MARYMONT
+     - V504: gdy przy minutach nie ma A/B, NIE wypisujemy godzin
+     - V504: opis brzmi dokładnie "TRASA W KURSACH BEZ OZNACZEŃ"
+     - V505: opis gałęzi używa tej samej logiki widoczności liter co minuty
+     - V505: kursy do METRO MARYMONT oznaczone F pokazują "TRASA W KURSACH „F”"
+     - V505: ukryte A/B nadal dają "TRASA W KURSACH BEZ OZNACZEŃ"
+     - V506: końcowość jest sprawdzana po nazwa_czysta + nr, nie po samej nazwie
+     - V506: METRO MARYMONT 11 i 12 są rozróżniane
+     - V506: tylko ostatni pasażerski słupek kurs.trasa jest końcowy
+     - V506: METRO MŁOCINY jest końcowy, gdy faktycznie kończy dany kurs.trasa
+     - V507: koniec trasy jest ustalany po dokładnym ID ostatniego przystanku kurs.trasa
+     - V507: Metro Młociny 21 = koniec; Metro Marymont 11 = nie; Metro Marymont 12 = koniec
+     - V508: każdy wiersz przechowuje dokładne ID przystanku z JSON
+     - V508: po podziale na kolumny końce są nakładane ponownie z kurs.trasa
+     - V508: nie polegamy już na kontekście gałęzi podczas renderowania
+     - V509: naprawiono faktyczny błąd — V508 nie było wywoływane przez renderuj()
+     - V509: końce z kurs.trasa są nakładane bezpośrednio po realnym renderowaniu
+     - V510: prawdziwy koniec usuwa starszą klasę ma-kontynuacje-trasy
+     - V510: końcowy przystanek jest zawsze pogrubiony
+     - V510: kreska zawsze kończy się w środku końcowej kropki, także przy .trasa-extra
+     - V511: wykryto konflikt: stare style 4xx występują PO </head> i nadpisywały V510
+     - V511: ostateczny styl końca jest na samym końcu dokumentu
+     - V511: nazwa końca jest dodatkowo pogrubiana bezpośrednio przez JS
+     ========================================================= -->
 
 <html lang="pl">
 <head>
@@ -16691,7 +16735,243 @@ function v496RenderRoutes(routes){
     return html;
 }
 
+/* =========================================================
+   FWTP — WERSJA 514
+   GOTOWA LISTA PRZYSTANKOWA Z VBA V42 / JSON lista_przystankowa.wersja=2
+
+   ZASADA:
+   - VBA układa kolejność listy,
+   - JS NIE wykrywa już wspólnej trasy ani odgałęzień,
+   - JS tylko renderuje elementy[] dokładnie w kolejności z JSON,
+   - trasa_w_kursach jest gotowym separatorem z VBA,
+   - koncowy=true kończy linię dokładnie w środku kropki,
+   - stan=miniety korzysta ze starego wyglądu .przed,
+   - aktualny przystanek ustalamy dodatkowo po dokładnym ID,
+     aby dwa słupki o tej samej nazwie nie pomyliły zaznaczenia.
+   ========================================================= */
+
+function v514ModelListy(){
+    const active=v486CurrentStop();
+    const model=active?.lista_przystankowa;
+
+    if(
+        model &&
+        Number(model.wersja)>=2 &&
+        Array.isArray(model.elementy)
+    ){
+        return model.elementy;
+    }
+
+    return null;
+}
+
+function v514StopPoId(id){
+    const wanted=v486Text(id);
+
+    for(const r of v486Array(v486ScheduleBlocks())){
+        for(const k of v486Array(r?.kierunki)){
+            for(const p of v486Array(k?.przystanki)){
+                if(v486StopId(p)===wanted){
+                    return p;
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+function v514MinutyDoPrzystanku(targetId){
+    const active=v486CurrentStop();
+    if(!active)return null;
+
+    const activeId=v486StopId(active);
+
+    for(const kurs of v486Array(active?.kursy)){
+        const trasa=v486Array(kurs?.trasa).map(v486Text);
+
+        if(
+            !trasa.includes(activeId) ||
+            !trasa.includes(v486Text(targetId))
+        ){
+            continue;
+        }
+
+        const target=v514StopPoId(targetId);
+        if(!target)continue;
+
+        const targetCourse=v486CourseAtStop(target,kurs);
+        const t0=v486MinutesValue(kurs?.czas);
+        const t1=v486MinutesValue(targetCourse?.czas);
+
+        if(t0===null || t1===null)continue;
+
+        let diff=t1-t0;
+
+        if(diff < -12*60)diff+=24*60;
+        if(diff >  12*60)diff-=24*60;
+
+        return diff;
+    }
+
+    return null;
+}
+
+function v514RenderSeparator(element){
+    const typ=v486Text(element?.typ);
+    const tekst=v486Text(element?.tekst).trim();
+
+    if(!tekst)return "";
+
+    if(typ==="strefa"){
+        return (
+            '<li class="trasa-separator v486-strefa trasa-strefa-440 v514-strefa">'+
+            '<span class="trasa-separator-title">'+
+            escapeHtml(tekst)+
+            '</span>'+
+            '</li>'
+        );
+    }
+
+    if(typ==="miejscowosc"){
+        return (
+            '<li class="trasa-separator v486-miejscowosc v514-miejscowosc">'+
+            '<span class="trasa-separator-title">'+
+            '--- '+escapeHtml(tekst)+' ---'+
+            '</span>'+
+            '</li>'
+        );
+    }
+
+    if(typ==="trasa_w_kursach"){
+        return (
+            '<li class="trasa-separator v496-opis v514-trasa-w-kursach">'+
+            '<span class="trasa-separator-title">'+
+            escapeHtml(tekst)+
+            '</span>'+
+            '</li>'
+        );
+    }
+
+    return "";
+}
+
+function v514RenderStop(element,position,total){
+    const id=v486Text(element?.id);
+    const p=v514StopPoId(id);
+
+    /*
+       Gdyby w przyszłości VBA zapisało element, którego nie ma już
+       w tablicy przystanków, nadal pokażemy nazwę z elementu JSON.
+    */
+    const name=v486Text(
+        element?.nazwa ||
+        p?.nazwa_czysta ||
+        p?.nazwa
+    ).trim();
+
+    const activeId=v486StopId(v486CurrentStop());
+
+    const selected=
+        id===activeId ||
+        (
+            !activeId &&
+            v486Text(element?.stan)==="aktualny"
+        );
+
+    const miniety=
+        v486Text(element?.stan)==="miniety" &&
+        !selected;
+
+    const terminal=element?.koncowy===true;
+    const minutes=v514MinutyDoPrzystanku(id);
+
+    const cls=[
+        "trasa-stop",
+        selected?"wybrany":"",
+        miniety?"przed":"",
+        position===0?"kraniec-poczatek":"",
+        terminal
+            ?"kraniec-koniec koniec-trasy-210 v511-rzeczywisty-koniec v514-rzeczywisty-koniec"
+            :"",
+        p && czyNZ(p)?"nz":""
+    ].filter(Boolean).join(" ");
+
+    return (
+        '<li class="'+cls+'" '+
+        'data-v514-stop-id="'+escapeHtml(id)+'" '+
+        'data-v508-stop-id="'+escapeHtml(id)+'">'+
+
+        '<span class="trasa-czas">'+
+        (minutes===null?"":escapeHtml(String(minutes)))+
+        '</span>'+
+
+        '<span class="trasa-os"></span>'+
+
+        '<span class="trasa-nazwa">'+
+        (
+            selected
+                ? '<span class="trasa-nazwa-aktywna">'+
+                  escapeHtml(name.toUpperCase())+
+                  '</span>'
+                : escapeHtml(name.toUpperCase())
+        )+
+        '</span>'+
+
+        '<span class="trasa-nz">'+
+        (p && czyNZ(p)?"ż":"")+
+        '</span>'+
+
+        '</li>'
+    );
+}
+
+function v514RenderGotowejListy(){
+    const elements=v514ModelListy();
+    if(!elements)return "";
+
+    let rows="";
+    let stopPosition=0;
+
+    const stopCount=elements.filter(
+        x=>v486Text(x?.typ)==="przystanek"
+    ).length;
+
+    elements.forEach(element=>{
+        const typ=v486Text(element?.typ);
+
+        if(typ==="przystanek"){
+            rows+=v514RenderStop(
+                element,
+                stopPosition,
+                stopCount
+            );
+            stopPosition++;
+        }else{
+            rows+=v514RenderSeparator(element);
+        }
+    });
+
+    return (
+        '<div class="trasa-kol v514-kol">'+
+        '<ul class="trasa-lista v514-lista">'+
+        rows+
+        '</ul>'+
+        '</div>'
+    );
+}
+
 function v486RenderRoutes(routes){
+    const gotowa=v514RenderGotowejListy();
+
+    if(gotowa){
+        return gotowa;
+    }
+
+    /*
+       Fallback dla starszych JSON bez lista_przystankowa.wersja=2.
+       Dzięki temu V514 nie psuje starszych plików.
+    */
     return v496RenderRoutes(routes);
 }
 
@@ -21172,6 +21452,56 @@ html body .tabliczka
    - fizycznie różne przebiegi do Metro Młociny i Metro Marymont
      pozostają osobnymi gałęziami po wspólnym odcinku
    ========================================================= */
+</script>
+
+
+<style id="fwtp-v514-gotowa-lista-z-vba">
+/* =========================================================
+   FWTP V514 — OSTATECZNY WYGLĄD LISTY Z elementy[]
+   ========================================================= */
+
+html body .tabliczka .v514-lista
+.trasa-stop.v514-rzeczywisty-koniec .trasa-nazwa,
+html body .tabliczka .v514-lista
+.trasa-stop.v514-rzeczywisty-koniec .trasa-nazwa-aktywna {
+    font-weight: 700 !important;
+}
+
+/* Rzeczywisty koniec: pionowa kreska dochodzi tylko do środka kropki. */
+html body .tabliczka .v514-lista
+.trasa-stop.v514-rzeczywisty-koniec > .trasa-os::before {
+    display: block !important;
+    top: 0 !important;
+    bottom: calc(100% - 8px) !important;
+    height: auto !important;
+}
+
+/* VBA podało już dokładną kolejność separatorów — niczego nie chowamy. */
+html body .tabliczka .v514-lista > .v514-strefa,
+html body .tabliczka .v514-lista > .v514-miejscowosc,
+html body .tabliczka .v514-lista > .v514-trasa-w-kursach {
+    display: flex !important;
+}
+
+/* TRASA W KURSACH ma zostać razem z listą, a nie tworzyć osobnej kolumny. */
+html body .tabliczka .v514-trasa-w-kursach {
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+/* Oznaczenie końca ma pierwszeństwo przed starymi klasami kontynuacji. */
+html body .tabliczka
+.trasa-stop.v514-rzeczywisty-koniec.ma-kontynuacje-trasy
+> .trasa-os::before {
+    bottom: calc(100% - 8px) !important;
+}
+</style>
+
+<script>
+/* FWTP — WERSJA PLIKU: 514
+   Lista przystanków jest renderowana bezpośrednio z:
+   przystanek.lista_przystankowa.elementy[]
+*/
 </script>
 
 </body>
