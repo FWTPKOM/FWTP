@@ -2,9 +2,9 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 556
+     WERSJA: 557
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
-     DATA: 2026-09-17
+     DATA: 2026-09-18
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      ========================================================= -->
 
@@ -17232,7 +17232,26 @@ function v514RenderStop(element,position,total){
             minietyPoCzasie
         );
 
+    /*
+       FWTP V557:
+       Status końca pochodzi WYŁĄCZNIE z gotowego elementu
+       lista_przystankowa.elementy[] wygenerowanego przez VBA V80.
+
+       Nie wolno ponownie wyznaczać końców z model.trasy[].koniec_trasy,
+       bo tam celowo pozostają także zwykłe kursy skrócone
+       (np. 126 do Bartniczej / Metra Kondratowicza).
+
+       koncowy=true + kontynuacja=false:
+           rzeczywisty koniec gałęzi/krańca.
+
+       koncowy=true + kontynuacja=true:
+           rzeczywisty koniec jednego przebiegu, ale inny przebieg
+           jedzie dalej z tego samego dokładnego przystanku.
+    */
     const terminal=element?.koncowy===true;
+    const continuation=
+        terminal &&
+        element?.kontynuacja===true;
 
     /*
        Minięty:
@@ -17251,6 +17270,9 @@ function v514RenderStop(element,position,total){
         position===0?"kraniec-poczatek":"",
         terminal
             ?"kraniec-koniec koniec-trasy-210 v511-rzeczywisty-koniec v514-rzeczywisty-koniec"
+            :"",
+        continuation
+            ?"ma-kontynuacje-trasy"
             :"",
         p && czyNZ(p)?"nz":""
     ].filter(Boolean).join(" ");
@@ -17816,101 +17838,128 @@ function v498DopasujKolumnyTrasy(){
    - 37|Metro Marymont|12 -> końcowy
    ========================================================= */
 
-function v508TerminalIds(){
+/* =========================================================
+   FWTP — WERSJA 557
+   KOŃCE TRAS — JSON/V80 JEST JEDYNYM ŹRÓDŁEM PRAWDY
+
+   WAŻNE:
+   Stara V508 ponownie zbierała wszystkie model.trasy[].koniec_trasy.
+   To psuło poprawkę z VBA V80, ponieważ zwykły kurs skrócony nadal
+   ma własne koniec_trasy, mimo że NIE powinien być wizualnym krańcem.
+
+   Przykład 126:
+       wariant B kończy kurs na BARTNICZEJ,
+       ale element Bartnicza ma koncowy=false.
+       HTML ma uszanować false i NIE robić z niej krańca.
+
+   Dlatego od V557:
+   - końce czytamy tylko z lista_przystankowa.elementy[],
+   - exact ID nadal obowiązuje,
+   - kontynuacja również pochodzi z element.kontynuacja,
+   - JS nie rekonstruuje semantyki końców z kursów/trasy.
+   ========================================================= */
+
+function v557TerminalStateMap(){
     const active=v486CurrentStop();
-    const out=new Set();
-
-    /*
-       FWTP V512 — źródło podstawowe: lista przygotowana przez VBA.
-    */
     const model=active?.lista_przystankowa;
+    const out=new Map();
 
-    if(model && Array.isArray(model.trasy)){
-        model.trasy.forEach(route=>{
-            const id=v486Text(route?.koniec_trasy).trim();
-            if(id)out.add(id);
+    if(
+        !model ||
+        Number(model.wersja)<2 ||
+        !Array.isArray(model.elementy)
+    ){
+        return out;
+    }
+
+    model.elementy.forEach(element=>{
+        if(v486Text(element?.typ)!=="przystanek"){
+            return;
+        }
+
+        const id=v486Text(element?.id).trim();
+        if(!id)return;
+
+        out.set(id,{
+            koncowy: element?.koncowy===true,
+            kontynuacja:
+                element?.koncowy===true &&
+                element?.kontynuacja===true
         });
-
-        if(out.size)return out;
-    }
-
-    /*
-       Fallback: jawne koniec_trasy kursu, a dopiero potem ostatnie ID.
-    */
-    const stopMap=v486StopMap();
-
-    for(const kurs of v486Array(active?.kursy)){
-        const explicit=v486Text(kurs?.koniec_trasy).trim();
-
-        if(explicit){
-            out.add(explicit);
-            continue;
-        }
-
-        const trasa=v486Array(kurs?.trasa).map(v486Text).filter(Boolean);
-
-        for(let i=trasa.length-1;i>=0;i--){
-            const id=trasa[i];
-            const found=stopMap.get(id);
-
-            if(found && v486StopType(found.p)==="TECH")continue;
-
-            out.add(id);
-            break;
-        }
-    }
+    });
 
     return out;
 }
+
+
+function v508TerminalIds(){
+    /*
+       Nazwa funkcji zostaje dla zgodności ze starszym kodem,
+       ale od V557 zwraca tylko końce zaakceptowane przez VBA V80.
+    */
+    const out=new Set();
+
+    v557TerminalStateMap().forEach((state,id)=>{
+        if(state.koncowy){
+            out.add(id);
+        }
+    });
+
+    return out;
+}
+
 
 function v508OznaczRzeczywisteKonce(){
     const root=document.querySelector("#wynik .trasa-columns");
     if(!root)return;
 
-    const terminalIds=v508TerminalIds();
+    const states=v557TerminalStateMap();
 
     root.querySelectorAll(".trasa-stop").forEach(stop=>{
+        const id=(
+            stop.getAttribute("data-v514-stop-id") ||
+            stop.getAttribute("data-v508-stop-id") ||
+            ""
+        ).trim();
+
+        const state=states.get(id);
+
         /*
-           Najpierw zerujemy wcześniejsze oznaczenia. Dzięki temu
-           koniec fragmentu, gałęzi czy kolumny nie może udawać
-           końca rzeczywistego kursu.
+           Najpierw czyścimy WSZYSTKIE stare klasy semantyczne.
+           Granica kolumny, stary wariant ani model.trasy[] nie mogą
+           ponownie stworzyć krańca.
         */
         stop.classList.remove(
             "kraniec-koniec",
-            "koniec-trasy-210"
+            "koniec-trasy-210",
+            "v510-rzeczywisty-koniec",
+            "v511-rzeczywisty-koniec",
+            "v514-rzeczywisty-koniec",
+            "ma-kontynuacje-trasy"
         );
 
-        const id=(stop.getAttribute("data-v508-stop-id")||"").trim();
+        const nazwa=stop.querySelector(
+            ".trasa-nazwa, .trasa-nazwa-aktywna"
+        );
 
-        if(id && terminalIds.has(id)){
-            /*
-               V510:
-               ten wiersz jest PRAWDZIWYM końcem konkretnego kurs.trasa.
-               Starsza logika nie może już traktować go jako miejsca
-               kontynuacji / końca wariantu / granicy kolumny.
-            */
-            stop.classList.remove(
-                "ma-kontynuacje-trasy",
-                "koniec-wariantu-419",
-                "koniec-wydluzenia-446"
-            );
-
+        if(
+            state &&
+            state.koncowy
+        ){
             stop.classList.add(
                 "kraniec-koniec",
                 "koniec-trasy-210",
                 "v510-rzeczywisty-koniec",
-                "v511-rzeczywisty-koniec"
+                "v511-rzeczywisty-koniec",
+                "v514-rzeczywisty-koniec"
             );
 
-            /*
-               V511:
-               w tym pliku po </head> istnieje jeszcze dużo starego CSS
-               z wersji 4xx. Dlatego nazwę końca pogrubiamy także
-               bezpośrednio na elemencie.
-            */
-            const nazwa=stop.querySelector(
-                ".trasa-nazwa, .trasa-nazwa-aktywna"
-            );
+            if(state.kontynuacja){
+                stop.classList.add(
+                    "ma-kontynuacje-trasy"
+                );
+            }
+
             if(nazwa){
                 nazwa.style.setProperty(
                     "font-weight",
@@ -17919,13 +17968,21 @@ function v508OznaczRzeczywisteKonce(){
                 );
             }
         }else{
-            stop.classList.remove(
-                "v510-rzeczywisty-koniec",
-                "v511-rzeczywisty-koniec"
-            );
+            /*
+               V557:
+               zwykły przystanek MUSI wrócić do zwykłej grubości.
+               To jest istotne m.in. dla Bartniczej i
+               Metra Kondratowicza na 126.
+            */
+            if(nazwa){
+                nazwa.style.removeProperty(
+                    "font-weight"
+                );
+            }
         }
     });
 }
+
 
 function v498UruchomDopasowanie(){
     requestAnimationFrame(()=>{
@@ -22531,6 +22588,85 @@ html body .tabliczka
 
    /FWTP/dane/, paczki, priorytety, objazdy i rozkłady
    specjalne pozostają bez zmian.
+   ========================================================= */
+</script>
+
+
+<style id="fwtp-v557-json-v80-konce">
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 557
+   KOŃCE I KONTYNUACJA Z lista_przystankowa.elementy[]
+   ========================================================= */
+
+/* Rzeczywisty koniec bez dalszej trasy: oś kończy się w kropce. */
+html body .tabliczka
+.v514-lista
+.trasa-stop.v514-rzeczywisty-koniec:not(.ma-kontynuacje-trasy)
+> .trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    top: 0 !important;
+    bottom: calc(100% - 7.25px) !important;
+    height: auto !important;
+}
+
+/* Koniec jednego przebiegu, ale inny przebieg jedzie dalej:
+   oś przechodzi przez kropkę. */
+html body .tabliczka
+.v514-lista
+.trasa-stop.v514-rzeczywisty-koniec.ma-kontynuacje-trasy
+> .trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/* Tylko rzeczywiste końce z V80 są pogrubione. */
+html body .tabliczka
+.v514-lista
+.trasa-stop.v514-rzeczywisty-koniec
+> .trasa-nazwa,
+html body .tabliczka
+.v514-lista
+.trasa-stop.v514-rzeczywisty-koniec
+> .trasa-nazwa
+> .trasa-nazwa-aktywna {
+    font-weight: 700 !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 557
+
+   ZGODNOŚĆ Z EKSPORTEREM FWTP 2.9 V80
+
+   1. lista_przystankowa.elementy[] jest źródłem prawdy dla:
+      - kolejności trasy,
+      - rozjazdów i powrotów,
+      - TRASA W KURSACH,
+      - miejscowości i stref,
+      - koncowy,
+      - kontynuacja.
+
+   2. HTML NIE wyznacza już końców ponownie z:
+      - kurs.trasa,
+      - kurs.koniec_trasy,
+      - lista_przystankowa.trasy[].koniec_trasy.
+
+   3. Dzięki temu zwykłe kursy skrócone 126:
+      - Metro Kondratowicza,
+      - Bartnicza
+      nie stają się wizualnymi krańcami.
+
+   4. Prawdziwe krańce 126/134/150 oraz końce przebiegów
+      z kontynuacją pozostają obsługiwane dokładnie według V80.
+
+   5. Dokładne ID z V556 pozostaje bez zmian.
+   6. Paczki, /FWTP/dane/, rozkłady specjalne, objazdy,
+      kolumny, minuty, miejscowości i strefy pozostają bez zmian.
    ========================================================= */
 </script>
 
