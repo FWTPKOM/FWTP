@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 557
+     WERSJA: 558
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-18
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -17426,19 +17426,50 @@ function v501TownText(el){
 function v501NormalizujMiejscowosci(root){
     if(!root)return;
 
+    /*
+       =========================================================
+       FWTP V558 — POPRAWKA "TRASA WE WSZYSTKICH KURSACH"
+       =========================================================
+
+       BŁĄD V557 i wcześniejszych:
+       V501 brała WSZYSTKIE .trasa-separator i próbowała rozpoznać
+       miejscowość po samym tekście.
+
+       Warunek wykluczał:
+           "TRASA W KURSACH"
+       ale NIE wykluczał:
+           "TRASA WE WSZYSTKICH KURSACH"
+
+       W efekcie pierwszy taki napis był traktowany jak nazwa
+       miejscowości, a następny identyczny napis był usuwany jako
+       "powtórzona miejscowość".
+
+       Dlatego w 126:
+       - pierwszy powrót po Płytowej/Kupieckiej był widoczny,
+       - drugi powrót po Polfie znikał.
+
+       V558:
+       miejscowości rozpoznajemy WYŁĄCZNIE po klasie nadanej
+       przez renderer JSON:
+           .trasa-miejscowosc-429
+
+       Separatory tras i stref nie są już w ogóle dotykane przez
+       normalizację miejscowości.
+       =========================================================
+    */
+
     const seps=[
-        ...root.querySelectorAll(".trasa-separator")
-    ].filter(el=>{
-        const txt=v501TownText(el);
-        return txt &&
-               !txt.includes("TRASA W KURSACH") &&
-               !txt.includes("STREFA ");
-    });
+        ...root.querySelectorAll(
+            ".trasa-separator.trasa-miejscowosc-429"
+        )
+    ];
 
     let current="";
 
     seps.forEach(el=>{
         const town=v501TownText(el);
+
+        if(!town)return;
 
         if(town===current){
             el.remove();
@@ -17449,10 +17480,13 @@ function v501NormalizujMiejscowosci(root){
     });
 
     /*
-       Odgałęzienia mogą ponownie wygenerować WARSZAWA mimo że
-       poprzedni wspólny odcinek nadal jest w Warszawie.
-       Usuwamy separator gałęzi, jeśli jest taki sam jak ostatnia
-       miejscowość występująca przed kontenerem gałęzi.
+       Obsługa gałęzi pozostaje, ale również tutaj szukamy już
+       WYŁĄCZNIE prawdziwych separatorów miejscowości.
+       Dzięki temu:
+       - TRASA W KURSACH ...
+       - TRASA WE WSZYSTKICH KURSACH
+       - STREFA I / II
+       nigdy nie mogą zostać pomylone z miejscowością.
     */
     root.querySelectorAll(".v496-galezie").forEach(branchBox=>{
         let prev=branchBox.previousElementSibling;
@@ -17460,38 +17494,40 @@ function v501NormalizujMiejscowosci(root){
 
         while(prev && !inherited){
             const candidates=[
-                ...prev.querySelectorAll?.(".trasa-separator")||[]
-            ].filter(el=>{
-                const t=v501TownText(el);
-                return t &&
-                       !t.includes("TRASA W KURSACH") &&
-                       !t.includes("STREFA ");
-            });
+                ...(
+                    prev.querySelectorAll?.(
+                        ".trasa-separator.trasa-miejscowosc-429"
+                    ) || []
+                )
+            ];
 
             if(candidates.length){
-                inherited=v501TownText(candidates[candidates.length-1]);
+                inherited=
+                    v501TownText(
+                        candidates[candidates.length-1]
+                    );
             }
+
             prev=prev.previousElementSibling;
         }
 
         if(!inherited)return;
 
         branchBox.querySelectorAll(".v496-galaz").forEach(branch=>{
-            const first=[...branch.querySelectorAll(".trasa-separator")]
-                .find(el=>{
-                    const t=v501TownText(el);
-                    return t &&
-                           !t.includes("TRASA W KURSACH") &&
-                           !t.includes("STREFA ");
-                });
+            const first=
+                branch.querySelector(
+                    ".trasa-separator.trasa-miejscowosc-429"
+                );
 
-            if(first && v501TownText(first)===inherited){
+            if(
+                first &&
+                v501TownText(first)===inherited
+            ){
                 first.remove();
             }
         });
     });
 }
-
 function v499ZoneText(el){
     return (el?.textContent||"")
         .replace(/\s+/g," ")
@@ -22667,6 +22703,32 @@ html body .tabliczka
    5. Dokładne ID z V556 pozostaje bez zmian.
    6. Paczki, /FWTP/dane/, rozkłady specjalne, objazdy,
       kolumny, minuty, miejscowości i strefy pozostają bez zmian.
+   ========================================================= */
+</script>
+
+
+<script>
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 558
+
+   POPRAWKA:
+   "TRASA WE WSZYSTKICH KURSACH" nie jest już analizowane przez
+   v501NormalizujMiejscowosci() jako potencjalna miejscowość.
+
+   Dla linii 126 po gałęzi:
+       PŁOCHOCIŃSKA
+       TRASA W KURSACH „o”
+       EKSPRESOWA 04
+       POLFA 02
+   pozostaje teraz:
+       TRASA WE WSZYSTKICH KURSACH
+       EKSPRESOWA 02
+       OBRAZKOWA
+       ...
+
+   Zmiana dotyczy tylko klasyfikacji separatorów miejscowości.
+   Logika V557/V80 końców, dokładnych ID, minut, kolumn,
+   wariantów, stref i tras pozostaje bez zmian.
    ========================================================= */
 </script>
 
