@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 543
+     WERSJA: 544
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-17
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -21864,163 +21864,267 @@ html body .tabliczka
 </script>
 
 
-<style id="fwtp-v543-osobny-lacznik-miejscowosci">
-/* =========================================================
-   FWTP — WERSJA 543
-   ŁĄCZNIK PRZEZ SEPARATOR MIEJSCOWOŚCI
 
-   To jest OSOBNY element DOM.
-   Nie używamy ::before ani ::after separatora miejscowości.
+<style id="fwtp-v544-kropka-do-kropki">
+/* =========================================================
+   FWTP — WERSJA 544
+   ŁĄCZENIE PRZYSTANKÓW PRZEZ SEPARATOR MIEJSCOWOŚCI
+
+   Logika oparta na rozwiązaniu z oryginalnego kodu:
+   "kropka-do-kropki-493".
+
+   Łącznik:
+   - jest OSOBNYM elementem DOM,
+   - należy do przystanku przed separatorem,
+   - zaczyna się w środku jego kropki,
+   - kończy się w środku kropki następnego przystanku,
+   - nie powstaje, gdy przed separatorem nie ma przystanku.
    ========================================================= */
 
-.tabliczka .trasa-lista {
-    position: relative;
+.tabliczka .trasa-stop,
+.tabliczka .trasa-extra-stop {
+    overflow: visible !important;
 }
 
-.tabliczka .v543-lacznik-miejscowosci {
-    position: absolute;
-    display: block;
-    width: 2.25px;
-    background: #111;
-    z-index: 1;
-    pointer-events: none;
+.tabliczka
+.trasa-stop
+> .kropka-do-kropki-544,
+.tabliczka
+.trasa-extra-stop
+> .kropka-do-kropki-544 {
+    position: absolute !important;
+    display: block !important;
+    width: 2.25px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: #111 !important;
+    z-index: 20 !important;
+    pointer-events: none !important;
 }
 </style>
 
 <script>
-/* =========================================================
-   FWTP — WERSJA 543
-   Osobny łącznik osi przez separator miejscowości.
-   ========================================================= */
+(function FWTP_WERSJA_544(){
+    "use strict";
 
-function v543UsunLacznikiMiejscowosci(root) {
-    if (!root) return;
-
-    root.querySelectorAll(".v543-lacznik-miejscowosci")
-        .forEach(function(el) {
-            el.remove();
-        });
-}
-
-function v543SrodekKropki(stop, lista) {
-    if (!stop || !lista) return null;
-
-    const os = stop.querySelector(".trasa-os");
-    if (!os) return null;
-
-    const listaRect = lista.getBoundingClientRect();
-    const osRect = os.getBoundingClientRect();
+    let zaplanowane544 = false;
 
     /*
-       Zwykła kropka ma środek w osi .trasa-os.
-       Liczymy pozycję względem konkretnej .trasa-lista,
-       dzięki czemu nie zgadujemy left w pikselach.
+       Dokładny środek ZWYKŁEJ kropki z oryginalnego kodu:
+       left: 1px; width: 8.5px  => X = 5.25px
+       top:  3px; height: 8.5px => Y = 7.25px
     */
-    return {
-        x: osRect.left - listaRect.left + (osRect.width / 2),
-        y: osRect.top - listaRect.top + (osRect.height / 2)
-    };
-}
+    const DOT_CENTER_X_544 = 1 + 8.5 / 2;
+    const DOT_CENTER_Y_544 = 3 + 8.5 / 2;
+    const LINE_WIDTH_544   = 2.25;
 
-function v543DodajLacznikiMiejscowosci(root) {
-    if (!root) return;
+    function jestStop544(el){
+        return !!el?.matches?.(
+            ".trasa-stop,.trasa-extra-stop"
+        );
+    }
 
-    v543UsunLacznikiMiejscowosci(root);
+    function jestMiejscowosc544(el){
+        return !!(
+            el?.classList?.contains("trasa-separator") &&
+            el.classList.contains("trasa-miejscowosc-429")
+        );
+    }
 
-    root.querySelectorAll(".trasa-lista").forEach(function(lista) {
+    function srodekKropki544(stop, bazaRect){
+        const os = stop.querySelector(".trasa-os");
+        if(!os) return null;
+
+        const osRect = os.getBoundingClientRect();
+
+        return {
+            x:
+                osRect.left -
+                bazaRect.left +
+                DOT_CENTER_X_544,
+
+            y:
+                osRect.top -
+                bazaRect.top +
+                DOT_CENTER_Y_544
+        };
+    }
+
+    function wyczysc544(tab){
+        tab.querySelectorAll(".kropka-do-kropki-544")
+            .forEach(el => el.remove());
+    }
+
+    function polacz544(lista){
         const dzieci = Array.from(lista.children);
 
-        dzieci.forEach(function(separator, index) {
-            if (
-                !separator.classList.contains("trasa-separator") ||
-                !separator.classList.contains("trasa-miejscowosc-429")
-            ) {
-                return;
-            }
+        for(let i = 0; i < dzieci.length; i++){
+
+            const pierwszy = dzieci[i];
 
             /*
-               Szukamy rzeczywistego przystanku NAD separatorem.
-               Jeśli go nie ma, separator jest przed pierwszym
-               przystankiem i NIE tworzymy żadnej kreski.
+               Łącznik zawsze zaczyna się od PRZYSTANKU.
+               Dzięki temu nie ma kreski, jeśli miejscowość
+               znajduje się przed pierwszym przystankiem.
             */
-            let poprzedniStop = null;
+            if(!jestStop544(pierwszy)) continue;
 
-            for (let i = index - 1; i >= 0; i--) {
-                if (dzieci[i].classList.contains("trasa-stop")) {
-                    poprzedniStop = dzieci[i];
-                    break;
-                }
-            }
-
-            if (!poprzedniStop) {
-                return;
-            }
+            let j = i + 1;
+            let jestSeparatorMiejscowosci = false;
 
             /*
-               Szukamy rzeczywistego przystanku POD separatorem.
+               Dopuszczamy jeden lub kilka kolejnych separatorów
+               miejscowości pomiędzy dwoma przystankami.
             */
-            let nastepnyStop = null;
-
-            for (let i = index + 1; i < dzieci.length; i++) {
-                if (dzieci[i].classList.contains("trasa-stop")) {
-                    nastepnyStop = dzieci[i];
-                    break;
-                }
+            while(
+                j < dzieci.length &&
+                jestMiejscowosc544(dzieci[j])
+            ){
+                jestSeparatorMiejscowosci = true;
+                j++;
             }
 
-            if (!nastepnyStop) {
-                return;
+            if(!jestSeparatorMiejscowosci) continue;
+
+            const drugi = dzieci[j];
+
+            if(!jestStop544(drugi)) continue;
+
+            const pierwszyRect =
+                pierwszy.getBoundingClientRect();
+
+            const a =
+                srodekKropki544(
+                    pierwszy,
+                    pierwszyRect
+                );
+
+            const b =
+                srodekKropki544(
+                    drugi,
+                    pierwszyRect
+                );
+
+            if(
+                !a ||
+                !b ||
+                b.y <= a.y
+            ){
+                continue;
             }
 
-            const start = v543SrodekKropki(poprzedniStop, lista);
-            const koniec = v543SrodekKropki(nastepnyStop, lista);
-
-            if (!start || !koniec || koniec.y <= start.y) {
-                return;
+            if(
+                getComputedStyle(pierwszy).position === "static"
+            ){
+                pierwszy.style.position = "relative";
             }
 
-            const lacznik = document.createElement("span");
-            lacznik.className = "v543-lacznik-miejscowosci";
-            lacznik.setAttribute("aria-hidden", "true");
+            const linia =
+                document.createElement("span");
+
+            linia.className =
+                "kropka-do-kropki-544";
+
+            linia.setAttribute(
+                "aria-hidden",
+                "true"
+            );
 
             /*
-               Początek: środek kropki przystanku nad separatorem.
-               Koniec:    środek kropki przystanku pod separatorem.
+               X dokładnie w środku kropki.
             */
-            lacznik.style.left = start.x + "px";
-            lacznik.style.top = start.y + "px";
-            lacznik.style.height = (koniec.y - start.y) + "px";
-            lacznik.style.transform = "translateX(-50%)";
+            linia.style.left =
+                (
+                    a.x -
+                    LINE_WIDTH_544 / 2
+                ) + "px";
 
             /*
-               Wstawiamy jako osobny element bezpośrednio do UL.
-               Nie jest częścią separatora miejscowości.
+               Początek i koniec liczymy od środka kropek.
+               Sama kropka przykrywa fragment linii,
+               więc wizualnie oś wchodzi dokładnie w punkt.
             */
-            lista.appendChild(lacznik);
+            linia.style.top =
+                a.y + "px";
+
+            linia.style.height =
+                Math.max(
+                    0,
+                    b.y - a.y
+                ) + "px";
+
+            /*
+               Tak jak w oryginalnym rozwiązaniu:
+               osobny element jest dzieckiem przystanku,
+               NIE separatora miejscowości.
+            */
+            pierwszy.appendChild(linia);
+        }
+    }
+
+    function wykonaj544(){
+        const tab =
+            document.querySelector("#wynik .tabliczka") ||
+            document.querySelector(".tabliczka");
+
+        if(!tab) return;
+
+        wyczysc544(tab);
+
+        tab.querySelectorAll(
+            ".trasa-lista,.trasa-lista-397,.v514-lista"
+        ).forEach(polacz544);
+    }
+
+    function plan544(){
+        if(zaplanowane544) return;
+
+        zaplanowane544 = true;
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                zaplanowane544 = false;
+                wykonaj544();
+            });
         });
-    });
-}
+    }
 
-/*
-   Uruchomienie po zakończeniu bieżącego renderowania.
-   requestAnimationFrame jest potrzebny tylko po to, aby
-   getBoundingClientRect() dostał już finalne pozycje elementów.
-*/
-requestAnimationFrame(function() {
-    const root =
-        document.querySelector(".tabliczka .v514-lista") ||
-        document.querySelector(".tabliczka");
+    /*
+       Funkcję udostępniamy również rendererowi,
+       żeby można ją było wywołać po każdym renderze.
+    */
+    window.v544PolaczMiejscowosci = plan544;
 
-    v543DodajLacznikiMiejscowosci(root);
-});
+    if(document.readyState === "loading"){
+        document.addEventListener(
+            "DOMContentLoaded",
+            plan544,
+            {once:true}
+        );
+    }else{
+        plan544();
+    }
 
-window.addEventListener("resize", function() {
-    const root =
-        document.querySelector(".tabliczka .v514-lista") ||
-        document.querySelector(".tabliczka");
+    window.addEventListener(
+        "load",
+        plan544
+    );
 
-    v543DodajLacznikiMiejscowosci(root);
-});
+    window.addEventListener(
+        "resize",
+        plan544
+    );
+
+    /*
+       Bez MutationObservera.
+       Krótkie ponowienie tylko na start, ponieważ dane JSON
+       mogą zostać wyrenderowane po DOMContentLoaded.
+    */
+    setTimeout(plan544, 100);
+    setTimeout(plan544, 300);
+    setTimeout(plan544, 700);
+})();
 </script>
 
 </body>
