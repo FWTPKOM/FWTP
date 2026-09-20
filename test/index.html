@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 572
+     WERSJA: 574
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-20
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -9838,75 +9838,184 @@ function symbolKursuDwukierunkowego(
 }
 
 
-function symbolWariantu(kurs,symbol){
-
-    if(
-        czyBiezacyPrzystanekDwukierunkowy()
-    ){
-        return symbolKursuDwukierunkowego(
-            kurs,
-            symbol
-        );
-    }
-
-    const kursRef={
-        numer:String(
-            kurs?.numer||""
-        ),
-        wariant:String(
-            kurs?.wariant||""
-        ).trim(),
-        symbol
-    };
-
-    const literaRzeczywista=
-        literaWariantuPoRzeczywistymPrzebiegu(
-            kursRef
-        );
+function v574LiteryWidoczneNaLisciePrzystankow(){
 
     /*
-       Litera przy minucie wynika teraz z rzeczywistej trasy,
-       a nie wyłącznie z pola kurs.wariant.
+       =========================================================
+       FWTP WERSJA 574
+       JEDNO ŹRÓDŁO LITER: lista_przystankowa.elementy[]
+       =========================================================
 
-       Dzięki temu np. kurs oznaczony w danych jako "o",
-       który faktycznie jedzie przez PŁYTOWĄ + KUPIECKĄ + POLFA,
-       dostanie "l".
+       Nie ustalamy już osobno, jakie litery mają być pokazane
+       przy minutach.
+
+       Czytamy dokładnie te litery, które VBA V106 umieściło
+       w gotowych separatorach:
+           "Trasa w kursach „k”, „e”"
+           "Trasa w kursach bez oznaczeń, „z”"
+
+       Dzięki temu tabela godzin i lista przystanków nie mogą
+       mieć dwóch różnych zestawów oznaczeń.
     */
-    if(
-        literaRzeczywista&&
-        czyPokazacWariantJakLiniaHTML(
-            literaRzeczywista
-        )
-    ){
-        return kanonicznaLiteraWariantu(
-            literaRzeczywista
-        ).toLowerCase();
+
+    const wynik=new Set();
+
+    const elementy=
+        typeof v514ModelListy==="function"
+            ? v514ModelListy()
+            : null;
+
+    if(!Array.isArray(elementy)){
+        return wynik;
     }
 
-    const literaSkrocenia=
-        znajdzLitereSkroceniaPoKoncu(
-            kurs,
-            symbol
-        );
+    elementy.forEach(
+        element=>{
 
-    if(
-        !literaSkrocenia||
-        !czyPokazacWariantJakLiniaHTML(
-            literaSkrocenia
-        )
-    ){
-        return"";
-    }
+            if(
+                String(element?.typ||"")
+                    .trim()
+                    .toLowerCase()!=="trasa_w_kursach"
+            ){
+                return;
+            }
 
-    return kanonicznaLiteraWariantu(
-        literaSkrocenia
-    ).toLowerCase();
+            const tekst=
+                String(element?.tekst||"");
+
+            /*
+               Najpierw typograficzne cudzysłowy używane przez VBA.
+               Obsługujemy też zwykły cudzysłów jako zabezpieczenie.
+            */
+            const regex=/[„"]\s*([A-Za-z0-9]+)\s*[”"]/g;
+
+            let match;
+
+            while(
+                (
+                    match=regex.exec(tekst)
+                )!==null
+            ){
+                const litera=
+                    String(match[1]||"")
+                        .trim()
+                        .toUpperCase();
+
+                if(litera){
+                    wynik.add(litera);
+                }
+            }
+        }
+    );
+
+    return wynik;
 }
 
 
-/* =========================================================
-   TABELA
-   ========================================================= */
+function symbolWariantu(kurs,symbolDnia){
+
+    /*
+       V574:
+       litera przy minucie ma być IDENTYCZNA z literą używaną
+       przez gotową listę przystanków.
+
+       1. Ustalamy fizyczny wariant kursu istniejącą funkcją,
+          tą samą rodziną logiki, z której korzysta lista.
+       2. Pokazujemy go TYLKO wtedy, gdy taka litera rzeczywiście
+          występuje w lista_przystankowa.elementy[].
+       3. Jeżeli lista mówi "bez oznaczeń", kurs bez widocznej
+          litery również pozostaje bez litery w tabeli.
+    */
+
+    const dir=
+        Number.isInteger(
+            Number(kurs?._kierunekIndex)
+        )
+            ? Number(kurs._kierunekIndex)
+            : aktualnyKierunek;
+
+    const literaFizyczna=
+        String(
+            literaWariantuPoRzeczywistymPrzebiegu(
+                {
+                    ...kurs,
+                    symbol:symbolDnia,
+                    _kierunekIndex:dir
+                },
+                dir
+            )||
+            kurs?.wariant||
+            ""
+        )
+        .trim()
+        .toUpperCase();
+
+    if(!literaFizyczna){
+        return "";
+    }
+
+    const widoczne=
+        v574LiteryWidoczneNaLisciePrzystankow();
+
+    if(!widoczne.has(literaFizyczna)){
+        return "";
+    }
+
+    return literaFizyczna;
+}
+
+
+
+function v573CzyRozneTrasyMiedzyTypamiDnia(){
+
+    /*
+       Jeżeli ta sama linia ma różne fizyczne przebiegi w różnych
+       blokach rozkładu, warianty tych kursów muszą być widoczne
+       przy minutach. Sam fakt, że aktualna data wskazuje inny blok,
+       nie może ich ukryć.
+    */
+
+    const klucze=new Set();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const kierunek=
+                (
+                    rozklad?.kierunki||
+                    []
+                )[aktualnyKierunek];
+
+            (
+                kierunek?.przystanki||
+                []
+            ).forEach(
+                p=>{
+                    (
+                        p?.kursy||
+                        []
+                    ).forEach(
+                        kurs=>{
+                            const trasa=
+                                Array.isArray(kurs?.trasa)
+                                    ? kurs.trasa.join(">")
+                                    : "";
+
+                            if(trasa){
+                                klucze.add(trasa);
+                            }
+                        }
+                    );
+                }
+            );
+        }
+    );
+
+    return klucze.size>1;
+}
 
 function grupujGodziny(kursy){
 
