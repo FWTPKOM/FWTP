@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 571
+     WERSJA: 572
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-20
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -8199,10 +8199,34 @@ function znajdzPrzystanekWRozkladzie(
 
 function __bezCache_pobierzKursyDlaSymbolu(symbol){
 
-    const obsluga=
-        kierunkiAktywneDlaBiezacegoPrzystanku();
+    /*
+       WERSJA 572
 
-    if(!obsluga.length){
+       Nie korzystamy tutaj z kierunkiAktywneDlaBiezacegoPrzystanku(),
+       ponieważ ta funkcja w obecnej architekturze zwraca indeks
+       kierunku, a starszy kod tabel oczekiwał obiektu z polami
+       indexKierunku/przystanek. To powodowało pusty wynik V571.
+
+       Dla tabel rozkładów zasada jest prostsza:
+       - bierzemy aktualnie wybrany fizyczny przystanek,
+       - zachowujemy aktualny kierunek,
+       - przeszukujemy WSZYSTKIE daneLinii.rozkłady[],
+       - z każdego bloku pobieramy ten sam przystanek,
+       - filtrujemy kursy według D / C / 6 / 7.
+    */
+
+    const baza=
+        kierunekBazowy();
+
+    const aktywny=
+        (
+            baza?.przystanki||
+            []
+        )[
+            aktualnyPrzystanek
+        ];
+
+    if(!aktywny){
         return[];
     }
 
@@ -8213,61 +8237,70 @@ function __bezCache_pobierzKursyDlaSymbolu(symbol){
         daneLinii?.rozkłady||
         []
     ).forEach(
-        rozklad=>{
+        (rozklad,rozkladIndex)=>{
 
-            obsluga.forEach(
-                info=>{
+            const p=
+                znajdzDokladnyPrzystanekWRozkladzie(
+                    rozklad,
+                    aktualnyKierunek,
+                    aktywny
+                );
 
-                    const p=
-                        znajdzDokladnyPrzystanekWRozkladzie(
-                            rozklad,
-                            info.indexKierunku,
-                            info.przystanek
+            (
+                p?.kursy||
+                []
+            ).forEach(
+                kurs=>{
+
+                    if(
+                        grupaDnia(kurs)!==
+                        symbol
+                    ){
+                        return;
+                    }
+
+                    if(
+                        czasNaMinuty(
+                            kurs?.czas
+                        )===null
+                    ){
+                        return;
+                    }
+
+                    const key=
+                        [
+                            rozkladIndex,
+                            aktualnyKierunek,
+                            String(kurs?.numer||""),
+                            String(kurs?.wariant||""),
+                            String(kurs?.czas||"")
+                        ].join("|");
+
+                    if(!mapa.has(key)){
+
+                        mapa.set(
+                            key,
+                            {
+                                ...kurs,
+                                _kierunekIndex:
+                                    aktualnyKierunek,
+                                _kierunekNazwa:
+                                    String(
+                                        (
+                                            rozklad?.kierunki||
+                                            []
+                                        )[
+                                            aktualnyKierunek
+                                        ]?.nazwa||
+                                        ""
+                                    ),
+                                _przystanekIndex:
+                                    aktualnyPrzystanek,
+                                _rozkladIndex:
+                                    rozkladIndex
+                            }
                         );
-
-                    (
-                        p?.kursy||
-                        []
-                    ).forEach(
-                        kurs=>{
-
-                            if(
-                                grupaDnia(kurs)!==
-                                symbol
-                            ){
-                                return;
-                            }
-
-                            if(
-                                czasNaMinuty(
-                                    kurs.czas
-                                )===null
-                            ){
-                                return;
-                            }
-
-                            const key=
-                                info.indexKierunku+
-                                "|"+
-                                kluczKursu(kurs);
-
-                            if(!mapa.has(key)){
-
-                                mapa.set(
-                                    key,
-                                    {
-                                        ...kurs,
-                                        _kierunekIndex:
-                                            info.indexKierunku,
-                                        _kierunekNazwa:
-                                            info.nazwa,
-                                        _przystanekIndex:
-                                            info.indexPrzystanku
-                                    }
-                                );
-                            }
-                        }
-                    );
+                    }
                 }
             );
         }
@@ -8345,148 +8378,65 @@ function pobierzKursyDlaSymbolu(symbol){
 
 function __bezCache_dostepneGrupyDni(){
 
-    const symbole=
-        new Set();
+    /*
+       WERSJA 572
 
-    const obsluga=
-        kierunkiAktywneDlaBiezacegoPrzystanku();
-
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(
-        rozklad=>{
-
-            obsluga.forEach(
-                info=>{
-
-                    const p=
-                        znajdzDokladnyPrzystanekWRozkladzie(
-                            rozklad,
-                            info.indexKierunku,
-                            info.przystanek
-                        );
-
-                    (
-                        p?.kursy||
-                        []
-                    ).forEach(
-                        kurs=>{
-
-                            const s=
-                                grupaDnia(kurs);
-
-                            if(s){
-                                symbole.add(s);
-                            }
-                        }
-                    );
-                }
-            );
-        }
-    );
+       Typy dnia wynikają z rzeczywiście znalezionych kursów
+       na aktualnym przystanku we wszystkich blokach rozkładu.
+       Data z URL nie filtruje tej listy.
+    */
 
     const wynik=[];
 
-    const maD=
-        symbole.has("D");
+    const d=
+        __bezCache_pobierzKursyDlaSymbolu("D");
 
-    const maC=
-        symbole.has("C");
+    const c=
+        __bezCache_pobierzKursyDlaSymbolu("C");
 
-    const ma6=
-        symbole.has("6");
+    const s6=
+        __bezCache_pobierzKursyDlaSymbolu("6");
 
-    const ma7=
-        symbole.has("7");
+    const s7=
+        __bezCache_pobierzKursyDlaSymbolu("7");
 
-    const maWeekendRozdzielony=
-        ma6||
-        ma7;
-
-    /*
-       DZIEŃ POWSZEDNI pokazujemy również wtedy,
-       gdy kursów D nie ma, ale są kursy weekendowe.
-       Wtedy tabela wyświetli "NIE KURSUJE".
-    */
-    if(
-        maD||
-        maC||
-        maWeekendRozdzielony
-    ){
+    if(d.length){
         wynik.push({
             symbol:"D",
             tytul:"DZIEŃ POWSZEDNI"
         });
     }
 
-    /*
-       Jeżeli dane używają osobnych symboli 6 i 7,
-       zawsze pokazujemy obie kolumny.
-       Brakująca dostanie "NIE KURSUJE".
-    */
-    if(maWeekendRozdzielony){
+    if(c.length){
 
         wynik.push({
-            symbol:"6",
-            tytul:"SOBOTA"
+            symbol:"C",
+            tytul:"SOBOTA I ŚWIĘTO"
         });
 
-        wynik.push({
-            symbol:"7",
-            tytul:"ŚWIĘTO"
-        });
     }
     else{
 
-        /*
-           Przy układzie D/C pokazujemy SOBOTA I ŚWIĘTO
-           nawet wtedy, gdy istnieją wyłącznie kursy D.
-        */
-        if(
-            maD||
-            maC
-        ){
+        if(s6.length){
             wynik.push({
-                symbol:"C",
-                tytul:"SOBOTA I ŚWIĘTO"
+                symbol:"6",
+                tytul:"SOBOTA"
+            });
+        }
+
+        if(s7.length){
+            wynik.push({
+                symbol:"7",
+                tytul:"ŚWIĘTO"
             });
         }
     }
-
-    /*
-       Nietypowe symbole pozostają obsługiwane jak wcześniej.
-    */
-    [
-        ...symbole
-    ]
-        .filter(
-            s=>
-                !["D","C","6","7"]
-                    .includes(s)
-        )
-        .forEach(
-            s=>{
-                wynik.push({
-                    symbol:s,
-                    tytul:
-                        "ROZKŁAD "+
-                        s
-                });
-            }
-        );
 
     return wynik;
 }
 
 function dostepneGrupyDni(){
 
-    /*
-       V571:
-       lista kolumn nie zależy od wybranej daty ani od aktualnie
-       aktywnego bloku rozkładu. Używamy pełnego skanowania wszystkich
-       daneLinii.rozkłady[].
-    */
     return __bezCache_dostepneGrupyDni();
 }
 
