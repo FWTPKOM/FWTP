@@ -2,10 +2,11 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 558
+     WERSJA: 560
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
-     DATA: 2026-09-18
+     DATA: 2026-09-20
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
+     V560: LEGENDA Z kierunki[].warianty + TERMINAL PRZELOTOWY
      ========================================================= -->
 
 <html lang="pl">
@@ -56,6 +57,69 @@
    logiką podziału kolumn.
 */
 .trasa-stop.koniec-trasy-210:not(.ma-kontynuacje-trasy) .trasa-os::before {
+}
+</style>
+<style>
+/* =========================================================
+   WERSJA 560 — PRZYSTANEK KOŃCOWY PRZELOTOWY
+   =========================================================
+   JSON:
+       koncowy=true, kontynuacja=false
+           -> zwykły rzeczywisty kraniec: oś kończy się na kropce
+
+       koncowy=true, kontynuacja=true
+           -> przystanek końcowy przelotowy:
+              nazwa i kropka jak na krańcu,
+              ALE pionowa oś biegnie dalej.
+
+   Ta reguła ma pierwszeństwo przed starszymi regułami V385,
+   które uzależniały ciągłość osi od obecności .trasa-extra.
+   Od V560 źródłem prawdy jest lista_przystankowa.elementy[].
+   ========================================================= */
+
+.tabliczka
+.trasa-stop.v514-rzeczywisty-koniec.ma-kontynuacje-trasy
+.trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+}
+
+/*
+   Gdy pomiędzy terminalem przelotowym a kolejnym przystankiem
+   występuje separator, np. "Trasa w kursach „i”", renderer V560
+   dodaje do separatora osobny odcinek tej SAMEJ osi.
+
+   Nie używamy MutationObservera. Oś powstaje od razu podczas
+   renderowania modelu JSON.
+*/
+.tabliczka .trasa-separator.v560-most-terminalu {
+    position: relative !important;
+}
+
+.tabliczka .trasa-separator.v560-most-terminalu
+.v560-os-przelotowa {
+    position: absolute !important;
+    display: block !important;
+    left: 23.1px !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    width: 2.25px !important;
+    background: #000 !important;
+    z-index: 2 !important;
+    pointer-events: none !important;
+}
+
+/*
+   Tekst separatora ma pozostać czytelny, ale czarna oś jest
+   elementem trasy i nie może znikać wskutek starej logiki końca.
+*/
+.tabliczka .trasa-separator.v560-most-terminalu
+.trasa-separator-title {
+    position: relative !important;
+    z-index: 1 !important;
 }
 </style>
 <style>
@@ -8375,26 +8439,63 @@ function __bezCache_mapaWariantow(){
 
     const mapa=new Map();
 
+    /*
+       FWTP V560 / JSON z eksportera V105.
+
+       Od V105 NIE istnieje już jedna globalna:
+           rozkład.warianty
+
+       Każdy kierunek ma własną:
+           rozkład.kierunki[kierunek].warianty
+
+       To jest konieczne, bo ta sama litera może mieć inne znaczenie
+       w przeciwnych kierunkach.
+
+       Przykład linii 150:
+           kierunek 0:
+               F = kurs do krańca METRO MARYMONT,
+                   realizowany w dni nauki szkolnej
+
+           kierunek 1:
+               F = kurs skrócony do PILCHA,
+                   realizowany w dni nauki szkolnej
+    */
     (
         daneLinii?.rozkłady||
         []
     ).forEach(
-        r=>{
+        rozklad=>{
+
+            const kierunek=
+                Array.isArray(
+                    rozklad?.kierunki
+                )
+                    ? rozklad.kierunki[
+                        aktualnyKierunek
+                    ]
+                    : null;
+
             (
-                r.warianty||
-                []
+                Array.isArray(
+                    kierunek?.warianty
+                )
+                    ? kierunek.warianty
+                    : []
             ).forEach(
-                w=>{
+                wariant=>{
 
                     const litera=
                         String(
-                            w.litera||""
-                        ).trim();
+                            wariant?.litera||""
+                        )
+                        .trim()
+                        .toUpperCase();
 
                     const opis=
                         String(
-                            w.opis||""
-                        ).trim();
+                            wariant?.opis||""
+                        )
+                        .trim();
 
                     if(
                         litera&&
@@ -8410,6 +8511,57 @@ function __bezCache_mapaWariantow(){
             );
         }
     );
+
+    /*
+       Zgodność ze starszym JSON-em sprzed V105.
+       Fallback uruchamia się WYŁĄCZNIE wtedy, gdy kierunek nie ma
+       własnej legendy.
+    */
+    if(!mapa.size){
+
+        (
+            daneLinii?.rozkłady||
+            []
+        ).forEach(
+            rozklad=>{
+
+                (
+                    Array.isArray(
+                        rozklad?.warianty
+                    )
+                        ? rozklad.warianty
+                        : []
+                ).forEach(
+                    wariant=>{
+
+                        const litera=
+                            String(
+                                wariant?.litera||""
+                            )
+                            .trim()
+                            .toUpperCase();
+
+                        const opis=
+                            String(
+                                wariant?.opis||""
+                            )
+                            .trim();
+
+                        if(
+                            litera&&
+                            opis&&
+                            !mapa.has(litera)
+                        ){
+                            mapa.set(
+                                litera,
+                                opis
+                            );
+                        }
+                    }
+                );
+            }
+        );
+    }
 
     return mapa;
 }
@@ -8432,17 +8584,32 @@ function __bezCache_publiczneLiteryWariantow(){
     const wynik=
         new Set();
 
+    /*
+       V560:
+       publiczne warianty są publiczne TYLKO w aktualnym kierunku.
+       Dzięki temu wewnętrzna litera przebiegu z drugiego kierunku
+       nie może pojawić się przy minutach ani w legendzie.
+    */
     (
         daneLinii?.rozkłady||
         []
     ).forEach(
         rozklad=>{
 
+            const kierunek=
+                Array.isArray(
+                    rozklad?.kierunki
+                )
+                    ? rozklad.kierunki[
+                        aktualnyKierunek
+                    ]
+                    : null;
+
             (
                 Array.isArray(
-                    rozklad?.warianty
+                    kierunek?.warianty
                 )
-                    ? rozklad.warianty
+                    ? kierunek.warianty
                     : []
             ).forEach(
                 wariant=>{
@@ -8461,6 +8628,42 @@ function __bezCache_publiczneLiteryWariantow(){
             );
         }
     );
+
+    /*
+       Fallback dla starych JSON-ów.
+    */
+    if(!wynik.size){
+
+        (
+            daneLinii?.rozkłady||
+            []
+        ).forEach(
+            rozklad=>{
+
+                (
+                    Array.isArray(
+                        rozklad?.warianty
+                    )
+                        ? rozklad.warianty
+                        : []
+                ).forEach(
+                    wariant=>{
+
+                        const litera=
+                            String(
+                                wariant?.litera||""
+                            )
+                            .trim()
+                            .toUpperCase();
+
+                        if(litera){
+                            wynik.add(litera);
+                        }
+                    }
+                );
+            }
+        );
+    }
 
     return wynik;
 }
@@ -17122,7 +17325,7 @@ function v514MinutyDoPrzystanku(targetId){
 }
 
 
-function v514RenderSeparator(element){
+function v514RenderSeparator(element,mostTerminalu=false){
     /* FWTP V525:
        element typu "strefa" musi być renderowany jako:
        class="trasa-separator trasa-strefa-440"
@@ -17145,7 +17348,8 @@ function v514RenderSeparator(element){
             .replace(/^STREFA\s+3$/i,"STREFA III");
 
         return (
-            '<li class="trasa-separator trasa-strefa-440">'+
+            '<li class="trasa-separator trasa-strefa-440'+(mostTerminalu?' v560-most-terminalu':'')+'">'+
+            (mostTerminalu?'<span class="v560-os-przelotowa" aria-hidden="true"></span>':'')+
             '<span class="trasa-separator-title">'+
             escapeHtml(tekstStrefy)+
             '</span>'+
@@ -17155,7 +17359,8 @@ function v514RenderSeparator(element){
 
     if(typ==="miejscowosc"){
         return (
-            '<li class="trasa-separator trasa-miejscowosc-429">'+
+            '<li class="trasa-separator trasa-miejscowosc-429'+(mostTerminalu?' v560-most-terminalu':'')+'">'+
+            (mostTerminalu?'<span class="v560-os-przelotowa" aria-hidden="true"></span>':'')+
             '<span class="trasa-separator-title">'+
             escapeHtml(tekst)+
             '</span>'+
@@ -17174,7 +17379,8 @@ function v514RenderSeparator(element){
                 : tekstTrasyMale;
 
         return (
-            '<li class="trasa-separator v496-opis v514-trasa-w-kursach">'+
+            '<li class="trasa-separator v496-opis v514-trasa-w-kursach'+(mostTerminalu?' v560-most-terminalu':'')+'">'+
+            (mostTerminalu?'<span class="v560-os-przelotowa" aria-hidden="true"></span>':'')+
             '<span class="trasa-separator-title">'+
             escapeHtml(tekstTrasy)+
             '</span>'+
@@ -17317,18 +17523,37 @@ function v514RenderGotowejListy(){
         x=>v486Text(x?.typ)==="przystanek"
     ).length;
 
+    /*
+       V560:
+       true oznacza, że poprzedni wyrenderowany PRZYSTANEK był
+       końcowy-przelotowy. Wszystkie separatory między nim a kolejnym
+       przystankiem dostają pionowy most osi.
+    */
+    let mostPoTerminaluPrzelotowym=false;
+
     elements.forEach(element=>{
         const typ=v486Text(element?.typ);
 
         if(typ==="przystanek"){
+
             rows+=v514RenderStop(
                 element,
                 stopPosition,
                 stopCount
             );
+
             stopPosition++;
+
+            mostPoTerminaluPrzelotowym=
+                element?.koncowy===true &&
+                element?.kontynuacja===true;
+
         }else{
-            rows+=v514RenderSeparator(element);
+
+            rows+=v514RenderSeparator(
+                element,
+                mostPoTerminaluPrzelotowym
+            );
         }
     });
 
