@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 580 -->
+<!-- WERSJA: 581 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -976,11 +976,7 @@
 
 
 
-<!-- =========================================================
-     FWTP V532 — MIEJSCOWOŚĆ I STREFA
-     PONIŻSZE STYLE SĄ SKOPIOWANE 1:1 Z ORYGINALNEGO PLIKU.
-     NIE MODYFIKOWAĆ.
-     ========================================================= -->
+
 <style>
         /* =========================================================
            STRONA
@@ -5698,55 +5694,16 @@ html body .tabliczka .v514-lista
 </style>
 
 </head>
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 493
-     BAZA WIZUALNA / ROZKŁAD: 478
-     LISTA PRZYSTANKÓW: CAŁKOWICIE NOWY SILNIK JSON
-     ========================================================= -->
 
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 493
-     TABELA / WYGLĄD: zachowane
-     LISTA PRZYSTANKÓW: JEDEN WSPÓLNY SILNIK JSON
 
-     FIZYCZNIE USUNIĘTO:
-     - osobny silnik 134
-     - późniejsze patche linii 126/131/134/150/170/401
-     - stare funkcje budowania gałęzi, wydłużeń i wyjątków tras
 
-     PRZEBIEG:
-     wybrany przystanek -> kursy[] -> kurs.trasa[] -> ID -> przystanki
-     ========================================================= -->
 
-<!-- =========================================================
-     FWTP — WERSJA 488
-     POPRAWKA PO FIZYCZNYM USUNIĘCIU STAREGO SILNIKA:
-     usunięto pozostałe odwołania do skasowanych __bezCache_*
-     ========================================================= -->
 
-<!-- =========================================================
-     FWTP — WERSJA 488
-     - przywrócona tabela rozkładu po usunięciu starego silnika
-     - pełne kurs.trasa, także przystanki przed wybranym
-     - wykrywanie wspólnych odcinków wariantów z nowego JSON
-     ========================================================= -->
-<!-- =========================================================
-     FWTP — WERSJA 493
-     POPRAWKA: TABELA ROZKŁADU
-     Tabela nie korzysta już ze starej logiki kierunków/listy.
-     Kursy są pobierane bezpośrednio z kursy[] wybranego
-     przystanku w nowym JSON.
-     ========================================================= -->
-<!-- =========================================================
-     FWTP — WERSJA 493
-     NAPRAWA: udzialWariantuANaAktywnymPrzystanku213
-     Nie przywrócono starego silnika tras.
-     ========================================================= -->
-<!-- =========================================================
-     FWTP — WERSJA 493
-     V490 pozostaje bazą dla dnia powszedniego.
-     Weekend C jest tylko dołożony z drugiego bloku "rozkłady".
-     ========================================================= -->
+
+
+
+
+
 <body>
 <header class="topbar">
 <div class="logo">FWTP</div>
@@ -16274,20 +16231,353 @@ function v486StopZone(p){
 
 function v486DirectionName(){
     /*
-       V580
-       Nazwa kierunku NIE może wynikać z ostatniego elementu
-       kierunek.przystanki, bo ta lista może kończyć się na punkcie
-       wspólnym/logicznym (np. KS POLONEZ), a nie na prawdziwym krańcu.
+       V581
 
-       Najpierw używamy nazwy kierunku z JSON, jeżeli istnieje.
-       Jeżeli jej nie ma, szukamy najdłuższej rzeczywistej kurs.trasa
-       w tym kierunku we wszystkich typach dni i bierzemy jej ostatni
-       pasażerski przystanek. Dzięki temu nagłówek pokazuje rzeczywisty
-       kierunek, np. OLESIN albo METRO MARYMONT.
+       Kierunek nagłówka wyznaczamy WYŁĄCZNIE z kursów,
+       które rzeczywiście obsługują aktualnie wybrany przystanek.
+
+       Zasada:
+       1. zbierz kursy dostępne na wybranym przystanku,
+       2. odrzuć kursy skrócone jako źródło głównego kierunku,
+       3. ustal podstawowy kraniec z najczęściej występującego
+          końca pełnych tras,
+       4. jeżeli istnieje rzeczywiste wydłużenie podstawowej trasy,
+          pokaż: PODSTAWOWY KRANIEC / KRANIEC WYDŁUŻENIA,
+       5. nigdy nie bierz kierunku z kursu, który nie przejeżdża
+          przez aktualnie wybrany przystanek.
     */
 
     const k = v486CurrentDirection();
 
+    /*
+       Jeżeli JSON ma jawnie wpisany kierunek, nie używamy go
+       automatycznie, ponieważ dla konkretnego przystanku może
+       istnieć inny dostępny zestaw kursów (np. linia 150).
+    */
+
+    const wybranyId =
+        v486Text(wybranyPrzystanekId) ||
+        v486Text(wybranyPrzystanek?.id);
+
+    const wybranaNazwa = wybranyPrzystanek
+        ? v486StopName(wybranyPrzystanek)
+        : "";
+
+    const wybranyNr = wybranyPrzystanek
+        ? v486StopNumber(wybranyPrzystanek)
+        : "";
+
+    function tenSamWybranyPrzystanek(p){
+        if(!p){
+            return false;
+        }
+
+        const id = v486StopId(p);
+
+        if(
+            wybranyId &&
+            id &&
+            id === wybranyId
+        ){
+            return true;
+        }
+
+        return (
+            wybranaNazwa &&
+            v486StopName(p) === wybranaNazwa &&
+            v486StopNumber(p) === wybranyNr
+        );
+    }
+
+    function znajdzStopPoId(id){
+        id = v486Text(id);
+
+        if(!id){
+            return null;
+        }
+
+        for(const rozklad of v486Array(daneLinii?.rozkłady)){
+            const kier = v486Array(rozklad?.kierunki)[
+                Number(aktualnyKierunek)
+            ];
+
+            for(const p of v486Array(kier?.przystanki)){
+                if(v486StopId(p) === id){
+                    return p;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function koniecPasazerskiKursu(kurs){
+        const trasa = v486Array(kurs?.trasa);
+
+        if(!trasa.length){
+            return null;
+        }
+
+        /*
+           Jeżeli exporter podał koniec_trasy, jest to źródło
+           nadrzędne. W przeciwnym razie idziemy od końca kurs.trasa
+           i pomijamy TECH.
+        */
+        const jawnyKoniec =
+            v486Text(kurs?.koniec_trasy);
+
+        if(jawnyKoniec){
+            const p = znajdzStopPoId(jawnyKoniec);
+
+            if(
+                p &&
+                v486StopType(p) !== "TECH"
+            ){
+                return p;
+            }
+        }
+
+        for(let i=trasa.length-1; i>=0; i--){
+            const p = znajdzStopPoId(trasa[i]);
+
+            if(
+                p &&
+                v486StopType(p) !== "TECH"
+            ){
+                return p;
+            }
+        }
+
+        return null;
+    }
+
+    function kursObslugujeWybrany(kurs){
+        const trasa = v486Array(kurs?.trasa);
+
+        if(!trasa.length){
+            return false;
+        }
+
+        if(wybranyId && trasa.includes(wybranyId)){
+            return true;
+        }
+
+        /*
+           Fallback dla różnych LP tego samego fizycznego
+           przystanku w innych typach dnia.
+        */
+        for(const id of trasa){
+            const p = znajdzStopPoId(id);
+
+            if(tenSamWybranyPrzystanek(p)){
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    const kursy = [];
+    const widziane = new Set();
+
+    /*
+       Zbieramy kursy ze wszystkich typów dnia, ale tylko te,
+       które naprawdę przechodzą przez aktualny przystanek.
+    */
+    v486Array(daneLinii?.rozkłady).forEach((rozklad, rIdx)=>{
+        const kier = v486Array(rozklad?.kierunki)[
+            Number(aktualnyKierunek)
+        ];
+
+        v486Array(kier?.przystanki).forEach((p, pIdx)=>{
+            if(!tenSamWybranyPrzystanek(p)){
+                return;
+            }
+
+            v486Array(p?.kursy).forEach((kurs, kIdx)=>{
+                if(!kursObslugujeWybrany(kurs)){
+                    return;
+                }
+
+                const trasa = v486Array(kurs?.trasa);
+                const klucz =
+                    rIdx + "|" +
+                    v486Text(kurs?.numer) + "|" +
+                    v486Text(kurs?.czas) + "|" +
+                    trasa.join(">");
+
+                if(widziane.has(klucz)){
+                    return;
+                }
+
+                widziane.add(klucz);
+
+                const koniec = koniecPasazerskiKursu(kurs);
+
+                if(!koniec){
+                    return;
+                }
+
+                kursy.push({
+                    kurs,
+                    trasa,
+                    koniec,
+                    koniecId: v486StopId(koniec),
+                    koniecNazwa: v486StopName(koniec),
+                    opis:
+                        v486Text(kurs?.opis) ||
+                        v486Text(kurs?.uwagi) ||
+                        ""
+                });
+            });
+        });
+    });
+
+    if(kursy.length){
+        /*
+           Najpierw szukamy podstawowego końca.
+           Kurs skrócony nie może zmienić głównego kierunku.
+        */
+        const pelne = kursy.filter(x=>{
+            const opis = (
+                x.opis + " " +
+                v486Text(x.kurs?.wariant_opis) + " " +
+                v486Text(x.kurs?.opis_wariantu)
+            ).toLowerCase();
+
+            return !opis.includes("skrócon");
+        });
+
+        const baza = pelne.length ? pelne : kursy;
+
+        const stat = new Map();
+
+        baza.forEach(x=>{
+            const key =
+                v486Text(x.koniecNazwa).toUpperCase();
+
+            if(!key){
+                return;
+            }
+
+            if(!stat.has(key)){
+                stat.set(key,{
+                    nazwa: x.koniecNazwa,
+                    count: 0,
+                    maxLen: 0,
+                    sample: x
+                });
+            }
+
+            const a = stat.get(key);
+            a.count++;
+            a.maxLen = Math.max(
+                a.maxLen,
+                x.trasa.length
+            );
+        });
+
+        let podstawowy = null;
+
+        for(const a of stat.values()){
+            if(
+                !podstawowy ||
+                a.count > podstawowy.count ||
+                (
+                    a.count === podstawowy.count &&
+                    a.maxLen < podstawowy.maxLen
+                )
+            ){
+                podstawowy = a;
+            }
+        }
+
+        if(podstawowy){
+            /*
+               Szukamy rzeczywistego wydłużenia:
+               trasa wydłużona musi zawierać podstawowy kraniec
+               i mieć po nim jeszcze pasażerski koniec.
+            */
+            const rozszerzenia = new Map();
+
+            for(const x of baza){
+                if(
+                    v486Text(x.koniecNazwa).toUpperCase() ===
+                    v486Text(podstawowy.nazwa).toUpperCase()
+                ){
+                    continue;
+                }
+
+                let idxPodstawowego = -1;
+
+                for(let i=0; i<x.trasa.length; i++){
+                    const p = znajdzStopPoId(x.trasa[i]);
+
+                    if(
+                        p &&
+                        v486StopName(p).toUpperCase() ===
+                        v486Text(podstawowy.nazwa).toUpperCase()
+                    ){
+                        idxPodstawowego = i;
+                        break;
+                    }
+                }
+
+                if(
+                    idxPodstawowego >= 0 &&
+                    idxPodstawowego < x.trasa.length - 1
+                ){
+                    const key =
+                        v486Text(x.koniecNazwa).toUpperCase();
+
+                    if(!rozszerzenia.has(key)){
+                        rozszerzenia.set(key,{
+                            nazwa: x.koniecNazwa,
+                            count: 0,
+                            maxLen: 0
+                        });
+                    }
+
+                    const a = rozszerzenia.get(key);
+                    a.count++;
+                    a.maxLen = Math.max(
+                        a.maxLen,
+                        x.trasa.length
+                    );
+                }
+            }
+
+            let wydluzony = null;
+
+            for(const a of rozszerzenia.values()){
+                if(
+                    !wydluzony ||
+                    a.count > wydluzony.count ||
+                    (
+                        a.count === wydluzony.count &&
+                        a.maxLen > wydluzony.maxLen
+                    )
+                ){
+                    wydluzony = a;
+                }
+            }
+
+            if(wydluzony){
+                return (
+                    podstawowy.nazwa +
+                    " / " +
+                    wydluzony.nazwa
+                );
+            }
+
+            return podstawowy.nazwa;
+        }
+    }
+
+    /*
+       Fallback dla starszych danych:
+       tylko kursy/przystanki dostępne w aktualnym kierunku.
+    */
     const direct =
         v486Text(k?.nazwa) ||
         v486Text(k?.kierunek);
@@ -16296,66 +16586,6 @@ function v486DirectionName(){
         return direct;
     }
 
-    let najlepszaTrasa = [];
-
-    v486Array(daneLinii?.rozkłady).forEach(rozklad=>{
-        const kier = v486Array(rozklad?.kierunki)[
-            Number(aktualnyKierunek)
-        ];
-
-        v486Array(kier?.przystanki).forEach(p=>{
-            v486Array(p?.kursy).forEach(kurs=>{
-                const trasa = v486Array(kurs?.trasa);
-
-                if(trasa.length > najlepszaTrasa.length){
-                    najlepszaTrasa = trasa;
-                }
-            });
-        });
-    });
-
-    if(najlepszaTrasa.length){
-        /*
-           Szukamy od końca, bo ostatni wpis może być TECH.
-           ID rozwiązujemy po wszystkich rozkładach tego kierunku,
-           a nie tylko po aktualnym kierunek.przystanki.
-        */
-        for(let i=najlepszaTrasa.length-1; i>=0; i--){
-            const id = v486Text(najlepszaTrasa[i]);
-
-            if(!id){
-                continue;
-            }
-
-            let znaleziony = null;
-
-            for(const rozklad of v486Array(daneLinii?.rozkłady)){
-                const kier = v486Array(rozklad?.kierunki)[
-                    Number(aktualnyKierunek)
-                ];
-
-                znaleziony =
-                    v486Array(kier?.przystanki)
-                        .find(p => v486StopId(p) === id) ||
-                    null;
-
-                if(znaleziony){
-                    break;
-                }
-            }
-
-            if(
-                znaleziony &&
-                v486StopType(znaleziony) !== "TECH"
-            ){
-                return v486StopName(znaleziony);
-            }
-        }
-    }
-
-    /*
-       Ostateczny fallback tylko dla starych JSON-ów bez kurs.trasa.
-    */
     const stops = v486BaseStops()
         .filter(p => v486StopType(p) !== "TECH");
 
@@ -21916,11 +22146,7 @@ body .tabliczka:has(.kierunki-dwa)
 }
 </style>
 
-<!-- =========================================================
-     FWTP — POPRAWKA DWUKIERUNKOWA LINII 150
-     WERSJA PLIKU: 476
-     BAZA: WERSJA 465
-     ========================================================= -->
+
 <style id="wersja-467-linia-150-dziekanow">
 /*
    WERSJA 467
@@ -21976,11 +22202,7 @@ body .tabliczka:has(.kierunki-dwa)
 }
 </style>
 
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 468
-     BAZA: WERSJA 467
-     POPRAWKA GEOMETRII OSI + KOŃCA WYDŁUŻENIA
-     ========================================================= -->
+
 <style id="wersja-468-os-trasy">
 /*
    468:
@@ -22054,11 +22276,7 @@ body .tabliczka:has(.kierunki-dwa)
 }
 </style>
 
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 469
-     BAZA: WERSJA 468
-     POPRAWKA: JEDNA OŚ + JEDEN WIERSZ PRZYSTANKU
-     ========================================================= -->
+
 <style id="wersja-469-jedna-os-jeden-wiersz">
 /* =========================================================
    WERSJA 469
@@ -22182,16 +22400,7 @@ body .tabliczka:has(.kierunki-dwa)
 }
 </style>
 
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 470
-     BAZA: WERSJA 469
 
-     POPRAWKA:
-     - początek osi tylko w PIERWSZEJ kolumnie całej trasy;
-     - następna kolumna jest KONTYNUACJĄ, więc pion wchodzi od góry;
-     - zmiana kierunku nie może powodować ponownego oznaczania
-       pierwszego przystanku każdej kolumny jako początku trasy.
-     ========================================================= -->
 <style id="wersja-470-kontynuacja-kolumn">
 /*
    Prawdziwy pierwszy przystanek CAŁEGO widoku:
@@ -22236,20 +22445,7 @@ body .tabliczka:has(.kierunki-dwa)
 }
 </style>
 
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 471
-     BAZA: WERSJA 470
 
-     POPRAWKA NA PODSTAWIE DZIAŁAJĄCEGO WYGLĄDU LINII 126:
-     - położenie kropki/osi liczone od stałego punktu 8 px,
-       a NIE od 50% wysokości wiersza;
-     - po zmianach DOM ponownie uruchamiane jest standardowe
-       ustawZawijanieNazwTrasy(), tak jak przy zwykłej linii 126;
-     - jednowierszowy przystanek nie dziedziczy wysokości
-       dwuwierszowego przystanku użytego wcześniej jako wzór;
-     - pierwsza kolumna zaczyna oś od kropki;
-     - następna kolumna, jeżeli jest kontynuacją, ma oś od góry.
-     ========================================================= -->
 <style id="wersja-471-jak-126">
 /*
    W bazowym, działającym rendererze kropka znajduje się 8 px
@@ -22337,19 +22533,9 @@ body .tabliczka.kierunki-dwa-471
 }
 </style>
 
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 472
-     BAZA: WERSJA 471
-     POPRAWKA: USUNIĘCIE FAŁSZYWEGO ZAWIJANIA NAZW
-     ========================================================= -->
 
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 473
-     BAZA: WERSJA 472
-     - zawijanie nazw wraca do mechanizmu normalnych tras
-     - usunięcie fałszywej miejscowości po IZABELIN-DZIEKANÓWEK
-     - usunięcie czarnej osi poniżej końca trasy
-     ========================================================= -->
+
+
 <style id="wersja-473-normalne-zawijanie-i-koniec">
 /* WERSJA 476: z 473 zostawiamy tutaj WYŁĄCZNIE obsługę końca trasy. */
 /*
@@ -22381,11 +22567,7 @@ body .tabliczka.kierunki-dwa-473
 
 </style>
 
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 476
-     BAZA: WERSJA 473
-     ZAWIJANIE: PRZYWRÓCONE DOKŁADNIE Z WERSJI 460
-     ========================================================= -->
+
 
 
 <style id="fwtp-v511-ostateczny-koniec-trasy">
