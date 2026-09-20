@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 578 -->
+<!-- WERSJA: 580 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -16273,6 +16273,19 @@ function v486StopZone(p){
 
 
 function v486DirectionName(){
+    /*
+       V580
+       Nazwa kierunku NIE może wynikać z ostatniego elementu
+       kierunek.przystanki, bo ta lista może kończyć się na punkcie
+       wspólnym/logicznym (np. KS POLONEZ), a nie na prawdziwym krańcu.
+
+       Najpierw używamy nazwy kierunku z JSON, jeżeli istnieje.
+       Jeżeli jej nie ma, szukamy najdłuższej rzeczywistej kurs.trasa
+       w tym kierunku we wszystkich typach dni i bierzemy jej ostatni
+       pasażerski przystanek. Dzięki temu nagłówek pokazuje rzeczywisty
+       kierunek, np. OLESIN albo METRO MARYMONT.
+    */
+
     const k = v486CurrentDirection();
 
     const direct =
@@ -16283,6 +16296,66 @@ function v486DirectionName(){
         return direct;
     }
 
+    let najlepszaTrasa = [];
+
+    v486Array(daneLinii?.rozkłady).forEach(rozklad=>{
+        const kier = v486Array(rozklad?.kierunki)[
+            Number(aktualnyKierunek)
+        ];
+
+        v486Array(kier?.przystanki).forEach(p=>{
+            v486Array(p?.kursy).forEach(kurs=>{
+                const trasa = v486Array(kurs?.trasa);
+
+                if(trasa.length > najlepszaTrasa.length){
+                    najlepszaTrasa = trasa;
+                }
+            });
+        });
+    });
+
+    if(najlepszaTrasa.length){
+        /*
+           Szukamy od końca, bo ostatni wpis może być TECH.
+           ID rozwiązujemy po wszystkich rozkładach tego kierunku,
+           a nie tylko po aktualnym kierunek.przystanki.
+        */
+        for(let i=najlepszaTrasa.length-1; i>=0; i--){
+            const id = v486Text(najlepszaTrasa[i]);
+
+            if(!id){
+                continue;
+            }
+
+            let znaleziony = null;
+
+            for(const rozklad of v486Array(daneLinii?.rozkłady)){
+                const kier = v486Array(rozklad?.kierunki)[
+                    Number(aktualnyKierunek)
+                ];
+
+                znaleziony =
+                    v486Array(kier?.przystanki)
+                        .find(p => v486StopId(p) === id) ||
+                    null;
+
+                if(znaleziony){
+                    break;
+                }
+            }
+
+            if(
+                znaleziony &&
+                v486StopType(znaleziony) !== "TECH"
+            ){
+                return v486StopName(znaleziony);
+            }
+        }
+    }
+
+    /*
+       Ostateczny fallback tylko dla starych JSON-ów bez kurs.trasa.
+    */
     const stops = v486BaseStops()
         .filter(p => v486StopType(p) !== "TECH");
 
