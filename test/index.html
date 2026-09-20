@@ -1,30 +1,5 @@
 <!DOCTYPE html>
-
-<!-- =========================================================
-     FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 576
-     BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
-     DATA: 2026-09-20
-     V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
-     V561: TERMINAL PRZELOTOWY + POPRAWNA GEOMETRIA KOŃCA + SEPARATOR BEZ OSI
-     ========================================================= -->
-
-<!-- =========================================================
-     FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 575
-     1. lista trasy renderowana 1:1 z lista_przystankowa.elementy[]
-     2. wyszukiwarka/select pokazuje przystanki ze wszystkich typów dnia
-     3. brak kursów w istniejącym typie dnia = NIE KURSUJE
-     4. NŻ w gotowej liście korzysta z typ_przystanku z JSON
-     ========================================================= -->
-
-<!-- =========================================================
-     FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 576
-     POPRAWKA: wybór przystanku = wszystkie pasażerskie przystanki
-     ze wszystkich typów dnia dla danego kierunku; TECH pomijany.
-     ========================================================= -->
-
+<!-- WERSJA: 578 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -7904,19 +7879,25 @@ function katalogPrzystankowPasazerskichV576(indexKierunku){
 
         if(!maKursPasazerski)return;
 
-        if(!mapa.has(id)){
-            mapa.set(id,p);
-            kolejnosc.push(id);
+        const klucz=[
+            String(p?.nazwa_czysta||p?.nazwa||'')
+                .trim().toUpperCase(),
+            String(p?.nr||'').trim().toUpperCase()
+        ].join('|');
+
+        if(!mapa.has(klucz)){
+            mapa.set(klucz,p);
+            kolejnosc.push(klucz);
         }else{
             /* Preferujemy bogatszy obiekt, np. z lista_przystankowa. */
-            const stary=mapa.get(id);
+            const stary=mapa.get(klucz);
             const staryModel=Array.isArray(stary?.lista_przystankowa?.elementy)
                 ? stary.lista_przystankowa.elementy.length : 0;
             const nowyModel=Array.isArray(p?.lista_przystankowa?.elementy)
                 ? p.lista_przystankowa.elementy.length : 0;
 
             if(nowyModel>staryModel){
-                mapa.set(id,p);
+                mapa.set(klucz,p);
             }
         }
     };
@@ -17451,6 +17432,69 @@ function v514StopPoId(id){
     ) || null;
 }
 
+function v577KluczStopu(p){
+    return [
+        String(p?.nazwa_czysta||p?.nazwa||'').trim().toUpperCase(),
+        String(p?.nr||'').trim().toUpperCase()
+    ].join('|');
+}
+
+function v577NajczestszyCzasZCalegoTygodnia(targetId){
+
+    const baza=kierunekBazowy();
+    const current=baza?.przystanki?.[aktualnyPrzystanek]||null;
+    if(!current)return null;
+
+    const aId=String(targetId||'').split('|');
+    const targetKey=[
+        String(aId.length>=2?aId[aId.length-2]:'').trim().toUpperCase(),
+        String(aId.length>=1?aId[aId.length-1]:'').trim().toUpperCase()
+    ].join('|');
+
+    const currentKey=v577KluczStopu(current);
+    const roznice=[];
+
+    (daneLinii?.rozkłady||[]).forEach(rozklad=>{
+        const kier=Array.isArray(rozklad?.kierunki)
+            ? rozklad.kierunki[aktualnyKierunek]
+            : null;
+        const stops=kier?.przystanki||[];
+        const a=stops.find(p=>v577KluczStopu(p)===currentKey);
+        const b=stops.find(p=>v577KluczStopu(p)===targetKey);
+        if(!a||!b)return;
+
+        const mb=new Map();
+        (b?.kursy||[]).forEach(k=>{
+            const nr=String(k?.numer||'').trim();
+            const t=czasNaMinuty(k?.czas);
+            if(nr&&t!==null)mb.set(nr,t);
+        });
+
+        (a?.kursy||[]).forEach(k=>{
+            const nr=String(k?.numer||'').trim();
+            const ta=czasNaMinuty(k?.czas);
+            if(!nr||ta===null||!mb.has(nr))return;
+            let d=mb.get(nr)-ta;
+            if(d<0)d+=1440;
+            if(d>=0&&d<1440)roznice.push(d);
+        });
+    });
+
+    if(!roznice.length)return null;
+
+    const licz=new Map();
+    roznice.forEach(v=>licz.set(v,(licz.get(v)||0)+1));
+
+    let best=null,bestCount=-1;
+    licz.forEach((count,value)=>{
+        if(count>bestCount||(count===bestCount&&(best===null||value>best))){
+            best=value;
+            bestCount=count;
+        }
+    });
+    return best;
+}
+
 function v514MinutyDoPrzystanku(targetId){
     const active=v486CurrentStop();
     if(!active)return null;
@@ -17680,10 +17724,19 @@ function v514RenderStop(element,position,total){
         element?.czas_przejazdu!=="" &&
         Number.isFinite(czasZJSON);
 
+    const czasZTygodnia=
+        maCzasZJSON
+            ? null
+            : v577NajczestszyCzasZCalegoTygodnia(id);
+
     const minutesRaw=
         maCzasZJSON
             ? czasZJSON
-            : v514MinutyDoPrzystanku(id);
+            : (
+                Number.isFinite(czasZTygodnia)
+                    ? czasZTygodnia
+                    : v514MinutyDoPrzystanku(id)
+            );
 
     /*
        Od V106 stan "miniety" jest również zapisany bezpośrednio
