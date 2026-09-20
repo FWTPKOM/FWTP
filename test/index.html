@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 569
+     WERSJA: 570
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-20
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -17509,18 +17509,48 @@ function v514RenderStop(element,position,total){
         );
 
     /*
-       FWTP V555:
-       Liczymy czas względem aktualnie wybranego przystanku.
-       Jeżeli jest ujemny, ten przystanek został już minięty.
+       =========================================================
+       FWTP WERSJA 570
+       CZAS PRZEJAZDU POCHODZI BEZPOŚREDNIO Z JSON V106
+       =========================================================
 
-       Dzięki temu nie polegamy wyłącznie na element.stan z JSON.
-       Na przykład -1 przy poprzednim Izabelin-Dziekanówek
-       oznacza teraz automatycznie przystanek minięty.
+       VBA V106 zapisuje przy każdym przyszłym przystanku:
+           "czas_przejazdu": N
+
+       Jest to już gotowa, jedna wartość:
+       - policzona tylko z kursów obsługujących oba przystanki,
+       - najczęstsza dla danego odcinka/trasy,
+       - przy remisie wybrana jest większa wartość.
+
+       HTML NIE przelicza już czasu z kursów i NIE próbuje
+       wybierać własnego wariantu przejazdu.
+
+       Dla starszych JSON-ów zostawiamy bezpieczny fallback
+       do dotychczasowej funkcji, ale dla JSON V106 zawsze
+       pierwszeństwo ma element.czas_przejazdu.
     */
-    const minutesRaw=
-        v514MinutyDoPrzystanku(id);
+    const czasZJSON=
+        Number(element?.czas_przejazdu);
 
+    const maCzasZJSON=
+        element?.czas_przejazdu!==undefined &&
+        element?.czas_przejazdu!==null &&
+        element?.czas_przejazdu!=="" &&
+        Number.isFinite(czasZJSON);
+
+    const minutesRaw=
+        maCzasZJSON
+            ? czasZJSON
+            : v514MinutyDoPrzystanku(id);
+
+    /*
+       Od V106 stan "miniety" jest również zapisany bezpośrednio
+       w gotowej liście. Dla nowych danych nie wyznaczamy go
+       z ujemnego czasu, bo czas_przejazdu dotyczy przyszłości.
+       Ujemny fallback zachowujemy wyłącznie dla starszych JSON-ów.
+    */
     const minietyPoCzasie=
+        !maCzasZJSON &&
         typeof minutesRaw==="number" &&
         Number.isFinite(minutesRaw) &&
         minutesRaw < 0;
