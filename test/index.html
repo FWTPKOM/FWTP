@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 575
+     WERSJA: 576
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-20
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -16,6 +16,13 @@
      2. wyszukiwarka/select pokazuje przystanki ze wszystkich typów dnia
      3. brak kursów w istniejącym typie dnia = NIE KURSUJE
      4. NŻ w gotowej liście korzysta z typ_przystanku z JSON
+     ========================================================= -->
+
+<!-- =========================================================
+     FWTP — TABLICZKA PRZYSTANKOWA
+     WERSJA: 576
+     POPRAWKA: wybór przystanku = wszystkie pasażerskie przystanki
+     ze wszystkich typów dnia dla danego kierunku; TECH pomijany.
      ========================================================= -->
 
 <html lang="pl">
@@ -7858,129 +7865,127 @@ function kierunkiAktywneDlaBiezacegoPrzystanku(){
 
 
 
-function kierunekBazowy(){
+function katalogPrzystankowPasazerskichV576(indexKierunku){
 
-    /*
+    /* =========================================================
+       FWTP V576 — JEDEN KATALOG WSZYSTKICH PRZYSTANKÓW PASAŻERSKICH
        =========================================================
-       FWTP V575 — PEŁNA LISTA PRZYSTANKÓW DLA KIERUNKU
-       =========================================================
-       Nie wybieramy już jednego "najpełniejszego" bloku dnia.
+       Źródłem listy wyboru nie jest już jeden rozkład ani jeden
+       typ dnia. Zbieramy dokładne ID przystanków ze WSZYSTKICH
+       bloków rozkładów dla wybranego kierunku.
 
-       Linia może mieć przystanek tylko w sobotę/święto albo tylko
-       w dzień powszedni. Wyszukiwarka/select ma mimo to pokazać
-       KAŻDY fizyczny przystanek występujący w którymkolwiek
-       rozkładzie tego kierunku.
+       Do wyboru trafia każdy przystanek, na którym istnieje
+       przynajmniej jeden rzeczywisty kurs pasażerski w dowolnym
+       typie dnia. TECH jest pomijany.
 
-       Obiekt konkretnego przystanku bierzemy z pierwszego bloku,
-       w którym występuje. Dzięki temu zachowujemy jego:
-       - id,
-       - nr,
-       - typ,
-       - kursy,
-       - lista_przystankowa.
-    */
+       Przykład 134:
+       - TORUŃSKA 05 — dzień powszedni -> MUSI być do wyboru,
+       - SUWALSKA / METRO BRÓDNO — weekend -> MUSZĄ być do wyboru,
+       - PKP TORUŃSKA z odpowiednich przebiegów -> także.
+       ========================================================= */
 
-    const bazowy=
-        znajdzNajpelniejszyKierunek(
-            aktualnyKierunek
+    const mapa=new Map();
+    const kolejnosc=[];
+
+    const dodaj=p=>{
+        if(!p)return;
+
+        const id=v486StopId(p);
+        if(!id)return;
+
+        const typ=String(p?.typ||p?.typ_przystanku||'')
+            .trim().toUpperCase();
+
+        if(typ==='TECH')return;
+
+        const maKursPasazerski=(p?.kursy||[]).some(k=>
+            czasNaMinuty(k?.czas)!==null
         );
 
-    if(!bazowy){
-        return null;
-    }
+        if(!maKursPasazerski)return;
 
-    const wynik={
-        ...bazowy,
-        przystanki:[]
+        if(!mapa.has(id)){
+            mapa.set(id,p);
+            kolejnosc.push(id);
+        }else{
+            /* Preferujemy bogatszy obiekt, np. z lista_przystankowa. */
+            const stary=mapa.get(id);
+            const staryModel=Array.isArray(stary?.lista_przystankowa?.elementy)
+                ? stary.lista_przystankowa.elementy.length : 0;
+            const nowyModel=Array.isArray(p?.lista_przystankowa?.elementy)
+                ? p.lista_przystankowa.elementy.length : 0;
+
+            if(nowyModel>staryModel){
+                mapa.set(id,p);
+            }
+        }
     };
 
-    const widziane=new Set();
+    (daneLinii?.rozkłady||[]).forEach(rozklad=>{
+        const k=Array.isArray(rozklad?.kierunki)
+            ? rozklad.kierunki[indexKierunku]
+            : null;
 
-    (
-        daneLinii?.rozkłady||
-        []
-    ).forEach(rozklad=>{
-
-        const k=
-            Array.isArray(rozklad?.kierunki)
-                ? rozklad.kierunki[aktualnyKierunek]
-                : null;
-
-        (
-            k?.przystanki||
-            []
-        ).forEach(p=>{
-
-            const id=v486StopId(p);
-
-            if(!id || widziane.has(id)){
-                return;
-            }
-
-            widziane.add(id);
-            wynik.przystanki.push(p);
-        });
+        (k?.przystanki||[]).forEach(dodaj);
     });
 
-    return wynik;
+    return kolejnosc.map(id=>mapa.get(id)).filter(Boolean);
+}
+
+
+function kierunekBazowy(){
+
+    const bazowy=znajdzNajpelniejszyKierunek(aktualnyKierunek);
+    if(!bazowy)return null;
+
+    return {
+        ...bazowy,
+        przystanki:katalogPrzystankowPasazerskichV576(
+            aktualnyKierunek
+        )
+    };
 }
 
 
 function wypelnijPrzystanki(){
 
-    const select=
-        document.getElementById(
-            "przystanekSelect"
+    const select=document.getElementById('przystanekSelect');
+    const lista=kierunekBazowy()?.przystanki||[];
+
+    /* Zachowujemy dokładne ID, a nie sam indeks. */
+    const poprzedni=lista[aktualnyPrzystanek]||null;
+    const poprzednieId=v486StopId(poprzedni);
+
+    select.innerHTML='';
+
+    lista.forEach((p,index)=>{
+        const option=document.createElement('option');
+        option.value=String(index);
+        option.dataset.stopId=v486StopId(p);
+        option.textContent=(
+            String(p?.nazwa_czysta||p?.nazwa||'').trim()+
+            ' '+
+            String(p?.nr||'').trim()
+        ).trim();
+        select.appendChild(option);
+    });
+
+    if(poprzednieId){
+        const znaleziony=lista.findIndex(
+            p=>v486StopId(p)===poprzednieId
         );
-
-    const k=
-        kierunekBazowy();
-
-    const lista=
-        k?.przystanki||
-        [];
+        if(znaleziony>=0)aktualnyPrzystanek=znaleziony;
+    }
 
     if(
-        aktualnyPrzystanek<0||
-        aktualnyPrzystanek>=
-            lista.length
+        aktualnyPrzystanek<0 ||
+        aktualnyPrzystanek>=lista.length
     ){
         aktualnyPrzystanek=0;
     }
 
-    select.innerHTML="";
-
-    lista.forEach(
-        (p,index)=>{
-
-            const option=
-                document.createElement(
-                    "option"
-                );
-
-            option.value=
-                String(index);
-
-            option.textContent=
-                String(
-                    p.nazwa||""
-                )+
-                " "+
-                String(
-                    p.nr||""
-                );
-
-            select.appendChild(option);
-        }
-    );
-
-    select.disabled=
-        !lista.length;
-
-    select.value=
-        String(
-            aktualnyPrzystanek
-        );
+    select.disabled=!lista.length;
+    select.value=String(aktualnyPrzystanek);
 }
 
 
