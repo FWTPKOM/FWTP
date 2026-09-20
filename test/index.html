@@ -2,7 +2,7 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 570
+     WERSJA: 571
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-20
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
@@ -8319,35 +8319,28 @@ function v493KursyInnychRozkladowDlaAktywnegoPrzystanku(){
 function pobierzKursyDlaSymbolu(symbol){
 
     /*
-       Dzień powszedni: dokładnie mechanizm z działającej V490.
-       Dzięki temu D i DF znów są widoczne.
+       =========================================================
+       FWTP WERSJA 571
+       WSZYSTKIE TYPY DNIA ZAWSZE ZE WSZYSTKICH ROZKŁADÓW
+       =========================================================
+
+       W V570 symbol D był pobierany wyłącznie z v486CurrentStop(),
+       czyli z aktualnie wybranego bloku rozkładu. Gdy aktywny był
+       blok SOBOTA I ŚWIĘTO, funkcja nie mogła zobaczyć kursów D
+       znajdujących się w osobnym obiekcie daneLinii.rozkłady[].
+
+       Od V571 D, C, 6 i 7 są pobierane dokładnie tą samą metodą:
+       przeszukujemy WSZYSTKIE bloki daneLinii.rozkłady[] i szukamy
+       tego samego fizycznego przystanku w odpowiednim kierunku.
+
+       Wybrana data NIE decyduje już o tym, które typy dnia są
+       widoczne na tabliczce. Data nadal może służyć pozostałej
+       logice strony, ale sekcja tabel pokazuje wszystkie typy dnia,
+       które istnieją dla danego przystanku.
     */
-    if(symbol==="D"){
-        const p=v486CurrentStop();
 
-        return v486Array(p?.kursy)
-            .filter(kurs=>{
-                if(czasNaMinuty(kurs?.czas)===null){
-                    return false;
-                }
-
-                return grupaDnia(kurs)==="D";
-            })
-            .map(kurs=>({
-                ...kurs,
-                _kierunekIndex:aktualnyKierunek,
-                _przystanekIndex:aktualnyPrzystanek
-            }));
-    }
-
-    /*
-       Weekend: szukamy dokładnego ID przystanku we wszystkich
-       blokach "rozkłady". W przesłanym 150.json weekend ma uwagi C.
-    */
-    return v493KursyInnychRozkladowDlaAktywnegoPrzystanku()
-        .filter(kurs=>grupaDnia(kurs)===symbol);
+    return __bezCache_pobierzKursyDlaSymbolu(symbol);
 }
-
 
 
 function __bezCache_dostepneGrupyDni(){
@@ -8488,44 +8481,14 @@ function __bezCache_dostepneGrupyDni(){
 
 function dostepneGrupyDni(){
 
-    const wynik=[];
-
-    const d=pobierzKursyDlaSymbolu("D");
-    const c=pobierzKursyDlaSymbolu("C");
-    const s6=pobierzKursyDlaSymbolu("6");
-    const s7=pobierzKursyDlaSymbolu("7");
-
-    if(d.length){
-        wynik.push({
-            symbol:"D",
-            tytul:"DZIEŃ POWSZEDNI"
-        });
-    }
-
-    if(c.length){
-        wynik.push({
-            symbol:"C",
-            tytul:"SOBOTA I ŚWIĘTO"
-        });
-    }else{
-        if(s6.length){
-            wynik.push({
-                symbol:"6",
-                tytul:"SOBOTA"
-            });
-        }
-
-        if(s7.length){
-            wynik.push({
-                symbol:"7",
-                tytul:"ŚWIĘTO"
-            });
-        }
-    }
-
-    return wynik;
+    /*
+       V571:
+       lista kolumn nie zależy od wybranej daty ani od aktualnie
+       aktywnego bloku rozkładu. Używamy pełnego skanowania wszystkich
+       daneLinii.rozkłady[].
+    */
+    return __bezCache_dostepneGrupyDni();
 }
-
 
 
 /* =========================================================
