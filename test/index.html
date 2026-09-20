@@ -2,11 +2,20 @@
 
 <!-- =========================================================
      FWTP — TABLICZKA PRZYSTANKOWA
-     WERSJA: 574
+     WERSJA: 575
      BAZA: tabliczka_poprawiona_170_wykorzystanie_miejsca_i_rowne_wiersze.html
      DATA: 2026-09-20
      V477: MIEJSCOWOŚĆ / STREFA / PRZEBIEG KURSU Z JSON V38+
      V561: TERMINAL PRZELOTOWY + POPRAWNA GEOMETRIA KOŃCA + SEPARATOR BEZ OSI
+     ========================================================= -->
+
+<!-- =========================================================
+     FWTP — TABLICZKA PRZYSTANKOWA
+     WERSJA: 575
+     1. lista trasy renderowana 1:1 z lista_przystankowa.elementy[]
+     2. wyszukiwarka/select pokazuje przystanki ze wszystkich typów dnia
+     3. brak kursów w istniejącym typie dnia = NIE KURSUJE
+     4. NŻ w gotowej liście korzysta z typ_przystanku z JSON
      ========================================================= -->
 
 <html lang="pl">
@@ -7851,9 +7860,69 @@ function kierunkiAktywneDlaBiezacegoPrzystanku(){
 
 function kierunekBazowy(){
 
-    return znajdzNajpelniejszyKierunek(
-        aktualnyKierunek
-    );
+    /*
+       =========================================================
+       FWTP V575 — PEŁNA LISTA PRZYSTANKÓW DLA KIERUNKU
+       =========================================================
+       Nie wybieramy już jednego "najpełniejszego" bloku dnia.
+
+       Linia może mieć przystanek tylko w sobotę/święto albo tylko
+       w dzień powszedni. Wyszukiwarka/select ma mimo to pokazać
+       KAŻDY fizyczny przystanek występujący w którymkolwiek
+       rozkładzie tego kierunku.
+
+       Obiekt konkretnego przystanku bierzemy z pierwszego bloku,
+       w którym występuje. Dzięki temu zachowujemy jego:
+       - id,
+       - nr,
+       - typ,
+       - kursy,
+       - lista_przystankowa.
+    */
+
+    const bazowy=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    if(!bazowy){
+        return null;
+    }
+
+    const wynik={
+        ...bazowy,
+        przystanki:[]
+    };
+
+    const widziane=new Set();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(rozklad=>{
+
+        const k=
+            Array.isArray(rozklad?.kierunki)
+                ? rozklad.kierunki[aktualnyKierunek]
+                : null;
+
+        (
+            k?.przystanki||
+            []
+        ).forEach(p=>{
+
+            const id=v486StopId(p);
+
+            if(!id || widziane.has(id)){
+                return;
+            }
+
+            widziane.add(id);
+            wynik.przystanki.push(p);
+        });
+    });
+
+    return wynik;
 }
 
 
@@ -8379,52 +8448,75 @@ function pobierzKursyDlaSymbolu(symbol){
 function __bezCache_dostepneGrupyDni(){
 
     /*
-       WERSJA 572
+       =========================================================
+       FWTP V575 — WSZYSTKIE TYPY DNIA + NIE KURSUJE
+       =========================================================
+       O tym, jakie TABELE dnia istnieją, decyduje cała linia /
+       kierunek, a nie wyłącznie aktualnie wybrany przystanek.
 
-       Typy dnia wynikają z rzeczywiście znalezionych kursów
-       na aktualnym przystanku we wszystkich blokach rozkładu.
-       Data z URL nie filtruje tej listy.
+       Jeżeli np. linia ma SOBOTĘ I ŚWIĘTO, ale wybrany przystanek
+       nie jest wtedy obsługiwany, tabela nadal jest widoczna.
+       renderDzien() dostaje wtedy 0 kursów i pokazuje NIE KURSUJE.
     */
+
+    let maD=false;
+    let maC=false;
+    let ma6=false;
+    let ma7=false;
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(rozklad=>{
+
+        const k=
+            Array.isArray(rozklad?.kierunki)
+                ? rozklad.kierunki[aktualnyKierunek]
+                : null;
+
+        (
+            k?.przystanki||
+            []
+        ).forEach(p=>{
+
+            (
+                p?.kursy||
+                []
+            ).forEach(kurs=>{
+
+                const g=grupaDnia(kurs);
+
+                if(g==="D") maD=true;
+                else if(g==="C") maC=true;
+                else if(g==="6") ma6=true;
+                else if(g==="7") ma7=true;
+            });
+        });
+    });
 
     const wynik=[];
 
-    const d=
-        __bezCache_pobierzKursyDlaSymbolu("D");
-
-    const c=
-        __bezCache_pobierzKursyDlaSymbolu("C");
-
-    const s6=
-        __bezCache_pobierzKursyDlaSymbolu("6");
-
-    const s7=
-        __bezCache_pobierzKursyDlaSymbolu("7");
-
-    if(d.length){
+    if(maD){
         wynik.push({
             symbol:"D",
             tytul:"DZIEŃ POWSZEDNI"
         });
     }
 
-    if(c.length){
-
+    if(maC){
         wynik.push({
             symbol:"C",
             tytul:"SOBOTA I ŚWIĘTO"
         });
-
-    }
-    else{
-
-        if(s6.length){
+    }else{
+        if(ma6){
             wynik.push({
                 symbol:"6",
                 tytul:"SOBOTA"
             });
         }
 
-        if(s7.length){
+        if(ma7){
             wynik.push({
                 symbol:"7",
                 tytul:"ŚWIĘTO"
@@ -10173,7 +10265,7 @@ function renderDzien(grupa,wspolneGodziny){
             kursy
         );
 
-    const godziny=
+    let godziny=
         Array.isArray(
             wspolneGodziny
         )&&
@@ -10182,6 +10274,29 @@ function renderDzien(grupa,wspolneGodziny){
             : [
                 ...mapa.keys()
             ];
+
+    /*
+       V575:
+       Gdy ten typ dnia istnieje dla linii, ale na wybranym
+       przystanku nie ma ani jednego kursu, zachowujemy wysokość
+       tabeli na podstawie pozostałych widocznych typów dnia.
+       Dzięki temu renderDzien() zawsze może pokazać NIE KURSUJE.
+    */
+    if(!godziny.length && kursy.length===0){
+        const wszystkieGodziny=[];
+
+        ["D","C","6","7"].forEach(sym=>{
+            __bezCache_pobierzKursyDlaSymbolu(sym)
+                .forEach(k=>{
+                    const c=rozbijCzas(k?.czas);
+                    if(c && !wszystkieGodziny.includes(c.godzina)){
+                        wszystkieGodziny.push(c.godzina);
+                    }
+                });
+        });
+
+        godziny=wszystkieGodziny.sort((a,b)=>a-b);
+    }
 
     let body="";
 
@@ -17670,7 +17785,14 @@ function v514RenderStop(element,position,total){
         terminalKoncowyDwuwierszowy
             ?"v568-terminal-koncowy v568-terminal-koncowy-dwuwierszowy"
             :"",
-        p && czyNZ(p)?"nz":""
+        (
+            String(element?.typ_przystanku||p?.typ||"")
+                .trim()
+                .toUpperCase()==="NŻ" ||
+            String(element?.typ_przystanku||p?.typ||"")
+                .trim()
+                .toUpperCase()==="NZ"
+        )?"nz":""
     ].filter(Boolean).join(" ");
 
     let v569Typ="";
@@ -17712,7 +17834,18 @@ function v514RenderStop(element,position,total){
         '</span>'+
 
         '<span class="trasa-nz'+v569NZ+'">'+
-        (p && czyNZ(p)?"ż":"")+
+        (
+            (
+                String(element?.typ_przystanku||p?.typ||"")
+                    .trim()
+                    .toUpperCase()==="NŻ" ||
+                String(element?.typ_przystanku||p?.typ||"")
+                    .trim()
+                    .toUpperCase()==="NZ"
+            )
+                ? "ż"
+                : ""
+        )+
         '</span>'+
 
         '</li>'
@@ -18054,30 +18187,37 @@ function v498UstawNaglowek(ile){
 }
 
 function v498PobierzStrumienWierszy(columns){
+
     /*
-       V496 może mieć wspólną część i kilka gałęzi.
-       Do starego splittera przekazujemy jeden ciąg gotowych wierszy:
-       separatory + przystanki, dokładnie w kolejności DOM.
+       =========================================================
+       FWTP V575 — KOLEJNOŚĆ 1:1 Z JSON
+       =========================================================
+       Dla gotowej listy VBA nie wyszukujemy elementów kilkoma
+       selektorami i nie próbujemy ponownie interpretować gałęzi.
+
+       Bierzemy WYŁĄCZNIE bezpośrednie dzieci <ul> w kolejności DOM.
+       Ta kolejność jest dokładnie kolejnością:
+           lista_przystankowa.elementy[]
+
+       Czyli dla 134:
+           K/E -> SUWALSKA / METRO BRÓDNO / ...
+           bez oznaczeń/Z -> TORUŃSKA
+       i splitter kolumn nie może już zamienić tych fragmentów.
     */
+
     const main=columns.querySelector(":scope > .v496-kol") ||
                columns.querySelector(":scope > .trasa-kol");
 
     if(!main)return [];
 
-    const result=[];
+    const lista=
+        main.querySelector(":scope > .v514-lista") ||
+        main.querySelector(":scope > .trasa-lista");
 
-    main.querySelectorAll(
-        ".trasa-separator, .trasa-lista > .trasa-stop, .trasa-lista > li"
-    ).forEach(el=>{
-        /*
-           Nie dodajemy li drugi raz, jeżeli selektor trafił go
-           jednocześnie jako .trasa-stop i jako li.
-        */
-        if(result.includes(el))return;
-        result.push(el);
-    });
+    if(!lista)return [];
 
-    return result.map(el=>el.outerHTML);
+    return Array.from(lista.children)
+        .map(el=>el.outerHTML);
 }
 
 function v498RenderGrupy(columns,grupy){
