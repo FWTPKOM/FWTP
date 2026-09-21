@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 602 -->
+<!-- WERSJA: 603 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -10653,7 +10653,12 @@ function symbolKursuDwukierunkowego(
             kurs?._kierunekIndex
         );
 
+    /*
+       V603: jeżeli kurs ma wariant zapisany w JSON,
+       używamy dokładnie tej litery.
+    */
     const litera=
+        String(kurs?.wariant||"").trim().toUpperCase()||
         literaWariantuPoRzeczywistymPrzebiegu(
             {
                 ...kurs,
@@ -10851,18 +10856,48 @@ function v602CzyWariantMaInnyKoniecNizBaza(kurs){
 function symbolWariantu(kurs,symbolDnia){
 
     /*
-       V574:
-       litera przy minucie ma być IDENTYCZNA z literą używaną
-       przez gotową listę przystanków.
+       =========================================================
+       FWTP TABLICZKA — WERSJA 603
+       kurs.wariant Z JSON JEST ŹRÓDŁEM PRAWDY
+       =========================================================
 
-       1. Ustalamy fizyczny wariant kursu istniejącą funkcją,
-          tą samą rodziną logiki, z której korzysta lista.
-       2. Pokazujemy go TYLKO wtedy, gdy taka litera rzeczywiście
-          występuje w lista_przystankowa.elementy[].
-       3. Jeżeli lista mówi "bez oznaczeń", kurs bez widocznej
-          litery również pozostaje bez litery w tabeli.
+       Jeżeli JSON kursu zawiera:
+           "wariant": "C"
+       HTML ma pokazać:
+           C
+
+       Nie wolno zamieniać C na "w", "g", "i" itd. na podstawie
+       ponownego analizowania fizycznego przebiegu.
+
+       Wyjątek zachowujemy tylko dla A:
+       A nadal podlega istniejącej zasadzie widoczności wariantu A.
     */
 
+    const wariantJSON=
+        String(
+            kurs?.wariant||
+            ""
+        )
+        .trim()
+        .toUpperCase();
+
+    if(wariantJSON){
+
+        if(wariantJSON==="A"){
+
+            return czyPokazacWariantJakLiniaHTML("A")
+                ? "A"
+                : "";
+
+        }
+
+        return wariantJSON;
+    }
+
+    /*
+       Fallback wyłącznie dla starszych JSON-ów, które nie mają
+       pola kurs.wariant.
+    */
     const dir=
         Number.isInteger(
             Number(kurs?._kierunekIndex)
@@ -10870,7 +10905,7 @@ function symbolWariantu(kurs,symbolDnia){
             ? Number(kurs._kierunekIndex)
             : aktualnyKierunek;
 
-    const literaFizyczna=
+    const literaFallback=
         String(
             literaWariantuPoRzeczywistymPrzebiegu(
                 {
@@ -10880,85 +10915,23 @@ function symbolWariantu(kurs,symbolDnia){
                 },
                 dir
             )||
-            kurs?.wariant||
             ""
         )
         .trim()
         .toUpperCase();
 
-    if(!literaFizyczna){
+    if(!literaFallback){
         return "";
     }
 
-    /*
-       V602:
-       kurs.koniec_trasy jest jawnie zapisany w JSON.
-       Jeśli wariant ma inny koniec niż baza A, jego litera musi
-       być widoczna przy minucie także wtedy, gdy lista przystankowa
-       nie ma osobnego separatora dla tego skrócenia.
-    */
-    if(
-        v602CzyWariantMaInnyKoniecNizBaza(
-            {
-                ...kurs,
-                wariant:literaFizyczna
-            }
-        )
-    ){
-        return literaFizyczna;
+    if(literaFallback==="A"){
+        return czyPokazacWariantJakLiniaHTML("A")
+            ? "A"
+            : "";
     }
 
-    const widoczne=
-        v574LiteryWidoczneNaLisciePrzystankow();
-
-    if(widoczne.has(literaFizyczna)){
-        return literaFizyczna;
-    }
-
-    /*
-       =========================================================
-       FWTP WERSJA 587 — WARIANT SKRÓCONY BEZ SEPARATORA TRASY
-       =========================================================
-
-       Wariant skrócony (np. B na linii 126 do BARTNICZEJ) może
-       być prawidłowo zapisany w kurs.wariant oraz kierunek.warianty,
-       ale nie musi występować w lista_przystankowa jako separator
-       "TRASA W KURSACH ...".
-
-       V574 ukrywała wtedy literę przy minucie, a renderLegenda()
-       automatycznie ukrywał także jej opis.
-
-       Dopuszczamy więc publiczny wariant również wtedy, gdy jego
-       opis jednoznacznie mówi, że jest to kurs skrócony.
-
-       Nie otwieramy tej reguły dla wszystkich wariantów — dzięki
-       temu dotychczasowa logika separatorów dla 126/134/150 zostaje
-       bez zmian.
-    */
-    const mapa=
-        mapaWariantow();
-
-    const opis=
-        String(
-            mapa.get(literaFizyczna)||
-            ""
-        ).trim();
-
-    const jestPublicznymSkroceniem=
-        publiczneLiteryWariantow().has(
-            literaFizyczna
-        )&&
-        /skrócon|skrocon|tylko\s+do/i.test(
-            opis
-        );
-
-    if(jestPublicznymSkroceniem){
-        return literaFizyczna;
-    }
-
-    return "";
+    return literaFallback;
 }
-
 
 
 function v573CzyRozneTrasyMiedzyTypamiDnia(){
