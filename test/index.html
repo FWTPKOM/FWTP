@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 603 -->
+<!-- WERSJA: 606 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -9019,6 +9019,101 @@ function znajdzPrzystanekWRozkladzie(
 }
 
 
+
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 606
+   NIE POKAZUJ KURSU, KTÓRY KOŃCZY NA AKTUALNYM PRZYSTANKU
+   =========================================================
+
+   Rozkład na przystanku pokazuje ODJAZDY z tego przystanku.
+
+   Jeżeli:
+       kurs.koniec_trasy === ID aktualnego przystanku
+   albo – dla starszego JSON-u – ostatni element kurs.trasa
+   jest aktualnym przystankiem,
+
+   to ten kurs właśnie tutaj kończy i NIE może być pokazany
+   jako odjazd.
+
+   Przykład 110:
+       CM. PÓŁNOCNY-BRAMA ZACH. 03
+
+   Kurs C:
+       ... -> WIDOKOWA 02 -> CM. PÓŁNOCNY-BRAMA ZACH. 03 [KONIEC]
+
+   Na Metro Marymont kurs C jest normalnie widoczny z literą C.
+   Na CM. PÓŁNOCNY-BRAMA ZACH. kurs C znika z tabeli,
+   bo z tego przystanku już nie odjeżdża.
+
+   Kurs W przejeżdżający przez ten przystanek pozostaje.
+   ========================================================= */
+
+function v606CzyKursKonczyNaAktualnymPrzystanku(
+    kurs,
+    przystanek
+){
+
+    const aktualnyId=
+        String(
+            typeof v486StopId==="function"
+                ? v486StopId(przystanek)
+                : przystanek?.id||""
+        )
+        .trim();
+
+    if(!aktualnyId){
+        return false;
+    }
+
+    const koniec=
+        String(
+            kurs?.koniec_trasy||
+            ""
+        )
+        .trim();
+
+    /*
+       Główne źródło prawdy – jawny koniec_trasy z JSON-u.
+    */
+    if(
+        koniec&&
+        koniec===aktualnyId
+    ){
+        return true;
+    }
+
+    /*
+       Fallback dla starszych danych:
+       ostatni dokładny ID w kurs.trasa.
+    */
+    const trasa=
+        Array.isArray(kurs?.trasa)
+            ? kurs.trasa
+            : [];
+
+    if(trasa.length){
+
+        const ostatniId=
+            String(
+                trasa[
+                    trasa.length-1
+                ]||
+                ""
+            )
+            .trim();
+
+        if(
+            ostatniId&&
+            ostatniId===aktualnyId
+        ){
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
 function __bezCache_pobierzKursyDlaSymbolu(symbol){
 
     /*
@@ -9085,6 +9180,21 @@ function __bezCache_pobierzKursyDlaSymbolu(symbol){
                         czasNaMinuty(
                             kurs?.czas
                         )===null
+                    ){
+                        return;
+                    }
+
+                    /*
+                       V606:
+                       czas na przystanku końcowym jest czasem
+                       przyjazdu/zakończenia kursu, a nie odjazdem.
+                       Taki kurs nie trafia do tabeli rozkładu.
+                    */
+                    if(
+                        v606CzyKursKonczyNaAktualnymPrzystanku(
+                            kurs,
+                            p
+                        )
                     ){
                         return;
                     }
@@ -10855,7 +10965,7 @@ function v602CzyWariantMaInnyKoniecNizBaza(kurs){
 
 
 /* =========================================================
-   FWTP TABLICZKA — WERSJA 605
+   FWTP TABLICZKA — WERSJA 606
    CZY LITERA WARIANTU W DANYM TYPIE DNIA COKOLWIEK ROZRÓŻNIA?
    =========================================================
 
@@ -10879,7 +10989,7 @@ function v602CzyWariantMaInnyKoniecNizBaza(kurs){
      litera pozostaje widoczna.
    ========================================================= */
 
-function v605CzyWariantJestJedynyWTymTypieDnia(
+function v606CzyWariantJestJedynyWTymTypieDnia(
     wariant,
     symbolDnia
 ){
@@ -10966,7 +11076,7 @@ function symbolWariantu(kurs,symbolDnia){
 
     /*
        =========================================================
-       FWTP TABLICZKA — WERSJA 605
+       FWTP TABLICZKA — WERSJA 606
        kurs.wariant Z JSON JEST ŹRÓDŁEM PRAWDY
        + UKRYCIE LITERY, GDY W DANYM TYPIE DNIA
          WSZYSTKIE KURSY Z TEGO PRZYSTANKU MAJĄ TEN SAM WARIANT
@@ -11003,7 +11113,7 @@ function symbolWariantu(kurs,symbolDnia){
         }
 
         /*
-           V605:
+           V606:
            SKRÓCENIE MA PIERWSZEŃSTWO.
 
            Jeżeli wariant oznacza kurs skrócony / kurs tylko do
@@ -11018,7 +11128,7 @@ function symbolWariantu(kurs,symbolDnia){
            Dopiero zwykły wariant przebiegu, np. W przez WIDOKOWĄ,
            można ukryć, jeżeli w C wszystkie kursy jadą właśnie W.
         */
-        const opisV605=
+        const opisV606=
             String(
                 mapaWariantow().get(
                     wariantJSON
@@ -11027,7 +11137,7 @@ function symbolWariantu(kurs,symbolDnia){
             )
             .trim();
 
-        const jestSkroceniemV605=
+        const jestSkroceniemV606=
             v602CzyWariantMaInnyKoniecNizBaza(
                 {
                     ...kurs,
@@ -11035,15 +11145,15 @@ function symbolWariantu(kurs,symbolDnia){
                 }
             )||
             /skrócon|skrocon|tylko\s+do/i.test(
-                opisV605
+                opisV606
             );
 
-        if(jestSkroceniemV605){
+        if(jestSkroceniemV606){
             return wariantJSON;
         }
 
         if(
-            v605CzyWariantJestJedynyWTymTypieDnia(
+            v606CzyWariantJestJedynyWTymTypieDnia(
                 wariantJSON,
                 symbolDnia
             )
@@ -11091,9 +11201,9 @@ function symbolWariantu(kurs,symbolDnia){
     }
 
     /*
-       V605: również w starszym JSON-ie nie chowamy skrócenia.
+       V606: również w starszym JSON-ie nie chowamy skrócenia.
     */
-    const opisFallbackV605=
+    const opisFallbackV606=
         String(
             mapaWariantow().get(
                 literaFallback
@@ -11102,14 +11212,14 @@ function symbolWariantu(kurs,symbolDnia){
         )
         .trim();
 
-    const jestSkroceniemFallbackV605=
+    const jestSkroceniemFallbackV606=
         /skrócon|skrocon|tylko\s+do/i.test(
-            opisFallbackV605
+            opisFallbackV606
         );
 
     if(
-        !jestSkroceniemFallbackV605&&
-        v605CzyWariantJestJedynyWTymTypieDnia(
+        !jestSkroceniemFallbackV606&&
+        v606CzyWariantJestJedynyWTymTypieDnia(
             literaFallback,
             symbolDnia
         )
@@ -24958,7 +25068,7 @@ html body .tabliczka .trasa-separator.v514-trasa-w-kursach .v560-os-przelotowa {
 </html>
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 605
+     FWTP — WERSJA PLIKU: 606
      BAZA: V603
      POPRAWKA:
      - litera wariantu jest ukrywana w danym typie dnia,
@@ -24971,7 +25081,7 @@ html body .tabliczka .trasa-separator.v514-trasa-w-kursach .v560-os-przelotowa {
 
 
 <!-- =========================================================
-     FWTP — WERSJA PLIKU: 605
+     FWTP — WERSJA PLIKU: 606
      BAZA: V604
      POPRAWKA:
      - zwykły wariant jest nadal ukrywany, jeżeli w danym typie
@@ -24983,4 +25093,19 @@ html body .tabliczka .trasa-separator.v514-trasa-w-kursach .v560-os-przelotowa {
        do cmentarza;
      - C na przystanku, z którego wszystkie kursy jadą W,
        nadal może ukryć niepotrzebne "w".
+     ========================================================= -->
+
+
+<!-- =========================================================
+     FWTP — WERSJA PLIKU: 606
+     BAZA: V605
+     POPRAWKA:
+     - kurs kończący się dokładnie na aktualnie oglądanym
+       przystanku nie jest pokazywany jako odjazd;
+     - sprawdzamy przede wszystkim kurs.koniec_trasy;
+     - fallback: ostatni dokładny ID z kurs.trasa;
+     - kurs skrócony nadal jest widoczny na wcześniejszych
+       przystankach i zachowuje swoją literę;
+     - kurs przejeżdżający przez aktualny przystanek pozostaje;
+     - D i C korzystają z tej samej reguły.
      ========================================================= -->
