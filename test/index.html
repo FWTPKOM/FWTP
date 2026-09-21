@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 593 -->
+<!-- WERSJA: 594 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -6083,6 +6083,24 @@ html body .tabliczka .v514-lista
 }
 </style>
 
+
+<style id="FWTP-V594-CSS">
+/* =========================================================
+   FWTP — WERSJA 594
+   POŁOŻENIE NAGŁÓWKÓW + WARUNKI NAPISU POD ROZKŁADEM
+   ========================================================= */
+
+/* TRASA CZASOWO ZMIENIONA */
+.naglowek-tabliczki .trasa-czasowo-zmieniona-588 {
+    top: -10px !important;
+}
+
+/* LINIA ZWYKŁA */
+.naglowek-tabliczki:has(.trasa-czasowo-zmieniona-588) .typ-linii {
+    top: -9px !important;
+}
+</style>
+
 </head>
 
 
@@ -6592,6 +6610,7 @@ let daneLinii=null;
 let manifestPaczek=null;
 let waznyOdDanych="";
 let zakresPaczekDanych="";
+let paczkaSpecjalnaDanych=false;
 
 const parametry=
     new URLSearchParams(
@@ -7238,10 +7257,33 @@ function v590FormatujDateZakresu(iso){
 }
 
 function v590NapisZakresuPaczek(){
-    const czesci=String(zakresPaczekDanych||"").split("|");
-
-    if(czesci.length!==2 || !czesci[0] || !czesci[1]){
+    /*
+       V594:
+       napis pod rozkładem pokazujemy wyłącznie dla rozkładu
+       czasowo zmienionego i tylko wtedy, gdy:
+       1) użyta paczka ma zakres OD-DO, albo
+       2) nazwa użytej paczki zawiera słowo "specjalny".
+    */
+    if(daneLinii?.trasa_czasowo_zmieniona!==true){
         return "";
+    }
+
+    const czesci=String(zakresPaczekDanych||"").split("|");
+    const maZakres=
+        czesci.length===2 &&
+        !!czesci[0] &&
+        !!czesci[1];
+
+    if(!maZakres && !paczkaSpecjalnaDanych){
+        return "";
+    }
+
+    /*
+       Paczka "specjalny" bez pełnego zakresu OD-DO spełnia warunek
+       wyświetlania, ale nie wymyślamy daty, której w nazwie nie ma.
+    */
+    if(!maZakres){
+        return "ROZKŁAD JAZDY SPECJALNY";
     }
 
     const od=v590FormatujDateZakresu(czesci[0]);
@@ -7423,6 +7465,7 @@ async function pobierzLinie(
                Sama data początkowa nie wystarcza.
             */
             zakresPaczekDanych="";
+            paczkaSpecjalnaDanych=false;
 
             const folderPaczekV590=
                 String(zrodlo.folder||"");
@@ -7433,9 +7476,20 @@ async function pobierzLinie(
                     .filter(Boolean)
                     .pop()||"";
 
+            /*
+               V594:
+               "specjalny" może wystąpić w nazwie paczki niezależnie od
+               wielkości liter, np.:
+               specjalny
+               2026-09-19_specjalny
+               specjalny_2026-09-19_do_2026-09-20
+            */
+            paczkaSpecjalnaDanych=
+                /specjalny/i.test(nazwaPaczekV590);
+
             const dopasowaniePaczekV590=
                 nazwaPaczekV590.match(
-                    /^(\d{4}-\d{2}-\d{2})_do_(\d{4}-\d{2}-\d{2})$/
+                    /(\d{4}-\d{2}-\d{2})_do_(\d{4}-\d{2}-\d{2})/
                 );
 
             if(dopasowaniePaczekV590){
