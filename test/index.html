@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 601 -->
+<!-- WERSJA: 602 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -10757,6 +10757,97 @@ function v574LiteryWidoczneNaLisciePrzystankow(){
 }
 
 
+
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 602
+   WARIANT SKRÓCONY WEDŁUG kurs.koniec_trasy
+
+   Jeżeli JSON jawnie mówi, że wariant kończy się na innym
+   przystanku niż wariant bazowy A, HTML ma pokazać jego literę
+   przy minucie niezależnie od tego, czy separator
+   lista_przystankowa zawiera tę literę.
+
+   Przykład 110:
+       A -> CH ŁOMIANKI
+       C -> CM. PÓŁNOCNY-BRAMA ZACH.
+   więc weekendowe kursy C muszą mieć literę C.
+
+   Nie zmieniamy wariantów "przez ..." kończących się na tym
+   samym krańcu co A.
+   ========================================================= */
+function v602CzyWariantMaInnyKoniecNizBaza(kurs){
+
+    const wariant=
+        String(kurs?.wariant||"")
+            .trim()
+            .toUpperCase();
+
+    const koniec=
+        String(kurs?.koniec_trasy||"")
+            .trim();
+
+    if(!wariant || wariant==="A" || !koniec){
+        return false;
+    }
+
+    const kierunekIndex=
+        Number.isInteger(Number(kurs?._kierunekIndex))
+            ? Number(kurs._kierunekIndex)
+            : aktualnyKierunek;
+
+    const konceBazy=new Set();
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(rozklad=>{
+
+        const kierunek=
+            Array.isArray(rozklad?.kierunki)
+                ? rozklad.kierunki[kierunekIndex]
+                : null;
+
+        (
+            kierunek?.przystanki||
+            []
+        ).forEach(p=>{
+
+            (
+                p?.kursy||
+                []
+            ).forEach(k=>{
+
+                if(
+                    String(k?.wariant||"")
+                        .trim()
+                        .toUpperCase()!=="A"
+                ){
+                    return;
+                }
+
+                const terminal=
+                    String(k?.koniec_trasy||"")
+                        .trim();
+
+                if(terminal){
+                    konceBazy.add(terminal);
+                }
+            });
+        });
+    });
+
+    /*
+       Jeżeli A nie występuje jawnie, nie zgadujemy.
+       Dotychczasowa logika HTML pozostaje wtedy bez zmian.
+    */
+    if(!konceBazy.size){
+        return false;
+    }
+
+    return !konceBazy.has(koniec);
+}
+
+
 function symbolWariantu(kurs,symbolDnia){
 
     /*
@@ -10797,6 +10888,24 @@ function symbolWariantu(kurs,symbolDnia){
 
     if(!literaFizyczna){
         return "";
+    }
+
+    /*
+       V602:
+       kurs.koniec_trasy jest jawnie zapisany w JSON.
+       Jeśli wariant ma inny koniec niż baza A, jego litera musi
+       być widoczna przy minucie także wtedy, gdy lista przystankowa
+       nie ma osobnego separatora dla tego skrócenia.
+    */
+    if(
+        v602CzyWariantMaInnyKoniecNizBaza(
+            {
+                ...kurs,
+                wariant:literaFizyczna
+            }
+        )
+    ){
+        return literaFizyczna;
     }
 
     const widoczne=
