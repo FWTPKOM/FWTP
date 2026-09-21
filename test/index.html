@@ -10853,12 +10853,123 @@ function v602CzyWariantMaInnyKoniecNizBaza(kurs){
 }
 
 
+
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 604
+   CZY LITERA WARIANTU W DANYM TYPIE DNIA COKOLWIEK ROZRÓŻNIA?
+   =========================================================
+
+   Przykład 110 / CM. PÓŁNOCNY-BRAMA ZACH.:
+
+   D:
+       część kursów jedzie bez W,
+       część kursów ma W
+       => W MUSI być pokazane.
+
+   C:
+       wszystkie kursy z tego przystanku mają W
+       => W niczego nie rozróżnia i ma być ukryte.
+
+   Ważne:
+   - sprawdzamy tylko kursy dostępne na AKTUALNYM przystanku,
+   - sprawdzamy tylko JEDEN typ dnia (symbolDnia),
+   - nie zmieniamy danych JSON,
+   - nie zmieniamy litery na inną,
+   - jeżeli występuje kurs bez wariantu albo drugi wariant,
+     litera pozostaje widoczna.
+   ========================================================= */
+
+function v604CzyWariantJestJedynyWTymTypieDnia(
+    wariant,
+    symbolDnia
+){
+
+    const szukany=
+        String(
+            wariant||
+            ""
+        )
+        .trim()
+        .toUpperCase();
+
+    if(!szukany){
+        return false;
+    }
+
+    const kursy=
+        pobierzKursyDlaSymbolu(
+            symbolDnia
+        )||[];
+
+    if(!kursy.length){
+        return false;
+    }
+
+    let znalezionoKurs=false;
+
+    for(const kurs of kursy){
+
+        znalezionoKurs=true;
+
+        /*
+           Najpierw dokładna litera z JSON-u.
+           Dopiero dla starszych danych bez pola "wariant"
+           korzystamy z istniejącego fallbacku przebiegu.
+        */
+        let litera=
+            String(
+                kurs?.wariant||
+                ""
+            )
+            .trim()
+            .toUpperCase();
+
+        if(!litera){
+
+            const dir=
+                Number.isInteger(
+                    Number(kurs?._kierunekIndex)
+                )
+                    ? Number(kurs._kierunekIndex)
+                    : aktualnyKierunek;
+
+            litera=
+                String(
+                    literaWariantuPoRzeczywistymPrzebiegu(
+                        {
+                            ...kurs,
+                            symbol:symbolDnia,
+                            _kierunekIndex:dir
+                        },
+                        dir
+                    )||
+                    ""
+                )
+                .trim()
+                .toUpperCase();
+        }
+
+        /*
+           Choćby jeden kurs bez tej litery oznacza,
+           że wariant rzeczywiście rozróżnia kursy.
+        */
+        if(litera!==szukany){
+            return false;
+        }
+    }
+
+    return znalezionoKurs;
+}
+
+
 function symbolWariantu(kurs,symbolDnia){
 
     /*
        =========================================================
-       FWTP TABLICZKA — WERSJA 603
+       FWTP TABLICZKA — WERSJA 604
        kurs.wariant Z JSON JEST ŹRÓDŁEM PRAWDY
+       + UKRYCIE LITERY, GDY W DANYM TYPIE DNIA
+         WSZYSTKIE KURSY Z TEGO PRZYSTANKU MAJĄ TEN SAM WARIANT
        =========================================================
 
        Jeżeli JSON kursu zawiera:
@@ -10889,6 +11000,26 @@ function symbolWariantu(kurs,symbolDnia){
                 ? "A"
                 : "";
 
+        }
+
+        /*
+           V604:
+           Jeżeli WSZYSTKIE kursy widoczne na aktualnym przystanku
+           w tym samym typie dnia mają dokładnie ten sam wariant,
+           litera nie niesie informacji i jej nie pokazujemy.
+
+           Np. 110 / C / CM. PÓŁNOCNY-BRAMA ZACH.:
+           wszystkie kursy mają W -> minuty bez "w".
+
+           W D występują kursy różne -> "w" pozostaje.
+        */
+        if(
+            v604CzyWariantJestJedynyWTymTypieDnia(
+                wariantJSON,
+                symbolDnia
+            )
+        ){
+            return "";
         }
 
         return wariantJSON;
@@ -10928,6 +11059,15 @@ function symbolWariantu(kurs,symbolDnia){
         return czyPokazacWariantJakLiniaHTML("A")
             ? "A"
             : "";
+    }
+
+    if(
+        v604CzyWariantJestJedynyWTymTypieDnia(
+            literaFallback,
+            symbolDnia
+        )
+    ){
+        return "";
     }
 
     return literaFallback;
@@ -24769,3 +24909,15 @@ html body .tabliczka .trasa-separator.v514-trasa-w-kursach .v560-os-przelotowa {
 </script>
 </body>
 </html>
+
+<!-- =========================================================
+     FWTP — WERSJA PLIKU: 604
+     BAZA: V603
+     POPRAWKA:
+     - litera wariantu jest ukrywana w danym typie dnia,
+       jeżeli wszystkie kursy z aktualnego przystanku mają
+       dokładnie ten sam wariant;
+     - D i C są liczone osobno;
+     - jeżeli wariant rzeczywiście rozróżnia kursy, pozostaje;
+     - kurs.wariant z JSON nadal jest źródłem prawdy.
+     ========================================================= -->
