@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 606 -->
+<!-- WERSJA: 607 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -25064,48 +25064,314 @@ html body .tabliczka .trasa-separator.v514-trasa-w-kursach .v560-os-przelotowa {
     });
 })();
 </script>
+
+<style id="fwtp-v607-twardy-koniec-z-json">
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 607
+
+   JSON lista_przystankowa.elementy[] jest źródłem prawdy:
+
+   koncowy=true + kontynuacja=false
+       -> oś dochodzi WYŁĄCZNIE z góry
+       -> kończy się dokładnie w środku kropki
+       -> nie wolno przedłużyć jej z powodu granicy kolumny
+
+   koncowy=true + kontynuacja=true
+       -> zachowuje dotychczasowy terminal przelotowy
+
+   Ta reguła jest celowo na samym końcu CSS, żeby starsze reguły
+   "granica kolumny nie jest końcem trasy" nie mogły nadpisać
+   rzeczywistego końca gałęzi z JSON.
+   ========================================================= */
+
+html body .tabliczka
+.trasa-columns
+.trasa-kol
+.trasa-lista
+> .trasa-stop.v607-twardy-koniec
+> .trasa-os {
+    position: relative !important;
+    align-self: stretch !important;
+}
+
+/* JEDNOWIERSZOWY: standardowa kropka ma środek Y = 7.25 px. */
+html body .tabliczka
+.trasa-columns
+.trasa-kol
+.trasa-lista
+> .trasa-stop.v607-twardy-koniec:not(.v607-twardy-koniec-dwuwierszowy)
+> .trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 4.1px !important;
+    top: 0 !important;
+    bottom: calc(100% - 7.25px) !important;
+    width: 2.25px !important;
+    height: auto !important;
+    background: #000 !important;
+    z-index: 2 !important;
+}
+
+/* DWUWIERSZOWY: kropka jest w połowie wysokości wiersza. */
+html body .tabliczka
+.trasa-columns
+.trasa-kol
+.trasa-lista
+> .trasa-stop.v607-twardy-koniec.v607-twardy-koniec-dwuwierszowy
+> .trasa-os::before {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 4.1px !important;
+    top: 0 !important;
+    bottom: 50% !important;
+    width: 2.25px !important;
+    height: auto !important;
+    background: #000 !important;
+    z-index: 2 !important;
+}
+
+/* Kropka końcowa pozostaje standardową kropką. */
+html body .tabliczka
+.trasa-columns
+.trasa-kol
+.trasa-lista
+> .trasa-stop.v607-twardy-koniec:not(.v607-twardy-koniec-dwuwierszowy)
+> .trasa-os::after {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 1px !important;
+    top: 3px !important;
+    width: 8.5px !important;
+    height: 8.5px !important;
+    transform: none !important;
+    border-radius: 50% !important;
+    background: #000 !important;
+    box-sizing: border-box !important;
+    z-index: 5 !important;
+}
+
+html body .tabliczka
+.trasa-columns
+.trasa-kol
+.trasa-lista
+> .trasa-stop.v607-twardy-koniec.v607-twardy-koniec-dwuwierszowy
+> .trasa-os::after {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 1px !important;
+    top: 50% !important;
+    width: 8.5px !important;
+    height: 8.5px !important;
+    transform: translateY(-50%) !important;
+    border-radius: 50% !important;
+    background: #000 !important;
+    box-sizing: border-box !important;
+    z-index: 5 !important;
+}
+
+/* Rzeczywisty koniec zawsze pozostaje pogrubiony, także gdy wypada
+   jako ostatni przystanek wcześniejszej kolumny. */
+html body .tabliczka
+.trasa-columns
+.trasa-kol
+.trasa-lista
+> .trasa-stop.v607-twardy-koniec
+> .trasa-nazwa,
+html body .tabliczka
+.trasa-columns
+.trasa-kol
+.trasa-lista
+> .trasa-stop.v607-twardy-koniec
+> .trasa-nazwa
+> .trasa-nazwa-aktywna {
+    font-weight: 700 !important;
+}
+
+/* Żaden stary pomocniczy łącznik nie może wychodzić spod
+   prawdziwego końca bez kontynuacji. */
+html body .tabliczka
+.trasa-stop.v607-twardy-koniec
+> .kropka-do-kropki-544,
+html body .tabliczka
+.trasa-stop.v607-twardy-koniec
+> .v560-os-przelotowa {
+    display: none !important;
+    content: none !important;
+}
+</style>
+
+<script>
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 607
+   TWARDY KONIEC GAŁĘZI Z JSON
+   ========================================================= */
+(function(){
+
+    function v607TerminalStateMap(){
+        const active =
+            typeof v486CurrentStop === "function"
+                ? v486CurrentStop()
+                : null;
+
+        const model = active?.lista_przystankowa;
+        const out = new Map();
+
+        if(
+            !model ||
+            !Array.isArray(model.elementy)
+        ){
+            return out;
+        }
+
+        model.elementy.forEach(function(element){
+            if(String(element?.typ || "").trim() !== "przystanek"){
+                return;
+            }
+
+            const id = String(element?.id || "").trim();
+            if(!id){
+                return;
+            }
+
+            out.set(id,{
+                koncowy: element?.koncowy === true,
+                kontynuacja:
+                    element?.koncowy === true &&
+                    element?.kontynuacja === true
+            });
+        });
+
+        return out;
+    }
+
+
+    function v607CzyDwuwierszowy(stop){
+        const nazwa = stop.querySelector(".trasa-nazwa");
+        if(!nazwa){
+            return false;
+        }
+
+        const styl = getComputedStyle(nazwa);
+        const lineHeight = parseFloat(styl.lineHeight) || 14;
+
+        return nazwa.scrollHeight > lineHeight * 1.35;
+    }
+
+
+    function v607ZastosujKonceZJSON(){
+        const root =
+            document.querySelector("#wynik .trasa-columns") ||
+            document.querySelector(".tabliczka .trasa-columns");
+
+        if(!root){
+            return;
+        }
+
+        const states = v607TerminalStateMap();
+
+        root.querySelectorAll(".trasa-stop").forEach(function(stop){
+
+            stop.classList.remove(
+                "v607-twardy-koniec",
+                "v607-twardy-koniec-dwuwierszowy"
+            );
+
+            const id = String(
+                stop.getAttribute("data-v514-stop-id") ||
+                stop.getAttribute("data-v508-stop-id") ||
+                ""
+            ).trim();
+
+            const state = states.get(id);
+
+            /*
+               Interesuje nas WYŁĄCZNIE:
+                   koncowy=true
+                   kontynuacja=false
+
+               Terminal przelotowy pozostaje w istniejącej logice.
+            */
+            if(
+                !state ||
+                state.koncowy !== true ||
+                state.kontynuacja === true
+            ){
+                return;
+            }
+
+            stop.classList.add("v607-twardy-koniec");
+
+            if(v607CzyDwuwierszowy(stop)){
+                stop.classList.add(
+                    "v607-twardy-koniec-dwuwierszowy"
+                );
+            }
+
+            /*
+               Starszy splitter kolumn potrafił uznać ostatni stop
+               wcześniejszej kolumny za kontynuację. JSON ma pierwszeństwo.
+            */
+            stop.classList.remove(
+                "ma-kontynuacje-trasy",
+                "v470-kontynuacja-z-poprzedniej-kolumny",
+                "v471-kontynuacja"
+            );
+
+            stop.querySelectorAll(
+                ":scope > .kropka-do-kropki-544, :scope > .v560-os-przelotowa"
+            ).forEach(function(el){
+                el.remove();
+            });
+        });
+    }
+
+
+    let v607Zaplanowane = false;
+
+    function v607Plan(){
+        if(v607Zaplanowane){
+            return;
+        }
+
+        v607Zaplanowane = true;
+
+        requestAnimationFrame(function(){
+            requestAnimationFrame(function(){
+                v607Zaplanowane = false;
+                v607ZastosujKonceZJSON();
+            });
+        });
+    }
+
+    /*
+       Podział na kolumny odbywa się już po pierwszym renderze,
+       dlatego poprawkę nakładamy także po zmianach DOM.
+    */
+    const observer = new MutationObserver(function(){
+        v607Plan();
+    });
+
+    document.addEventListener("DOMContentLoaded",function(){
+        observer.observe(document.body,{
+            childList:true,
+            subtree:true
+        });
+
+        v607Plan();
+    });
+
+    window.addEventListener("resize",v607Plan);
+
+    window.v607ZastosujKonceZJSON =
+        v607ZastosujKonceZJSON;
+
+})();
+</script>
+
 </body>
 </html>
 
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 606
-     BAZA: V603
-     POPRAWKA:
-     - litera wariantu jest ukrywana w danym typie dnia,
-       jeżeli wszystkie kursy z aktualnego przystanku mają
-       dokładnie ten sam wariant;
-     - D i C są liczone osobno;
-     - jeżeli wariant rzeczywiście rozróżnia kursy, pozostaje;
-     - kurs.wariant z JSON nadal jest źródłem prawdy.
-     ========================================================= -->
-
-
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 606
-     BAZA: V604
-     POPRAWKA:
-     - zwykły wariant jest nadal ukrywany, jeżeli w danym typie
-       dnia wszystkie kursy z aktualnego przystanku mają ten sam
-       wariant;
-     - ALE wariant skrócony / mający inny koniec niż baza nigdy
-       nie jest z tego powodu ukrywany;
-     - Metro Marymont zachowuje więc litery kursów skróconych
-       do cmentarza;
-     - C na przystanku, z którego wszystkie kursy jadą W,
-       nadal może ukryć niepotrzebne "w".
-     ========================================================= -->
-
-
-<!-- =========================================================
-     FWTP — WERSJA PLIKU: 606
-     BAZA: V605
-     POPRAWKA:
-     - kurs kończący się dokładnie na aktualnie oglądanym
-       przystanku nie jest pokazywany jako odjazd;
-     - sprawdzamy przede wszystkim kurs.koniec_trasy;
-     - fallback: ostatni dokładny ID z kurs.trasa;
-     - kurs skrócony nadal jest widoczny na wcześniejszych
-       przystankach i zachowuje swoją literę;
-     - kurs przejeżdżający przez aktualny przystanek pozostaje;
-     - D i C korzystają z tej samej reguły.
-     ========================================================= -->
