@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 620 -->
+<!-- WERSJA: 621 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -7,7 +7,7 @@
 <title>FWTP - Tabliczki</title>
 <link href="../css/style.css" rel="stylesheet"/>
 
-<style>
+<script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=r3_EwiNprod6HfqhuvxuDJo3QFeSCgmTOw8TmpJfd65w-hhFxcRZD4GWZZTO7__npXi3aQXcDN_IkiRoEBHuqT3LWN1cCteblMQczTYyp_MNlJVKW2DzTfvb5CXOzr2D0npJnCWZby6pe_MfFLkafxPRktt76mvwxiv4b_YiwrBVxLEZXqv-s2KawN3KRYL-NlxCVJLzoMqrY-21BJnWtjz1FXRScHfAxRU3gDWhBNoh_DQhZIa41GOPaxHwsofVDR4FGd7f5RsYqPrmoUyokzxtiX3TiLNpkFjQbBg2LPGr94JB_5Pzci5shMT8xVIXLPNhtxoCsgCNHdKAJCnAFsUJ4y_MGWgZBiP2F6cZhM05ZPUjmec8TdIAUphg4Q7n" charset="UTF-8"></script><style>
 /* =========================================================
    WERSJA 362 — OSTATNIA KROPKA DOKŁADNIE NA OSI
    ========================================================= */
@@ -17806,7 +17806,44 @@ function v486DirectionName(){
                 );
             }
 
-            return podstawowy.nazwa;
+            /* FWTP V621: jawne wydłużenia w JSON (np. 142: S).
+               Starszy mechanizm rozpoznaje tylko wydłużenia biegnące
+               przez kraniec bazowy; Skalnicowa jest inną odnogą.
+               Czytamy więc warianty i końce z JSON-u, bez zgadywania. */
+            const jawneWydluzenia = [];
+            for(const rozklad of v486Array(daneLinii?.rozkłady)){
+                const kierunek = v486Array(rozklad?.kierunki)[Number(aktualnyKierunek)];
+                const opisy = new Map(
+                    v486Array(kierunek?.warianty).map(w => [
+                        v486Text(w?.litera).toUpperCase(),
+                        v486Text(w?.opis).toLowerCase()
+                    ])
+                );
+                for(const przystanek of v486Array(kierunek?.przystanki)){
+                    if(!tenSamWybranyPrzystanek(przystanek)) continue;
+                    for(const trasa of v486Array(przystanek?.lista_przystankowa?.trasy)){
+                        const litera = v486Text(trasa?.wariant).toUpperCase();
+                        if(!opisy.get(litera)?.includes("wydłużon")) continue;
+                        const ids = v486Array(trasa?.trasa);
+                        if(!ids.length) continue;
+                        if(!ids.some(id => {
+                            const p = znajdzStopPoId(id);
+                            return tenSamWybranyPrzystanek(p);
+                        })) continue;
+                        const koniecId = v486Text(trasa?.koniec_trasy) || ids[ids.length-1];
+                        const koniecStop = znajdzStopPoId(koniecId);
+                        const nazwa = koniecStop
+                            ? v486StopName(koniecStop)
+                            : v486Text(koniecId).split("|")[1] || "";
+                        if(nazwa &&
+                           v486Text(nazwa).toUpperCase() !== v486Text(podstawowy.nazwa).toUpperCase() &&
+                           !jawneWydluzenia.some(x => x.toUpperCase() === nazwa.toUpperCase())){
+                            jawneWydluzenia.push(nazwa);
+                        }
+                    }
+                }
+            }
+            return [podstawowy.nazwa, ...jawneWydluzenia].join(" / ");
         }
     }
 
