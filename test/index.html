@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 609 -->
+<!-- WERSJA: 610 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -19247,7 +19247,7 @@ function v514RenderSeparator(element){
     return "";
 }
 
-function v514RenderStop(element,position,total){
+function v514RenderStop(element,position,total,v610GalazWariantowa){
     const id=v486Text(element?.id);
     const p=v514StopPoId(id);
 
@@ -19407,6 +19407,16 @@ function v514RenderStop(element,position,total){
         selected?"wybrany":"",
         miniety?"przed":"",
         position===0?"kraniec-poczatek":"",
+        v610GalazWariantowa
+            ?"v610-galaz-wariantowa"
+            :"",
+        (
+            v610GalazWariantowa &&
+            terminal &&
+            !continuation
+        )
+            ?"v610-koniec-galezi-wariantowej"
+            :"",
         terminalPrzelotowyJednowierszowy
             ?"v568-terminal-przelotowy v568-terminal-przelotowy-jednowierszowy"
             :"",
@@ -19446,6 +19456,28 @@ function v514RenderStop(element,position,total){
     const v569Nazwa=v569Typ ? " "+v569Typ+"-nazwa" : "";
     const v569NZ=v569Typ ? " "+v569Typ+"-nz" : "";
 
+    /*
+       V610:
+       To jest OSOBNY TYP graficzny, a nie zwykły terminal.
+       Jeżeli terminal należy do gałęzi po markerze
+       "TRASA W KURSACH „x”", dostaje własne klasy także
+       na osi i nazwie.
+    */
+    const v610KoniecGalezi=
+        v610GalazWariantowa &&
+        terminal &&
+        !continuation;
+
+    const v610Os=
+        v610KoniecGalezi
+            ? " v610-os-koniec-galezi-wariantowej"
+            : "";
+
+    const v610Nazwa=
+        v610KoniecGalezi
+            ? " v610-nazwa-koniec-galezi-wariantowej"
+            : "";
+
     return (
         '<li class="'+cls+'" '+
         'data-v514-stop-id="'+escapeHtml(id)+'" '+
@@ -19455,9 +19487,9 @@ function v514RenderStop(element,position,total){
         (minutes===null?"":escapeHtml(String(minutes)))+
         '</span>'+
 
-        '<span class="trasa-os'+v569Os+'"></span>'+
+        '<span class="trasa-os'+v569Os+v610Os+'"></span>'+
 
-        '<span class="trasa-nazwa'+v569Nazwa+'">'+
+        '<span class="trasa-nazwa'+v569Nazwa+v610Nazwa+'">'+
         (
             selected
                 ? '<span class="trasa-nazwa-aktywna">'+
@@ -19493,6 +19525,16 @@ function v514RenderGotowejListy(){
     let rows="";
     let stopPosition=0;
 
+    /*
+       V610:
+       Kontekst gałęzi jest ustalany W CZASIE renderowania listy.
+       Nie szukamy klas po fakcie.
+
+       true  -> jesteśmy po "TRASA W KURSACH „s”", „i”, „w” itd.
+       false -> zwykła oś / "TRASA W KURSACH BEZ OZNACZEŃ".
+    */
+    let v610GalazWariantowa=false;
+
     const stopCount=elements.filter(
         x=>v486Text(x?.typ)==="przystanek"
     ).length;
@@ -19514,12 +19556,33 @@ function v514RenderGotowejListy(){
             rows+=v514RenderStop(
                 element,
                 stopPosition,
-                stopCount
+                stopCount,
+                v610GalazWariantowa
             );
 
             stopPosition++;
 
         }else{
+
+            /*
+               V610:
+               Tylko publiczny marker wariantu rozpoczyna specjalną gałąź.
+               "BEZ OZNACZEŃ" wraca do zwykłego stylu bazowego.
+
+               Separatory miejscowości/stref nie zmieniają bieżącego
+               kontekstu gałęzi.
+            */
+            if(typ==="trasa_w_kursach"){
+
+                const tekstV610=
+                    v486Text(element?.tekst)
+                        .trim()
+                        .toUpperCase();
+
+                v610GalazWariantowa=
+                    tekstV610.indexOf("BEZ OZNACZEŃ")===-1 &&
+                    tekstV610.indexOf("BEZ OZNACZEN")===-1;
+            }
 
             rows+=v514RenderSeparator(
                 element
@@ -25897,6 +25960,156 @@ html body .tabliczka
 li.trasa-stop.v609-terminal-bez-kontynuacji::before,
 html body .tabliczka
 li.trasa-stop.v609-terminal-bez-kontynuacji::after {
+    content: none !important;
+    display: none !important;
+}
+</style>
+
+
+<style id="fwtp-v610-osobny-typ-galezi-wariantowej">
+/* =========================================================
+   FWTP TABLICZKA — WERSJA 610
+
+   NOWY, OSOBNY TYP:
+       .v610-galaz-wariantowa
+       .v610-koniec-galezi-wariantowej
+
+   Przykład 142:
+       TRASA W KURSACH „s”
+       RYCHNOWSKA
+       ROMANTYCZNA
+       CYKLAMENÓW
+       SKALNICOWA   <- v610-koniec-galezi-wariantowej
+
+   Następne:
+       TRASA W KURSACH BEZ OZNACZEŃ
+       STRZYGŁOWSKA
+       ...
+   wraca do zwykłego stylu.
+
+   To NIE jest już styl "zwykłego końcowego".
+   ========================================================= */
+
+/* Cała gałąź wariantowa ma własny kontekst osi. */
+html body .tabliczka
+li.trasa-stop.v610-galaz-wariantowa
+> span.trasa-os {
+    position: relative !important;
+}
+
+/* Rzeczywisty KONIEC GAŁĘZI WARIANTOWEJ. */
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej
+> span.v610-os-koniec-galezi-wariantowej {
+    position: relative !important;
+    align-self: stretch !important;
+}
+
+/* Jednowierszowy: kreska wyłącznie Z GÓRY do środka kropki. */
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej.v568-terminal-koncowy-jednowierszowy
+> span.v610-os-koniec-galezi-wariantowej::before {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 4.1px !important;
+    top: 0 !important;
+    bottom: calc(100% - 7.25px) !important;
+    width: 2.25px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    background: #000 !important;
+    z-index: 2 !important;
+}
+
+/* Dwuwierszowy: kreska wyłącznie do środka całego wiersza. */
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej.v568-terminal-koncowy-dwuwierszowy
+> span.v610-os-koniec-galezi-wariantowej::before {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 4.1px !important;
+    top: 0 !important;
+    bottom: 50% !important;
+    width: 2.25px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    background: #000 !important;
+    z-index: 2 !important;
+}
+
+/* Kropka – jednowierszowy. */
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej.v568-terminal-koncowy-jednowierszowy
+> span.v610-os-koniec-galezi-wariantowej::after {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 1px !important;
+    top: 3px !important;
+    bottom: auto !important;
+    width: 8.5px !important;
+    height: 8.5px !important;
+    transform: none !important;
+    border-radius: 50% !important;
+    background: #000 !important;
+    box-sizing: border-box !important;
+    z-index: 5 !important;
+}
+
+/* Kropka – dwuwierszowy. */
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej.v568-terminal-koncowy-dwuwierszowy
+> span.v610-os-koniec-galezi-wariantowej::after {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 1px !important;
+    top: 50% !important;
+    bottom: auto !important;
+    width: 8.5px !important;
+    height: 8.5px !important;
+    transform: translateY(-50%) !important;
+    border-radius: 50% !important;
+    background: #000 !important;
+    box-sizing: border-box !important;
+    z-index: 5 !important;
+}
+
+/* Nazwa końca wariantu. */
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej
+> span.v610-nazwa-koniec-galezi-wariantowej,
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej
+> span.v610-nazwa-koniec-galezi-wariantowej
+span.trasa-nazwa-aktywna {
+    font-weight: 700 !important;
+}
+
+/* Twardo blokujemy wszystkie historyczne łączniki pod kropką. */
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej
+> .kropka-do-kropki-544,
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej
+> .v560-os-przelotowa,
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej
+> .v563-os-przelotowa,
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej
+> .v568-os-przelotowa {
+    display: none !important;
+    content: none !important;
+}
+
+/* LI nie może sam dorysować połączenia z następną gałęzią. */
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej::before,
+html body .tabliczka
+li.trasa-stop.v610-koniec-galezi-wariantowej::after {
     content: none !important;
     display: none !important;
 }
