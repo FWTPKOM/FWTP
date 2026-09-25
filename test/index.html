@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 639 — NAPRAWIONY STYLE I DWUWIERSZOWE MINUTY -->
+<!-- WERSJA: 640 — ZAWIJANIE TYLKO PRZY RZECZYWISTYM BRAKU MIEJSCA -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -6476,6 +6476,35 @@ letter-spacing:.25px;line-height:1.15;max-width:calc(100% - 31px);}
 .tabliczka .dzien.v638-dwa-wiersze .godzina-row.v638-wiersz-podwojny .godzina-cell,
 .tabliczka .dzien.v638-dwa-wiersze .godzina-row.v638-wiersz-podwojny .minuty-cell{
     height:32px!important;min-height:32px!important;
+}
+</style>
+<style id="FWTP-V640-ADAPTIVE-WRAP">
+/* Bez sztucznego przycinania soboty i bez zawijania, kiedy wszystko się mieści. */
+.tabliczka .panel-lewy{overflow:visible!important}
+.tabliczka .rozklady-wrap{max-width:none!important}
+.tabliczka .rozklady-grid{max-width:none!important}
+.tabliczka .dzien.v640-dwa-wiersze{box-sizing:border-box!important;overflow:visible!important}
+.tabliczka .dzien.v640-dwa-wiersze .minuty-cell{
+  display:grid!important;
+  grid-template-columns:repeat(var(--v640-columns),var(--v640-minute-width))!important;
+  grid-auto-rows:16px!important;
+  grid-auto-flow:row!important;
+  width:auto!important;
+  min-width:0!important;
+  max-width:100%!important;
+  overflow:visible!important;
+  white-space:normal!important;
+  box-sizing:border-box!important;
+}
+.tabliczka .dzien.v640-dwa-wiersze .minuta{
+  width:var(--v640-minute-width)!important;
+  min-width:var(--v640-minute-width)!important;
+  max-width:var(--v640-minute-width)!important;
+}
+.tabliczka .dzien.v640-dwa-wiersze .godzina-row.v640-double,
+.tabliczka .dzien.v640-dwa-wiersze .godzina-row.v640-double .godzina-cell,
+.tabliczka .dzien.v640-dwa-wiersze .godzina-row.v640-double .minuty-cell{
+  height:32px!important;min-height:32px!important;max-height:32px!important;
 }
 </style>
 </head>
@@ -21610,6 +21639,12 @@ function ustawNaturalnyUklad184(tabliczka){
     tabliczka.classList.remove(
         "tryb-kompaktowy"
     );
+    tabliczka.querySelectorAll('.dzien.v640-dwa-wiersze').forEach(d=>{
+        d.classList.remove('v640-dwa-wiersze');
+        d.style.removeProperty('--v640-columns');
+        d.style.removeProperty('--v640-minute-width');
+        d.querySelectorAll('.v640-double').forEach(r=>r.classList.remove('v640-double'));
+    });
     tabliczka.querySelectorAll('.dzien.v638-dwa-wiersze').forEach(d=>{
         d.classList.remove('v638-dwa-wiersze');
         d.style.removeProperty('--v638-kolumny');
@@ -21966,44 +22001,53 @@ function zaplanujDopasowanieRamki225(
    Maksymalnie dwa wiersze; nie zmieniamy samych minut ani wariantów.
    ========================================================= */
 function v638MinutyNaDwaWiersze(tabliczka){
+    return v640ZawinTylkoGdyKonieczne(tabliczka);
+}
+
+/* V640: pomiar szerokości RZECZYWISTYCH komórek i obu tabel.
+   Nie zawijaj przy samych 10/11 kursach, jeśli układ mieści się w panelu. */
+function v640ZawinTylkoGdyKonieczne(tabliczka){
     const panel=tabliczka?.querySelector('.panel-lewy');
     const grid=tabliczka?.querySelector('.rozklady-grid');
     if(!panel || !grid) return false;
-    const dni=Array.from(grid.querySelectorAll(':scope > .dzien'));
-    if(!dni.length) return false;
-    const powszedni=dni.find(d=>czyDzienPowszedniElement(d)) ||
-        dni.reduce((a,b)=>{
-            const licz=d=>Math.max(0,...Array.from(d.querySelectorAll('.minuty-cell'))
-                .map(c=>c.querySelectorAll('.minuta').length));
-            return licz(b)>licz(a)?b:a;
-        });
-    if(!powszedni) return false;
-    const wiersze=Array.from(powszedni.querySelectorAll('.godzina-row'));
-    const maksimum=Math.max(0,...wiersze.map(r=>
-        r.querySelectorAll('.minuty-cell .minuta').length));
-    if(maksimum<2) return false;
-    const szerPanelu=panel.getBoundingClientRect().width;
-    const inne=dni.filter(d=>d!==powszedni);
-    const szerInnych=inne.reduce((sum,d)=>sum+Math.max(
-        105,Math.ceil(d.getBoundingClientRect().width)),0);
-    const margines=21+3*Math.max(0,dni.length-1)+5;
-    const dostepne=Math.floor(szerPanelu-szerInnych-margines);
-    const maxKolumn=Math.min(10,Math.floor((dostepne-29)/24));
-    const minKolumn=Math.ceil(maksimum/2);
-    if(maxKolumn<minKolumn || maxKolumn<3) return false;
-    const kolumny=Math.max(minKolumn,Math.min(maxKolumn,8));
-    const szerokosc=29+kolumny*24;
-    powszedni.style.setProperty('width',szerokosc+'px','important');
-    powszedni.style.setProperty('min-width',szerokosc+'px','important');
-    powszedni.style.setProperty('max-width',szerokosc+'px','important');
-    powszedni.classList.add('v638-dwa-wiersze');
-    powszedni.style.setProperty('--v638-kolumny',String(kolumny));
-    for(const row of wiersze){
-        const ile=row.querySelectorAll('.minuty-cell .minuta').length;
-        row.classList.toggle('v638-wiersz-podwojny',ile>kolumny);
-    }
+    const dni=Array.from(grid.children).filter(x=>x.classList.contains('dzien'));
+    const powszedni=dni.find(czyDzienPowszedniElement);
+    if(!powszedni || dni.length<1 || powszedni.classList.contains('v640-dwa-wiersze')) return false;
+    const rows=Array.from(powszedni.querySelectorAll('.godzina-row'));
+    const counts=rows.map(r=>r.querySelectorAll('.minuty-cell .minuta').length);
+    const maximum=Math.max(0,...counts);
+    if(maximum<2) return false;
+    const rect=panel.getBoundingClientRect();
+    const reserve=4;
+    const gridRect=grid.getBoundingClientRect();
+    const overflow=gridRect.right>rect.right-reserve ||
+        dni.some(d=>d.getBoundingClientRect().right>rect.right-reserve);
+    if(!overflow) return false;
+    // Zachowujemy szerokość weekendu; zmieniamy wyłącznie tabelę powszednią.
+    const others=dni.filter(d=>d!==powszedni);
+    const otherWidth=others.reduce((n,d)=>n+d.getBoundingClientRect().width,0);
+    const gap=parseFloat(getComputedStyle(grid).columnGap)||0;
+    const available=Math.floor(rect.right-powszedni.getBoundingClientRect().left-
+        otherWidth-gap*others.length-reserve);
+    const hour=rows.find(r=>r.querySelector('.godzina-cell'))?.querySelector('.godzina-cell');
+    const hourWidth=hour ? Math.ceil(hour.getBoundingClientRect().width) : 29;
+    const minuteNodes=Array.from(powszedni.querySelectorAll('.minuty-cell .minuta'));
+    const minuteWidth=Math.max(24,...minuteNodes.map(n=>Math.ceil(n.getBoundingClientRect().width)));
+    const cellPadding=7;
+    const columns=Math.min(10,Math.floor((available-hourWidth-cellPadding)/minuteWidth));
+    if(columns<Math.ceil(maximum/2) || columns<3) return false;
+    const targetWidth=hourWidth+columns*minuteWidth+cellPadding;
+    if(targetWidth>=powszedni.getBoundingClientRect().width) return false;
+    powszedni.classList.add('v640-dwa-wiersze');
+    powszedni.style.setProperty('--v640-columns',String(columns));
+    powszedni.style.setProperty('--v640-minute-width',minuteWidth+'px');
+    powszedni.style.setProperty('width',targetWidth+'px','important');
+    powszedni.style.setProperty('min-width',targetWidth+'px','important');
+    powszedni.style.setProperty('max-width',targetWidth+'px','important');
+    rows.forEach((r,i)=>r.classList.toggle('v640-double',counts[i]>columns));
     return true;
 }
+
 
 function zastosujEtapyRozkladu184(){
 
@@ -22026,18 +22070,6 @@ function zastosujEtapyRozkladu184(){
     );
 
     dopasujKolumnyTrasy();
-
-    /* V639: najpierw rozważ zawinięcie minut, zanim zwężymy
-       tabelę i pozwolimy minutom wyjść poza jej ramkę. */
-    if(czyRozkladNachodziNaListePrzystankow(tabliczka)){
-        if(v638MinutyNaDwaWiersze(tabliczka)){
-            przeliczWrap194(tabliczka);
-            dopasujKolumnyTrasy();
-            if(!czyRozkladNachodziNaListePrzystankow(tabliczka)){
-                return;
-            }
-        }
-    }
 
     const sprawdzEtap=
         (
@@ -22155,10 +22187,9 @@ function zastosujEtapyRozkladu184(){
                                             );
 
                                             if(czyRozkladNachodziNaListePrzystankow(tabliczka)){
-                                                /* Najpierw dwa wiersze minut,
-                                                   dopiero potem osobna strona. */
-                                                if(v638MinutyNaDwaWiersze(tabliczka)){
+                                                if(v640ZawinTylkoGdyKonieczne(tabliczka)){
                                                     przeliczWrap194(tabliczka);
+                                                    dopasujKolumnyTrasy();
                                                     if(typeof wyrownajWysokosciGodzinMiedzyDniami==='function'){
                                                         wyrownajWysokosciGodzinMiedzyDniami(tabliczka);
                                                     }
