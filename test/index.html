@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 642 — POMIAR CAŁEGO ROZKŁADU I ZAWIJANIE MINUT -->
+<!-- WERSJA: 643 — DWUWIERSZOWE MINUTY, SZTYWNA GRANICA LISTY -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -26125,130 +26125,100 @@ html body .tabliczka li.trasa-stop.v612-koncowy-przelotowy > span.trasa-nazwa.v6
 }
 </style>
 
-<style id="fwtp-v642-real-fit">
-/* Ograniczenie całego układu, a nie wyłącznie tabeli powszedniej. */
-.tabliczka.v642-fit .panel-lewy { min-width:0!important; }
-.tabliczka.v642-fit .rozklady-wrap { box-sizing:border-box!important; max-width:calc(100% - 21px)!important; overflow:visible!important; }
-.tabliczka.v642-fit .rozklady-grid { display:grid!important; width:max-content!important; max-width:none!important; justify-content:start!important; gap:3px!important; grid-auto-flow:column!important; }
-.tabliczka.v642-fit .rozklady-grid > .dzien { box-sizing:border-box!important; min-width:0!important; max-width:none!important; overflow:visible!important; }
-.tabliczka.v642-fit .rozklady-grid .godzina-row { height:auto!important; min-height:16px!important; align-items:stretch!important; }
-.tabliczka.v642-fit .rozklady-grid .godzina-cell { height:auto!important; min-height:16px!important; align-self:stretch!important; }
-.tabliczka.v642-fit .rozklady-grid .minuty-cell { display:flex!important; flex-wrap:wrap!important; align-content:flex-start!important; align-items:center!important; height:auto!important; min-height:16px!important; max-height:none!important; overflow:visible!important; white-space:normal!important; }
-.tabliczka.v642-fit .rozklady-grid .minuty-cell > .minuta { flex:0 0 24px!important; width:24px!important; min-width:24px!important; box-sizing:border-box!important; }
-.tabliczka.v642-fit .rozklady-grid .dzien-tytul { white-space:nowrap!important; overflow:visible!important; }
+
+<style id="fwtp-v643-only-fit">
+/* V643: żaden rozkład nie może przekroczyć granicy lewego panelu. */
+.tabliczka.v643-fit .panel-lewy{min-width:0!important;}
+.tabliczka.v643-fit .rozklady-wrap{width:var(--v643-total)!important;min-width:0!important;max-width:var(--v643-total)!important;box-sizing:border-box!important;overflow:visible!important;}
+.tabliczka.v643-fit .rozklady-grid{display:grid!important;grid-template-columns:var(--v643-columns)!important;grid-auto-columns:auto!important;grid-auto-flow:column!important;width:var(--v643-total)!important;max-width:var(--v643-total)!important;gap:0!important;justify-content:start!important;box-sizing:border-box!important;}
+.tabliczka.v643-fit .rozklady-grid>.dzien{width:var(--v643-width)!important;min-width:0!important;max-width:var(--v643-width)!important;box-sizing:border-box!important;overflow:hidden!important;margin-left:0!important;}
+.tabliczka.v643-fit .rozklady-grid>.dzien .dzien-tytul{min-width:0!important;white-space:nowrap!important;overflow:visible!important;}
+.tabliczka.v643-fit .rozklady-grid .godzina-row{height:auto!important;min-height:16px!important;max-height:none!important;grid-template-columns:22px minmax(0,1fr)!important;align-items:stretch!important;}
+.tabliczka.v643-fit .rozklady-grid .godzina-cell{height:auto!important;min-height:16px!important;align-self:stretch!important;}
+.tabliczka.v643-fit .rozklady-grid .minuty-cell{display:flex!important;flex-direction:row!important;flex-wrap:wrap!important;align-content:start!important;align-items:start!important;justify-content:start!important;min-width:0!important;width:100%!important;max-width:100%!important;height:auto!important;min-height:16px!important;max-height:none!important;overflow:visible!important;white-space:normal!important;gap:0!important;padding-left:3px!important;box-sizing:border-box!important;}
+.tabliczka.v643-fit .rozklady-grid .minuty-cell>.minuta{flex:0 0 24px!important;width:24px!important;min-width:24px!important;max-width:24px!important;height:16px!important;box-sizing:border-box!important;}
+.tabliczka.v643-fit .rozklady-grid .dzien .nie-kursuje{max-width:100%!important;white-space:nowrap!important;}
 </style>
-<script id="fwtp-v642-real-fit">
-/* V642: mierzymy rzeczywistą szerokość CAŁEGO rozkładu po renderowaniu.
-   Żaden dzień nie może wystawać poza prawą krawędź lewego panelu.
-   Minuty zawijamy wyłącznie wtedy, gdy naturalny układ nie mieści się. */
+<script id="fwtp-v643-only-fit">
 (function(){
-  'use strict';
-  let busy=false, scheduled=false;
-  function fit(tab){
-    if(!tab || !tab.isConnected || busy || tab.classList.contains('strona-weekend')) return;
-    const panel=tab.querySelector('.panel-lewy');
-    const wrap=tab.querySelector('.rozklady-wrap');
-    const grid=wrap?.querySelector('.rozklady-grid');
-    const dni=grid ? Array.from(grid.children).filter(x=>x.classList.contains('dzien')) : [];
-    if(!panel || !wrap || !dni.length) return;
-    busy=true;
-    try {
-      tab.classList.remove('v642-fit');
-      grid.style.removeProperty('grid-template-columns');
-      grid.style.removeProperty('grid-auto-columns');
-      grid.style.removeProperty('width');
-      dni.forEach(d=>{
-        d.style.removeProperty('width');
-        d.style.removeProperty('min-width');
-        d.style.removeProperty('max-width');
-      });
-      const boundary=panel.getBoundingClientRect().right-5;
-      const left=wrap.getBoundingClientRect().left;
-      const available=Math.floor(boundary-left);
-      if(available<180) return;
-      // Mierzymy zawartość godzin (24 px na minutę) i pełny tytuł dnia.
-      const natural=dni.map(d=>{
-        const title=d.querySelector('.dzien-tytul');
-        const titleWidth=title ? Math.ceil(title.scrollWidth)+8 : 100;
-        let longest=0;
-        d.querySelectorAll('.minuty-cell').forEach(c=>{
-          const count=c.querySelectorAll('.minuta').length;
-          longest=Math.max(longest,count);
-        });
-        const needed=longest*24+31;
-        const measured=Math.ceil(d.getBoundingClientRect().width);
-        return Math.max(titleWidth,needed,measured);
-      });
-      const gap=(dni.length-1)*3;
-      const total=natural.reduce((a,b)=>a+b,0)+gap;
-      if(total<=available && dni.every(d=>d.getBoundingClientRect().right<=boundary)) return;
-      // Tytuły soboty/święta i napis NIE KURSUJE muszą pozostać czytelne.
-      const min=dni.map((d,i)=>{
-        const title=d.querySelector('.dzien-tytul');
-        const text=title?Math.ceil(title.scrollWidth)+8:90;
-        const noService=d.classList.contains('nie-kursuje-215');
-        return Math.max(noService?145:95,text);
-      });
-      const widths=natural.slice();
-      let overflow=widths.reduce((a,b)=>a+b,0)+gap-available;
-      // Najpierw zmniejszamy najszerszą tabelę; nie obcinamy weekendu.
-      for(let guard=0; overflow>0 && guard<2000;guard++){
-        let candidate=-1, spare=0;
-        for(let i=0;i<widths.length;i++){
-          const free=widths[i]-min[i];
-          if(free>spare){spare=free;candidate=i;}
-        }
-        if(candidate<0 || spare<1) break;
-        const step=Math.min(overflow,spare,12);
-        widths[candidate]-=step;overflow-=step;
-      }
-      if(overflow>1){
-        // Nie ściskamy tabel poniżej czytelnego minimum.
-        if(typeof window.zastosujTrybDwochTabliczekJesliPotrzeba==='function'){
-          window.zastosujTrybDwochTabliczekJesliPotrzeba();
-        }
-        return;
-      }
-      tab.classList.add('v642-fit');
-      grid.style.setProperty('grid-template-columns',widths.map(w=>Math.floor(w)+'px').join(' '),'important');
-      grid.style.setProperty('grid-auto-columns','auto','important');
-      grid.style.setProperty('width',Math.floor(widths.reduce((a,b)=>a+b,0)+gap)+'px','important');
-      dni.forEach((d,i)=>{
-        const w=Math.floor(widths[i]);
-        d.style.setProperty('width',w+'px','important');
-        d.style.setProperty('min-width',w+'px','important');
-        d.style.setProperty('max-width',w+'px','important');
-      });
-      // Po nadaniu rzeczywistych szerokości wyrównujemy godziny między dniami.
-      if(typeof window.wyrownajWysokosciGodzinMiedzyDniami==='function'){
-        window.wyrownajWysokosciGodzinMiedzyDniami(tab);
-      }
-    } finally {busy=false;}
+ 'use strict';
+ let pending=false,working=false;
+ function fit(tab){
+  if(!tab.isConnected||tab.classList.contains('strona-weekend'))return;
+  const panel=tab.querySelector('.panel-lewy');
+  const wrap=panel?.querySelector('.rozklady-wrap');
+  const grid=wrap?.querySelector('.rozklady-grid');
+  const dni=grid?Array.from(grid.children).filter(e=>e.classList.contains('dzien')):[];
+  if(!panel||!wrap||!dni.length)return;
+  const left=wrap.getBoundingClientRect().left;
+  const boundary=panel.getBoundingClientRect().right-5;
+  const space=Math.floor(boundary-left);
+  if(space<180)return;
+  // Przywrócenie normalnego układu na czas pomiaru tylko wtedy, gdy
+  // zmieniła się szerokość panelu lub liczba tabel.
+  const signature=space+':'+dni.length+':'+dni.map(d=>d.querySelectorAll('.minuta').length).join(',');
+  if(tab.dataset.v643Signature===signature && tab.classList.contains('v643-fit'))return;
+  tab.classList.remove('v643-fit');
+  wrap.style.removeProperty('width');
+  grid.style.removeProperty('grid-template-columns');
+  dni.forEach(d=>['width','min-width','max-width'].forEach(p=>d.style.removeProperty(p)));
+  // Nagłówki i NIE KURSUJE zachowują czytelną szerokość.
+  const mins=dni.map(d=>{
+   const title=d.querySelector('.dzien-tytul');
+   const head=title?Math.ceil(title.scrollWidth)+10:95;
+   const empty=!!d.querySelector('.nie-kursuje, .brak-kursow');
+   return Math.max(head,empty?145:100);
+  });
+  const natural=dni.map((d,i)=>{
+   let longest=0;
+   d.querySelectorAll('.minuty-cell').forEach(c=>longest=Math.max(longest,c.querySelectorAll('.minuta').length));
+   return Math.max(mins[i],longest*24+29);
+  });
+  const minTotal=mins.reduce((a,b)=>a+b,0);
+  if(minTotal>space){
+   // Nie ucinać soboty: przy zbyt wielu dniach stosujemy istniejący
+   // mechanizm osobnych tabliczek.
+   if(typeof window.zastosujTrybDwochTabliczekJesliPotrzeba==='function')window.zastosujTrybDwochTabliczekJesliPotrzeba();
+   return;
   }
-  function schedule(){
-    if(scheduled)return;
-    scheduled=true;
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{
-      scheduled=false;
-      document.querySelectorAll('#wynik .tabliczka').forEach(fit);
-    }));
+  const widths=natural.slice();
+  let extra=widths.reduce((a,b)=>a+b,0)-space;
+  while(extra>0){
+   let k=-1,largest=0;
+   widths.forEach((w,i)=>{const free=w-mins[i];if(free>largest){largest=free;k=i;}});
+   if(k<0)break;
+   const delta=Math.min(extra,largest,12);
+   widths[k]-=delta;extra-=delta;
   }
-  // Poprzednie algorytmy korzystają z wielu opóźnionych requestAnimationFrame.
-  // Dopasowanie powtarzamy po ich zakończeniu, nie przy każdej zmianie stylu.
-  let last='';
-  const target=document.getElementById('wynik');
-  if(target){
-    new MutationObserver(()=>{
-      const key=Array.from(target.querySelectorAll('.tabliczka')).map(t=>
-        t.querySelectorAll('.dzien .minuta').length+':'+t.querySelectorAll('.dzien').length
-      ).join('|');
-      if(key!==last){last=key;schedule();setTimeout(schedule,180);}
-    }).observe(target,{childList:true,subtree:true});
-  }
-  window.addEventListener('resize',schedule);
-  document.addEventListener('change',()=>setTimeout(schedule,80));
-  setTimeout(schedule,100);
-  setTimeout(schedule,500);
+  // Wszystkie szerokości są wyliczane z faktycznej granicy panelu.
+  const cols=widths.map(w=>Math.floor(w));
+  const total=cols.reduce((a,b)=>a+b,0);
+  tab.style.setProperty('--v643-total',total+'px');
+  tab.style.setProperty('--v643-columns',cols.map(w=>w+'px').join(' '));
+  dni.forEach((d,i)=>{
+   d.style.setProperty('--v643-width',cols[i]+'px');
+   d.style.setProperty('width',cols[i]+'px','important');
+   d.style.setProperty('min-width','0px','important');
+   d.style.setProperty('max-width',cols[i]+'px','important');
+  });
+  grid.style.setProperty('grid-template-columns',cols.map(w=>w+'px').join(' '),'important');
+  grid.style.setProperty('width',total+'px','important');
+  wrap.style.setProperty('width',total+'px','important');
+  tab.classList.add('v643-fit');
+  tab.dataset.v643Signature=signature;
+ }
+ function schedule(){
+  if(pending)return;pending=true;
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+   pending=false;if(working)return;working=true;
+   try{document.querySelectorAll('#wynik .tabliczka').forEach(fit);}finally{working=false;}
+  }));
+ }
+ const root=document.getElementById('wynik');
+ if(root)new MutationObserver(()=>schedule()).observe(root,{childList:true,subtree:true});
+ window.addEventListener('resize',()=>{document.querySelectorAll('.tabliczka').forEach(t=>delete t.dataset.v643Signature);schedule();});
+ document.addEventListener('change',()=>{document.querySelectorAll('.tabliczka').forEach(t=>delete t.dataset.v643Signature);schedule();});
+ setTimeout(schedule,0);setTimeout(schedule,200);setTimeout(schedule,600);
 })();
 </script>
 </body>
