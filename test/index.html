@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 637 — BAZA V636 + AUTOMATYCZNE PRZENOSZENIE MINUT Z V504 -->
+<!-- WERSJA: 638 — BAZA V636 + DOPASOWANIE MINUT V504 BEZ KOLIZJI Z LISTĄ -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -26116,174 +26116,154 @@ html body .tabliczka li.trasa-stop.v612-koncowy-przelotowy > span.trasa-nazwa.v6
 }
 </style>
 
-<!-- ============================================================
-     FWTP V637 — z v504: minuty w drugim wierszu tylko przy kolizji.
-     Reszta tabliczki i danych pozostaje z v636.
-     ============================================================ -->
-<style id="fwtp-v637-zawijanie-minut">
-/* W zwykłym układzie nie ingerujemy w tabele v636. */
-.tabliczka.v637-zawijanie .rozklady-wrap {
-    max-width: calc(100% - 20px) !important;
+<style id="fwtp-v638-dopasowanie-v504">
+/* v638: przywrócenie rzeczywistego pomiaru tabel (v504).
+   v624 narzucał max-width:100% na wrap i maskował kolizję. */
+.tabliczka .panel-lewy .rozklady-wrap {
+    width: fit-content !important;
+    max-width: none !important;
     min-width: 0 !important;
+    box-sizing: border-box;
 }
-.tabliczka.v637-zawijanie .rozklady-grid {
-    max-width: 100% !important;
-    min-width: 0 !important;
+.tabliczka .panel-lewy .rozklady-grid:not(:has(> .dzien:nth-child(3))) {
+    width: max-content !important;
+    max-width: none !important;
+    grid-auto-columns: max-content;
 }
-.tabliczka.v637-zawijanie .rozklady-grid > .dzien {
+/* Zawijanie aktywne tylko gdy pomiar wykryje brak miejsca. */
+.tabliczka.v638-kompakt .panel-lewy .rozklady-grid:not(:has(> .dzien:nth-child(3))) {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: flex-start;
+    width: max-content !important;
+    max-width: none !important;
+}
+.tabliczka.v638-kompakt .rozklady-grid > .dzien {
     box-sizing: border-box !important;
-    max-width: 100% !important;
+    flex-shrink: 0 !important;
+    overflow: hidden;
 }
-.tabliczka.v637-zawijanie .minuty-cell {
+.tabliczka.v638-kompakt .godzina-row {
+    display: grid !important;
+    grid-template-columns: 22px minmax(0,1fr) !important;
+    height: auto !important;
+    min-height: 16px;
+}
+.tabliczka.v638-kompakt .minuty-cell {
     display: flex !important;
     flex-flow: row wrap !important;
     align-content: flex-start !important;
     align-items: flex-start !important;
     justify-content: flex-start !important;
-    white-space: normal !important;
-    overflow: visible !important;
+    gap: 0 !important;
+    width: auto !important;
+    max-width: 100% !important;
     min-width: 0 !important;
     height: auto !important;
+    min-height: 16px !important;
+    white-space: normal !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
 }
-.tabliczka.v637-zawijanie .minuty-cell > .minuta {
+.tabliczka.v638-kompakt .minuty-cell > .minuta {
     flex: 0 0 24px !important;
     width: 24px !important;
     min-width: 24px !important;
+    height: 16px !important;
 }
-.tabliczka.v637-zawijanie .godzina-row.v637-dwa-wiersze,
-.tabliczka.v637-zawijanie .godzina-row.v637-dwa-wiersze > .godzina-cell,
-.tabliczka.v637-zawijanie .godzina-row.v637-dwa-wiersze > .minuty-cell {
+.tabliczka.v638-kompakt .godzina-row.v638-wiersz-2,
+.tabliczka.v638-kompakt .godzina-row.v638-wiersz-2 > .godzina-cell,
+.tabliczka.v638-kompakt .godzina-row.v638-wiersz-2 > .minuty-cell {
     height: 32px !important;
     min-height: 32px !important;
-    box-sizing: border-box !important;
 }
-.tabliczka.v637-zawijanie .godzina-row.v637-dwa-wiersze > .minuty-cell {
-    align-content: start !important;
+.tabliczka.v638-kompakt .godzina-row.v638-wiersz-3,
+.tabliczka.v638-kompakt .godzina-row.v638-wiersz-3 > .godzina-cell,
+.tabliczka.v638-kompakt .godzina-row.v638-wiersz-3 > .minuty-cell {
+    height: 48px !important;
+    min-height: 48px !important;
 }
 </style>
-<script id="fwtp-v637-logika-z-v504">
-(function () {
-    'use strict';
-    let zaplanowane = false;
-    let wTrakcie = false;
-
-    function przelicz(tab) {
-        const panel = tab.querySelector('.panel-lewy');
-        const wrap = tab.querySelector('.rozklady-wrap');
-        const grid = tab.querySelector('.rozklady-grid');
-        if (!panel || !wrap || !grid) return;
-        const dni = [...grid.querySelectorAll(':scope > .dzien')];
-        if (!dni.length) return;
-
-        // Najpierw sprawdzamy naturalną szerokość, nie zwężając
-        // tabliczek, które już mieszczą się obok listy przystanków.
-        tab.classList.remove('v637-zawijanie');
-        dni.forEach(d => {
-            d.style.removeProperty('--v637-szerokosc');
-            if (d.dataset.v637Width) {
-                d.style.width = d.dataset.v637Width === '__brak__' ? '' : d.dataset.v637Width;
-                d.style.minWidth = d.dataset.v637MinWidth === '__brak__' ? '' : d.dataset.v637MinWidth;
-                delete d.dataset.v637Width;
-                delete d.dataset.v637MinWidth;
-            }
-        });
-        tab.querySelectorAll('.v637-dwa-wiersze').forEach(r => r.classList.remove('v637-dwa-wiersze'));
-        void grid.offsetWidth;
-        const granica = panel.getBoundingClientRect().right - 2;
-        const naturalnyKoniec = Math.max(
-            wrap.getBoundingClientRect().right,
-            grid.getBoundingClientRect().right,
-            ...dni.map(d => d.getBoundingClientRect().right)
-        );
-        if (naturalnyKoniec <= granica + 0.5) return;
-
-        // Wariant z v504: zachowujemy rozmiar każdej minuty,
-        // zwężamy tabelę i przenosimy nadmiarowe minuty niżej.
-        dni.forEach(d => {
-            d.dataset.v637Width = d.style.width || '__brak__';
-            d.dataset.v637MinWidth = d.style.minWidth || '__brak__';
-        });
-        tab.classList.add('v637-zawijanie');
-        const dostepne = Math.max(90, Math.floor(granica - wrap.getBoundingClientRect().left - 2));
-        const przerwy = Math.max(0, dni.length - 1) * 3;
-        const szerokosci = dni.map(d => {
-            const t = d.querySelector('.dzien-tytul');
-            const tytul = t ? Math.ceil(t.scrollWidth) + 3 : 80;
-            const maksMinut = Math.max(0, ...[...d.querySelectorAll('.godzina-row')].map(r => r.querySelectorAll('.minuty-cell > .minuta').length));
-            const naturalna = Math.ceil(d.scrollWidth);
-            return { min: Math.max(tytul, 55), naturalna, maksMinut };
-        });
-        const budzet = Math.max(0, dostepne - przerwy);
-        let cele = szerokosci.map(x => x.naturalna);
-        let nadmiar = cele.reduce((a,b) => a+b,0) - budzet;
-        let bezpiecznik = 0;
-        while (nadmiar > 0 && bezpiecznik++ < 3000) {
-            let idx = -1, zapas = 0;
-            cele.forEach((s,i) => {
-                const z = s - szerokosci[i].min;
-                if (z > zapas) { zapas=z; idx=i; }
-            });
-            if (idx < 0) break;
-            const zmiana = Math.min(nadmiar, zapas, 2);
-            cele[idx] -= zmiana;
-            nadmiar -= zmiana;
-        }
-        dni.forEach((d,i) => {
-            const w = Math.floor(cele[i]);
-            d.style.setProperty('width', w+'px', 'important');
-            d.style.setProperty('min-width', w+'px', 'important');
-            // Wymuszamy realne zawijanie również przy starym max-content.
-            d.querySelectorAll('.minuty-cell').forEach(cell => {
-                cell.style.setProperty('max-width', '100%');
-            });
-        });
-        void grid.offsetWidth;
-        // Te same godziny we wszystkich typach dnia mają jednakową
-        // wysokość, jeśli w choć jednym dniu minuty zajmują dwa wiersze.
-        const godziny = new Map();
-        grid.querySelectorAll('.godzina-row').forEach(row => {
-            const godz = row.querySelector('.godzina-cell')?.textContent.trim();
-            if (!godz) return;
-            if (!godziny.has(godz)) godziny.set(godz, []);
-            godziny.get(godz).push(row);
-        });
-        godziny.forEach(rows => {
-            const podwojny = rows.some(r => {
-                const c = r.querySelector('.minuty-cell');
-                if (!c) return false;
-                const m = [...c.querySelectorAll(':scope > .minuta')];
-                return m.length > 1 && m.some(x => x.offsetTop > m[0].offsetTop + 4);
-            });
-            if (podwojny) rows.forEach(r => r.classList.add('v637-dwa-wiersze'));
-        });
-    }
-    function wszystkie() {
-        if (wTrakcie) return;
-        wTrakcie = true;
-        try { document.querySelectorAll('.tabliczka').forEach(przelicz); }
-        finally { wTrakcie = false; }
-    }
-    function zaplanuj() {
-        if (zaplanowane) return;
-        zaplanowane = true;
-        requestAnimationFrame(() => {
-            zaplanowane = false;
-            wszystkie();
-        });
-    }
-    // Nowe tabliczki powstają dynamicznie po wybraniu linii/daty.
-    // Obserwujemy tylko dodawanie/usuwanie węzłów, nie zmiany stylów.
-    const obserwator = new MutationObserver(zmiany => {
-        if (wTrakcie) return;
-        if (zmiany.some(z => [...z.addedNodes, ...z.removedNodes].some(n =>
-            n.nodeType === 1 && (n.matches?.('.tabliczka, .rozklady-grid, .dzien') || n.querySelector?.('.tabliczka, .rozklady-grid'))
-        ))) zaplanuj();
-    });
-    if (document.body) obserwator.observe(document.body, {childList:true,subtree:true});
-    window.addEventListener('load', () => { zaplanuj(); setTimeout(zaplanuj,180); });
-    window.addEventListener('resize', zaplanuj);
-    if (document.readyState !== 'loading') zaplanuj();
-    else document.addEventListener('DOMContentLoaded', zaplanuj, {once:true});
+<script id="fwtp-v638-integracja-v504">
+(function(){
+ 'use strict';
+ let oczekuje=false, wTrakcie=false;
+ function dopasuj(tab){
+   const panel=tab.querySelector('.panel-lewy');
+   const wrap=tab.querySelector('.rozklady-wrap');
+   const grid=tab.querySelector('.rozklady-grid');
+   if(!panel||!wrap||!grid)return;
+   const dni=Array.from(grid.children).filter(x=>x.classList.contains('dzien'));
+   if(!dni.length)return;
+   // Wyłącznie zmiany należące do v638: reszta renderera v636 bez zmian.
+   tab.classList.remove('v638-kompakt');
+   tab.querySelectorAll('.v638-wiersz-2,.v638-wiersz-3').forEach(x=>x.classList.remove('v638-wiersz-2','v638-wiersz-3'));
+   dni.forEach(d=>{
+     if(d.dataset.v638Width!==undefined){
+       d.style.width=d.dataset.v638Width;
+       d.style.minWidth=d.dataset.v638Min;
+       d.style.maxWidth=d.dataset.v638Max;
+       delete d.dataset.v638Width;delete d.dataset.v638Min;delete d.dataset.v638Max;
+     }
+   });
+   // Nie ingerujemy w v624 dla trzech lub więcej typów dnia.
+   if(dni.length>2)return;
+   const granica=panel.getBoundingClientRect().right-3;
+   const prawa=Math.max(grid.getBoundingClientRect().right,...dni.map(d=>d.getBoundingClientRect().right));
+   if(prawa<=granica+0.25)return;
+   dni.forEach(d=>{
+     d.dataset.v638Width=d.style.width;
+     d.dataset.v638Min=d.style.minWidth;
+     d.dataset.v638Max=d.style.maxWidth;
+   });
+   tab.classList.add('v638-kompakt');
+   const dostepne=Math.floor(granica-wrap.getBoundingClientRect().left)-3;
+   const przerwy=3*(dni.length-1);
+   const minimum=d=>Math.max(85,Math.ceil(d.querySelector('.dzien-tytul')?.scrollWidth||80)+4);
+   const min=dni.map(minimum);
+   // Pierwszeństwo: 294.5 (11), 270 (10), 246 (9), 225 (8).
+   const natural=dni.map(d=>Math.ceil(d.scrollWidth));
+   const cele=natural.slice();
+   let brak=cele.reduce((a,b)=>a+b,0)+przerwy-dostepne;
+   for(let etap=0;etap<4000&&brak>0;etap++){
+     let i=-1,zapas=0;
+     cele.forEach((v,j)=>{const z=v-min[j];if(z>zapas){i=j;zapas=z;}});
+     if(i<0)break;
+     const krok=Math.min(brak,zapas,2);
+     cele[i]-=krok; brak-=krok;
+   }
+   dni.forEach((d,i)=>{
+     const w=Math.floor(cele[i]);
+     d.style.setProperty('width',w+'px','important');
+     d.style.setProperty('min-width',w+'px','important');
+     d.style.setProperty('max-width',w+'px','important');
+   });
+   // Wysokość godziny = maksymalna liczba wierszy dla tej godziny we wszystkich dniach.
+   const mapa=new Map();
+   grid.querySelectorAll('.godzina-row').forEach(r=>{
+     const g=r.querySelector('.godzina-cell')?.textContent.trim();
+     if(!g)return;
+     const cell=r.querySelector('.minuty-cell');
+     const minuty=cell?Array.from(cell.querySelectorAll(':scope > .minuta')):[];
+     const ilosc=minuty.length ? new Set(minuty.map(m=>Math.round(m.offsetTop))).size : 1;
+     if(!mapa.has(g))mapa.set(g,[]);
+     mapa.get(g).push({r,ilosc});
+   });
+   mapa.forEach(rows=>{
+     const ilosc=Math.max(...rows.map(x=>x.ilosc));
+     if(ilosc>1)rows.forEach(x=>x.r.classList.add(ilosc===2?'v638-wiersz-2':'v638-wiersz-3'));
+   });
+ }
+ function wszystkie(){if(wTrakcie)return;wTrakcie=true;try{document.querySelectorAll('.tabliczka').forEach(dopasuj);}finally{wTrakcie=false;}}
+ function planuj(){if(oczekuje)return;oczekuje=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{oczekuje=false;wszystkie();}));}
+ const obserwator=new MutationObserver(zmiany=>{
+   if(wTrakcie)return;
+   if(zmiany.some(z=>Array.from(z.addedNodes).some(n=>n.nodeType===1&&(n.matches?.('.tabliczka,.rozklady-grid,.dzien')||n.querySelector?.('.tabliczka,.rozklady-grid')))))planuj();
+ });
+ function start(){obserwator.observe(document.body,{childList:true,subtree:true});planuj();}
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
+ window.addEventListener('load',()=>{planuj();setTimeout(planuj,300);});
+ window.addEventListener('resize',planuj);
 })();
 </script>
 </body>
