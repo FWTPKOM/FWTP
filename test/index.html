@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 658 — AUTO RAW + MIEJSCOWOSCI + SEPARATORY WARIANTOW -->
+<!-- WERSJA: 660 — AUTO RAW + WARIANTY CALOTYGODNIOWE + MIN IETE -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -6463,13 +6463,213 @@ html body .tabliczka .trasa-columns.cols-2 .trasa-nazwa.nazwa-jednowyrazowa {
 }
 </style>
 <script>
+/* FWTP RAW V204: pełna lista przystanków i warianty całotygodniowe */
 /* FWTP RAW V202: wspolny konwerter RAW -> dotychczasowy model tabliczki.
-   V202: miejscowosci i opisy tras w lista_przystankowa, bez nazw w nawiasach.
+   V203: miejscowosci tylko z bialej listy; inne nawiasy pozostaja w nazwach.
    Warianty i kursy zachowuja algorytm V201; stary JSON nie jest zmieniany. */
 (function(root){'use strict';
 const s=x=>String(x??'').trim(), pad=n=>String(n).padStart(2,'0');
-const cleanName=n=>s(n).replace(/\s*\(([^()]*)\)\s*$/,'').trim();
-const location=n=>{const m=s(n).match(/\s*\(([^()]*)\)\s*$/);return m?s(m[1]):'Warszawa'};
+/* WERSJA 659: tylko jawnie dopuszczone miejscowosci z listy FWTP.
+   Nawiasy (PKP), (NŻ), (Centrum) itp. pozostaja czescia nazwy. */
+const MIEJSCOWOSCI = [
+  "Nadarzyn",
+  "Ząbki",
+  "Marki",
+  "Łomianki",
+  "Konstancin-Jeziorna",
+  "Józefów",
+  "Otowck",
+  "Raszyn",
+  "Falenty",
+  "Janki",
+  "Wolica",
+  "Kajetany",
+  "Szamoty",
+  "Wólka Kosowska",
+  "Kosów",
+  "Hipolitów",
+  "Nowy Konik",
+  "Sulejówek",
+  "Zakręt",
+  "Rembelszczyzna",
+  "Stanisławów Pierwszy",
+  "Nieporęt",
+  "Białobrzegi",
+  "Rynia",
+  "Borki",
+  "Stare Załubice",
+  "Nowe Załubice",
+  "Sękocin Nowy",
+  "Sękocin Stary",
+  "Magdalenka",
+  "Lesznowola",
+  "Kolonia Lesznowola",
+  "Stara Iwiczna",
+  "Piaseczno",
+  "Mysiadło",
+  "Chylice",
+  "Strzeniówka",
+  "Klaudyn",
+  "Janów",
+  "Kwirynów",
+  "Stare Babice",
+  "Babice Nowe",
+  "Izabelin-Dziekanówek",
+  "Sadowa",
+  "Dziekanów Leśny",
+  "Kiełpin",
+  "Mościska",
+  "Laski",
+  "Izabelin",
+  "Sieraków",
+  "Hornówek",
+  "Truskaw",
+  "Mory",
+  "Jawczyce",
+  "Bronisze",
+  "Ożarów Maz.",
+  "Ołtarzew",
+  "Koprki",
+  "Koczargi Stare",
+  "Lipków",
+  "Latchorzew",
+  "Blizne Łaszczyńskiego",
+  "Rybie",
+  "Jaworowa",
+  "Dawidy",
+  "Dawidy Bankowe",
+  "Łady",
+  "Podolszyn Nowy",
+  "Piastów",
+  "Reguły",
+  "Opacz-Kolonia",
+  "Blizne Jasińskiego",
+  "Lubiczów",
+  "Zielonki",
+  "Zielonki-Wieś",
+  "Koczargi Nowe",
+  "Wojcieszyn",
+  "Wierzbin",
+  "Borzęcin Duży",
+  "Wyględy",
+  "Zaborów",
+  "Zaborówek",
+  "Leszno",
+  "Majdan",
+  "Góraszka",
+  "Wiązowna",
+  "Żanęcin",
+  "Dziechcinie",
+  "Pęclin",
+  "Malcanów",
+  "Lipowo",
+  "Glinianka",
+  "Czarnówka",
+  "Rzakta",
+  "Łazy",
+  "Marysin",
+  "Zagórze",
+  "Radiówek",
+  "Jabłonna",
+  "Legionowo",
+  "Gołków",
+  "Głosków",
+  "Bąkówka",
+  "Wola Gołkowska",
+  "Robercin",
+  "Władysławów",
+  "Kuleszówka",
+  "Antoninów",
+  "Głosków-Letnisko",
+  "Jabłonowo",
+  "Mroków",
+  "Warszawianka",
+  "Szczaki",
+  "Złotokłos",
+  "Henryków-Urocze",
+  "Stanisławów",
+  "Mariew",
+  "Wólka",
+  "Stefanówka",
+  "Duchnów",
+  "Brzeziny",
+  "Stara Wieś",
+  "Rusiec",
+  "Urzut",
+  "Kostowiec",
+  "Rozalin",
+  "Młochów",
+  "Krakowiany",
+  "Wola Krakowiańska",
+  "Garbatka",
+  "Jastrzębiec",
+  "Parole",
+  "Zegrze Płd.",
+  "Kąty Wegierskie",
+  "Józefów k. Legionowo",
+  "Zgorzała",
+  "Nowa Wola",
+  "Bobrowiec",
+  "Wilcza Góra",
+  "Nadma",
+  "Słupno",
+  "Cegielnia",
+  "Radzymin",
+  "Józefosław",
+  "Julianów",
+  "Słomczyn",
+  "Kawęczyn",
+  "Brześce",
+  "Wólka Załęska",
+  "Moczydłów",
+  "Góra Kalwaria",
+  "Szeligi",
+  "Macierzysz",
+  "Wieruchów",
+  "Strzykuły",
+  "Piotrówek Mały",
+  "Kaputy",
+  "Umiastów",
+  "Pogroszew",
+  "Myszczyn",
+  "Pilaszków",
+  "Święcice",
+  "Płochocin",
+  "Dziekanów Polski",
+  "Dziekanów Nowy",
+  "Pieńków",
+  "Łomna-Las",
+  "Łomna",
+  "Palmiry",
+  "Cząstków Polski",
+  "Cząstków Mazowiecki",
+  "Czosnów",
+  "Dębina",
+  "Dobrzyń",
+  "Łosia Wólka",
+  "Augustówek",
+  "Małocice",
+  "Wrzosówka",
+  "Janów-Mikołajówka",
+  "Sowia Wola",
+  "Sowia Wola Folwaryczna",
+  "Cybulice Duże",
+  "Pruszków",
+  "Zielonka",
+  "Kobiałka",
+  "Wołomin",
+  "Chotomów",
+  "Karczew"
+];
+const mapaMiejscowosci = new Map(MIEJSCOWOSCI.map(n => [n.toLocaleLowerCase('pl'), n]));
+function podzielNazwe(n){
+ const pelna=s(n), m=pelna.match(/^(.*?)\s*\(([^()]*)\)\s*$/);
+ if(!m)return {nazwa:pelna,miejscowosc:''};
+ const miejscowosc=mapaMiejscowosci.get(s(m[2]).toLocaleLowerCase('pl'));
+ return miejscowosc ? {nazwa:s(m[1]),miejscowosc} : {nazwa:pelna,miejscowosc:''};
+}
+const cleanName=n=>podzielNazwe(n).nazwa;
+const location=n=>podzielNazwe(n).miejscowosc||'Warszawa';
 const cleanId=x=>{const p=s(x).split('|');return p.length>=3?[p[0],cleanName(p.slice(1,-1).join('|')),p.at(-1)].join('|'):s(x)};
 const norm=x=>cleanId(x).replace(/^\d+\|/,'').toLocaleLowerCase('pl');
 const sig=route=>route.map(norm).join('\x1f');
@@ -6486,13 +6686,13 @@ function catalog(dirs){const groups=new Map();dirs.forEach((k,day)=>{for(const c
  if(base&&!base.letter){base.letter='A';assigned.add('A')}
  for(const g of full.filter(g=>!g.letter).sort((a,b)=>a.day-b.day||b.count-a.count)){let letter='';if(g.route.some(x=>/widokowa/i.test(x))&&g.route.some(x=>/cm\.\s*północny/i.test(x))&&!assigned.has('W'))letter='W';if(!letter)letter=[...'BCDEFGHIJKLMNOPQRSTUVWXYZ'].find(x=>!assigned.has(x))||'V'+(assigned.size+1);g.letter=letter;assigned.add(letter)}
  for(const g of all.filter(g=>!g.letter)){const terminal=s(g.route.at(-1)).split('|')[1]||'';if(/cm\.\s*północny/i.test(terminal)&&!assigned.has('C')){g.letter='C';assigned.add('C');continue}const parent=full.filter(h=>h.letter&&(prefix(g.route,h.route)||suffix(g.route,h.route))).sort((a,b)=>b.count-a.count)[0];if(parent){g.letter=parent.letter;continue}const near=full.filter(h=>h.letter&&g.route.some(x=>h.route.some(y=>norm(x)===norm(y)))).sort((a,b)=>b.count-a.count)[0];if(near&&g.day>0){g.letter=near.letter;continue}g.letter=[...'BCDEFGHIJKLMNOPQRSTUVWXYZ'].find(x=>!assigned.has(x))||'V'+(assigned.size+1);assigned.add(g.letter)}
- for(const g of all){const stop=g.route.at(-1)||'';g.description=g.letter==='A'?'kurs bez podjazdów':g.route.some(x=>/widokowa/i.test(x))&&g.route.some(x=>/cm\.\s*północny/i.test(x))?'kurs przez WIDOKOWA i CM. PÓŁNOCNY-BRAMA ZACH.':g.route.length<base?.route.length?'kurs skrócony do przystanku '+(s(stop).split('|')[1]||stop).toUpperCase():'odmienny przebieg trasy'}
+ for(const g of all){const stop=g.route.at(-1)||'';g.description=g.letter==='A'?'kurs bez podjazdów':g.letter==='C'?'kurs skrócony do przystanku '+(s(stop).split('|')[1]||stop).toUpperCase():g.route.some(x=>/widokowa/i.test(x))&&g.route.some(x=>/cm\.\s*północny/i.test(x))?'kurs przez WIDOKOWA i CM. PÓŁNOCNY-BRAMA ZACH.':g.route.length<base?.route.length?'kurs skrócony do przystanku '+(s(stop).split('|')[1]||stop).toUpperCase():'odmienny przebieg trasy'}
  return {groups:all,byRoute:new Map(all.map(g=>[g.key,g])),base}}
 const cache=new WeakMap();
 function convert(raw){
  if(!raw||raw.format!=='FWTP-RAW-1')return raw;
  if(cache.has(raw))return cache.get(raw);
- const out={...raw};delete out.format;
+ const out={...raw};delete out.format; if(typeof window!=='undefined')window.FWTPRawActive=true;
  out.rozkłady=(raw.rozkłady||[]).map(r=>({...r,kierunki:(r.kierunki||[]).map(k=>({...k,przystanki:(k.przystanki||[]).filter(isStop).map(p=>({...p,id:cleanId(p.id),nazwa_czysta:cleanName(p.nazwa),miejscowosc:location(p.nazwa),strefa:s(p.strefa)||'1'}))}))}));
  const max=Math.max(0,...out.rozkłady.map(r=>r.kierunki.length));
  for(let dir=0;dir<max;dir++){
@@ -6514,6 +6714,19 @@ function convert(raw){
     const reachable=new Set();for(const c of eligible){const at=c.trasa.indexOf(p.id);if(at<0)continue;for(const stop of c.trasa.slice(at))if(stops.has(stop))reachable.add(stop)}
     const ordered=k.przystanki.map(x=>x.id).filter(x=>reachable.has(x));
     const elements=[];let prevLetters=null,prevTown='';
+    // Pelna lista, rowniez przystanki MINIETE przed wybranym. To pozwala
+    // istniejacemu rendererowi v651 zastosowac jego klasy .przed i szare osie.
+    const selectedIndex=k.przystanki.findIndex(x=>x.id===p.id);
+    if(selectedIndex>0){
+     for(const earlier of k.przystanki.slice(0,selectedIndex)){
+      const town=earlier.miejscowosc;
+      if(town&&town!==prevTown){elements.push({typ:'miejscowosc',tekst:town.toLocaleUpperCase('pl')});prevTown=town}
+      elements.push({typ:'przystanek',id:earlier.id,nazwa:earlier.nazwa_czysta,nr:earlier.nr,
+       typ_przystanku:earlier.typ,stan:'miniety',koncowy:false,kontynuacja:false});
+     }
+    }
+    // Dla przystanku poczatkowego rowniez zachowujemy separator Warszawa.
+    
     for(const stop of ordered){
      const sp=stops.get(stop);
      const passing=eligible.filter(c=>{const start=c.trasa.indexOf(p.id),at=c.trasa.indexOf(stop);return start>=0&&at>=start&&c.times.has(stop)});
@@ -6551,7 +6764,6 @@ function convert(raw){
 }
 root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.exports=root.FWTPRaw;
 })(typeof window!=='undefined'?window:globalThis);
-
 
 </script>
 </head>
@@ -11236,6 +11448,12 @@ function v606CzyWariantJestJedynyWTymTypieDnia(
         .toUpperCase();
 
     if(!szukany){
+        return false;
+    }
+
+    /* V660: w RAW porownujemy warianty w calym tygodniu, nie tylko
+       w jednym typie dnia. Np. C w sobote linii 110 musi byc widoczne. */
+    if(window.FWTPRawActive===true && szukany!=="A"){
         return false;
     }
 
