@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 647 — SEPARATOR LEGENDY NA PEŁNĄ SZEROKOŚĆ KOLUMNY -->
+<!-- WERSJA: 648 — WYJĄTKI GRANIC STREF I ZWARTY UKŁAD TRZECH DNI -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -19795,8 +19795,31 @@ function v635PrzytnijListeOkrezna(elements){
 function v514RenderGotowejListy(){
     /* V636: gotowa lista jest dokładnie taka, jak lista_przystankowa.elementy
        aktualnego przystanku w JSON. Nie dopisujemy ani nie usuwamy pozycji. */
-    const elements=v514ModelListy();
-    if(!elements)return "";
+    const elementsRaw=v514ModelListy();
+    if(!elementsRaw)return "";
+
+    /* V648: dwa wskazane przystanki nie są przystankami granicznymi.
+       Usuwamy wyłącznie separator STREFA I/2 bezpośrednio związany
+       z BUKOWEM (211) lub HUBALA-DOBRZAŃSKIEGO (149).
+       Nie zmieniamy innych separatorów, kolejności ani JSON. */
+    const numerV648=String(daneLinii?.linia||aktualnaLinia||"").trim();
+    const nazwaV648=e=>String(e?.nazwa||"").normalize("NFD")
+        .replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+    const wyjatekV648=e=>e?.typ==="przystanek" && (
+        (numerV648==="211" && nazwaV648(e)==="BUKOW") ||
+        (numerV648==="149" && nazwaV648(e)==="HUBALADOBRZANSKIEGO")
+    );
+    const jestGranicaV648=e=>e?.typ==="strefa" &&
+        /(?:STREFA\s*)?(?:I\s*\/\s*2|1\s*\/\s*2)/i.test(String(e?.tekst||""));
+    const elements=elementsRaw.filter((e,i,a)=>{
+        if(!jestGranicaV648(e))return true;
+        // Granica może wystąpić przed lub po przystanku, czasem
+        // oddzielona od niego separatorem miejscowości.
+        let prev=null,next=null;
+        for(let j=i-1;j>=0;j--){if(a[j]?.typ==="przystanek"){prev=a[j];break;}}
+        for(let j=i+1;j<a.length;j++){if(a[j]?.typ==="przystanek"){next=a[j];break;}}
+        return !(wyjatekV648(next)||wyjatekV648(prev));
+    });
 
     let rows="";
     let stopPosition=0;
@@ -26419,6 +26442,42 @@ html body .tabliczka .panel-prawy .trasa-columns > .trasa-kol > .legenda.v644-le
 html body .tabliczka .panel-prawy .trasa-columns > .trasa-kol > .legenda.v644-legenda::after {
     content: none !important;
     display: none !important;
+}
+</style>
+
+<style id="fwtp-v648-zwarty-uklad-trzech-dni">
+/* Trzy dni: tabele stoją bezpośrednio obok siebie (odstęp 3px).
+   Wcześniejsze grid-template-columns: 1fr i rozciąganie weekendu
+   pozostawiały na linii 149 ogromne puste przestrzenie. */
+html body .tabliczka .panel-lewy .rozklady-grid.kol-3,
+html body .tabliczka .panel-lewy .rozklady-grid.kol-3.weekend-rowny {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    justify-content: flex-start !important;
+    align-items: flex-start !important;
+    gap: 3px !important;
+    column-gap: 3px !important;
+    grid-template-columns: none !important;
+    width: fit-content !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+}
+html body .tabliczka .panel-lewy .rozklady-grid.kol-3 > .dzien,
+html body .tabliczka .panel-lewy .rozklady-grid.kol-3.weekend-rowny > .dzien {
+    flex-grow: 0 !important;
+    flex-shrink: 0 !important;
+    align-self: flex-start !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+/* Po uruchomieniu mechanizmu v642 pozostają jego obliczone szerokości;
+   nie pozwalamy wcześniejszym regułom 1fr rozszerzać tabel. */
+html body .tabliczka.v642-uklad .panel-lewy .rozklady-grid.kol-3 > .dzien {
+    flex-basis: var(--v642-szer) !important;
+    width: var(--v642-szer) !important;
+    min-width: var(--v642-szer) !important;
+    max-width: var(--v642-szer) !important;
 }
 </style>
 </body>
