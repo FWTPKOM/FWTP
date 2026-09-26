@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 639 — DETEKCJA RZECZYWISTEJ KOLIZJI; ETAPY ZAWIJANIA v504; BAZA v636 -->
+<!-- WERSJA: 640 — DOPASOWANIE MINUT DO RZECZYWISTEJ GRANICY PANELU, BAZA 636 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -6393,9 +6393,7 @@ html body .tabliczka .v514-lista
    Zapobiega nachodzeniu szerokiego rozkladu na liste przystankow. */
 .tabliczka .panel-lewy { min-width: 0; }
 .tabliczka .panel-lewy .rozklady-wrap {
-    /* v639: nie maskujemy szerokości tabeli przed detektorem kolizji.
-       Przy 3 dniach nadal obowiązuje osobny układ v624 poniżej. */
-    max-width: none !important;
+    max-width: 100% !important;
     box-sizing: border-box;
 }
 .tabliczka .panel-lewy .rozklady-grid:has(> .dzien:nth-child(3)) {
@@ -21214,23 +21212,11 @@ function czyRozkladNachodziNaListePrzystankow(
     const tolerancjaKolizji228=
         0.25;
 
-    /* v639: v624 ograniczał szerokość wrappera do panelu, mimo że
-       rzeczywiste ramki .dzien wystawały poza niego. Sprawdzamy
-       również każdy dzień i prawą krawędź siatki, bez zmiany
-       oryginalnych etapów 294.5 / 270 / 246 / 225 px z v504. */
-    const grid = wrap.querySelector('.rozklady-grid');
-    const dni = grid ? Array.from(grid.children).filter(
-        el => el.classList && el.classList.contains('dzien')
-    ) : [];
-    const prawaTabel = dni.reduce(
-        (max, dzien) => Math.max(max, dzien.getBoundingClientRect().right),
-        wrapRect.right
+    return(
+        wrapRect.right>
+        panelRect.right+
+        tolerancjaKolizji228
     );
-    const prawaRzeczywista = Math.max(
-        prawaTabel,
-        grid ? grid.getBoundingClientRect().right : wrapRect.right
-    );
-    return prawaRzeczywista > panelRect.right + tolerancjaKolizji228;
 }
 
 
@@ -26129,5 +26115,162 @@ html body .tabliczka li.trasa-stop.v612-koncowy-przelotowy > span.trasa-nazwa.v6
     font-weight: 700 !important;
 }
 </style>
+
+<style id="fwtp-v640-dopasowanie-minut">
+/* WERSJA 640. Nadpisanie konfliktujących reguł starszych wersji wyłącznie
+   dla tabel, które naprawdę wymagają zawijania. */
+.tabliczka.v640-zawijanie .rozklady-wrap {
+  max-width: none !important;
+  min-width: 0 !important;
+  width: max-content !important;
+}
+.tabliczka.v640-zawijanie .rozklady-grid {
+  width: max-content !important;
+  max-width: none !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: flex-start !important;
+  gap: 3px !important;
+}
+.tabliczka.v640-zawijanie .rozklady-grid > .dzien {
+  flex: 0 0 auto !important;
+  box-sizing: border-box !important;
+  margin-left: 0 !important;
+}
+.tabliczka.v640-zawijanie .rozklady-grid > .dzien .godzina-row {
+  height: auto !important;
+  min-height: 16px !important;
+  max-height: none !important;
+  align-items: stretch !important;
+}
+.tabliczka.v640-zawijanie .rozklady-grid > .dzien .minuty-cell {
+  display: flex !important;
+  flex-flow: row wrap !important;
+  align-content: flex-start !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  min-width: 0 !important;
+  width: auto !important;
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  min-height: 16px !important;
+  overflow: visible !important;
+  white-space: normal !important;
+  box-sizing: border-box !important;
+}
+.tabliczka.v640-zawijanie .rozklady-grid > .dzien .minuta {
+  flex: 0 0 24px !important;
+  width: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+}
+.tabliczka.v640-zawijanie .godzina-row.v640-dwa-wiersze,
+.tabliczka.v640-zawijanie .godzina-row.v640-dwa-wiersze .godzina-cell,
+.tabliczka.v640-zawijanie .godzina-row.v640-dwa-wiersze .minuty-cell {
+  min-height: 32px !important;
+  height: 32px !important;
+  max-height: none !important;
+}
+.tabliczka.v640-zawijanie .rozklady-grid > .dzien .godzina-cell {
+  height: auto !important;
+  min-height: 16px !important;
+}
+</style>
+<script id="fwtp-v640-dopasowanie-minut-js">
+/* Nie mierzymy .rozklady-wrap, którego max-width:100% maskował kolizję.
+   Mierzymy prawą krawędź KAŻDEJ rzeczywistej tabeli i jej zawartości. */
+(function(){
+  const selector='#wynik .tabliczka';
+  const etapy=[294.5,270,246,225];
+  let generacja=0;
+  function dni(t){return Array.from(t.querySelectorAll('.rozklady-grid > .dzien'));}
+  function ustawSzerokosc(d,w){
+    for(const key of ['width','min-width','max-width'])
+      d.style.setProperty(key,w===null?'':w+'px',w===null?'':'important');
+  }
+  function geometria(t){
+    const panel=t.querySelector('.panel-lewy');
+    const dd=dni(t);
+    if(!panel||!dd.length)return null;
+    const p=panel.getBoundingClientRect();
+    const right=Math.max(...dd.map(d=>d.getBoundingClientRect().right));
+    return {panel:p,right,kolizja:right>p.right-3};
+  }
+  function wyrownaj(t){
+    const mapa=new Map();
+    t.querySelectorAll('.rozklady-grid > .dzien .godzina-row').forEach(r=>{
+      r.classList.remove('v640-dwa-wiersze','wiersz-dwuliniowy');
+      const key=(r.querySelector('.godzina-cell')?.textContent||'').trim();
+      if(key){if(!mapa.has(key))mapa.set(key,[]);mapa.get(key).push(r);}
+    });
+    void t.offsetHeight;
+    mapa.forEach(rows=>{
+      const dwie=rows.some(r=>{
+        const cell=r.querySelector('.minuty-cell');
+        if(!cell)return false;
+        const minuty=Array.from(cell.querySelectorAll('.minuta'));
+        return minuty.length>1 && minuty.at(-1).getBoundingClientRect().top > minuty[0].getBoundingClientRect().top+5;
+      });
+      if(dwie)rows.forEach(r=>r.classList.add('v640-dwa-wiersze'));
+    });
+  }
+  function dopasuj(t){
+    if(!t||!t.isConnected)return;
+    const dd=dni(t), panel=t.querySelector('.panel-lewy');
+    if(!dd.length||!panel)return;
+    // Nie zmieniamy struktury przystanków, wariantów ani danych kursów.
+    t.classList.remove('v640-zawijanie');
+    dd.forEach(d=>ustawSzerokosc(d,null));
+    const pierwsza=geometria(t);
+    if(!pierwsza?.kolizja)return;
+    t.classList.add('v640-zawijanie');
+    // Najpierw odtwarzamy naturalną szerokość tabel weekendowych;
+    // zmieniamy jedynie szerokość tabeli o największej liczbie minut.
+    const weekday=dd.find(d=>/POWSZEDNI|PONIEDZIAŁKU|PIĄTKU/i.test(d.querySelector('.dzien-tytul')?.textContent||''))||dd[0];
+    dd.forEach(d=>{
+      const title=d.querySelector('.dzien-tytul');
+      const min=Math.ceil(title?.scrollWidth||80)+4;
+      if(d!==weekday)ustawSzerokosc(d,Math.max(min,Math.ceil(d.scrollWidth)));
+    });
+    for(const w of etapy){
+      ustawSzerokosc(weekday,w);
+      void t.offsetWidth;
+      if(!geometria(t)?.kolizja)break;
+    }
+    // Gdy tytuły pozostałych dni zajmują więcej niż dostępne miejsce,
+    // zwężamy je do szerokości ich nagłówków (minuty też mogą się zawijać).
+    if(geometria(t)?.kolizja){
+      dd.filter(d=>d!==weekday).forEach(d=>{
+        const min=Math.ceil(d.querySelector('.dzien-tytul')?.scrollWidth||80)+4;
+        ustawSzerokosc(d,Math.max(90,min));
+      });
+    }
+    // W przypadku szczególnie długich nazw dni zmniejszamy tabelę
+    // powszednią tylko do szerokości, która mieści nagłówek i 7 minut.
+    if(geometria(t)?.kolizja){
+      const p=panel.getBoundingClientRect();
+      const start=weekday.getBoundingClientRect().left;
+      const others=dd.filter(d=>d!==weekday).reduce((a,d)=>a+d.getBoundingClientRect().width+3,0);
+      const title=Math.ceil(weekday.querySelector('.dzien-tytul')?.scrollWidth||0)+4;
+      ustawSzerokosc(weekday,Math.max(title,Math.min(225,Math.floor(p.right-start-others-4))));
+    }
+    wyrownaj(t);
+    // Wyrównanie zmienia wysokość tabel; nie uruchamiamy ponownie
+    // starego dopasowania, które nadpisywało szerokości.
+  }
+  // Zastępujemy tylko etap rozkładu; cały renderer v636 zostaje nietknięty.
+  window.zastosujEtapyRozkladu184=function(){
+    const t=document.querySelector(selector);
+    const id=++generacja;
+    requestAnimationFrame(()=>{
+      if(id!==generacja)return;
+      dopasuj(t);
+      requestAnimationFrame(()=>{if(id===generacja)dopasuj(t);});
+    });
+  };
+  window.v640Dopasuj=dopasuj;
+})();
+</script>
 </body>
 </html>
