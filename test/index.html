@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<!-- WERSJA: 667 — RZECZYWISTE ZAWIJANIE NAZW PRZYSTANKÓW -->
+<!-- WERSJA: 668 — MARKERY WARIANTÓW Z FIZYCZNYCH TRAS, BEZ FAŁSZYWYCH WSZYSTKICH KURSÓW -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>FWTP - Tabliczki (v667)</title>
-<meta name="fwtp-version" content="667"/>
+<meta name="fwtp-version" content="668"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
 <script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sPxCq7PaSAZgofkQN2x8yF3_xxpxKUlsaQBInBm3F64lBKh4BnCciuKKVcQf3Jz_NBdRQb_bmKwJ4NOVjU6QGqlLysKpL1bRvNsDCRXyuMD2X4c_lCpZSNAYWgDQvitBBQfYeyhxpPHINE616HmVKFWuo-TcjLVvHADEbkr04gZnMPtWXv_tkMdTM6J2H_69zBQEhkqlO36zyzkWI25gzVRr2uyvOAFbSMU_yixTmGFo2pM7GXa-r05eHZmmdxI1cbUXjQHYecTSK-rUlKBl1V72CkahBzM7wZkMpZmAFpeWTk4WDlUXa31H8r2AurzAlliqKbmn46g76HzO5_GPQZQvhtr9dmPKAeMR_rZ02HI" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sDyvQBuoxox17_KRlPp29SKwugaMaVHZH-lXg7Me4XIBEwt15mCv1uqRyqMH-xRp8urkn2GKBjKSinJt--k9NFU3LbrASJ_btilmXWb7duejD4J2XdrB913svyl51nKpYX8-HLLkfvjFTdvXu_5G1u-hJpvzjdEbX-063Y6CXHkBnc7hfu4ApUg1MwuCjTKZxQT5jUnwaqD0FLGBxUUSyKBI_nCyxAxqRHPVNvfevE_Na0ZAtSC3NEn6nVxrNhweDkytC218IoO5Rp6F_cQfQ5yerDkGbJdxZaBr6wEs6RqD_KJpB-gZEM7WGtUm4_iiYKevwPzLdRiNgD4OGJMRDaBXVG6CaQRTnhMujcROCZ8" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=pKlnhzCyCnwX8pmmZaNlxDMrn9H9NEgRSiYuEYZIh0qKYjqZnAWEtDZKpqw9xXvDFYlHzXX39nvATweO787ShH6PDI8b6Lhr9V9_USw04DZ-qSw7C0l3-WOH-r6AuMB4giHrjY0zFNPox_FDweAQXPyRUqBERuyN6-jlB-2h3l3vPuutDA3YvFZ94yMluxl8tbxMUrd3sCHEoit3JAs7ZS9MnIJei0dyT769BMUer3Xy_CTVEMV6GZIAStVJr9q2PAt0op6-vFdUrnpAbMNC6nPCDg4D2RT8jC6j4KbfWhkW-J0Ela4u5mG01FQogNoE3NHAHw96NO2OF__6kk9H1-Oes-PG1TpRDAGM86EzsDnm9qwA6Il2SoO2W1HCRcr5" charset="UTF-8"></script><style>
@@ -6731,34 +6731,46 @@ function convert(raw){
     for(const stop of ordered){
      const sp=stops.get(stop);
      const passing=eligible.filter(c=>{const start=c.trasa.indexOf(p.id),at=c.trasa.indexOf(stop);return start>=0&&at>=start&&c.times.has(stop)});
-     // Trasy ze WSZYSTKICH dni: np. w D przystanek cmentarny
-     // obsluguje W, lecz wariant C wystepuje w C i musi byc w opisie.
-     const covering=cat.groups.filter(g=>{
-      const start=g.route.indexOf(p.id),at=g.route.indexOf(stop);
-      return start>=0&&at>=start;
-     });
-     const letters=[...new Set(covering.map(g=>g.letter).filter(Boolean))];
-     // Separator tylko na granicy zmiany zestawu kursow, nie przed pierwszym
-     // przystankiem. Kazdy zestaw pochodzi z realnych kursow w RAW.
-     const currentKey=[...letters].sort().join('|');
-     if(prevLetters!==null&&currentKey!==prevLetters&&letters.length){
-      const order=['C','W','A',...'BCDEFGHIJKLMNOPQRSTUVWXYZ'];
+     // FWTP V668: markery wyznaczamy z pelnych FIZYCZNYCH przebiegow
+    // faktycznie przejezdzajacych przez wybrany przystanek. Nie wolno
+    // uzywac wszystkich tras linii: obce kierunki i kursy zaczynajace
+    // za przystankiem generowaly falszywe opisy "we wszystkich kursach".
+    // Katalog z calego tygodnia zachowuje wariant C takze w dni powszednie.
+    const startRoutes=cat.groups.filter(g=>g.route.includes(p.id));
+    const covering=startRoutes.filter(g=>{
+      const from=g.route.indexOf(p.id),at=g.route.indexOf(stop);
+      return from>=0&&at>=from;
+    });
+    // Dwa przebiegi tej samej litery nie sa dwoma wariantami.
+    // W szczegolnosci warianty skrocone dziedziczace litere przebiegu
+    // podstawowego nie moga wymuszac osobnego markera.
+    const letters=[...new Set(covering.map(g=>g.letter).filter(Boolean))];
+    const activeLetters=[...new Set(startRoutes.map(g=>g.letter).filter(Boolean))];
+    const currentKey=[...letters].sort().join('|');
+    if(prevLetters!==null&&currentKey!==prevLetters&&letters.length){
+      const order=['A',...'BCDEFGHIJKLMNOPQRSTUVWXYZ'];
       letters.sort((a,b)=>order.indexOf(a)-order.indexOf(b));
-      const allLetters=[...new Set(cat.groups.map(g=>g.letter).filter(Boolean))];
-      // Wariant A jest przebiegiem bazowym, ale w RAW nie ma litery A
-      // przy minutach (dla <=3 wariantow). Na liscie opisujemy go jako
-      // kurs BEZ OZNACZEN, a nie jako nieistniejaca w rozkladzie litere a.
+      // "WE WSZYSTKICH KURSACH" oznacza WSZYSTKIE warianty
+      // dostepne z tego przystanku w calym tygodniu, nie tylko
+      // wszystkie warianty pozostale po ostatnim rozgalezieniu.
+      const allHere=activeLetters.length>1&&
+        activeLetters.every(l=>letters.includes(l))&&
+        letters.every(l=>activeLetters.includes(l));
       const hasUnmarked=letters.includes('A');
-      const visibleLetters=letters.filter(l=>l!=='A');
-      const named=visibleLetters.map(l=>'„'+l.toLocaleLowerCase('pl')+'”').join(', ');
-      const label=letters.length===allLetters.length&&letters.every(l=>allLetters.includes(l))
-       ?'TRASA WE WSZYSTKICH KURSACH'
-       :hasUnmarked
-        ?(named?'TRASA W KURSACH '+named+' ORAZ BEZ OZNACZEŃ':'TRASA W KURSACH BEZ OZNACZEŃ')
-        :'TRASA W KURSACH '+named;
-      elements.push({typ:'trasa_w_kursach',tekst:label});
-     }
-     prevLetters=currentKey;
+      const named=letters.filter(l=>l!=='A')
+        .map(l=>'„'+l.toLocaleLowerCase('pl')+'”').join(', ');
+      let label='';
+      if(allHere){
+        label='TRASA WE WSZYSTKICH KURSACH';
+      }else if(hasUnmarked){
+        label=named?'TRASA W KURSACH '+named+' ORAZ BEZ OZNACZEŃ'
+          :'TRASA W KURSACH BEZ OZNACZEŃ';
+      }else if(named){
+        label='TRASA W KURSACH '+named;
+      }
+      if(label)elements.push({typ:'trasa_w_kursach',tekst:label});
+    }
+    prevLetters=currentKey;
      const town=sp.miejscowosc;
      if(town&&town!==prevTown){elements.push({typ:'miejscowosc',tekst:town.toLocaleUpperCase('pl')});prevTown=town}
      const durations=passing.map(c=>{const delta=c.times.get(stop)-c.times.get(p.id);return delta<0?delta+1440:delta});
