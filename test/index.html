@@ -14840,6 +14840,37 @@ function kierunekZDokladnychKursow206(){
         return "";
     }
 
+    /* V662: naglowek pokazuje tylko kierunki, do ktorych mozna
+       JESZCZE dojechac z wybranego przystanku. Jesli jestesmy na
+       koncu wariantu skroconego, jego nazwa nie jest juz kierunkiem.
+       Zachowujemy pozostale konce, np. CH Lomianki na Cm. Polnocnym. */
+    const aktywneNazwy=new Set();
+    let czyKoncowyTutaj=false;
+    for(const rozklad of rozklady){
+        const lista=rozklad?.kierunki?.[aktualnyKierunek]?.przystanki||[];
+        const idx=Number(aktualnyPrzystanek);
+        const p=lista[idx];
+        if(!p)continue;
+        const aktualnaNazwa=normalizuj(p.nazwa_czysta||p.nazwa||"");
+        for(const kurs of (p.kursy||[])){
+            const trasa=Array.isArray(kurs.trasa)?kurs.trasa:[];
+            const koniec=String(kurs.koniec_trasy||trasa.at(-1)||"");
+            const nazwaKonca=normalizuj(koniec.split("|")[1]||koniec);
+            if(nazwaKonca===aktualnaNazwa){
+                czyKoncowyTutaj=true;
+            }else if(nazwaKonca){
+                aktywneNazwy.add(nazwaKonca);
+            }
+        }
+    }
+    if(czyKoncowyTutaj && aktywneNazwy.size){
+        for(const nazwa of [...liczniki.keys()]){
+            if(!aktywneNazwy.has(normalizuj(nazwa))){
+                liczniki.delete(nazwa);
+            }
+        }
+    }
+
     let najlepszy="";
     let max=-1;
 
@@ -14895,6 +14926,7 @@ function kierunekZDokladnychKursow206(){
 
                 if(
                     nazwa&&
+                    (!czyKoncowyTutaj || !aktywneNazwy.size || aktywneNazwy.has(normalizuj(nazwa)))&&
                     normalizuj(nazwa)!==
                         normalizuj(najlepszy)&&
                     !dodatkowe.some(
@@ -26878,5 +26910,109 @@ html body .tabliczka.v642-uklad .rozklady-grid > .dzien {
   box-sizing:border-box!important;
 }
 </style>
+
+<!-- WERSJA: 663 -->
+<style id="fwtp-v663-elastyczne-kolumny">
+/* Proporcje są wyliczane osobno dla każdej tabliczki. */
+html body .tabliczka.v663-elastyczna .trasa-columns.cols-2,
+html body .tabliczka.v663-elastyczna .trasa-head.cols-2 {
+  grid-template-columns:var(--v663-pierwsza, 50%) minmax(0,1fr)!important;
+}
+/* Szerokość nazwy jest przeliczana po rzeczywistej zmianie kolumny. */
+html body .tabliczka.v663-elastyczna .trasa-nazwa:not(.zawijaj){
+  white-space:nowrap;
+}
+</style>
+<script id="fwtp-v663-elastyczne-kolumny-js">
+(function(){
+ 'use strict';
+ let oczekuje=false;
+ function zaplanuj(){
+   if(oczekuje)return;
+   oczekuje=true;
+   requestAnimationFrame(()=>requestAnimationFrame(()=>{
+     oczekuje=false;
+     document.querySelectorAll('#wynik .tabliczka').forEach(dopasuj);
+   }));
+ }
+ function dopasuj(t){
+   const lewy=t.querySelector('.panel-lewy');
+   const prawy=t.querySelector('.panel-prawy');
+   const lista=t.querySelector('.trasa-columns');
+   if(!lewy||!prawy||!lista)return;
+   const szer=t.getBoundingClientRect().width;
+   if(szer<300)return;
+   const wrap=lewy.querySelector('.rozklady-wrap');
+   const rozklady=lewy.querySelector('.rozklady-grid');
+   // Nie zwężamy rozkładu do samej liczby minut: uwzględniamy
+   // rzeczywiste położenie jego prawej krawędzi i legendę.
+   const lewyX=lewy.getBoundingClientRect().left;
+   const obecnyLewy=lewy.getBoundingClientRect().width;
+   let minimum=0;
+   if(rozklady){
+     const r=rozklady.getBoundingClientRect();
+     minimum=Math.max(minimum,r.right-lewyX+12);
+   }
+   if(wrap){
+     const r=wrap.getBoundingClientRect();
+     minimum=Math.max(minimum,r.left-lewyX+Math.min(wrap.scrollWidth,r.width)+12);
+   }
+   const legenda=lewy.querySelector(':scope > .legenda');
+   if(legenda){
+     const r=legenda.getBoundingClientRect();
+     minimum=Math.max(minimum,r.left-lewyX+Math.min(legenda.scrollWidth,r.width)+12);
+   }
+   // Rezerwa bezpieczeństwa: żadna minuta ani legenda nie może wejść na listę.
+   minimum=Math.max(minimum, szer*0.37);
+   const docelowyLewy=Math.max(minimum,Math.min(obecnyLewy,szer*0.50));
+   if(obecnyLewy-docelowyLewy>=10){
+     const procent=100*docelowyLewy/szer;
+     t.style.setProperty('--lewa',procent.toFixed(2)+'%');
+     t.style.setProperty('--prawa',(100-procent).toFixed(2)+'%');
+   }
+   if(!lista.classList.contains('cols-2')){
+     t.classList.remove('v663-elastyczna');
+     if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(lista);
+     return;
+   }
+   const kolumny=Array.from(lista.children).filter(e=>e.classList.contains('trasa-kol'));
+   if(kolumny.length!==2)return;
+   // Rozdzielamy dodatkowe miejsce na podstawie faktycznej szerokości
+   // nazw w każdej kolumnie, nie arbitralnie 50/50.
+   const kontekst=document.createElement('canvas').getContext('2d');
+   function potrzeba(kol){
+     let max=0, zawiniete=0;
+     kol.querySelectorAll('.trasa-stop .trasa-nazwa').forEach(n=>{
+       const css=getComputedStyle(n);
+       kontekst.font=css.font;
+       const napis=n.textContent.replace(/\s+/g,' ').trim();
+       const w=kontekst.measureText(napis).width;
+       max=Math.max(max,w);
+       if(n.classList.contains('zawijaj'))zawiniete++;
+     });
+     return {max,zawiniete};
+   }
+   const a=potrzeba(kolumny[0]), b=potrzeba(kolumny[1]);
+   const calosc=lista.getBoundingClientRect().width;
+   if(calosc<150)return;
+   const szerNazwy=calosc-2*36-10;
+   let proporcja=(a.max+5)/Math.max(1,a.max+b.max+10);
+   proporcja=Math.max(0.44,Math.min(0.66,proporcja));
+   // Nie odbieramy miejsca drugiej kolumnie, jeśli jej nazwy też są długie.
+   if(b.max>=(1-proporcja)*calosc-36)proporcja=Math.min(proporcja,0.55);
+   t.style.setProperty('--v663-pierwsza',(proporcja*100).toFixed(2)+'%');
+   t.classList.add('v663-elastyczna');
+   if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(lista);
+ }
+ const wynik=document.getElementById('wynik');
+ if(wynik){
+   new MutationObserver(zaplanuj).observe(wynik,{childList:true});
+ }
+ window.addEventListener('resize',zaplanuj);
+ document.addEventListener('DOMContentLoaded',zaplanuj);
+ zaplanuj();
+})();
+</script>
+
 </body>
 </html>
