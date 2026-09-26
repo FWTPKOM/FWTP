@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 648 — WYJĄTKI GRANIC STREF I ZWARTY UKŁAD TRZECH DNI -->
+<!-- WERSJA: 649 — BEZ SEPARATORÓW STREF 1XX–5XX, RÓWNE I SZERSZE WEEKENDY -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -19374,6 +19374,7 @@ function v514RenderSeparator(element){
     }
 
     if(typ==="strefa"){
+        if(/^[1-5]\d\d$/.test(String(daneLinii?.linia||"")))return "";
         /* FWTP V535:
            JSON jest źródłem prawdy. Jeżeli ma "STREFA I",
            renderer pokazuje dokładnie "STREFA I".
@@ -19811,7 +19812,12 @@ function v514RenderGotowejListy(){
     );
     const jestGranicaV648=e=>e?.typ==="strefa" &&
         /(?:STREFA\s*)?(?:I\s*\/\s*2|1\s*\/\s*2)/i.test(String(e?.tekst||""));
+    // V649: dla linii 1xx–5xx nie pokazujemy separatorów stref.
+    // Dotyczy STREFA I, STREFA I/2, STREFA II i wszystkich ich wariantów.
+    // Nie zmieniamy oznaczeń NŻ ani kolejności przystanków.
+    const bezStrefV649=/^[1-5]\d\d$/.test(numerV648);
     const elements=elementsRaw.filter((e,i,a)=>{
+        if(bezStrefV649 && String(e?.typ||"").toLowerCase()==="strefa")return false;
         if(!jestGranicaV648(e))return true;
         // Granica może wystąpić przed lub po przystanku, czasem
         // oddzielona od niego separatorem miejscowości.
@@ -20081,6 +20087,10 @@ function v499PierwszaStrefaZTrasy(){
 
 function v499NormalizujStrefy(root){
     if(!root)return;
+    if(/^[1-5]\d\d$/.test(String(daneLinii?.linia||""))){
+        root.querySelectorAll(".v486-strefa,.trasa-strefa-440").forEach(x=>x.remove());
+        return;
+    }
 
     /*
        Usuwamy wszystkie separatory stref wygenerowane lokalnie
@@ -26275,7 +26285,16 @@ html body .tabliczka.v642-uklad .rozklady-grid .minuta {
    }
    return Math.max(minimum[i],27+24*max,napis);
   });
+  // V649: sobota i święto mają identyczną szerokość, co najmniej 112 px.
+  // Pozwala to wyświetlić pełny nagłówek „Godz. Minuty” bez ucinania.
+  const weekend=dni.map((d,i)=>({d,i,tytul:(d.querySelector('.dzien-tytul')?.textContent||'').trim().toUpperCase()}))
+    .filter(x=>x.tytul==='SOBOTA'||x.tytul==='ŚWIĘTO');
+  weekend.forEach(x=>{minimum[x.i]=Math.max(minimum[x.i],112);naturalne[x.i]=Math.max(naturalne[x.i],112)});
   const widths=naturalne.slice();
+  if(weekend.length===2){
+    const wspolna=Math.max(112,...weekend.map(x=>widths[x.i]));
+    weekend.forEach(x=>widths[x.i]=wspolna);
+  }
   let brak=widths.reduce((a,b)=>a+b,0)-budzet;
   // Zwężamy tylko wtedy, kiedy CAŁA grupa tabel przekracza dostępne miejsce.
   // Nigdy nie zwężamy poniżej pełnej szerokości nagłówka, jeśli suma
@@ -26286,12 +26305,32 @@ html body .tabliczka.v642-uklad .rozklady-grid .minuta {
    if(idx<0)break;
    const delta=Math.min(brak,zapas,24);widths[idx]-=delta;brak-=delta;
   }
+  // V649: po dopasowaniu obie weekendowe tabele ponownie wyrównujemy.
+  // Jeśli trzeba, odzyskujemy brakujące piksele z tabel pozostałych dni.
+  if(weekend.length===2){
+    const a=weekend[0].i,b=weekend[1].i;
+    const wspolna=Math.max(112,widths[a],widths[b]);
+    const extra=(wspolna-widths[a])+(wspolna-widths[b]);
+    widths[a]=widths[b]=wspolna;
+    let remaining=extra;
+    for(let pass=0;remaining>0.1&&pass<1000;pass++){
+      const other=widths.map((w,i)=>({w,i,spare:w-minimum[i]}))
+        .filter(x=>x.i!==a&&x.i!==b&&x.spare>0.1)
+        .sort((x,y)=>y.spare-x.spare)[0];
+      if(!other)break;
+      const step=Math.min(remaining,other.spare,24);
+      widths[other.i]-=step;remaining-=step;
+    }
+    brak+=remaining;
+  }
   // Wyłącznie w naprawdę ciasnym układzie dopuszczamy złamanie nagłówka.
   const ciasno=brak>0.1;
   for(let k=0;brak>0.1&&k<2000;k++){
-   const idx=widths.indexOf(Math.max(...widths));
-   if(widths[idx]<=58)break;
-   const delta=Math.min(brak,widths[idx]-58,12);widths[idx]-=delta;brak-=delta;
+   const choices=widths.map((w,i)=>({w,i,limit:weekend.some(x=>x.i===i)?112:58}))
+     .filter(x=>x.w>x.limit+0.1).sort((a,b)=>(b.w-b.limit)-(a.w-a.limit));
+   if(!choices.length)break;
+   const choice=choices[0];
+   const delta=Math.min(brak,choice.w-choice.limit,12);widths[choice.i]-=delta;brak-=delta;
   }
   dni.forEach((d,i)=>{
    const w=Math.max(58,Math.floor(widths[i]));
@@ -26478,6 +26517,20 @@ html body .tabliczka.v642-uklad .panel-lewy .rozklady-grid.kol-3 > .dzien {
     width: var(--v642-szer) !important;
     min-width: var(--v642-szer) !important;
     max-width: var(--v642-szer) !important;
+}
+</style>
+
+<style id="fwtp-v649-strefy-weekend">
+/* Zachowujemy normalny krój i wielkość liter; zwiększamy tylko miejsce. */
+html body .tabliczka.v642-uklad .rozklady-grid .godziny-head > div:last-child {
+  white-space:nowrap!important; overflow:visible!important;
+}
+html body .tabliczka.v642-uklad .rozklady-grid .dzien .godziny-head {
+  grid-template-columns:43px minmax(0,1fr)!important;
+}
+/* Nie dopuszczamy ponownego zwężenia weekendu przez starsze reguły. */
+html body .tabliczka.v642-uklad .rozklady-grid > .dzien {
+  box-sizing:border-box!important;
 }
 </style>
 </body>
