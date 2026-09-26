@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 657 — AUTOMATYCZNY ODCZYT JSON V192 I FWTP-RAW-1 BEZ PARAMETRU URL -->
+<!-- WERSJA: 658 — AUTO RAW + MIEJSCOWOSCI + SEPARATORY WARIANTOW -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -6463,43 +6463,92 @@ html body .tabliczka .trasa-columns.cols-2 .trasa-nazwa.nazwa-jednowyrazowa {
 }
 </style>
 <script>
-/* FWTP RAW V201: warianty liczone w przegladarce, bez drugiego JSON.
-   Test rozwojowy; przed publikacja porownaj z wynikami V192. */
+/* FWTP RAW V202: wspolny konwerter RAW -> dotychczasowy model tabliczki.
+   V202: miejscowosci i opisy tras w lista_przystankowa, bez nazw w nawiasach.
+   Warianty i kursy zachowuja algorytm V201; stary JSON nie jest zmieniany. */
 (function(root){'use strict';
-const s=x=>String(x??'').trim();
-const id=x=>s(x).replace(/^\d+\|/,'').replace(/\s*\([^)]*\)(?=\|)/g,'').toLocaleLowerCase('pl');
-const sig=route=>route.map(id).join('\x1f');
+const s=x=>String(x??'').trim(), pad=n=>String(n).padStart(2,'0');
+const cleanName=n=>s(n).replace(/\s*\(([^()]*)\)\s*$/,'').trim();
+const location=n=>{const m=s(n).match(/\s*\(([^()]*)\)\s*$/);return m?s(m[1]):'Warszawa'};
+const cleanId=x=>{const p=s(x).split('|');return p.length>=3?[p[0],cleanName(p.slice(1,-1).join('|')),p.at(-1)].join('|'):s(x)};
+const norm=x=>cleanId(x).replace(/^\d+\|/,'').toLocaleLowerCase('pl');
+const sig=route=>route.map(norm).join('\x1f');
 const clock=x=>{const m=s(x).match(/^(\d{1,2}):(\d{2})$/);return m?+m[1]*60+(+m[2]):null};
-const pad=n=>String(n).padStart(2,'0');
 const tech=c=>c.techniczny===true||/(^|[^a-z])(?:DTECH|CTECH|TECH)(?=$|[^a-z])/i.test(s(c.uwagi));
 const isStop=p=>p&&p.id&&!/^(?:objaśnienia|legenda|uwagi|nr\.?\s*linii)\s*:?$/i.test(s(p.nazwa));
 function mode(arr){const f=new Map();for(const x of arr)if(Number.isFinite(x))f.set(x,(f.get(x)||0)+1);return [...f].sort((a,b)=>b[1]-a[1]||b[0]-a[0])[0]?.[0]??null}
-function gather(k){const found=new Map();for(const p of k.przystanki||[]){if(!isStop(p))continue;for(const c of p.kursy||[]){if(tech(c)||!Array.isArray(c.trasa)||!c.trasa.length)continue;const key=s(c.numer)||[s(c.brygada),sig(c.trasa),s(c.czas)].join('~');let item=found.get(key);if(!item){item={numer:s(c.numer),brygada:s(c.brygada),uwagi:s(c.uwagi),trasa:c.trasa,koniec_trasy:c.koniec_trasy,explicit:s(c.wariant),times:new Map()};found.set(key,item)}const t=clock(c.czas);if(t!==null)item.times.set(p.id,t)}}return [...found.values()]}
-function prefix(a,b){return a.length<b.length&&a.every((x,i)=>id(x)===id(b[i]))}
-function suffix(a,b){return a.length<b.length&&a.every((x,i)=>id(x)===id(b[b.length-a.length+i]))}
+function gather(k){const found=new Map();for(const p of k.przystanki||[]){if(!isStop(p))continue;for(const c of p.kursy||[]){if(tech(c)||!Array.isArray(c.trasa)||!c.trasa.length)continue;const key=s(c.numer)||[s(c.brygada),sig(c.trasa),s(c.czas)].join('~');let item=found.get(key);if(!item){item={numer:s(c.numer),brygada:s(c.brygada),uwagi:s(c.uwagi),trasa:c.trasa.map(cleanId),koniec_trasy:cleanId(c.koniec_trasy),explicit:s(c.wariant),times:new Map()};found.set(key,item)}const t=clock(c.czas);if(t!==null)item.times.set(cleanId(p.id),t)}}return [...found.values()]}
+function prefix(a,b){return a.length<b.length&&a.every((x,i)=>norm(x)===norm(b[i]))}
+function suffix(a,b){return a.length<b.length&&a.every((x,i)=>norm(x)===norm(b[b.length-a.length+i]))}
 function catalog(dirs){const groups=new Map();dirs.forEach((k,day)=>{for(const c of gather(k)){const key=sig(c.trasa);let g=groups.get(key);if(!g){g={key,route:c.trasa,day,count:0,explicit:new Map(),letter:'',description:''};groups.set(key,g)}g.count++;if(c.explicit)g.explicit.set(c.explicit,(g.explicit.get(c.explicit)||0)+1)}});const all=[...groups.values()];const full=all.filter(g=>!all.some(h=>h!==g&&(prefix(g.route,h.route)||suffix(g.route,h.route))));const weekday=full.filter(g=>g.day===0);const pool=weekday.length?weekday:full;
-  // Najkrotszy pelny przebieg do glownej petli to baza; podjazd jest osobnym wariantem.
-  pool.sort((a,b)=>a.route.length-b.route.length||b.count-a.count||a.key.localeCompare(b.key));const base=pool[0]||null;const assigned=new Set();
-  for(const g of all){const explicit=[...g.explicit].sort((a,b)=>b[1]-a[1])[0]?.[0];if(explicit){g.letter=explicit;assigned.add(explicit)}}
-  if(base&&!base.letter){base.letter='A';assigned.add('A')}
-  // Najpierw odrebne pelne przebiegi, pozniej skrocenia (inaczej C odziedziczy W).
-  const distinct=full.filter(g=>!g.letter).sort((a,b)=>a.day-b.day||b.count-a.count);
-  for(const g of distinct){let letter='';if(g.route.some(x=>/widokowa/i.test(x))&&g.route.some(x=>/cm\.\s*północny/i.test(x))&&!assigned.has('W'))letter='W';if(!letter)letter=[...'BCDEFGHIJKLMNOPQRSTUVWXYZ'].find(x=>!assigned.has(x))||'V'+(assigned.size+1);g.letter=letter;assigned.add(letter)}
-  for(const g of all.filter(g=>!g.letter)){
-    const terminal=s(g.route.at(-1)).split('|')[1]||'';
-    if(/cm\.\s*północny/i.test(terminal)&&!assigned.has('C')){g.letter='C';assigned.add('C');continue}
-    const parent=full.filter(h=>h.letter&&(prefix(g.route,h.route)||suffix(g.route,h.route))).sort((a,b)=>b.count-a.count)[0];
-    if(parent){g.letter=parent.letter;continue}
-    // Kurs z innym poczatkiem, ale wspolnym dalszym przebiegiem.
-    const near=full.filter(h=>h.letter&&g.route.some(x=>h.route.some(y=>id(x)===id(y)))).sort((a,b)=>b.count-a.count)[0];
-    if(near&&g.day>0){g.letter=near.letter;continue}
-    g.letter=[...'BCDEFGHIJKLMNOPQRSTUVWXYZ'].find(x=>!assigned.has(x))||'V'+(assigned.size+1);assigned.add(g.letter)
-  }
-  // Dla skroconych kursow nie dopisuj litery A do minut, gdy nie jest oznaczona w oryginale.
-  for(const g of all){const stop=g.route.at(-1)||'';g.description=g.letter==='A'?'kurs bez podjazdów':g.route.some(x=>/widokowa/i.test(x))&&g.route.some(x=>/cm\.\s*północny/i.test(x))?'kurs przez WIDOKOWA i CM. PÓŁNOCNY-BRAMA ZACH.':g.route.length<base?.route.length?'kurs skrócony do przystanku '+(s(stop).split('|')[1]||stop).toUpperCase():'odmienny przebieg trasy'}
-  return {groups:all,byRoute:new Map(all.map(g=>[g.key,g])),base}}
+ pool.sort((a,b)=>a.route.length-b.route.length||b.count-a.count||a.key.localeCompare(b.key));const base=pool[0]||null;const assigned=new Set();
+ for(const g of all){const explicit=[...g.explicit].sort((a,b)=>b[1]-a[1])[0]?.[0];if(explicit){g.letter=explicit;assigned.add(explicit)}}
+ if(base&&!base.letter){base.letter='A';assigned.add('A')}
+ for(const g of full.filter(g=>!g.letter).sort((a,b)=>a.day-b.day||b.count-a.count)){let letter='';if(g.route.some(x=>/widokowa/i.test(x))&&g.route.some(x=>/cm\.\s*północny/i.test(x))&&!assigned.has('W'))letter='W';if(!letter)letter=[...'BCDEFGHIJKLMNOPQRSTUVWXYZ'].find(x=>!assigned.has(x))||'V'+(assigned.size+1);g.letter=letter;assigned.add(letter)}
+ for(const g of all.filter(g=>!g.letter)){const terminal=s(g.route.at(-1)).split('|')[1]||'';if(/cm\.\s*północny/i.test(terminal)&&!assigned.has('C')){g.letter='C';assigned.add('C');continue}const parent=full.filter(h=>h.letter&&(prefix(g.route,h.route)||suffix(g.route,h.route))).sort((a,b)=>b.count-a.count)[0];if(parent){g.letter=parent.letter;continue}const near=full.filter(h=>h.letter&&g.route.some(x=>h.route.some(y=>norm(x)===norm(y)))).sort((a,b)=>b.count-a.count)[0];if(near&&g.day>0){g.letter=near.letter;continue}g.letter=[...'BCDEFGHIJKLMNOPQRSTUVWXYZ'].find(x=>!assigned.has(x))||'V'+(assigned.size+1);assigned.add(g.letter)}
+ for(const g of all){const stop=g.route.at(-1)||'';g.description=g.letter==='A'?'kurs bez podjazdów':g.route.some(x=>/widokowa/i.test(x))&&g.route.some(x=>/cm\.\s*północny/i.test(x))?'kurs przez WIDOKOWA i CM. PÓŁNOCNY-BRAMA ZACH.':g.route.length<base?.route.length?'kurs skrócony do przystanku '+(s(stop).split('|')[1]||stop).toUpperCase():'odmienny przebieg trasy'}
+ return {groups:all,byRoute:new Map(all.map(g=>[g.key,g])),base}}
 const cache=new WeakMap();
-function convert(raw){if(!raw||raw.format!=='FWTP-RAW-1')return raw;if(cache.has(raw))return cache.get(raw);const out={...raw};delete out.format;out.rozkłady=(raw.rozkłady||[]).map(r=>({...r,kierunki:(r.kierunki||[]).map(k=>({...k,przystanki:(k.przystanki||[]).filter(isStop).map(p=>({...p}))}))}));const max=Math.max(0,...out.rozkłady.map(r=>r.kierunki.length));for(let dir=0;dir<max;dir++){const dirs=out.rozkłady.map(r=>r.kierunki[dir]).filter(Boolean),cat=catalog(dirs);for(const k of dirs){const courses=gather(k),stops=new Map(k.przystanki.map(p=>[p.id,p]));const relevant=new Map();for(const p of k.przystanki)relevant.set(p.id,[]);for(const c of courses){c.group=cat.byRoute.get(sig(c.trasa));c.letter=c.explicit||c.group?.letter||'';for(const p of k.przystanki)if(c.times.has(p.id))relevant.get(p.id).push(c)}const vars=new Map();for(const c of courses)if(c.letter&&!vars.has(c.letter))vars.set(c.letter,{litera:c.letter,opis:c.group?.description||'odmienny przebieg trasy'});for(const g of cat.groups){if(g.letter&&g.letter!=='A'&&!vars.has(g.letter))vars.set(g.letter,{litera:g.letter,opis:g.description})}k.warianty=[...vars.values()];for(const p of k.przystanki){const eligible=relevant.get(p.id)||[];p.kursy=eligible.map(c=>({numer:c.numer,czas:pad(Math.floor(c.times.get(p.id)/60))+':'+pad(c.times.get(p.id)%60),brygada:c.brygada,uwagi:c.uwagi,koniec_trasy:c.koniec_trasy,trasa:c.trasa,...(c.letter&&c.letter!=='A'?{wariant:c.letter}:{})}));const hours=new Map();for(const c of eligible){const t=c.times.get(p.id),h=pad(Math.floor(t/60));if(!hours.has(h))hours.set(h,[]);hours.get(h).push({minuta:pad(t%60),numer_kursu:c.numer,brygada:c.brygada,uwagi:c.uwagi,...(c.letter&&c.letter!=='A'?{wariant:c.letter}:{})})}p.godziny=[...hours].sort((a,b)=>+a[0]-(+b[0])).map(([godzina,minuty])=>({godzina,minuty:minuty.sort((a,b)=>+a.minuta-(+b.minuta))}));const ordered=[],seen=new Set();for(const c of eligible){const at=c.trasa.indexOf(p.id);if(at<0)continue;for(const stop of c.trasa.slice(at)){if(seen.has(stop)||!stops.has(stop))continue;seen.add(stop);ordered.push(stop)}}ordered.sort((a,b)=>{const ai=eligible.map(c=>c.trasa.indexOf(a)).filter(n=>n>=0),bi=eligible.map(c=>c.trasa.indexOf(b)).filter(n=>n>=0);return Math.min(...ai)-Math.min(...bi)});const elements=[];for(const stop of ordered){const sp=stops.get(stop);const passing=eligible.filter(c=>c.trasa.indexOf(stop)>=c.trasa.indexOf(p.id)&&c.times.has(stop));const durations=passing.map(c=>{const delta=c.times.get(stop)-c.times.get(p.id);return delta<0?delta+1440:delta});const ending=passing.filter(c=>c.trasa.at(-1)===stop).length,through=passing.length-ending;elements.push({typ:'przystanek',id:stop,nazwa:sp.nazwa,nr:sp.nr,typ_przystanku:sp.typ,czas_przejazdu:mode(durations),stan:stop===p.id?'aktualny':'normalny',koncowy:ending>0&&ending>=through,kontynuacja:ending>0&&through>0})}p.lista_przystankowa={wersja:2,elementy:elements,trasy:cat.groups.map(g=>({wariant:g.letter,koniec_trasy:g.route.at(-1),trasa:g.route}))}}}}cache.set(raw,out);return out}
+function convert(raw){
+ if(!raw||raw.format!=='FWTP-RAW-1')return raw;
+ if(cache.has(raw))return cache.get(raw);
+ const out={...raw};delete out.format;
+ out.rozkłady=(raw.rozkłady||[]).map(r=>({...r,kierunki:(r.kierunki||[]).map(k=>({...k,przystanki:(k.przystanki||[]).filter(isStop).map(p=>({...p,id:cleanId(p.id),nazwa_czysta:cleanName(p.nazwa),miejscowosc:location(p.nazwa),strefa:s(p.strefa)||'1'}))}))}));
+ const max=Math.max(0,...out.rozkłady.map(r=>r.kierunki.length));
+ for(let dir=0;dir<max;dir++){
+  const dirs=out.rozkłady.map(r=>r.kierunki[dir]).filter(Boolean),cat=catalog(dirs);
+  for(const k of dirs){
+   const courses=gather(k),stops=new Map(k.przystanki.map(p=>[p.id,p]));
+   const relevant=new Map(k.przystanki.map(p=>[p.id,[]]));
+   for(const c of courses){c.group=cat.byRoute.get(sig(c.trasa));c.letter=c.explicit||c.group?.letter||'';for(const p of k.przystanki)if(c.times.has(p.id))relevant.get(p.id).push(c)}
+   const vars=new Map();for(const c of courses)if(c.letter&&!vars.has(c.letter))vars.set(c.letter,{litera:c.letter,opis:c.group?.description||'odmienny przebieg trasy'});
+   for(const g of cat.groups)if(g.letter&&g.letter!=='A'&&!vars.has(g.letter))vars.set(g.letter,{litera:g.letter,opis:g.description});
+   k.warianty=[...vars.values()];
+   for(const p of k.przystanki){
+    const eligible=relevant.get(p.id)||[];
+    p.kursy=eligible.map(c=>({numer:c.numer,czas:pad(Math.floor(c.times.get(p.id)/60))+':'+pad(c.times.get(p.id)%60),brygada:c.brygada,uwagi:c.uwagi,koniec_trasy:c.koniec_trasy,trasa:c.trasa,...(c.letter&&c.letter!=='A'?{wariant:c.letter}:{})}));
+    const hours=new Map();for(const c of eligible){const t=c.times.get(p.id),h=pad(Math.floor(t/60));if(!hours.has(h))hours.set(h,[]);hours.get(h).push({minuta:pad(t%60),numer_kursu:c.numer,brygada:c.brygada,uwagi:c.uwagi,...(c.letter&&c.letter!=='A'?{wariant:c.letter}:{})})}
+    p.godziny=[...hours].sort((a,b)=>+a[0]-(+b[0])).map(([godzina,minuty])=>({godzina,minuty:minuty.sort((a,b)=>+a.minuta-(+b.minuta))}));
+    // Kolejnosc fizycznych przystankow pochodzi z arkusza, a nie z sortowania
+    // po indeksie kursu. Zachowuje oba slupki Widokowa i rozgalezienia.
+    const reachable=new Set();for(const c of eligible){const at=c.trasa.indexOf(p.id);if(at<0)continue;for(const stop of c.trasa.slice(at))if(stops.has(stop))reachable.add(stop)}
+    const ordered=k.przystanki.map(x=>x.id).filter(x=>reachable.has(x));
+    const elements=[];let prevLetters=null,prevTown='';
+    for(const stop of ordered){
+     const sp=stops.get(stop);
+     const passing=eligible.filter(c=>{const start=c.trasa.indexOf(p.id),at=c.trasa.indexOf(stop);return start>=0&&at>=start&&c.times.has(stop)});
+     // Trasy ze WSZYSTKICH dni: np. w D przystanek cmentarny
+     // obsluguje W, lecz wariant C wystepuje w C i musi byc w opisie.
+     const covering=cat.groups.filter(g=>{
+      const start=g.route.indexOf(p.id),at=g.route.indexOf(stop);
+      return start>=0&&at>=start;
+     });
+     const letters=[...new Set(covering.map(g=>g.letter).filter(Boolean))];
+     // Separator tylko na granicy zmiany zestawu kursow, nie przed pierwszym
+     // przystankiem. Kazdy zestaw pochodzi z realnych kursow w RAW.
+     const currentKey=[...letters].sort().join('|');
+     if(prevLetters!==null&&currentKey!==prevLetters&&letters.length){
+      const order=['C','W','A',...'BCDEFGHIJKLMNOPQRSTUVWXYZ'];
+      letters.sort((a,b)=>order.indexOf(a)-order.indexOf(b));
+      const allLetters=[...new Set(cat.groups.map(g=>g.letter).filter(Boolean))];
+      const label=letters.length===allLetters.length&&letters.every(l=>allLetters.includes(l))
+       ?'TRASA WE WSZYSTKICH KURSACH'
+       :'TRASA W KURSACH '+letters.map(l=>'„'+l.toLocaleLowerCase('pl')+'”').join(', ');
+      elements.push({typ:'trasa_w_kursach',tekst:label});
+     }
+     prevLetters=currentKey;
+     const town=sp.miejscowosc;
+     if(town&&town!==prevTown){elements.push({typ:'miejscowosc',tekst:town.toLocaleUpperCase('pl')});prevTown=town}
+     const durations=passing.map(c=>{const delta=c.times.get(stop)-c.times.get(p.id);return delta<0?delta+1440:delta});
+     const ending=passing.filter(c=>c.trasa.at(-1)===stop).length,through=passing.length-ending;
+     elements.push({typ:'przystanek',id:stop,nazwa:sp.nazwa_czysta,nr:sp.nr,typ_przystanku:sp.typ,czas_przejazdu:mode(durations),stan:stop===p.id?'aktualny':'normalny',koncowy:ending>0&&ending>=through,kontynuacja:ending>0&&through>0});
+    }
+    p.lista_przystankowa={wersja:2,elementy:elements,trasy:cat.groups.map(g=>({wariant:g.letter,koniec_trasy:g.route.at(-1),trasa:g.route}))};
+   }
+  }
+ }
+ cache.set(raw,out);return out;
+}
 root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.exports=root.FWTPRaw;
 })(typeof window!=='undefined'?window:globalThis);
 
