@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 645 — CAŁY ROZKŁAD W GRANICACH LEWEGO PANELU -->
+<!-- WERSJA: 646 — CAŁY ROZKŁAD W GRANICACH LEWEGO PANELU -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -26153,7 +26153,7 @@ html body .tabliczka li.trasa-stop.v612-koncowy-przelotowy > span.trasa-nazwa.v6
 }
 </style>
 <style id="fwtp-v642-uklad-calosc">
-/* Cała grupa dni musi zmieścić się PRZED pionową granicą trasy. */
+/* Cała grupa dni musi zmieścić się PRZED pionową granicą trasy. V646: nagłówki zachowują szerokość naturalną. */
 html body .tabliczka.v642-uklad .rozklady-wrap {
  width:calc(100% - 21px)!important; max-width:calc(100% - 21px)!important;
  min-width:0!important; overflow:visible!important;
@@ -26217,29 +26217,54 @@ html body .tabliczka.v642-uklad .rozklady-grid .minuta {
   const left=wrap.getBoundingClientRect().left;
   const right=panel.getBoundingClientRect().right;
   const budzet=Math.max(0,Math.floor(right-left-5-3*(dni.length-1)));
-  // Minima tytułów wyznaczamy z tekstu, nie z scrollWidth już zwężonego kontenera.
-  const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+  // V646: mierzymy tytuł w rzeczywistym foncie przeglądarki,
+  // bez odziedziczonej, sztucznie zwężonej szerokości tabeli.
   const minimum=dni.map(d=>{
    const h=d.querySelector('.dzien-tytul');
    if(!h)return 72;
-   const cs=getComputedStyle(h);
-   ctx.font=cs.font;
-   return Math.max(72,Math.ceil(ctx.measureText(h.textContent.trim()).width)+17);
+   const probe=h.cloneNode(true);
+   probe.style.cssText='position:absolute!important;left:-10000px!important;top:0!important;'+
+    'width:max-content!important;min-width:max-content!important;max-width:none!important;'+
+    'white-space:nowrap!important;display:inline-block!important;'+
+    'visibility:hidden!important;transform:none!important;box-sizing:border-box!important;';
+   document.body.appendChild(probe);
+   const width=Math.ceil(probe.getBoundingClientRect().width)+4;
+   probe.remove();
+   return Math.max(72,width);
   });
   const naturalne=dni.map((d,i)=>{
-   const max=Math.max(0,...Array.from(d.querySelectorAll('.godzina-row')).map(r=>r.querySelectorAll('.minuty-cell > .minuta').length));
-   return Math.max(minimum[i],27+24*max);
+   const max=Math.max(0,...Array.from(d.querySelectorAll('.godzina-row'))
+    .map(r=>r.querySelectorAll('.minuty-cell > .minuta').length));
+   const brak=d.querySelector('.nie-kursuje-napis');
+   // Tytuł, największa liczba minut i napis NIE KURSUJE
+   // są równorzędnymi ograniczeniami szerokości.
+   let napis=0;
+   if(brak){
+    const st=getComputedStyle(brak);
+    const probe=document.createElement('span');
+    probe.textContent=brak.textContent.trim();
+    probe.style.cssText='position:absolute;left:-10000px;white-space:nowrap;visibility:hidden;';
+    probe.style.font=st.font;
+    probe.style.letterSpacing=st.letterSpacing;
+    document.body.appendChild(probe);
+    napis=Math.ceil(probe.getBoundingClientRect().width)+32;
+    probe.remove();
+   }
+   return Math.max(minimum[i],27+24*max,napis);
   });
   const widths=naturalne.slice();
   let brak=widths.reduce((a,b)=>a+b,0)-budzet;
-  // W pierwszej kolejności zwężamy najdłuższy rozkład; żaden dzień nie może wyjść poza panel.
+  // Zwężamy tylko wtedy, kiedy CAŁA grupa tabel przekracza dostępne miejsce.
+  // Nigdy nie zwężamy poniżej pełnej szerokości nagłówka, jeśli suma
+  // minimalnych szerokości mieści się w lewym panelu.
   for(let k=0;brak>0.1&&k<2000;k++){
    let idx=-1,zapas=0;
    widths.forEach((w,i)=>{if(w-minimum[i]>zapas){idx=i;zapas=w-minimum[i]}});
    if(idx<0)break;
    const delta=Math.min(brak,zapas,24);widths[idx]-=delta;brak-=delta;
   }
-  // Przy skrajnie wąskim panelu również nagłówki mogą zawinąć się na dwa wiersze.
+  // Wyłącznie w naprawdę ciasnym układzie dopuszczamy złamanie nagłówka.
+  const ciasno=brak>0.1;
   for(let k=0;brak>0.1&&k<2000;k++){
    const idx=widths.indexOf(Math.max(...widths));
    if(widths[idx]<=58)break;
@@ -26249,6 +26274,8 @@ html body .tabliczka.v642-uklad .rozklady-grid .minuta {
    const w=Math.max(58,Math.floor(widths[i]));
    d.style.setProperty('--v642-szer',w+'px');
    d.style.setProperty('--v642-kol',String(Math.max(1,Math.floor((w-27)/24))));
+   const h=d.querySelector('.dzien-tytul');
+   if(h)h.style.setProperty('white-space',w+1>=minimum[i]?'nowrap':'normal','important');
   });
   // Wysokość konkretnej godziny jest wspólna dla WSZYSTKICH dni.
   const maxGodz=new Map();
