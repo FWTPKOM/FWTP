@@ -1,10 +1,11 @@
+<!-- WERSJA: 680 — POWROTY PARAMI, LITERY Z VBA -->
 <!DOCTYPE html>
-<!-- WERSJA: 678 — CZASY NARASTAJĄCE Z DOMINANTY ODCINKÓW -->
+<!-- WERSJA: 680 — POWROTY PARAMI, LITERY Z VBA -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP - Tabliczki (v678)</title>
+<title>FWTP - Tabliczki (v680)</title>
 <meta name="fwtp-version" content="678"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
@@ -6856,7 +6857,7 @@ root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.expo
 </header>
 <main class="tabliczka-page">
 <section class="sterowanie">
-<h1>Tabliczka przystankowa <span id="fwtpWersja678" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v678</span></h1>
+<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v680</span></h1>
 <div class="sterowanie-grid">
 <div class="pole">
 <label for="liniaInput">Linia</label>
@@ -6886,175 +6887,217 @@ root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.expo
 <div id="wynik"></div>
 </main>
 <script>
-/* FWTP V678: czasy narastające; dominanta różnic na fizycznych odcinkach, remis = większy czas. */
-function FWTP_V678_ListyZKursow(dane) {
+/* FWTP — WERSJA 680. Wspólny silnik tras: porównania parami, bez nadpisywania liter VBA. */
+function FWTP_V679_ListyZKursow(dane) {
     const rozklady=dane?.["rozkłady"]||[];
     const clean=x=>String(x??'').trim();
-    const minute=x=>{const m=/^(\d{1,2}):(\d{2})$/.exec(clean(x));return m?+m[1]*60 + +m[2]:null;};
-    const dominant=a=>{if(!a.length)return 0;const n=new Map();for(const x of a)n.set(x,(n.get(x)||0)+1);return [...n].sort((a,b)=>b[1]-a[1]||b[0]-a[0])[0][0];};
+    const edgeKey=(a,b)=>JSON.stringify([a,b]);
     const routeKey=r=>JSON.stringify(r);
-    for(let di=0;di<Math.max(0,...rozklady.map(r=>(r.kierunki||[]).length));di++){
+    const routeAt=(r,id)=>r.indexOf(id);
+    const allDirections=Math.max(0,...rozklady.map(r=>(r.kierunki||[]).length));
+    const katalog=Array.isArray(dane.katalog_tras_v210)?dane.katalog_tras_v210:[];
+    const routeOf=c=>Array.isArray(c.trasa)?c.trasa:katalog[c.trasa_ref]||[];
+    const normalizeLetter=c=>clean(c.wariant).toUpperCase();
+    const dominant=values=>{
+        if(!values.length)return 0;
+        const counts=new Map();for(const v of values)counts.set(v,(counts.get(v)||0)+1);
+        return [...counts].sort((a,b)=>b[1]-a[1]||b[0]-a[0])[0][0];
+    };
+    const minute=x=>{const m=/^(\d{1,2}):(\d{2})$/.exec(clean(x));return m?Number(m[1])*60+Number(m[2]):null;};
+    for(let di=0;di<allDirections;di++){
         const directions=rozklady.map(r=>r.kierunki?.[di]).filter(Boolean);
+        // Fizyczny katalog z całego tygodnia: potrzebny dla przyszłych odnóg.
+        const weekCatalog=new Map();
+        for(const k of directions)for(const s of k.przystanki||[])for(const c of s.kursy||[]){
+            const path=routeOf(c);if(!path.length)continue;
+            const key=routeKey(path)+'|'+normalizeLetter(c);
+            if(!weekCatalog.has(key))weekCatalog.set(key,{path,letter:normalizeLetter(c),count:0});
+            weekCatalog.get(key).count++;
+        }
         for(const k of directions){
-            const stops=k.przystanki||[],byId=new Map(stops.map(s=>[s.id,s]));
+            const stops=k.przystanki||[];
+            const byId=new Map(stops.map(s=>[s.id,s]));
+            const order=new Map(stops.map((s,i)=>[s.id,i]));
             const courseMap=new Map();
             for(const s of stops)for(const c of s.kursy||[]){
-                if(!c.numer||!Array.isArray(c.trasa)||!c.trasa.length)continue;
+                const path=routeOf(c);
+                if(!c.numer||!path.length)continue;
                 let record=courseMap.get(c.numer);
-                if(!record){record={...c,times:new Map()};courseMap.set(c.numer,record);}
+                if(!record){record={...c,trasa:path,times:new Map()};courseMap.set(c.numer,record);}
                 const t=minute(c.czas);if(t!==null)record.times.set(s.id,t);
             }
             const courses=[...courseMap.values()];
-            // V678: obliczamy rzeczywiste różnice między SĄSIEDNIMI przystankami
-            // na każdej fizycznej trasie. Każdy kurs oddaje jeden głos na odcinek.
-            // Nie obliczamy niezależnych czasów od przystanku początkowego.
             const edgeSamples=new Map();
-            const edgeKey=(from,to)=>JSON.stringify([from,to]);
-            for(const c of courses){
-                for(let i=1;i<c.trasa.length;i++){
-                    const from=c.trasa[i-1],to=c.trasa[i];
-                    if(!c.times.has(from)||!c.times.has(to))continue;
-                    let delta=c.times.get(to)-c.times.get(from);
-                    if(delta<0)delta+=1440; // kurs przechodzący przez północ
-                    if(delta>180)continue; // nie łączymy odrębnych kursów
-                    const key=edgeKey(from,to);
-                    if(!edgeSamples.has(key))edgeSamples.set(key,[]);
-                    edgeSamples.get(key).push(delta);
-                }
+            for(const c of courses)for(let i=1;i<c.trasa.length;i++){
+                const from=c.trasa[i-1],to=c.trasa[i];
+                if(!c.times.has(from)||!c.times.has(to))continue;
+                let delta=c.times.get(to)-c.times.get(from);
+                if(delta<0)delta+=1440;
+                if(delta>180)continue;
+                const key=edgeKey(from,to);
+                if(!edgeSamples.has(key))edgeSamples.set(key,[]);
+                edgeSamples.get(key).push(delta);
             }
-            const edgeMinutes=new Map([...edgeSamples].map(([key,values])=>[key,dominant(values)]));
+            const edgeMinutes=new Map(Array.isArray(k.czasy_odcinkow)&&k.czasy_odcinkow.length
+                ?k.czasy_odcinkow.map(e=>[edgeKey(e.od,e.do),Number(e.minuty)])
+                :[...edgeSamples].map(([key,v])=>[key,dominant(v)]));
+            const towns=new Set(stops.map(s=>clean(s.miejscowosc)).filter(Boolean));
             for(const selected of stops){
                 if(Array.isArray(selected.lista_przystankowa?.elementy))continue;
-                const active=courses.filter(c=>c.times.has(selected.id)&&c.trasa.includes(selected.id));
+                const active=courses.filter(c=>c.times.has(selected.id)&&routeAt(c.trasa,selected.id)>=0);
                 if(!active.length){selected.lista_przystankowa={wersja:2,elementy:[],trasy:[]};continue;}
-                // Grupy fizycznych przebiegów: jeden przebieg, dowolna liczba odjazdów.
-                const unique=new Map();
+                // Głosowanie dotyczy PEŁNYCH tras w całym kierunku, nie tylko
+                // odjazdów z bieżącego przystanku i nie samej litery A.
+                const fullCounts=new Map();
+                for(const c of courses){const key=routeKey(c.trasa);fullCounts.set(key,(fullCounts.get(key)||0)+1);}
+                const groupsMap=new Map();
                 for(const c of active){
-                    const at=c.trasa.indexOf(selected.id);
-                    const tail=c.trasa.slice(at);
-                    const key=routeKey(tail)+'|'+clean(c.wariant);
-                    if(!unique.has(key))unique.set(key,{path:tail,letter:clean(c.wariant).toUpperCase(),courses:[]});
-                    unique.get(key).courses.push(c);
+                    const at=routeAt(c.trasa,selected.id);
+                    const path=c.trasa.slice(at);
+                    const key=routeKey(path)+'|'+normalizeLetter(c);
+                    if(!groupsMap.has(key))groupsMap.set(key,{path,full:c.trasa,letter:normalizeLetter(c),courses:[],count:fullCounts.get(routeKey(c.trasa))||0,late:false});
+                    groupsMap.get(key).courses.push(c);
                 }
-                const groups=[...unique.values()];
-                // Kurs rozpoczynający się w środku trasy może mieć w VBA literę
-                // inną niż identyczny dalszy przebieg. Fizyczna trasa ma pierwszeństwo.
-                for(const g of groups){
-                    const parent=groups.filter(x=>x!==g&&x.path.length>g.path.length&&
-                        x.path.slice(x.path.indexOf(g.path[0])).join('\u0001')===g.path.join('\u0001'))
-                        .sort((a,b)=>b.path.length-a.path.length||b.courses.length-a.courses.length)[0];
-                    if(parent&&parent.letter)g.letter=parent.letter;
+                const groups=[...groupsMap.values()];
+                groups.sort((a,b)=>b.count-a.count||b.path.length-a.path.length);
+                const base=groups[0];
+                // Kursy zaczynające się później: dokładamy wyłącznie prawdziwe
+                // przyszłe odnogi, nigdy nie podmieniamy aktywnych liter.
+                const futureIds=new Set(base.path);
+                for(const x of weekCatalog.values()){
+                    if(x.path.includes(selected.id))continue;
+                    const meet=x.path.find(id=>futureIds.has(id));
+                    if(!meet||meet===base.path.at(-1))continue;
+                    const pos=base.path.indexOf(meet);
+                    if(pos<=0)continue;
+                    const path=x.path.slice(x.path.indexOf(meet));
+                    if(path.length<2)continue;
+                    if(groups.some(g=>routeKey(g.path)===routeKey(path)))continue;
+                    // Zachowujemy tylko trasy, których dalsza sekwencja
+                    // naprawdę różni się od osi bazowej.
+                    if(routeKey(path)===routeKey(base.path.slice(pos)))continue;
+                    groups.push({path,full:x.path,letter:x.letter,courses:[],count:x.count,late:true});
                 }
-                // Ten sam dalszy przebieg musi mieć jedną literę fizycznego wariantu.
-                const pathVotes=new Map();
-                for(const g of groups){const key=routeKey(g.path);if(!pathVotes.has(key))pathVotes.set(key,new Map());const m=pathVotes.get(key);m.set(g.letter,(m.get(g.letter)||0)+g.courses.length);}
-                for(const g of groups){const votes=pathVotes.get(routeKey(g.path));g.letter=[...votes].sort((a,b)=>b[1]-a[1])[0][0];}
-                const allLetters=[...new Set(groups.map(g=>g.letter).filter(Boolean))];
-                const elements=[];const emitted=new Set();let prevTown='';
-                let lastDisplayedMinutes=0;
-                // Dla każdego przebiegu sumujemy dominanty odcinków od wybranego
-                // przystanku. Na zbiegu tras wybieramy dominantę uzyskanych czasów
-                // dla kursów docierających do tego miejsca (remis = większy czas).
-                const cumulativeForCourse=(course,target)=>{
-                    const from=course.trasa.indexOf(selected.id);
-                    const to=course.trasa.indexOf(target,from);
+                const activeLetters=new Set(active.map(normalizeLetter).filter(Boolean));
+                const hasUnmarked=active.some(c=>!normalizeLetter(c)||normalizeLetter(c)==='A');
+                const elements=[],emitted=new Set();let prevTown='';
+                const routeDuration=(c,target)=>{
+                    const from=routeAt(c.trasa,selected.id);
+                    const to=c.trasa.indexOf(target,from);
                     if(from<0||to<from)return null;
-                    let total=0;
+                    let sum=0;
                     for(let i=from+1;i<=to;i++){
-                        const key=edgeKey(course.trasa[i-1],course.trasa[i]);
-                        if(!edgeMinutes.has(key))return null;
-                        total+=edgeMinutes.get(key);
+                        const v=edgeMinutes.get(edgeKey(c.trasa[i-1],c.trasa[i]));
+                        if(v===undefined||!Number.isFinite(v))return null;
+                        sum+=v;
                     }
-                    return total;
+                    return sum;
                 };
-                const stopOrder=new Map(stops.map((s,i)=>[s.id,i]));
-                const formatLetters=gs=>{
-                    const ls=[...new Set(gs.map(g=>g.letter).filter(Boolean))];
-                    if(!ls.length)return '';
-                    const all=allLetters.length>0&&ls.length===allLetters.length&&allLetters.every(l=>ls.includes(l));
+                const groupPasses=(g,id)=>g.path.includes(id);
+                const markerLabel=gs=>{
+                    const letters=[...new Set(gs.map(g=>g.letter).filter(Boolean))];
+                    const includesUnmarked=gs.some(g=>!g.letter||g.letter==='A');
+                    const activeGs=gs.filter(g=>!g.late);
+                    // „Wszystkie kursy” tylko gdy fragment jest rzeczywiście
+                    // obsługiwany przez wszystkie AKTYWNE przebiegi.
+                    const all=activeGs.length&&groups.filter(g=>!g.late).every(g=>gs.includes(g));
                     if(all)return 'TRASA WE WSZYSTKICH KURSACH';
-                    const named=ls.map(l=>'„'+l.toLowerCase()+'”');
-                    if(ls.includes('A')&&allLetters.length<=3)return 'TRASA W KURSACH '+(named.filter(x=>x!=='„a”').join(', ')+(named.length>1?' ORAZ ':'')+'BEZ OZNACZEŃ');
-                    return 'TRASA W KURSACH '+named.join(', ');
+                    const visible=letters.filter(l=>l!=='A');
+                    if(letters.includes('A')&&activeLetters.size>=4)visible.unshift('A');
+                    if(!visible.length)return includesUnmarked?'TRASA W KURSACH BEZ OZNACZEŃ':'';
+                    const text='TRASA W KURSACH '+visible.map(l=>'„'+l.toLowerCase()+'”').join(', ');
+                    return includesUnmarked&&hasUnmarked&&!visible.includes('A')?text+' ORAZ BEZ OZNACZEŃ':text;
                 };
                 const marker=(gs,force=false)=>{
-                    const label=formatLetters(gs);if(!label)return;
+                    const label=markerLabel(gs);if(!label)return;
                     if(!force&&elements.at(-1)?.typ==='trasa_w_kursach'&&elements.at(-1).tekst===label)return;
                     elements.push({typ:'trasa_w_kursach',tekst:label});
                 };
                 const addStop=(id,gs,passed=false)=>{
-                    const s=byId.get(id);if(!s||emitted.has(id))return;
+                    const s=byId.get(id);
+                    if(!s||emitted.has(id))return;
                     const town=clean(s.miejscowosc);
-                    const towns=new Set(stops.map(x=>clean(x.miejscowosc)).filter(Boolean));
-                    if(towns.size>1&&town&&town!==prevTown&&!(String(dane.linia)==='149'||String(dane.linia)==='211')){
+                    if(towns.size>1&&town&&town!==prevTown&&!['149','211'].includes(String(dane.linia))){
                         elements.push({typ:'miejscowosc',tekst:town.toUpperCase()});prevTown=town;
                     }
                     const passing=active.filter(c=>{
-                        const at=c.trasa.indexOf(selected.id),to=c.trasa.indexOf(id);
-                        return at>=0&&to>=at&&c.times.has(id);
+                        const from=routeAt(c.trasa,selected.id),to=c.trasa.indexOf(id,from);
+                        return from>=0&&to>=from&&c.times.has(id);
                     });
-                    const durations=passing.map(c=>cumulativeForCourse(c,id))
-                        .filter(value=>value!==null);
-                    // Fizyczna kolejność wydrukowanej listy nie może cofać czasu.
-                    // Dotyczy także przejścia między odnogami oraz ich ponownego zbiegu.
-                    const computed=durations.length?dominant(durations):lastDisplayedMinutes;
-                    const travelMinutes=passed?null:Math.max(lastDisplayedMinutes,computed);
-                    if(!passed)lastDisplayedMinutes=travelMinutes;
-                    const endings=passing.filter(c=>c.koniec_trasy===id||c.trasa.at(-1)===id).length;
-                    const through=passing.length-endings;
+                    const durations=passing.map(c=>routeDuration(c,id)).filter(v=>v!==null);
+                    const travel=passed?null:durations.length?dominant(durations):null;
+                    const ending=passing.filter(c=>c.koniec_trasy===id||c.trasa.at(-1)===id).length;
+                    const through=passing.length-ending;
                     elements.push({typ:'przystanek',id,nazwa:s.nazwa_czysta||s.nazwa,nr:s.nr,
-                        czas_przejazdu:travelMinutes,stan:passed?'miniety':id===selected.id?'aktualny':'normalny',
-                        koncowy:!passed&&endings>0&&through===0,kontynuacja:false});
+                        czas_przejazdu:travel,stan:passed?'miniety':id===selected.id?'aktualny':'normalny',
+                        koncowy:!passed&&ending>0&&through===0,kontynuacja:false});
                     emitted.add(id);
                 };
-                // Prefiks: fizyczny przebieg jednego aktywnego kursu, nie lista arkusza.
-                const first=active[0],prefix=first.trasa.slice(0,first.trasa.indexOf(selected.id));
+                // Odcinki i powroty porównujemy PARAMI. Kurs skrócony nie
+                // zamyka odnogi, która wraca dopiero dalej.
+                const pairwiseJoin=(axis,branch)=>{
+                    for(let i=1;i<branch.length;i++){
+                        const id=branch[i];
+                        const j=axis.indexOf(id,1);
+                        if(j>=0)return {id,atAxis:j,atBranch:i};
+                    }
+                    return null;
+                };
+                const prefix=base.full.slice(0,base.full.indexOf(selected.id));
                 for(const id of prefix)addStop(id,[],true);
-                // Rekurencyjne łączenie tras: rozgałęzienie -> odnogi -> wspólny przystanek.
-                // Stan: każda grupa ma własną pozostałą ścieżkę. Nigdy nie sortujemy
-                // całej sumy przystanków po LP, bo niszczy to zbiegi wariantów.
                 let budget=0;
-                function render(paths,depth=0){
-                    if(++budget>2000||depth>100)return;
-                    let live=paths.filter(g=>g.path.length);
+                function render(parts,depth=0){
+                    if(++budget>4000||depth>100)return;
+                    let live=parts.filter(g=>g.path.length);
                     if(!live.length)return;
-                    // Wspólny prefiks aż do fizycznego rozgałęzienia.
                     while(live.length&&live.every(g=>g.path[0]===live[0].path[0])){
                         const id=live[0].path[0];addStop(id,live);
                         live=live.map(g=>({...g,path:g.path.slice(1)})).filter(g=>g.path.length);
                         if(!live.length)return;
                     }
-                    // Jeżeli jedna trasa się skończyła, nie stanowi nowej odnogi.
                     if(live.length===1){for(const id of live[0].path)addStop(id,live);return;}
+                    const axis=live.slice().sort((a,b)=>b.count-a.count||b.path.length-a.path.length)[0];
                     const branches=new Map();
-                    for(const g of live){const next=g.path[0];if(!branches.has(next))branches.set(next,[]);branches.get(next).push(g);}
+                    for(const g of live){const id=g.path[0];if(!branches.has(id))branches.set(id,[]);branches.get(id).push(g);}
                     if(branches.size===1){render(live,depth+1);return;}
-                    // Najbliższy wspólny przystanek wszystkich aktywnych przebiegów.
-                    let common=new Set(live[0].path);
-                    for(const g of live.slice(1))common=new Set([...common].filter(x=>g.path.includes(x)));
-                    const candidates=[...common].map(id=>({id,max:Math.max(...live.map(g=>g.path.indexOf(id))),sum:live.reduce((n,g)=>n+g.path.indexOf(id),0)}));
-                    candidates.sort((a,b)=>a.max-b.max||a.sum-b.sum);
-                    const join=candidates[0]?.id;
+                    // Wybieramy zbiegi parami z osią; nigdy nie wymagamy
+                    // wspólnego przystanku wszystkich tras (skrócenia!).
+                    const joins=[];
+                    for(const g of live){
+                        if(g===axis)continue;
+                        const join=pairwiseJoin(axis.path,g.path);
+                        if(join)joins.push({...join,group:g});
+                    }
+                    const returnAt=joins.length?Math.min(...joins.map(x=>x.atAxis)):null;
+                    const joinId=returnAt!==null?axis.path[returnAt]:null;
+                    // Przebiegi bez powrotu są odrębnymi zakończeniami;
+                    // nie przesuwają miejsca powrotu innych wariantów.
                     const entries=[...branches.entries()];
-                    // Bazowy przebieg A (bez podjazdów) przed odnogami P/O/L.
                     entries.sort((a,b)=>{
-                        const rank=gs=>gs.some(g=>g.letter==='A')?0:1;
-                        return rank(a[1])-rank(b[1])||(stopOrder.get(a[0])??999)-(stopOrder.get(b[0])??999);
+                        const aAxis=a[1].includes(axis),bAxis=b[1].includes(axis);
+                        return Number(bAxis)-Number(aAxis)||(order.get(a[0])??999)-(order.get(b[0])??999);
                     });
-                    for(const [,gs] of entries){
-                        const part=gs.map(g=>({...g,path:join?g.path.slice(0,g.path.indexOf(join)):g.path}));
-                        if(!part.some(g=>g.path.length))continue; // bezpośrednio do zbiegu
+                    for(const [start,gs] of entries){
+                        const part=gs.map(g=>{
+                            let end=g.path.length;
+                            if(joinId){
+                                const idx=g.path.indexOf(joinId);
+                                if(idx>=0)end=idx;
+                                else if(g===axis)end=returnAt;
+                            }
+                            return {...g,path:g.path.slice(0,end)};
+                        }).filter(g=>g.path.length);
+                        if(!part.length)continue;
                         marker(gs,true);
                         render(part,depth+1);
                     }
-                    if(join){
-                        marker(live,true);
-                        render(live.map(g=>({...g,path:g.path.slice(g.path.indexOf(join))})),depth+1);
+                    if(joinId){
+                        const continuing=live.filter(g=>g.path.includes(joinId));
+                        if(continuing.length){marker(continuing,true);
+                            render(continuing.map(g=>({...g,path:g.path.slice(g.path.indexOf(joinId))})),depth+1);}
                     }
                 }
                 render(groups);
-                // Nie zapisujemy listy z powtarzającymi się przystankami; wyjątki
-                // pętli wymagają osobnego modelu wystąpień, a nie sortowania po LP.
                 selected.lista_przystankowa={wersja:2,elementy:elements,
                     trasy:groups.map(g=>({wariant:g.letter,koniec_trasy:g.path.at(-1),trasa:g.path}))};
             }
@@ -7062,7 +7105,6 @@ function FWTP_V678_ListyZKursow(dane) {
     }
     return dane;
 }
-
 
 /* =========================================================
    WERSJA 458 — GLOBALNA FUNKCJA:
@@ -8295,7 +8337,7 @@ function FWTP_V675_NormalizujJSON(json){
     }
     if(!Array.isArray(json["rozkłady"]))throw new Error("Brak tablicy rozkłady w JSON.");
     if(json["rozkłady"].some(r=>(r.kierunki||[]).some(k=>(k.przystanki||[]).some(p=>!p.lista_przystankowa)))){
-        FWTP_V678_ListyZKursow(json);
+        FWTP_V679_ListyZKursow(json);
     }
     return json;
 }
