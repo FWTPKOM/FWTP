@@ -1,4 +1,4 @@
-<!-- WERSJA: 768 -->
+<!-- WERSJA: 769 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -21674,41 +21674,43 @@ function v514RenderGotowejListy(){
         i++; // nie analizujemy ponownie przeniesionego separatora
     }
 
-    /* WERSJA 768: opisy 401 poprawiamy na KOŃCOWYM modelu,
-       po wszystkich operacjach układania gałęzi. Wcześniejsza
-       zmiana w v514ModelListy() była nadpisywana przez późniejszy
-       etap renderowania. Nie zmieniamy fizycznych przystanków. */
+    /* WERSJA 769 — opisy tworzymy z kursów rzeczywistego słupka.
+       V768 szukała konkretnego ID w wynikowej liście; po złożeniu
+       gałęzi ID wiersza może różnić się od ID w danych kierunku.
+       Rozpoznajemy zatem granicę gałęzi po kolejności separatorów
+       i nazwie przystanku, a litery odczytujemy WYŁĄCZNIE z JSON. */
     if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='401'){
-        const stop768=e=>e?.typ==='przystanek';
-        const sep768=e=>e?.typ==='trasa_w_kursach';
-        const id768=e=>String(e?.id||'');
-        const cel768=wynik760.findIndex(e=>stop768(e)&&
-            id768(e)==='23|WKD Raków|02');
-        if(cel768>=0){
-            // Litery z faktycznych kursów docelowego słupka, a nie
-            // z aktywnego przystanku (tam warianty mogą być inne).
-            const p768=v486BaseStops().find(p=>
-                String(p?.id||'')==='23|WKD Raków|02');
-            const kursy768=(p768?.kursy||[]).filter(k=>
-                !czyKursPomijanyPrzyTrasie(k));
-            const litery768=new Set(kursy768.map(k=>
-                String(k?.wariant||'').trim().toUpperCase()));
-            const kolejnosc768=['A',...'BCDEFGHIJKLMNOPQRSTUVWXYZ'];
-            const nazwane768=kolejnosc768.filter(l=>litery768.has(l))
-                .map(l=>'„'+l.toLowerCase()+'”');
-            const opis768=nazwane768.length
-                ? 'Trasa w kursach '+nazwane768.join(', ')+
-                    (litery768.has('')?' oraz bez oznaczeń':'')
-                : 'Trasa w kursach bez oznaczeń';
-            // Szukamy separatora bezpośrednio przed słupkiem 23/02.
-            // Opis „w” przed końcowym 22/03 musi pozostać nietknięty.
-            let marker768=-1;
-            for(let j=cel768-1;j>=0;j--){
-                if(stop768(wynik760[j]))break;
-                if(sep768(wynik760[j])){marker768=j;break;}
-            }
-            if(marker768>=0 && kursy768.length){
-                wynik760[marker768]={...wynik760[marker768],tekst:opis768};
+        const norm769=x=>String(x??'').normalize('NFD')
+            .replace(/[\u0300-\u036f]/g,'').toUpperCase()
+            .replace(/\s+/g,' ').trim();
+        const name769=e=>norm769(e?.nazwa||String(e?.id||'').split('|')[1]);
+        const isStop769=e=>e?.typ==='przystanek';
+        const isSep769=e=>e?.typ==='trasa_w_kursach';
+        const target769=v486BaseStops().find(p=>
+            String(p?.id||'')==='23|WKD Raków|02');
+        const kursy769=(target769?.kursy||[]).filter(k=>
+            !czyKursPomijanyPrzyTrasie(k));
+        const litery769=new Set(kursy769.map(k=>
+            String(k?.wariant||'').trim().toUpperCase()));
+        // Wyłącznie litery rzeczywiście zapisane przy kursach słupka 23/02.
+        const nazwane769=['A',...'BCDEFGHIJKLMNOPQRSTUVWXYZ']
+            .filter(l=>litery769.has(l)).map(l=>'„'+l.toLowerCase()+'”');
+        const opis769=nazwane769.length
+            ? 'Trasa w kursach '+nazwane769.join(', ')+
+              (litery769.has('')?' oraz bez oznaczeń':'')
+            : 'Trasa w kursach bez oznaczeń';
+        if(kursy769.length){
+            for(let i=0;i<wynik760.length;i++){
+                if(!isSep769(wynik760[i]) ||
+                   !/bez oznacze/i.test(norm769(wynik760[i].tekst)))continue;
+                const przed=wynik760.slice(0,i).filter(isStop769).at(-1);
+                const po=wynik760.slice(i+1).find(isStop769);
+                // Poprzedni słupek jest końcem W; kolejny zaczyna
+                // dalszy odcinek A/P/Z i kursów bez litery.
+                if(name769(przed)!=='WKD RAKOW' ||
+                   name769(po)!=='LOPUSZANSKA')continue;
+                wynik760[i]={...wynik760[i],tekst:opis769};
+                break;
             }
         }
     }
