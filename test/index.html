@@ -1,4 +1,4 @@
-<!-- WERSJA: 775 -->
+<!-- WERSJA: 776 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -21782,46 +21782,81 @@ function v514RenderGotowejListy(){
         }
     }
 
-    /* WERSJA 775 — 126: fizyczne słupki EKSPRESOWA 04 i 02.
-       V760 potrafi uznać dwa różne słupki o tej samej nazwie za
-       wspólny przystanek i usunąć je przy składaniu gałęzi.
-       Źródłem prawdy pozostaje gotowy model bieżącego przystanku:
-       odtwarzamy cały odcinek PŁOCHOCIŃSKA -> OBRAZKOWA razem
-       z OBU Ekspresowymi, Polfą i ich oryginalnymi separatorami.
-       Nie wymyślamy liter: w D są l/o, w C zgodnie z JSON e/t. */
+    /* WERSJA 776 — 126: odtwarzanie obu fizycznych Ekspresowych
+       w OBU kierunkach, wyłącznie na podstawie rzeczywistych kursów.
+       Pracujemy na finalnym modelu po scalaniu gałęzi V760. */
     if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='126'){
-        const zrodlo775=v486CurrentStop()?.lista_przystankowa?.elementy;
-        const id775=e=>String(e?.id||'');
-        const jest775=(e,frag)=>e?.typ==='przystanek'&&
-            id775(e).includes(frag);
-        if(Array.isArray(zrodlo775)){
-            const od775=zrodlo775.findIndex(e=>jest775(e,'|Płochocińska|02'));
-            const do775=zrodlo775.findIndex((e,i)=>i>od775&&
-                jest775(e,'|Obrazkowa|02'));
-            const segment775=od775>=0&&do775>od775
-                ?zrodlo775.slice(od775+1,do775):[];
-            const ma775=id=>segment775.some(e=>id775(e).includes(id));
-            const maOpisy775=segment775.filter(e=>
-                e?.typ==='trasa_w_kursach').length>=2;
-            if(ma775('|Ekspresowa|04')&&ma775('|Polfa|02')&&
-               ma775('|Ekspresowa|02')&&maOpisy775){
-                const odWyn775=wynik760.findIndex(e=>
-                    jest775(e,'|Płochocińska|02'));
-                const doWyn775=wynik760.findIndex((e,i)=>
-                    i>odWyn775&&jest775(e,'|Obrazkowa|02'));
-                if(odWyn775>=0&&doWyn775>odWyn775){
-                    const teraz775=wynik760.slice(odWyn775+1,doWyn775);
-                    const brak775=['|Ekspresowa|04','|Ekspresowa|02']
-                        .some(id=>!teraz775.some(e=>id775(e).includes(id)));
-                    const zlaKolejnosc775=teraz775.filter(e=>
-                        e?.typ==='przystanek').map(e=>id775(e)).join('|')!==
-                        segment775.filter(e=>e?.typ==='przystanek')
-                            .map(e=>id775(e)).join('|');
-                    if(brak775||zlaKolejnosc775){
-                        wynik760.splice(odWyn775+1,
-                            doWyn775-odWyn775-1,
-                            ...segment775.map(e=>({...e})));
-                    }
+        const baza776=v486BaseStops();
+        const zrodlo776=v486CurrentStop()?.lista_przystankowa?.elementy;
+        const jest776=(e,id)=>e?.typ==='przystanek'&&String(e?.id||'')===id;
+        const znajdz776=id=>baza776.find(p=>String(p?.id||'')===id);
+        const pasazerskie776=p=>(p?.kursy||[]).filter(k=>
+            !czyKursPomijanyPrzyTrasie(k));
+        const sklonuj776=e=>({...e});
+        const stop776=(id,source)=>source||(()=>{
+            const p=znajdz776(id);
+            return p?{typ:'przystanek',id:p.id,nazwa:p.nazwa_czysta||p.nazwa,
+                nr:p.nr,stan:'normalny',koncowy:false,kontynuacja:false}:null;
+        })();
+        const separator776=tekst=>({typ:'trasa_w_kursach',tekst});
+        const przywroc776=(poczatek,koniec,elementy)=>{
+            const i=wynik760.findIndex(e=>jest776(e,poczatek));
+            const j=wynik760.findIndex((e,n)=>n>i&&jest776(e,koniec));
+            if(i<0||j<=i||elementy.some(e=>!e))return;
+            const obecne=wynik760.slice(i+1,j);
+            const sygnatura=arr=>arr.map(e=>
+                e?.typ==='przystanek'?String(e.id):
+                e?.typ==='trasa_w_kursach'?String(e.tekst):String(e?.typ))
+                .join('\u001f');
+            if(sygnatura(obecne)!==sygnatura(elementy))
+                wynik760.splice(i+1,j-i-1,...elementy.map(sklonuj776));
+        };
+        if(Array.isArray(zrodlo776)){
+            // CH TARGÓWEK -> TARCHOMIN: 04 -> POLFA 02 -> 02.
+            const pl='27|Płochocińska|02', ob='31|Obrazkowa|02';
+            const i=zrodlo776.findIndex(e=>jest776(e,pl));
+            const j=zrodlo776.findIndex((e,n)=>n>i&&jest776(e,ob));
+            if(i>=0&&j>i){
+                const fragment=zrodlo776.slice(i+1,j);
+                const ids=['28|Ekspresowa|04','29|Polfa|02','30|Ekspresowa|02'];
+                if(ids.every(id=>fragment.some(e=>jest776(e,id))))
+                    przywroc776(pl,ob,fragment);
+            }
+            // TARCHOMIN -> CH TARGÓWEK: osobny słupek 04 przed
+            // POLFA 01, a dopiero potem wspólny słupek 01.
+            const obR='6|Obrazkowa|01',plR='10|Płochocińska|04';
+            const e04='7|Ekspresowa|04',pol='8|Polfa|01',e01='9|Ekspresowa|01';
+            const kursy04=pasazerskie776(znajdz776(e04));
+            const kursyPol=pasazerskie776(znajdz776(pol));
+            const iR=zrodlo776.findIndex(e=>jest776(e,obR));
+            const jR=zrodlo776.findIndex((e,n)=>n>iR&&jest776(e,plR));
+            if(iR>=0&&jR>iR){
+                const fragment=zrodlo776.slice(iR+1,jR);
+                const oryginalny=id=>fragment.find(e=>jest776(e,id));
+                const wspolny=stop776(e01,oryginalny(e01));
+                if(kursy04.length&&kursyPol.length){
+                    const litery=[...new Set(kursy04.map(k=>
+                        String(k?.wariant||'').trim().toLowerCase()).filter(Boolean))]
+                        .sort();
+                    const opis=litery.length?'TRASA W KURSACH '+
+                        litery.map(l=>'„'+l+'”').join(', '):
+                        'TRASA W KURSACH BEZ OZNACZEŃ';
+                    const oryginalnySep=fragment.find(e=>
+                        e?.typ==='trasa_w_kursach'&&
+                        /TRASA W KURSACH/i.test(String(e.tekst||'')));
+                    const przed=oryginalnySep&&
+                        String(oryginalnySep.tekst||'').toLowerCase().includes(
+                            litery[0]||'__BRAK__')
+                        ?oryginalnySep:separator776(opis);
+                    przywroc776(obR,plR,[przed,
+                        stop776(e04,oryginalny(e04)),
+                        stop776(pol,oryginalny(pol)),
+                        separator776('TRASA WE WSZYSTKICH KURSACH'),
+                        wspolny]);
+                }else if(wspolny){
+                    // W C brak kursów przez POLFĘ w tym kierunku.
+                    // Nie pokazujemy pustej odnogi ani jej separatora.
+                    przywroc776(obR,plR,[wspolny]);
                 }
             }
         }
