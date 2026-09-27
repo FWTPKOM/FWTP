@@ -6887,7 +6887,7 @@ root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.expo
 <div id="wynik"></div>
 </main>
 <script>
-/* FWTP — WERSJA 680. Wspólny silnik tras: porównania parami, bez nadpisywania liter VBA. */
+/* FWTP — WERSJA 684. Wspólny silnik tras: porównania parami, bez nadpisywania liter VBA. */
 function FWTP_V679_ListyZKursow(dane) {
     const rozklady=dane?.["rozkłady"]||[];
     const clean=x=>String(x??'').trim();
@@ -6911,8 +6911,9 @@ function FWTP_V679_ListyZKursow(dane) {
         for(const k of directions)for(const s of k.przystanki||[])for(const c of s.kursy||[]){
             const path=routeOf(c);if(!path.length)continue;
             const key=routeKey(path)+'|'+normalizeLetter(c);
-            if(!weekCatalog.has(key))weekCatalog.set(key,{path,letter:normalizeLetter(c),count:0});
-            weekCatalog.get(key).count++;
+            if(!weekCatalog.has(key))weekCatalog.set(key,{path,letter:normalizeLetter(c),count:0,seen:new Set()});
+            const item=weekCatalog.get(key);
+            if(!item.seen.has(c.numer)){item.seen.add(c.numer);item.count++;}
         }
         for(const k of directions){
             const stops=k.przystanki||[];
@@ -6965,7 +6966,15 @@ function FWTP_V679_ListyZKursow(dane) {
                 // przyszłe odnogi, nigdy nie podmieniamy aktywnych liter.
                 const futureIds=new Set(base.path);
                 for(const x of weekCatalog.values()){
-                    if(x.path.includes(selected.id))continue;
+                    // Kurs z innego dnia może przejeżdżać przez ten sam
+                    // przystanek (110: C w sobotę). Musi być na wspólnej
+                    // drukowanej liście, choć nie odjeżdża w bieżącym dniu.
+                    if(x.path.includes(selected.id)){
+                        const path=x.path.slice(x.path.indexOf(selected.id));
+                        if(!groups.some(g=>routeKey(g.path)===routeKey(path)&&g.letter===x.letter))
+                            groups.push({path,full:x.path,letter:x.letter,courses:[],count:0,late:true});
+                        continue;
+                    }
                     const meet=x.path.find(id=>futureIds.has(id));
                     if(!meet||meet===base.path.at(-1))continue;
                     const pos=base.path.indexOf(meet);
@@ -6976,7 +6985,7 @@ function FWTP_V679_ListyZKursow(dane) {
                     // Zachowujemy tylko trasy, których dalsza sekwencja
                     // naprawdę różni się od osi bazowej.
                     if(routeKey(path)===routeKey(base.path.slice(pos)))continue;
-                    groups.push({path,full:x.path,letter:x.letter,courses:[],count:x.count,late:true});
+                    groups.push({path,full:x.path,letter:x.letter,courses:[],count:0,late:true});
                 }
                 const activeLetters=new Set(active.map(normalizeLetter).filter(Boolean));
                 const hasUnmarked=active.some(c=>!normalizeLetter(c)||normalizeLetter(c)==='A');
@@ -6994,24 +7003,36 @@ function FWTP_V679_ListyZKursow(dane) {
                     return sum;
                 };
                 const groupPasses=(g,id)=>g.path.includes(id);
+                // FWTP V681: oznaczenia dotyczą wyłącznie kursów faktycznie
+                // pokonujących TEN fragment. Skrócony C jedzie z W do cmentarza,
+                // ale nie należy do odcinka powrotnego za cmentarzem.
                 const markerLabel=gs=>{
-                    const letters=[...new Set(gs.map(g=>g.letter).filter(Boolean))];
-                    const includesUnmarked=gs.some(g=>!g.letter||g.letter==='A');
-                    const activeGs=gs.filter(g=>!g.late);
-                    // „Wszystkie kursy” tylko gdy fragment jest rzeczywiście
-                    // obsługiwany przez wszystkie AKTYWNE przebiegi.
-                    const all=activeGs.length&&groups.filter(g=>!g.late).every(g=>gs.includes(g));
+                    const activeGs=groups.filter(g=>!g.late);
+                    const real=gs;
+                    if(!real.length)return '';
+                    const all=activeGs.length&&activeGs.every(g=>real.includes(g))&&
+                        groups.every(g=>real.includes(g));
                     if(all)return 'TRASA WE WSZYSTKICH KURSACH';
-                    const visible=letters.filter(l=>l!=='A');
-                    if(letters.includes('A')&&activeLetters.size>=4)visible.unshift('A');
-                    if(!visible.length)return includesUnmarked?'TRASA W KURSACH BEZ OZNACZEŃ':'';
-                    const text='TRASA W KURSACH '+visible.map(l=>'„'+l.toLowerCase()+'”').join(', ');
-                    return includesUnmarked&&hasUnmarked&&!visible.includes('A')?text+' ORAZ BEZ OZNACZEŃ':text;
+                    const labels=new Set(real.map(g=>g.letter));
+                    const unmarked=labels.has('')||labels.has('A');
+                    const showA=activeLetters.size>=4;
+                    const letters=[...labels].filter(l=>l&&l!=='A');
+                    if(showA&&labels.has('A'))letters.unshift('A');
+                    // Litery z JSON, bez dopisywania liter z obcych rozkładów.
+                    letters.sort((a,b)=>a.localeCompare(b,'pl'));
+                    const names=letters.map(l=>'„'+l.toLowerCase()+'”');
+                    if(unmarked&&!showA)names.unshift('BEZ OZNACZEŃ');
+                    if(!names.length&&unmarked)return 'TRASA W KURSACH BEZ OZNACZEŃ';
+                    return names.length?'TRASA W KURSACH '+names.join(', '):'';
                 };
-                const marker=(gs,force=false)=>{
-                    const label=markerLabel(gs);if(!label)return;
-                    if(!force&&elements.at(-1)?.typ==='trasa_w_kursach'&&elements.at(-1).tekst===label)return;
-                    elements.push({typ:'trasa_w_kursach',tekst:label});
+                const marker=gs=>{
+                    const label=markerLabel(gs);
+                    if(!label)return;
+                    if(elements.at(-1)?.typ==='trasa_w_kursach'){
+                        // Jedno oznaczenie na granicy odcinków, nie kilka
+                        // kolejnych napisów opisujących tę samą grupę.
+                        elements[elements.length-1].tekst=label;
+                    }else elements.push({typ:'trasa_w_kursach',tekst:label});
                 };
                 const addStop=(id,gs,passed=false)=>{
                     const s=byId.get(id);
@@ -7036,9 +7057,15 @@ function FWTP_V679_ListyZKursow(dane) {
                 // Odcinki i powroty porównujemy PARAMI. Kurs skrócony nie
                 // zamyka odnogi, która wraca dopiero dalej.
                 const pairwiseJoin=(axis,branch)=>{
-                    for(let i=1;i<branch.length;i++){
+                    // Zbiegu szukamy WYŁĄCZNIE po rzeczywistym rozjeździe.
+                    // C jest prefiksem W do cmentarza i NIE wraca na W.
+                    let common=0;
+                    while(common<axis.length&&common<branch.length&&
+                          axis[common]===branch[common])common++;
+                    if(common>=axis.length||common>=branch.length)return null;
+                    for(let i=common;i<branch.length;i++){
                         const id=branch[i];
-                        const j=axis.indexOf(id,1);
+                        const j=axis.indexOf(id,common);
                         if(j>=0)return {id,atAxis:j,atBranch:i};
                     }
                     return null;
@@ -7052,8 +7079,13 @@ function FWTP_V679_ListyZKursow(dane) {
                     if(!live.length)return;
                     while(live.length&&live.every(g=>g.path[0]===live[0].path[0])){
                         const id=live[0].path[0];addStop(id,live);
-                        live=live.map(g=>({...g,path:g.path.slice(1)})).filter(g=>g.path.length);
+                        const next=live.map(g=>({...g,path:g.path.slice(1)}));
+                        const ended=next.some(g=>!g.path.length);
+                        live=next.filter(g=>g.path.length);
                         if(!live.length)return;
+                        // Po końcu C na cmentarzu pozostaje tylko W:
+                        // dokładnie tutaj zmienia się napis przed powrotną Widokową.
+                        if(ended)marker(live);
                     }
                     if(live.length===1){for(const id of live[0].path)addStop(id,live);return;}
                     const axis=live.slice().sort((a,b)=>b.count-a.count||b.path.length-a.path.length)[0];
@@ -7088,12 +7120,12 @@ function FWTP_V679_ListyZKursow(dane) {
                             return {...g,path:g.path.slice(0,end)};
                         }).filter(g=>g.path.length);
                         if(!part.length)continue;
-                        marker(gs,true);
+                        marker(gs);
                         render(part,depth+1);
                     }
                     if(joinId){
                         const continuing=live.filter(g=>g.path.includes(joinId));
-                        if(continuing.length){marker(continuing,true);
+                        if(continuing.length){marker(continuing);
                             render(continuing.map(g=>({...g,path:g.path.slice(g.path.indexOf(joinId))})),depth+1);}
                     }
                 }
