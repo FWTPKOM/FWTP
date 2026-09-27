@@ -1,3 +1,4 @@
+<!-- WERSJA: 761 -->
 <!-- WERSJA: 760 — PRZENOSZENIE WSPÓLNEGO PRZYSTANKU PRZED WARIANTY -->
 <!-- HISTORIA: WERSJA 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
@@ -21455,6 +21456,61 @@ function v635PrzytnijListeOkrezna(elements){
     return index>=0?elements.slice(0,index+1):elements;
 }
 
+/* WERSJA 761: wspólna topologia wydłużenia z podjazdem.
+   Jeśli krótka trasa jest prefiksem dwóch wydłużeń, a dłuższe
+   wydłużenie wraca na cały końcowy fragment krótszego, pokazujemy
+   podjazd PRZED wspólną końcówką. Bez wyjątków po numerze linii. */
+function FWTP_V761_UlozPodjazdPrzedWspolnymKoncem(elements, model){
+    const trasy=Array.isArray(model?.trasy)?model.trasy:[];
+    if(trasy.length!==3)return elements;
+    const stops=trasy.map(t=>({
+        wariant:String(t.wariant||'').toLowerCase(),
+        ids:Array.isArray(t.trasa)?t.trasa.map(String):[]
+    }));
+    if(stops.some(t=>!t.ids.length))return elements;
+    const prefix=(a,b)=>a.every((id,i)=>b[i]===id);
+    const baza=stops.find(a=>stops.every(b=>prefix(a.ids,b.ids)));
+    if(!baza)return elements;
+    const dluzsze=stops.filter(x=>x!==baza);
+    if(dluzsze.length!==2)return elements;
+    let direct=null, objazd=null, join=-1;
+    for(const [a,b] of [[dluzsze[0],dluzsze[1]],[dluzsze[1],dluzsze[0]]]){
+        const suffix=a.ids.slice(baza.ids.length);
+        if(!suffix.length)continue;
+        for(let k=baza.ids.length+1;k<b.ids.length;k++){
+            if(b.ids.slice(k).join('\u0001')===suffix.join('\u0001')){
+                direct=a;objazd=b;join=k;break;
+            }
+        }
+        if(direct)break;
+    }
+    if(!direct||!objazd||join<0)return elements;
+    const prefixEnd=baza.ids.at(-1);
+    const first=elements.findIndex(e=>e?.typ==='przystanek'&&String(e.id)===prefixEnd);
+    if(first<0)return elements;
+    const byId=new Map(elements.filter(e=>e?.typ==='przystanek').map(e=>[String(e.id),e]));
+    const detourIds=objazd.ids.slice(baza.ids.length,join);
+    const commonIds=direct.ids.slice(baza.ids.length);
+    if(detourIds.some(id=>!byId.has(id))||commonIds.some(id=>!byId.has(id)))return elements;
+    const originalPrefix=elements.slice(0,first+1);
+    // Trasa bazowa kończy się w punkcie rozgałęzienia; wydłużenia
+    // kontynuują dalej, więc zachowujemy końcowość z kontynuacją.
+    originalPrefix[first]={...originalPrefix[first],koncowy:true,kontynuacja:true};
+    const opis=letters=>({typ:'trasa_w_kursach',tekst:
+        'TRASA W KURSACH '+letters.map(x=>'„'+x+'”').join(', ')});
+    const wspolne=[direct.wariant,objazd.wariant].filter(Boolean);
+    return [
+        ...originalPrefix,
+        opis(wspolne),
+        opis([objazd.wariant]),
+        ...detourIds.map(id=>({...byId.get(id),koncowy:false,kontynuacja:false})),
+        opis(wspolne),
+        ...commonIds.map((id,i)=>({...byId.get(id),
+            koncowy:i===commonIds.length-1,
+            kontynuacja:false}))
+    ];
+}
+
 function v514RenderGotowejListy(){
     /* V636: gotowa lista jest dokładnie taka, jak lista_przystankowa.elementy
        aktualnego przystanku w JSON. Nie dopisujemy ani nie usuwamy pozycji. */
@@ -21492,7 +21548,7 @@ function v514RenderGotowejListy(){
         wszystkiePrzystankiV651.every(p=>
             normalizujV651(p?.miejscowosc)==='WARSZAWA'
         );
-    const elements=elementsRaw.filter((e,i,a)=>{
+    let elements=elementsRaw.filter((e,i,a)=>{
         if(tylkoWarszawaV651 && String(e?.typ||'').toLowerCase()==='miejscowosc' &&
            normalizujV651(e?.tekst)==='WARSZAWA')return false;
         if(bezStrefV649 && String(e?.typ||"").toLowerCase()==="strefa")return false;
@@ -21504,6 +21560,9 @@ function v514RenderGotowejListy(){
         for(let j=i+1;j<a.length;j++){if(a[j]?.typ==="przystanek"){next=a[j];break;}}
         return !(wyjatekV648(next)||wyjatekV648(prev));
     });
+
+    elements=FWTP_V761_UlozPodjazdPrzedWspolnymKoncem(elements,
+        v486CurrentStop()?.lista_przystankowa);
 
     /* V760 — wspólny przystanek dwóch gałęzi musi zostać PRZENIESIONY
        przed pierwszy opis wariantu. W V759 szukano go przed opisem,
