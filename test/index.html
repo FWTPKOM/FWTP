@@ -1,4 +1,4 @@
-<!-- FWTP TABLICZKA — WERSJA: 733 — WSPÓLNA SIERAKOWSKA PRZED WARIANTAMI 210 -->
+<!-- FWTP TABLICZKA — WERSJA: 734 — HORNÓWEK I SZERSZY ROZKŁAD -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
 <!-- WERSJA: 713 — LINIE GODZIN POD LITERAMI WARIANTÓW -->
 <!DOCTYPE html>
@@ -41,7 +41,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP v733 — Tabliczki</title>
+<title>FWTP v734 — Tabliczki</title>
 <meta name="fwtp-version" content="733"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
@@ -6930,7 +6930,7 @@ html body .tabliczka .rozklady-grid .minuta > .symbol {
 </header>
 <main class="tabliczka-page">
 <section class="sterowanie">
-<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v733</span></h1>
+<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v734</span></h1>
 <div class="sterowanie-grid">
 <div class="pole">
 <label for="liniaInput">Linia</label>
@@ -20639,6 +20639,35 @@ function v514ModelListy(){
                 }
             }
         }
+        /* V734: miejscowość HORNÓWEK jest w wykazie miejscowości.
+           Przy składaniu gałęzi h separator może zniknąć, gdy
+           lista przystanków wariantu została złożona z samych ID.
+           Wstawiamy go przed rzeczywistym przystankiem Hornówek,
+           nigdy na podstawie samego tekstu opisu wariantu. */
+        if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='210'){
+            const n734=v=>String(v||'').normalize('NFD')
+                .replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
+            const h734=elementy.findIndex(e=>e?.typ==='trasa_w_kursach' &&
+                /(?:^|[^a-z])h(?:$|[^a-z])/i.test(String(e?.tekst||'').replace(/[„”]/g,' ')));
+            if(h734>=0){
+                const next734=elementy.findIndex((e,i)=>i>h734 &&
+                    e?.typ==='przystanek' &&
+                    n734(e?.nazwa||String(e?.id||'').split('|')[1])==='HORNOWEK');
+                if(next734>h734){
+                    const prev734=elementy[next734-1];
+                    const already734=prev734?.typ==='miejscowosc' &&
+                        n734(prev734.tekst)==='HORNOWEK';
+                    const known734=(window.__FWTP_MIEJSCOWOSCI||[])
+                        .some(m=>n734(m)==='HORNOWEK');
+                    const base734=v486BaseStops().find(p=>
+                        v486StopId(p)===String(elementy[next734].id||''));
+                    const town734=String(base734?.miejscowosc||'').trim();
+                    if(!already734 && (n734(town734)==='HORNOWEK'||known734)){
+                        elementy.splice(next734,0,{typ:'miejscowosc',tekst:'HORNÓWEK'});
+                    }
+                }
+            }
+        }
         return elementy;
     }
 
@@ -28686,5 +28715,49 @@ html body .tabliczka.v719-jedna-kolumna .trasa-columns {
 })();
 </script>
 
+
+<!-- WERSJA: 734 — dwie kolumny przystanków: priorytet jednowierszowego rozkładu -->
+<style id="fwtp-v734-szerszy-rozklad">
+/* Ustawienie dotyczy tylko dwukolumnowej listy; pozostałe układy
+   nadal obsługuje dotychczasowy mechanizm elastycznej szerokości. */
+html body .tabliczka.v734-dwie-kolumny {
+    --lewa: 57% !important;
+    --prawa: 43% !important;
+}
+</style>
+<script id="fwtp-v734-geometria">
+(function(){
+  'use strict';
+  let queued=false;
+  function update(){
+    const t=document.querySelector('#wynik .tabliczka');
+    if(!t)return;
+    const cols=t.querySelector('.trasa-columns');
+    const two=!!cols?.classList.contains('cols-2') &&
+      [...cols.children].filter(el=>el.classList.contains('trasa-kol') &&
+        getComputedStyle(el).display!=='none').length===2;
+    t.classList.toggle('v734-dwie-kolumny',two);
+    if(two){
+      if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(cols);
+      if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(cols);
+    }
+  }
+  function schedule(){
+    if(queued)return;
+    queued=true;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      queued=false;
+      update();
+    }));
+  }
+  const root=document.getElementById('wynik');
+  if(root)new MutationObserver(ch=>{
+    if(ch.some(c=>c.type==='childList'))schedule();
+  }).observe(root,{childList:true,subtree:false});
+  window.addEventListener('resize',schedule);
+  if(document.fonts?.ready)document.fonts.ready.then(schedule);
+  schedule();
+})();
+</script>
 </body>
 </html>
