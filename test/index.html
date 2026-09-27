@@ -1,4 +1,4 @@
-<!-- WERSJA: 685 — OPISY TYLKO PRZY RZECZYWISTYCH ROZGAŁĘZIENIACH -->
+<!-- WERSJA: 686 — POMIJANIE KURSÓW ROZPOCZYNAJĄCYCH SIĘ W ŚRODKU TRASY -->
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
 <!DOCTYPE html>
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
@@ -6,8 +6,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP - Tabliczki (v685)</title>
-<meta name="fwtp-version" content="685"/>
+<title>FWTP - Tabliczki (v686)</title>
+<meta name="fwtp-version" content="686"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
 <script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sPxCq7PaSAZgofkQN2x8yF3_xxpxKUlsaQBInBm3F64lBKh4BnCciuKKVcQf3Jz_NBdRQb_bmKwJ4NOVjU6QGqlLysKpL1bRvNsDCRXyuMD2X4c_lCpZSNAYWgDQvitBBQfYeyhxpPHINE616HmVKFWuo-TcjLVvHADEbkr04gZnMPtWXv_tkMdTM6J2H_69zBQEhkqlO36zyzkWI25gzVRr2uyvOAFbSMU_yixTmGFo2pM7GXa-r05eHZmmdxI1cbUXjQHYecTSK-rUlKBl1V72CkahBzM7wZkMpZmAFpeWTk4WDlUXa31H8r2AurzAlliqKbmn46g76HzO5_GPQZQvhtr9dmPKAeMR_rZ02HI" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sDyvQBuoxox17_KRlPp29SKwugaMaVHZH-lXg7Me4XIBEwt15mCv1uqRyqMH-xRp8urkn2GKBjKSinJt--k9NFU3LbrASJ_btilmXWb7duejD4J2XdrB913svyl51nKpYX8-HLLkfvjFTdvXu_5G1u-hJpvzjdEbX-063Y6CXHkBnc7hfu4ApUg1MwuCjTKZxQT5jUnwaqD0FLGBxUUSyKBI_nCyxAxqRHPVNvfevE_Na0ZAtSC3NEn6nVxrNhweDkytC218IoO5Rp6F_cQfQ5yerDkGbJdxZaBr6wEs6RqD_KJpB-gZEM7WGtUm4_iiYKevwPzLdRiNgD4OGJMRDaBXVG6CaQRTnhMujcROCZ8" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=pKlnhzCyCnwX8pmmZaNlxDMrn9H9NEgRSiYuEYZIh0qKYjqZnAWEtDZKpqw9xXvDFYlHzXX39nvATweO787ShH6PDI8b6Lhr9V9_USw04DZ-qSw7C0l3-WOH-r6AuMB4giHrjY0zFNPox_FDweAQXPyRUqBERuyN6-jlB-2h3l3vPuutDA3YvFZ94yMluxl8tbxMUrd3sCHEoit3JAs7ZS9MnIJei0dyT769BMUer3Xy_CTVEMV6GZIAStVJr9q2PAt0op6-vFdUrnpAbMNC6nPCDg4D2RT8jC6j4KbfWhkW-J0Ela4u5mG01FQogNoE3NHAHw96NO2OF__6kk9H1-Oes-PG1TpRDAGM86EzsDnm9qwA6Il2SoO2W1HCRcr5" charset="UTF-8"></script><style>
@@ -6889,7 +6889,7 @@ root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.expo
 </main>
 <script>
 /* FWTP — WERSJA 684. Wspólny silnik tras: porównania parami, bez nadpisywania liter VBA. */
-function FWTP_V685_ListyZKursow(dane) {
+function FWTP_V686_ListyZKursow(dane) {
     const rozklady=dane?.["rozkłady"]||[];
     const clean=x=>String(x??'').trim();
     const edgeKey=(a,b)=>JSON.stringify([a,b]);
@@ -6946,14 +6946,21 @@ function FWTP_V685_ListyZKursow(dane) {
             const towns=new Set(stops.map(s=>clean(s.miejscowosc)).filter(Boolean));
             for(const selected of stops){
                 if(Array.isArray(selected.lista_przystankowa?.elementy))continue;
+                // V686: rozkład pokazuje WSZYSTKIE odjazdy, lecz geometrię
+                // rozgałęzień ustalamy wyłącznie z kursów rozpoczynających
+                // się na początku kierunku. Kurs startujący po drodze nie
+                // może tworzyć fikcyjnego rozjazdu ani opisu wariantu.
                 const active=courses.filter(c=>c.times.has(selected.id)&&routeAt(c.trasa,selected.id)>=0);
                 if(!active.length){selected.lista_przystankowa={wersja:2,elementy:[],trasy:[]};continue;}
+                const directionOrigin=stops[0]?.id;
+                const fullActive=active.filter(c=>c.trasa[0]===directionOrigin);
+                const geometryCourses=fullActive.length?fullActive:active;
                 // Głosowanie dotyczy PEŁNYCH tras w całym kierunku, nie tylko
                 // odjazdów z bieżącego przystanku i nie samej litery A.
                 const fullCounts=new Map();
-                for(const c of courses){const key=routeKey(c.trasa);fullCounts.set(key,(fullCounts.get(key)||0)+1);}
+                for(const c of courses.filter(c=>c.trasa[0]===directionOrigin)){const key=routeKey(c.trasa);fullCounts.set(key,(fullCounts.get(key)||0)+1);}
                 const groupsMap=new Map();
-                for(const c of active){
+                for(const c of geometryCourses){
                     const at=routeAt(c.trasa,selected.id);
                     const path=c.trasa.slice(at);
                     const key=routeKey(path)+'|'+normalizeLetter(c);
@@ -6963,33 +6970,17 @@ function FWTP_V685_ListyZKursow(dane) {
                 const groups=[...groupsMap.values()];
                 groups.sort((a,b)=>b.count-a.count||b.path.length-a.path.length);
                 const base=groups[0];
-                // Kursy zaczynające się później: dokładamy wyłącznie prawdziwe
-                // przyszłe odnogi, nigdy nie podmieniamy aktywnych liter.
-                const futureIds=new Set(base.path);
+                // V686: warianty z innych dni można uwzględnić tylko,
+                // jeśli rozpoczynają się na początku TEGO kierunku.
+                // Nie dokładamy żadnych kursów rozpoczynających się po drodze.
                 for(const x of weekCatalog.values()){
-                    // Kurs z innego dnia może przejeżdżać przez ten sam
-                    // przystanek (110: C w sobotę). Musi być na wspólnej
-                    // drukowanej liście, choć nie odjeżdża w bieżącym dniu.
-                    if(x.path.includes(selected.id)){
-                        const path=x.path.slice(x.path.indexOf(selected.id));
-                        if(!groups.some(g=>routeKey(g.path)===routeKey(path)&&g.letter===x.letter))
-                            groups.push({path,full:x.path,letter:x.letter,courses:[],count:0,late:true});
-                        continue;
-                    }
-                    const meet=x.path.find(id=>futureIds.has(id));
-                    if(!meet||meet===base.path.at(-1))continue;
-                    const pos=base.path.indexOf(meet);
-                    if(pos<=0)continue;
-                    const path=x.path.slice(x.path.indexOf(meet));
-                    if(path.length<2)continue;
-                    if(groups.some(g=>routeKey(g.path)===routeKey(path)))continue;
-                    // Zachowujemy tylko trasy, których dalsza sekwencja
-                    // naprawdę różni się od osi bazowej.
-                    if(routeKey(path)===routeKey(base.path.slice(pos)))continue;
-                    groups.push({path,full:x.path,letter:x.letter,courses:[],count:0,late:true});
+                    if(x.path[0]!==directionOrigin||!x.path.includes(selected.id))continue;
+                    const path=x.path.slice(x.path.indexOf(selected.id));
+                    if(!groups.some(g=>routeKey(g.path)===routeKey(path)&&g.letter===x.letter))
+                        groups.push({path,full:x.path,letter:x.letter,courses:[],count:0,late:true});
                 }
-                const activeLetters=new Set(active.map(normalizeLetter).filter(Boolean));
-                const hasUnmarked=active.some(c=>!normalizeLetter(c)||normalizeLetter(c)==='A');
+                const activeLetters=new Set(geometryCourses.map(normalizeLetter).filter(Boolean));
+                const hasUnmarked=geometryCourses.some(c=>!normalizeLetter(c)||normalizeLetter(c)==='A');
                 const elements=[],emitted=new Set();let prevTown='';
                 let genuineSplitSeen=false;
                 const routeDuration=(c,target)=>{
@@ -8377,7 +8368,7 @@ function FWTP_V675_NormalizujJSON(json){
     }
     if(!Array.isArray(json["rozkłady"]))throw new Error("Brak tablicy rozkłady w JSON.");
     if(json["rozkłady"].some(r=>(r.kierunki||[]).some(k=>(k.przystanki||[]).some(p=>!p.lista_przystankowa)))){
-        FWTP_V685_ListyZKursow(json);
+        FWTP_V686_ListyZKursow(json);
     }
     return json;
 }
