@@ -1,4 +1,4 @@
-<!-- WERSJA: 709 — NAWIASY TYLKO DLA MIEJSCOWOSCI Z LISTY -->
+<!-- WERSJA: 710 — STABILNY RENDER I MARKERY TYLKO PO RZECZYWISTEJ ODNODZE -->
 <!DOCTYPE html>
 <!-- HISTORIA: WERSJA 702 -->
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
@@ -6905,7 +6905,7 @@ root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.expo
 </header>
 <main class="tabliczka-page">
 <section class="sterowanie">
-<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v680</span></h1>
+<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v710</span></h1>
 <div class="sterowanie-grid">
 <div class="pole">
 <label for="liniaInput">Linia</label>
@@ -7291,7 +7291,13 @@ function FWTP_V689_ListyZKursow(dane) {
                         }
                     }
                     if(i>=axis.length)break;
-                    if(returns.has(i)){
+                    // V710: powrót może mieć marker „wszystkie” tylko wtedy,
+                    // gdy wcześniej w tej liście rzeczywiście pokazano odnogę.
+                    // Samo dołączenie kursu zaczynającego po drodze nie tworzy
+                    // powrotu (np. 103 przed Klaudyny).
+                    if(returns.has(i) && elements.some(e=>
+                        e.typ==='trasa_w_kursach' &&
+                        !/TRASA WE WSZYSTKICH KURSACH/i.test(e.tekst||''))){
                         const tail=axis.slice(i);
                         marker(tail,groups.filter(g=>g.path.includes(axis[i])));
                     }
@@ -27718,22 +27724,11 @@ html body .tabliczka.v664-elastyczna .trasa-nazwa:not(.zawijaj){
    t.classList.add('v664-elastyczna');
    if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(lista);
      if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(lista);
-   // V702: dopiero po ustaleniu ostatecznej szerokosci i zawijania
-   // mierzymy wolne miejsce; poprzedni podzial zostawial 1-2 wiersze.
-   // V703: powtórz pomiar przy rzeczywistej szerokości także wtedy,
-   // gdy CSS zmienił wysokość nazw bez zmiany procentowej szerokości.
-   // Klucz renderu resetuje się przy wymianie elementu .trasa-columns.
-   const v703Render=lista.querySelector('.trasa-lista');
-   const v703NeedsPass=v703Render&&t._v704LastRender!==v703Render;
-   if((v702Changed||v703NeedsPass)&&!t.dataset.v702Repacking){
-      t._v704LastRender=v703Render;
-      t.dataset.v702Repacking='1';
-      requestAnimationFrame(()=>{
-         try{if(t.isConnected&&typeof v498DopasujKolumnyTrasy==='function')
-              v498DopasujKolumnyTrasy();}
-         finally{delete t.dataset.v702Repacking;}
-      });
-   }
+   // V710: nie wywołujemy tutaj v498 ponownie.
+   // Wcześniej v498 wymieniał .trasa-lista, obserwator ponownie
+   // uruchamiał v664, a ten znów wywoływał v498 (pętla odświeżania).
+   // Jednorazowe dopełnienie pierwszej kolumny wykonuje V707.
+
  }
  const wynik=document.getElementById('wynik');
  if(wynik){
@@ -27904,12 +27899,13 @@ function v665SynchronizujWysokosci(kolumny){
   const root=document.getElementById('wynik');
   if(!root)return;
   // Nowa lista, ponowny podział v498 i zmiana szerokości v664.
+  // V710: obserwujemy tylko wymianę całej tabliczki w #wynik.
+  // Przesuwanie LI między kolumnami i zmiany klas nie mogą
+  // inicjować następnej rundy renderowania.
   const observer=new MutationObserver(changes=>{
-    if(processing)return;
-    if(changes.some(c=>c.type==='childList' ||
-      (c.type==='attributes'&&['class','style'].includes(c.attributeName))))schedule();
+    if(!processing&&changes.some(c=>c.type==='childList'))schedule();
   });
-  observer.observe(root,{subtree:true,childList:true,attributes:true,attributeFilter:['class','style']});
+  observer.observe(root,{subtree:false,childList:true});
   window.addEventListener('resize',schedule);
   if(document.fonts?.ready)document.fonts.ready.then(schedule);
   schedule();
