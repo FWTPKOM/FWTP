@@ -1,7 +1,7 @@
-<!-- WERSJA: 699 — 134 WSPOLNA GEOMETRIA DNI, WARIANT F I METRO BRODNO -->
+<!-- WERSJA: 700 — 134 WSPOLNA GEOMETRIA DNI, WARIANT F I METRO BRODNO -->
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
 <!DOCTYPE html>
-<!-- WERSJA: 699 -->
+<!-- WERSJA: 700 -->
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
 <html lang="pl">
 <head>
@@ -6912,7 +6912,7 @@ root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.expo
 <div id="wynik"></div>
 </main>
 <script>
-/* FWTP — WERSJA 699. 134: fizyczne przebiegi z obu dni, F i powroty. */
+/* FWTP — WERSJA 700. 134: fizyczne przebiegi z obu dni, F i powroty. */
 function FWTP_V689_ListyZKursow(dane) {
     // Przeniesienie modelu V59/V61/V63/V86: oś, fizyczne eventy,
     // dokładny powrót, litery odcinków, odrębne skrócenia i wydłużenia.
@@ -7037,8 +7037,15 @@ function FWTP_V689_ListyZKursow(dane) {
                 // nawet gdy nie zaczyna się na pierwszym przystanku kierunku.
                 // Kursy startujące dalej nie zmieniają geometrii przed sobą.
                 const fromSelected=active.filter(c=>c.path[0]===selected.id);
+                // V700: jawnie oznaczone kursy, które zaczynają się wcześniej
+                // na trasie (150: F z Dziekanowa Leśnego), są pełnoprawnym
+                // przebiegiem OD WYBRANEGO PRZYSTANKU. Nie zmieniamy przy
+                // tym ustalonej geometrii 110/126/131.
+                const extra150=String(dane.linia)==='150'
+                    ? active.filter(c=>letter(c)==='F' && c.path[0]!==origin)
+                    : [];
                 const physical=local.length
-                    ? [...new Map([...local,...fromSelected].map(c=>[c.numer,c])).values()]
+                    ? [...new Map([...local,...fromSelected,...extra150].map(c=>[c.numer,c])).values()]
                     : active;
                 const groupsMap=new Map();
                 for(const c of physical){
@@ -7137,6 +7144,7 @@ function FWTP_V689_ListyZKursow(dane) {
                 // V86/V160: członkostwo w odnodze = dokładny kolejny
                 // fragment rzeczywistej trasy, niezależnie od wcześniejszych podjazdów.
                 const eventMembers=ids=>groups.filter(g=>contains(g.path,ids));
+                let markerAxisPosition=0;
                 const label=(ids,gs)=>{
                     // V699: Z jest rzeczywistym kursem po trasie podstawowej do Zerania FSO.
                     // Uwzgledniamy go na przejezdzanych odcinkach, lecz nie za jego krancem.
@@ -7147,10 +7155,22 @@ function FWTP_V689_ListyZKursow(dane) {
                     const actual=[...new Set([...present,...members.filter(g=>
                         g.late&&weekLetters.has(g.letter)&&g.full[0]===origin)])];
                     if(!actual.length)return '';
-                    const fullRoutes=groups.filter(g=>!g.late&&g.path.length>1&&g.path.at(-1)===axis.at(-1));
-                    const uniqueFull=new Set(fullRoutes.map(g=>key([g.path,g.letter])));
-                    const presentFull=new Set(actual.filter(g=>g.path.at(-1)===axis.at(-1)).map(g=>key([g.path,g.letter])));
-                    if(uniqueFull.size>1&&[...uniqueFull].every(id=>presentFull.has(id)))return 'TRASA WE WSZYSTKICH KURSACH';
+                    // V700: "wszystkie" oznacza WSZYSTKIE warianty, które
+                    // jeszcze kursują w miejscu bieżącego rozgałęzienia.
+                    // Nie ograniczamy porównania do kursów do ostatniego krańca:
+                    // 134: F/Z kończą na Żeraniu FSO; 150: F na Marymoncie.
+                    // Nie uwzględniamy kursów zakończonych wcześniej na osi:
+                    // 126: B kończy na Bartniczej, przed odnogami.
+                    const alreadyEnded=new Set(axis.slice(0,markerAxisPosition));
+                    const eligible=groups.filter(g=>
+                        !alreadyEnded.has(g.path.at(-1)) &&
+                        (g.path.includes(selected.id)||g.late));
+                    const allLetters=new Set(eligible.map(g=>g.letter));
+                    const actualLetters=new Set(actual.map(g=>g.letter));
+                    if(allLetters.size>1 &&
+                       [...allLetters].every(l=>actualLetters.has(l)) &&
+                       [...actualLetters].every(l=>allLetters.has(l)))
+                        return 'TRASA WE WSZYSTKICH KURSACH';
                     const letters=new Set(actual.map(g=>g.letter));
                     const showA=currentLetters.size>=4;
                     const names=[...letters].filter(x=>x&&x!=='A').sort((a,b)=>a.localeCompare(b,'pl')).map(x=>'„'+x.toLowerCase()+'”');
@@ -7172,6 +7192,7 @@ function FWTP_V689_ListyZKursow(dane) {
                     for(let i=0;i<ids.length;i++)addStop(ids[i]);
                 };
                 for(let i=0;i<=axis.length;){
+                    markerAxisPosition=i;
                     if(++budget>4000)break;
                     const es=[...(events.get(i)?.values()||[])];
                     const bs=[...baseBranches.values()].filter(b=>b.start===i).sort((a,b)=>a.end-b.end);
