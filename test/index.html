@@ -1,4 +1,4 @@
-<!-- WERSJA: 771 -->
+<!-- WERSJA: 772 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -21674,6 +21674,55 @@ function v514RenderGotowejListy(){
         for(let j=i+1;j<a.length;j++){if(a[j]?.typ==="przystanek"){next=a[j];break;}}
         return !(wyjatekV648(next)||wyjatekV648(prev));
     });
+
+    /* FWTP V772 — miejscowości również na tabliczkach TO.
+       Objazd może mieć osobną listę_przystankową, której elementy
+       nie zawierają separatorów miejscowości, choć przystanki mają
+       prawidłowe metadane. Uzupełniamy wyłącznie brakujące przejścia,
+       przed układaniem odgałęzień i kolumn. */
+    if(daneLinii?.trasa_czasowo_zmieniona===true){
+        const baza772=v486BaseStops();
+        const poId772=new Map(baza772.map(p=>[String(p?.id||''),p]));
+        const norm772=x=>String(x||'').normalize('NFD')
+            .replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pl-PL').trim();
+        const znane772=new Map((window.__FWTP_MIEJSCOWOSCI||[])
+            .map(x=>[norm772(x),String(x)]));
+        const miasto772=p=>{
+            if(!p)return '';
+            const jawne=String(p.miejscowosc||'').trim();
+            if(jawne)return jawne;
+            const pelna=String(p.nazwa_pelna||p.nazwa||p.id?.split('|').slice(1,-1).join('|')||'');
+            const m=pelna.match(/\(([^()]*)\)\s*$/);
+            return m?(znane772.get(norm772(m[1]))||''):'';
+        };
+        const wszystkieMiasta772=new Set(baza772.map(miasto772).filter(Boolean).map(norm772));
+        // Tak samo jak na zwykłej tabliczce: nie pokazuj separatora
+        // WARSZAWA dla linii przebiegającej wyłącznie przez Warszawę.
+        const tylkoWarszawa772=baza772.length>0&&
+            baza772.every(p=>norm772(miasto772(p))==='WARSZAWA');
+        if(!tylkoWarszawa772){
+            const uzupelnione772=[];
+            let ostatnie772='';
+            for(const el772 of elements){
+                if(el772?.typ==='miejscowosc'){
+                    ostatnie772=norm772(el772.tekst);
+                    uzupelnione772.push(el772);
+                    continue;
+                }
+                if(el772?.typ==='przystanek'){
+                    const p772=poId772.get(String(el772.id||''));
+                    const miasto=miasto772(p772)||miasto772(el772);
+                    const klucz=norm772(miasto);
+                    if(klucz&&klucz!==ostatnie772){
+                        uzupelnione772.push({typ:'miejscowosc',tekst:miasto.toLocaleUpperCase('pl-PL')});
+                        ostatnie772=klucz;
+                    }
+                }
+                uzupelnione772.push(el772);
+            }
+            elements=uzupelnione772;
+        }
+    }
 
     elements=FWTP_V761_UlozPodjazdPrzedWspolnymKoncem(elements,
         v486CurrentStop()?.lista_przystankowa);
