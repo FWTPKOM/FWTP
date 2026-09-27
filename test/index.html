@@ -1,4 +1,4 @@
-<!-- FWTP TABLICZKA — WERSJA: 746 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
+<!-- FWTP TABLICZKA — WERSJA: 747 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
 <!-- WERSJA: 713 — LINIE GODZIN POD LITERAMI WARIANTÓW -->
 <!DOCTYPE html>
@@ -41,7 +41,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP v746 — Tabliczki</title>
+<title>FWTP v747 — Tabliczki</title>
 <meta name="fwtp-version" content="744"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
@@ -6930,7 +6930,7 @@ html body .tabliczka .rozklady-grid .minuta > .symbol {
 </header>
 <main class="tabliczka-page">
 <section class="sterowanie">
-<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v746</span></h1>
+<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v747</span></h1>
 <div class="sterowanie-grid">
 <div class="pole">
 <label for="liniaInput">Linia</label>
@@ -28761,7 +28761,7 @@ html body .tabliczka.v734-dwie-kolumny {
 </script>
 <!-- V742: przywrócono bazę V734 bez późniejszych modyfikacji kolejności i równoważenia kolumn V735–V741. -->
 
-<!-- WERSJA: 746 — poprawiony pomiar wysokości kolumn po rzeczywistym zawinięciu nazw; nierozdzielny blok Dąbrówki. -->
+<!-- WERSJA: 745 — poprawiony pomiar wysokości kolumn po rzeczywistym zawinięciu nazw; nierozdzielny blok Dąbrówki. -->
 <script id="fwtp-v745-dabrowka-wysokosc">
 (function(){
  'use strict';
@@ -28838,58 +28838,77 @@ html body .tabliczka.v734-dwie-kolumny {
 })();
 </script>
 
-<!-- WERSJA: 746 — 228: opis powrotu na trasę podstawową po podjeździe przez Wagonownię. -->
-<script id="fwtp-v746-powrot-wagonownia">
+<!-- WERSJA: 747 — 228: wspólny odcinek a/g/p, podjazd g i powrót na wspólną trasę. -->
+<script id="fwtp-v747-warianty-228">
 (function(){
   'use strict';
-  let pending=false, busy=false;
-  const norm=s=>String(s||'').normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pl-PL')
-    .replace(/\s+/g,' ').trim();
-  function popraw(){
-    pending=false;
-    if(busy)return;
-    const line=new URLSearchParams(location.search).get('linia');
-    if(line!=='228')return;
-    const root=document.querySelector('#wynik .tabliczka');
-    if(!root)return;
-    const columns=root.querySelector('.trasa-columns');
-    if(!columns)return;
-    const lists=[...columns.querySelectorAll('.trasa-lista')];
-    const all=lists.flatMap(list=>[...list.children]);
-    const isStop=e=>e.classList.contains('trasa-stop');
-    const stopName=e=>norm(e.querySelector(':scope > .trasa-nazwa')?.textContent);
-    const wagon=all.findIndex(e=>isStop(e)&&stopName(e)==='WAGONOWNIA');
-    if(wagon<0)return;
-    const second=all.findIndex((e,i)=>i>wagon&&isStop(e)&&stopName(e)==='SYMPATYCZNA');
-    if(second<0)return;
-    const gBefore=all.slice(0,wagon).some(e=>e.classList.contains('trasa-separator')&&
-      /TRASA W KURSACH/i.test(norm(e.textContent))&&/[„"']?G[”"']?/.test(norm(e.textContent)));
-    if(!gBefore)return;
-    const next=all[second], previous=all[second-1];
-    if(previous?.classList.contains('v746-powrot'))return;
-    if(previous?.classList.contains('trasa-separator')&&
-       norm(previous.textContent).includes('TRASA WE WSZYSTKICH KURSACH'))return;
-    busy=true;
+  let pending=false,working=false;
+  const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase().replace(/\s+/g,' ').trim();
+  const name=e=>norm(e?.querySelector(':scope > .trasa-nazwa')?.textContent);
+  const stop=e=>e?.classList.contains('trasa-stop');
+  const marker=e=>e?.classList.contains('trasa-separator')&&
+    norm(e.textContent).includes('TRASA W KURSACH');
+  function makeLabel(text,extra){
+    const li=document.createElement('li');
+    li.className='trasa-separator v496-opis v514-trasa-w-kursach '+extra;
+    const span=document.createElement('span');
+    span.className='trasa-separator-title';span.textContent=text;
+    li.appendChild(span);return li;
+  }
+  function update(){
+    pending=false;if(working)return;
+    if(new URLSearchParams(location.search).get('linia')!=='228')return;
+    const tab=document.querySelector('#wynik .tabliczka');
+    const cols=tab?.querySelector('.trasa-columns');if(!cols)return;
+    const lists=[...cols.querySelectorAll('.trasa-kol > .trasa-lista')];
+    if(!lists.length)return;
+    const all=lists.flatMap(l=>[...l.children]);
+    const inst=all.findIndex(e=>stop(e)&&name(e)==='INSTALATOROW');
+    const szybka=all.findIndex((e,i)=>i>inst&&stop(e)&&name(e)==='SZYBKA');
+    const wagon=all.findIndex((e,i)=>i>szybka&&stop(e)&&name(e)==='WAGONOWNIA');
+    const gniew=all.findIndex((e,i)=>i>wagon&&stop(e)&&name(e)==='GNIEWKOWSKA');
+    const symp=all.findIndex((e,i)=>i>gniew&&stop(e)&&name(e)==='SYMPATYCZNA');
+    if(inst<0||szybka<0||wagon<0||gniew<0||symp<0)return;
+    // Nie modyfikujemy rozkładu minut. Oznaczenia bierzemy z faktycznej
+    // legendy i widocznych kursów, a nie dopisujemy niewystępujących liter.
+    const legend=norm(tab.querySelector('.panel-lewy')?.textContent);
+    const has=x=>new RegExp('(?:^|\\s)'+x+'\\s*-').test(legend);
+    if(!['A','G','P'].every(has))return;
+    working=true;
     try{
-      const marker=document.createElement('li');
-      marker.className='trasa-separator v496-opis v514-trasa-w-kursach v746-powrot';
-      const title=document.createElement('span');
-      title.className='trasa-separator-title';
-      title.textContent='Trasa we wszystkich kursach';
-      marker.appendChild(title);
-      next.parentNode.insertBefore(marker,next);
-    }finally{busy=false;}
+      const first=all[szybka],detour=all[wagon],returnStop=all[symp];
+      // Wspólny odcinek od Szybkiej: a, g i p.
+      const before=first.previousElementSibling;
+      if(marker(before)){
+        const title=before.querySelector('.trasa-separator-title')||before;
+        if(norm(title.textContent)!=='TRASA W KURSACH A, G, P')
+          title.textContent='Trasa w kursach „a, g, p”';
+      }else if(!before?.classList.contains('v747-wspolny')){
+        first.before(makeLabel('Trasa w kursach „a, g, p”','v747-wspolny'));
+      }
+      // Dopiero Wagonownia rozpoczyna odcinek obsługiwany tylko przez g.
+      const prior=detour.previousElementSibling;
+      if(!marker(prior)||norm(prior.textContent)!=='TRASA W KURSACH G'){
+        detour.before(makeLabel('Trasa w kursach „g”','v747-podjazd'));
+      }
+      // Po Gniewkowskiej wszystkie kontynuujące kursy jadą przez Sympatyczną.
+      const prev=returnStop.previousElementSibling;
+      if(!prev?.classList.contains('trasa-separator')||
+         !norm(prev.textContent).includes('TRASA WE WSZYSTKICH KURSACH')){
+        returnStop.before(makeLabel('Trasa we wszystkich kursach','v747-powrot'));
+      }
+      // Ponowny pomiar rzeczywistych wysokości po dodaniu opisów.
+      if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(cols);
+      if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(cols);
+    }finally{working=false;}
   }
-  function schedule(){
-    if(pending||busy)return;
-    pending=true;
-    requestAnimationFrame(()=>requestAnimationFrame(popraw));
-  }
+  function schedule(){if(pending||working)return;pending=true;
+    requestAnimationFrame(()=>requestAnimationFrame(update));}
   const root=document.getElementById('wynik');
-  if(root)new MutationObserver(records=>{
-    if(records.some(r=>r.addedNodes.length||r.removedNodes.length))schedule();
-  }).observe(root,{childList:true,subtree:true});
+  if(root)new MutationObserver(ch=>{
+    if(ch.some(x=>x.type==='childList'))schedule();
+  }).observe(root,{childList:true,subtree:false});
   window.addEventListener('resize',schedule);
   if(document.fonts?.ready)document.fonts.ready.then(schedule);
   schedule();
