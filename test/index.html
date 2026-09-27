@@ -1,4 +1,4 @@
-<!-- WERSJA: 696 — ODCINKI POLFA I POWROT NA TRASE WSPOLNA -->
+<!-- WERSJA: 697 — SADYBA KONCOWY Z KONTYNUACJA BEZ DUPLIKATU -->
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
 <!DOCTYPE html>
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
@@ -29,7 +29,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP - Tabliczki (v696)</title>
+<title>FWTP - Tabliczki (v697)</title>
 <meta name="fwtp-version" content="694"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
@@ -6911,7 +6911,7 @@ root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.expo
 <div id="wynik"></div>
 </main>
 <script>
-/* FWTP — WERSJA 696. Odcinek Polfa przed rozjazdem i wspólna Ekspresowa po powrocie. */
+/* FWTP — WERSJA 697. Sadyba przed wariantem W, koniec z kontynuacją. */
 function FWTP_V689_ListyZKursow(dane) {
     // Przeniesienie modelu V59/V61/V63/V86: oś, fizyczne eventy,
     // dokładny powrót, litery odcinków, odrębne skrócenia i wydłużenia.
@@ -7166,6 +7166,36 @@ function FWTP_V689_ListyZKursow(dane) {
                         marker(tail,groups.filter(g=>g.path.includes(axis[i])));
                     }
                     addStop(axis[i]);i++;
+                }
+                // FWTP V697: końcowy słupek z kontynuacją na tej samej nazwie.
+                // 131: Sadyba 05 (koniec krótkich) i Sadyba 01 (kurs W)
+                // reprezentują jeden punkt na liście. Sadyba jest zaraz po
+                // Goraszewskiej, przed markerem W, a jej kropka ma linię w dół.
+                // Nie zmieniamy przebiegów kursów ani danych godzinowych:
+                // odrębne ID pozostają w `trasy` do obliczeń i wyszukiwania.
+                if(String(dane.linia)==='131'){
+                    const normalized=x=>String(x||'').trim().toLocaleUpperCase('pl-PL');
+                    const terminal=elements.find(e=>e.typ==='przystanek'&&e.koncowy&&e.kontynuacja&&e.stan!=='miniety');
+                    if(terminal){
+                        const t=elements.indexOf(terminal);
+                        const duplicate=elements.findIndex((e,i)=>i<t&&e.typ==='przystanek'&&
+                            e.id!==terminal.id&&e.stan!=='miniety'&&
+                            normalized(e.nazwa)===normalized(terminal.nazwa)&&!e.koncowy);
+                        if(duplicate>=0){
+                            // Marker bez oznaczeń dotyczył wyłącznie osobnego
+                            // słupka końcowego — po scaleniu jest zbędny.
+                            let start=duplicate;
+                            while(start>0&&elements[start-1].typ==='trasa_w_kursach')start--;
+                            const before=elements.slice(0,start);
+                            const between=elements.slice(start,t).filter((e,i)=>
+                                !(start+i===duplicate));
+                            // Marker W zostaje bezpośrednio za Sadybą.
+                            const remaining=elements.slice(t+1);
+                            const filteredBetween=between.filter(e=>
+                                !(e.typ==='trasa_w_kursach'&&/BEZ OZNACZEŃ/i.test(e.tekst||'')));
+                            elements.splice(0,elements.length,...before,terminal,...filteredBetween,...remaining);
+                        }
+                    }
                 }
                 selected.lista_przystankowa={wersja:2,elementy:elements,
                     trasy:groups.map(g=>({wariant:g.letter,koniec_trasy:g.path.at(-1),trasa:g.path}))};
