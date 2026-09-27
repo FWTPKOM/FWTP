@@ -1,4 +1,5 @@
-<!-- WERSJA: 764 -->
+<!-- WERSJA: 766 -->
+<!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
 <!-- WERSJA: 760 — PRZENOSZENIE WSPÓLNEGO PRZYSTANKU PRZED WARIANTY -->
@@ -20508,9 +20509,44 @@ function v514ModelListy(){
             if(!nastepny)continue;
             const nazwa1=norm(pierwszy.nazwa||String(pierwszy.id||'').split('|')[1]);
             const nazwa2=norm(nastepny.nazwa||String(nastepny.id||'').split('|')[1]);
-            if(nazwa1&&nazwa1===nazwa2){
+            /* V766: identyczna nazwa nie dowodzi, że pierwszy słupek
+               jest krańcem. Sprawdzamy dokładne ID końca kursu z JSON.
+               Przykład: WKD Raków 04 jest przelotowy, WKD Raków 03
+               jest końcem kursów W. */
+            const kursyBiezace=(v486CurrentStop()?.kursy||[])
+                .filter(k=>!czyKursPomijanyPrzyTrasie(k));
+            const konczyNaPierwszym=kursyBiezace.some(k=>
+                String(k?.koniec_trasy||'')===String(pierwszy.id||''));
+            if(nazwa1&&nazwa1===nazwa2&&konczyNaPierwszym){
                 pierwszy.koncowy=true;
                 pierwszy.kontynuacja=true;
+            }
+        }
+        /* V766: po końcu wariantu W na drugim słupku WKD Raków
+           pozostałe przebiegi A, P i Z jadą dalej przez Łopuszańską.
+           Nazwy wariantów wyprowadzamy z rzeczywistych kursów następnego
+           fizycznego przystanku w bieżącym JSON, nie z tekstu legendy. */
+        if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='401'){
+            const baza=v486BaseStops();
+            const poNazwie=id=>String(id||'').split('|')[1]||'';
+            for(let i=0;i<elementy.length;i++){
+                const e=elementy[i];
+                if(e?.typ!=='trasa_w_kursach'||
+                   !/BEZ\s+OZNACZE[NŃ]/i.test(String(e.tekst||'')))continue;
+                const przed=[...elementy.slice(0,i)].reverse()
+                    .find(x=>x?.typ==='przystanek');
+                const po=elementy.slice(i+1)
+                    .find(x=>x?.typ==='przystanek');
+                if(norm(przed?.nazwa||poNazwie(przed?.id))!=='WKD RAKOW'||
+                   norm(po?.nazwa||poNazwie(po?.id))!=='LOPUSZANSKA')continue;
+                const nastepny=baza.find(p=>String(p?.id||'')===String(po.id));
+                const litery=new Set((nastepny?.kursy||[])
+                    .filter(k=>!czyKursPomijanyPrzyTrasie(k))
+                    .map(k=>String(k?.wariant||'').trim().toUpperCase())
+                    .filter(Boolean));
+                if(litery.has('A')&&litery.has('P')&&litery.has('Z')){
+                    e.tekst='Trasa w kursach „a”, „p”, „z”';
+                }
             }
         }
         /* V726 — 192: oba przebiegi odwiedzają URSYNÓW PŁD. dokładnie
@@ -29154,19 +29190,19 @@ html body .tabliczka.v734-dwie-kolumny {
 
 
 
-<style id="fwtp-v764-waskie-litery-m-w">
-/* WERSJA 764 — identyczne zwężenie m i w przy minutach, globalnie. */
+<style id="fwtp-v765-waskie-litery-m-w">
+/* WERSJA 765 — m i w mają 80% naturalnej szerokości, globalnie. */
 html body .tabliczka .rozklady-grid .godzina-row .minuta > .symbol.symbol-m-217,
 html body .tabliczka .minuty-cell .minuta > .symbol.symbol-m-217,
 html body .tabliczka .rozklady-grid .godzina-row .minuta > .symbol.symbol-w-764,
 html body .tabliczka .minuty-cell .minuta > .symbol.symbol-w-764 {
   display: inline-block !important;
   position: relative !important;
-  width: .49em !important;
+  width: .60em !important;
   min-width: 0 !important;
-  max-width: .49em !important;
+  max-width: .60em !important;
   white-space: nowrap !important;
-  transform: scaleX(.65) !important;
+  transform: scaleX(.80) !important;
   transform-origin: left center !important;
   margin: 0 !important;
   padding: 0 !important;
