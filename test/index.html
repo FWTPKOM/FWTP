@@ -1,4 +1,4 @@
-<!-- WERSJA: 780 -->
+<!-- WERSJA: 781 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -7529,6 +7529,54 @@ function FWTP_V689_ListyZKursow(dane) {
                           ['miejscowosc','strefa'].includes(elements[next]?.typ))next++;
                     if(elements[next]?.typ==='trasa_w_kursach'){
                         elements.splice(j,1);
+                    }
+                }
+                /* WERSJA 781 — ten sam punkt powrotu co w przeciwnym
+                   kierunku 134. Rozpoznajemy wspolny przystanek po NAZWIE,
+                   a nie numerze slupka: PKP TORUNSKA 01/03.
+                   Robimy to na ZRODLOWEJ liscie, zanim trafi do modelu
+                   tabliczki i zanim zostanie podzielona na kolumny. */
+                if(String(dane.linia).trim()==='134'){
+                    const norm781=x=>String(x??'').normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g,'')
+                        .replace(/[Łł]/g,'L').toUpperCase()
+                        .replace(/\s+/g,' ').trim();
+                    const isStop781=e=>e?.typ==='przystanek';
+                    const stopName781=e=>norm781(e?.nazwa_czysta||e?.nazwa||
+                        String(e?.id||'').split('|')[1]);
+                    const isAll781=e=>e?.typ==='trasa_w_kursach'&&
+                        /TRASA WE WSZYSTKICH KURSACH/.test(norm781(e?.tekst));
+                    const first781=elements.find(isStop781);
+                    if(stopName781(first781)==='OLESIN'){
+                        const pel781=elements.findIndex(e=>isStop781(e)&&
+                            stopName781(e)==='PELCOWIZNA');
+                        const pkp781=elements.findIndex((e,i)=>i>pel781&&
+                            isStop781(e)&&stopName781(e)==='PKP TORUNSKA');
+                        const zer781=elements.findIndex((e,i)=>i>pkp781&&
+                            isStop781(e)&&stopName781(e)==='ZERAN FSO');
+                        if(pel781>=0&&pkp781>pel781&&zer781>pkp781){
+                            // Przed PKP konczy sie odnoga F/M. Ten PKP
+                            // obsluguja juz rowniez kursy trasy bazowej.
+                            let wsp781=elements.findIndex((e,i)=>
+                                i>pkp781&&i<zer781&&isAll781(e));
+                            if(wsp781<0)wsp781=elements.findIndex((e,i)=>
+                                i>pkp781&&isAll781(e));
+                            const opis781=wsp781>=0
+                                ?elements.splice(wsp781,1)[0]
+                                :{typ:'trasa_w_kursach',
+                                  tekst:'Trasa we wszystkich kursach'};
+                            const pkpNow781=elements.findIndex((e,i)=>
+                                i>pel781&&isStop781(e)&&
+                                stopName781(e)==='PKP TORUNSKA');
+                            if(!isAll781(elements[pkpNow781-1]))
+                                elements.splice(pkpNow781,0,opis781);
+                            // Usuwamy osierocone powtorzenia po PKP,
+                            // ale nie opisy innych odnog.
+                            const after781=elements.findIndex((e,i)=>
+                                i>pkpNow781&&isStop781(e));
+                            for(let j=after781-1;j>pkpNow781;j--)
+                                if(isAll781(elements[j]))elements.splice(j,1);
+                        }
                     }
                 }
                 selected.lista_przystankowa={wersja:2,elementy:elements,
