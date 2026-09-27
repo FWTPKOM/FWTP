@@ -18087,7 +18087,7 @@ function renderLegendaDwukierunkowa(){
 
 
 /* V626: legenda korzysta z identycznych symboli jak minuty. */
-function renderLegenda(){
+function renderLegenda(wyswietloneRozkladyHTML=""){
 
     if(
         czyBiezacyPrzystanekDwukierunkowy()
@@ -18151,6 +18151,23 @@ function renderLegenda(){
             );
         }
     );
+
+    /* V721: the minute renderer is the authoritative source of visible
+       symbols. Its output can differ from a second pass through the courses
+       (e.g. special routing/overrides and per-day filtering). */
+    if(String(daneLinii?.linia||aktualnaLinia)==="164" && wyswietloneRozkladyHTML){
+        const zMinut=new Set();
+        const wzor=/<span\s+class="symbol(?:\s+[^"]*)?"[^>]*>\s*([^<]+)\s*<\/span>/gi;
+        let trafienie;
+        while((trafienie=wzor.exec(wyswietloneRozkladyHTML))!==null){
+            const znak=String(trafienie[1]||"").trim().toLowerCase();
+            if(znak)zMinut.add(znak);
+        }
+        if(zMinut.size){
+            uzyteLitery.clear();
+            zMinut.forEach(znak=>uzyteLitery.add(znak));
+        }
+    }
 
     if(!uzyteLitery.size){
         return"";
@@ -21874,8 +21891,6 @@ function renderuj(){
             ? " trasa-2-kol v486-wiele-tras"
             : "";
 
-    const legenda=
-        renderLegenda();
 
     const grupyRozkladow=
         grupy.slice(
@@ -21898,6 +21913,10 @@ function renderuj(){
                     )
             )
             .join("");
+
+    // V721: legenda powstaje po tabelach, z liter faktycznie
+    // wyrenderowanych przy minutach (a nie z drugiego odczytu kursow).
+    const legenda=renderLegenda(rozklady);
 
     const kolKlasa=
         "kol-"+
