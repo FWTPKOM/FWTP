@@ -1,4 +1,4 @@
-<!-- FWTP TABLICZKA — WERSJA: 747 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
+<!-- FWTP TABLICZKA — WERSJA: 748 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
 <!-- WERSJA: 713 — LINIE GODZIN POD LITERAMI WARIANTÓW -->
 <!DOCTYPE html>
@@ -6930,7 +6930,7 @@ html body .tabliczka .rozklady-grid .minuta > .symbol {
 </header>
 <main class="tabliczka-page">
 <section class="sterowanie">
-<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v747</span></h1>
+<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v748</span></h1>
 <div class="sterowanie-grid">
 <div class="pole">
 <label for="liniaInput">Linia</label>
@@ -28912,6 +28912,82 @@ html body .tabliczka.v734-dwie-kolumny {
   window.addEventListener('resize',schedule);
   if(document.fonts?.ready)document.fonts.ready.then(schedule);
   schedule();
+})();
+</script>
+
+<!-- WERSJA: 748 — rzeczywisty pomiar i przenoszenie całych grup między kolumnami -->
+<script id="fwtp-v748-wysokosc-kolumn">
+(function(){
+ 'use strict';
+ let pending=false, working=false;
+ const raf=fn=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(fn)));
+ function sync(cols){
+   if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(cols);
+   if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(cols);
+   void cols.offsetHeight;
+ }
+ function isLabel(el){return !!el&&el.classList.contains('trasa-separator');}
+ function bottom(el){return el?el.getBoundingClientRect().bottom:0;}
+ function run(){
+   pending=false;
+   if(working)return;
+   const tab=document.querySelector('#wynik .tabliczka');
+   const cols=tab?.querySelector('.trasa-columns.cols-2');
+   if(!cols)return;
+   const pair=[...cols.children].filter(el=>el.classList.contains('trasa-kol')&&getComputedStyle(el).display!=='none');
+   if(pair.length!==2)return;
+   const first=pair[0].querySelector(':scope > .trasa-lista');
+   const second=pair[1].querySelector(':scope > .trasa-lista');
+   if(!first||!second||!first.children.length)return;
+   working=true;
+   try{
+     sync(cols);
+     // Granicę wyznacza faktyczny dół tabliczki, nie liczba przystanków.
+     const limit=Math.min(tab.getBoundingClientRect().bottom-6,
+       cols.getBoundingClientRect().bottom-2);
+     // Jeśli pierwsza kolumna przekracza ramkę, przenieś ostatni blok
+     // (opis wariantu + przystanek) na POCZĄTEK drugiej kolumny.
+     for(let i=0;i<first.children.length+second.children.length;i++){
+       const last=first.lastElementChild;
+       if(!last||bottom(last)<=limit+.5)break;
+       const group=[last];
+       const prev=last.previousElementSibling;
+       if(prev&&isLabel(prev))group.unshift(prev);
+       // Nigdy nie pozostawiaj samotnego opisu wariantu na końcu.
+       const before=group[0].previousElementSibling;
+       if(isLabel(before)&&!isLabel(group[0]))group.unshift(before);
+       for(const el of group)second.insertBefore(el,second.firstElementChild);
+       sync(cols);
+     }
+     // Kiedy po zmianie szerokości jest miejsce, wypełniaj pierwszą
+     // kolumnę, ale nie kosztem przekroczenia jej rzeczywistej wysokości.
+     for(let i=0;i<first.children.length+second.children.length;i++){
+       const item=second.firstElementChild;
+       if(!item)break;
+       const group=[item];
+       if(isLabel(item)&&item.nextElementSibling)group.push(item.nextElementSibling);
+       for(const el of group)first.appendChild(el);
+       sync(cols);
+       if(bottom(first.lastElementChild)>limit+.5){
+         for(let j=group.length-1;j>=0;j--)second.insertBefore(group[j],second.firstElementChild);
+         sync(cols);
+         break;
+       }
+     }
+   }finally{working=false;}
+ }
+ function schedule(){if(pending||working)return;pending=true;raf(run);}
+ const root=document.getElementById('wynik');
+ if(root)new MutationObserver(ch=>{
+   if(working)return;
+   if(ch.some(m=>m.type==='childList'&&
+      ([...m.addedNodes,...m.removedNodes].some(n=>n.nodeType===1&&
+      (n.matches?.('.tabliczka,.trasa-stop,.trasa-separator,.trasa-kol')||
+       n.querySelector?.('.trasa-columns'))))))schedule();
+ }).observe(root,{childList:true,subtree:true});
+ window.addEventListener('resize',schedule);
+ if(document.fonts?.ready)document.fonts.ready.then(schedule);
+ schedule();
 })();
 </script>
 </body>
