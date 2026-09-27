@@ -20342,7 +20342,34 @@ function v514ModelListy(){
         Number(model.wersja)>=2 &&
         Array.isArray(model.elementy)
     ){
-        return model.elementy;
+        /* V725: terminal przed odnogą kontynuującą jazdę z tego samego
+           przystanku. Używamy kolejności i separatorów gotowego JSON,
+           bez wyjątków dla numeru linii. Nie zmieniamy oryginalnych danych. */
+        const elementy=model.elementy.map(e=>({...e}));
+        const norm=n=>String(n??'').normalize('NFD')
+            .replace(/[\u0300-\u036f]/g,'')
+            .toLocaleUpperCase('pl-PL').replace(/\s+/g,' ').trim();
+        for(let i=0;i<elementy.length-2;i++){
+            const pierwszy=elementy[i];
+            if(pierwszy?.typ!=='przystanek'||pierwszy.koncowy===true)continue;
+            let separator=-1;
+            for(let j=i+1;j<elementy.length;j++){
+                const e=elementy[j];
+                if(e?.typ==='przystanek')break;
+                if(e?.typ==='trasa_w_kursach')separator=j;
+            }
+            if(separator<0)continue;
+            const nastepny=elementy.slice(separator+1)
+                .find(e=>e?.typ==='przystanek');
+            if(!nastepny)continue;
+            const nazwa1=norm(pierwszy.nazwa||String(pierwszy.id||'').split('|')[1]);
+            const nazwa2=norm(nastepny.nazwa||String(nastepny.id||'').split('|')[1]);
+            if(nazwa1&&nazwa1===nazwa2){
+                pierwszy.koncowy=true;
+                pierwszy.kontynuacja=true;
+            }
+        }
+        return elementy;
     }
 
     return null;
@@ -20878,7 +20905,9 @@ function v514RenderStop(element,position,total){
     return (
         '<li class="'+cls+'" '+
         'data-v514-stop-id="'+escapeHtml(id)+'" '+
-        'data-v508-stop-id="'+escapeHtml(id)+'">'+
+        'data-v508-stop-id="'+escapeHtml(id)+'" '+
+        'data-v725-koncowy="'+(terminal?'true':'false')+'" '+
+        'data-v725-kontynuacja="'+(continuation?'true':'false')+'">'+
 
         '<span class="trasa-czas '+v613CzasStan+'">'+
         (minutes===null?"":escapeHtml(String(minutes)))+
@@ -21730,7 +21759,7 @@ function v557TerminalStateMap(){
         return out;
     }
 
-    model.elementy.forEach(element=>{
+    (v514ModelListy()||[]).forEach(element=>{
         if(v486Text(element?.typ)!=="przystanek"){
             return;
         }
@@ -21738,6 +21767,7 @@ function v557TerminalStateMap(){
         const id=v486Text(element?.id).trim();
         if(!id)return;
 
+        if(out.has(id))return; // pierwsze wystąpienie przed rozgałęzieniem
         out.set(id,{
             koncowy: element?.koncowy===true,
             kontynuacja:
@@ -21792,7 +21822,12 @@ function v508OznaczRzeczywisteKonce(){
             ""
         ).trim();
 
-        const state=states.get(id);
+        const state=stop.hasAttribute('data-v725-koncowy')
+            ? {
+                koncowy:stop.getAttribute('data-v725-koncowy')==='true',
+                kontynuacja:stop.getAttribute('data-v725-kontynuacja')==='true'
+              }
+            : states.get(id);
 
         /*
            Najpierw czyścimy WSZYSTKIE stare klasy semantyczne.
