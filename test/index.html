@@ -1,11 +1,11 @@
-<!-- WERSJA: 694 — NAPRAWA GLOBALNEJ FUNKCJI NAZWY PRZYSTANKU -->
+<!-- WERSJA: 696 — ODCINKI POLFA I POWROT NA TRASE WSPOLNA -->
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
 <!DOCTYPE html>
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
 <html lang="pl">
 <head>
-<!-- FWTP V694: wspólna funkcja nazwy dostępna globalnie przed inicjalizacją danych -->
-<script id="fwtp-v694-globalna-nazwa">
+<!-- FWTP V695: wspólna funkcja nazwy dostępna globalnie przed inicjalizacją danych -->
+<script id="fwtp-v695-globalna-nazwa">
 function FWTP_V690_NazwaPrzystanku(p){
     const str=x=>String(x??'').trim();
     const base=str(p?.nazwa_czysta||p?.nazwa);
@@ -29,7 +29,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP - Tabliczki (v694)</title>
+<title>FWTP - Tabliczki (v696)</title>
 <meta name="fwtp-version" content="694"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
@@ -6911,7 +6911,7 @@ root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.expo
 <div id="wynik"></div>
 </main>
 <script>
-/* FWTP — WERSJA 694. Rozkłady innych dni, końce przelotowe i kursy F z pośrednich krańców. */
+/* FWTP — WERSJA 696. Odcinek Polfa przed rozjazdem i wspólna Ekspresowa po powrocie. */
 function FWTP_V689_ListyZKursow(dane) {
     // Przeniesienie modelu V59/V61/V63/V86: oś, fizyczne eventy,
     // dokładny powrót, litery odcinków, odrębne skrócenia i wydłużenia.
@@ -6967,8 +6967,23 @@ function FWTP_V689_ListyZKursow(dane) {
                 if(!active.length){selected.lista_przystankowa={wersja:2,elementy:[],trasy:[]};continue;}
                 // V91: najczęstsza pełna trasa w całym kierunku, nie pierwsza minuta.
                 const candidates=full.filter(c=>c.path.includes(selected.id));
-                const baseCourse=(candidates.length?candidates:active).slice().sort((a,b)=>
+                let baseCourse=(candidates.length?candidates:active).slice().sort((a,b)=>
                     (counts.get(key(b.path))||0)-(counts.get(key(a.path))||0)||b.path.length-a.path.length)[0];
+                // V696: oś na odcinku z podjazdem musi być trasą BEZ podjazdu.
+                // W przeciwnym razie Ekspresowa przed Polfą trafia na oś,
+                // a marker O/L pojawia się błędnie dopiero przed Polfą.
+                // Wyłącznie dla geometrii kierunku 126 z Polfą: wybieramy
+                // najkrótszy PEŁNY przebieg do tego samego krańca.
+                // Nie zmieniamy kursów, liter ani danych rozkładowych.
+                if(String(dane.linia)==='126' &&
+                   (candidates.length?candidates:active).some(c=>c.path.some(id=>name(id)==='POLFA'))){
+                    const sameEnd=(candidates.length?candidates:active).filter(c=>
+                        c.path.at(-1)===baseCourse.path.at(-1) &&
+                        !c.path.some(id=>name(id)==='POLFA'));
+                    if(sameEnd.length)baseCourse=sameEnd.slice().sort((a,b)=>
+                        a.path.length-b.path.length||
+                        (counts.get(key(b.path))||0)-(counts.get(key(a.path))||0))[0];
+                }
                 const axis=baseCourse.path.slice(baseCourse.path.indexOf(selected.id));
                 // V94: katalog z innych dni jedynie uzupełnia geometrię, bez
                 // dopisywania nieobecnych w minutach bieżącego dnia liter.
@@ -7026,7 +7041,15 @@ function FWTP_V689_ListyZKursow(dane) {
                         if(from<0)return false;
                         return c.path.some((sid,i)=>i>=from&&i<c.path.length-1&&name(sid)===name(id));
                     });
-                    const isEnd=!passed&&ending>0;
+                    // V695: przystanek obsługiwany dalej przez inne kursy
+                    // na TYM SAMYM słupku jest przelotowy (126: Bartnicza).
+                    // Osobny słupek końcowy zachowuje styl końcowy
+                    // z kontynuacją (131: Sadyba).
+                    const throughSameId=passing.some(c=>{
+                        const at=c.path.indexOf(id,c.path.indexOf(selected.id));
+                        return at>=0&&at<c.path.length-1&&c.koniec_trasy!==id;
+                    });
+                    const isEnd=!passed&&ending>0&&!throughSameId;
                     elements.push({typ:'przystanek',id,nazwa:FWTP_V690_NazwaPrzystanku(s),nr:s.nr,
                         czas_przejazdu:passed?null:dominant(durations),
                         stan:passed?'miniety':id===selected.id?'aktualny':'normalny',
@@ -7044,10 +7067,17 @@ function FWTP_V689_ListyZKursow(dane) {
                 };
                 for(const g of groups){
                     if(key(g.path)===key(axis))continue;
-                    let common=0;while(common<axis.length&&common<g.path.length&&name(axis[common])===name(g.path[common]))common++;
-                    // V61: zwykłe skrócenie (również inny numer słupka
-                    // tego samego przystanku) nie tworzy eventu.
+                    // V695: ta sama nazwa nie oznacza tego samego fizycznego
+                    // słupka. Ekspresowa 04 -> Polfa -> Ekspresowa 02
+                    // rozjeżdża się PRZED Ekspresową 04, nie dopiero na Polfie.
+                    // Porównujemy dokładne ID; osobno ignorujemy zwykłe
+                    // skrócenia zakończone na innym słupku o tej samej nazwie.
+                    let common=0;
+                    while(common<axis.length&&common<g.path.length&&axis[common]===g.path[common])common++;
                     if(common>=g.path.length)continue;
+                    if(common===g.path.length-1&&
+                       name(axis[common])===name(g.path[common])&&
+                       g.path.length<=axis.length)continue;
                     const split=common;
                     let ai=-1,gi=-1;
                     outer:for(let j=split;j<g.path.length;j++)for(let i=split;i<axis.length;i++)if(g.path[j]===axis[i]){ai=i;gi=j;break outer;}
