@@ -1,8 +1,9 @@
-<!-- WERSJA: 701 -->
+<!-- WERSJA: 702 — KONCOWY BEZ KONTYNUACJI, DOPELNIANIE PIERWSZEJ KOLUMNY -->
+<!-- WERSJA: 702 -->
 <!-- WERSJA: 701 — 134 WSPOLNA GEOMETRIA DNI, WARIANT F I METRO BRODNO -->
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
 <!DOCTYPE html>
-<!-- WERSJA: 701 -->
+<!-- WERSJA: 702 -->
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
 <html lang="pl">
 <head>
@@ -31,7 +32,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP - Tabliczki (v697)</title>
+<title>FWTP v702 — FWTP - Tabliczki (v697)</title>
 <meta name="fwtp-version" content="694"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
@@ -7091,7 +7092,15 @@ function FWTP_V689_ListyZKursow(dane) {
                     const continuing=active.some(c=>{
                         const from=c.path.indexOf(selected.id);
                         if(from<0)return false;
-                        return c.path.some((sid,i)=>i>=from&&i<c.path.length-1&&name(sid)===name(id));
+                        // V702: kontynuacja to rzeczywisty przejazd ZA TYM
+                        // fizycznym slupkiem. Samo wystapienie tej samej
+                        // nazwy w innej galezi nie jest kontynuacja.
+                        // Wyjatek 131: dwa slupki Sadyba reprezentuja
+                        // wspolny punkt koncowy z wydluzeniem do Wilanowa.
+                        if(String(dane.linia)==='131')
+                            return c.path.some((sid,i)=>i>=from&&i<c.path.length-1&&name(sid)===name(id));
+                        const at=c.path.indexOf(id,from);
+                        return at>=0&&at<c.path.length-1;
                     });
                     // V695: przystanek obsługiwany dalej przez inne kursy
                     // na TYM SAMYM słupku jest przelotowy (126: Bartnicza).
@@ -7102,10 +7111,17 @@ function FWTP_V689_ListyZKursow(dane) {
                         return at>=0&&at<c.path.length-1&&c.koniec_trasy!==id;
                     });
                     const isEnd=!passed&&ending>0&&!throughSameId;
+                    // V702: koniec odnogi (150: Metro Marymont 12)
+                    // nigdy nie przejmuje osi z kolejnej, niezaleznej odnogi.
+                    const hasContinuation=isEnd&&continuing&&active.some(c=>{
+                        const from=c.path.indexOf(selected.id);
+                        const at=c.path.indexOf(id,Math.max(0,from));
+                        return at>=0&&at<c.path.length-1;
+                    });
                     elements.push({typ:'przystanek',id,nazwa:FWTP_V690_NazwaPrzystanku(s),nr:s.nr,
                         czas_przejazdu:passed?null:dominant(durations),
                         stan:passed?'miniety':id===selected.id?'aktualny':'normalny',
-                        koncowy:isEnd,kontynuacja:isEnd&&continuing});
+                        koncowy:isEnd,kontynuacja:String(dane.linia)==='131'?isEnd&&continuing:hasContinuation});
                     emitted.add(id);
                 };
                 // V63: wspólny prefiks porównywany po nazwie, powrót WYŁĄCZNIE
@@ -27562,10 +27578,22 @@ html body .tabliczka.v664-elastyczna .trasa-nazwa:not(.zawijaj){
    proporcja=Math.max(0.475,Math.min(0.525,proporcja));
    // Maksymalnie 5 punktów procentowych różnicy; nie odbieramy miejsca drugiej kolumnie, jeśli jej nazwy też są długie.
    if(b.max>=(1-proporcja)*calosc-36)proporcja=Math.min(proporcja,0.50);
-   t.style.setProperty('--v664-pierwsza',(proporcja*100).toFixed(2)+'%');
+   const v702Width=(proporcja*100).toFixed(2)+'%';
+   const v702Changed=t.style.getPropertyValue('--v664-pierwsza')!==v702Width;
+   t.style.setProperty('--v664-pierwsza',v702Width);
    t.classList.add('v664-elastyczna');
    if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(lista);
      if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(lista);
+   // V702: dopiero po ustaleniu ostatecznej szerokosci i zawijania
+   // mierzymy wolne miejsce; poprzedni podzial zostawial 1-2 wiersze.
+   if(v702Changed&&!t.dataset.v702Repacking){
+      t.dataset.v702Repacking='1';
+      requestAnimationFrame(()=>{
+         try{if(t.isConnected&&typeof v498DopasujKolumnyTrasy==='function')
+              v498DopasujKolumnyTrasy();}
+         finally{delete t.dataset.v702Repacking;}
+      });
+   }
  }
  const wynik=document.getElementById('wynik');
  if(wynik){
