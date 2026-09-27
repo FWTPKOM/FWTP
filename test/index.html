@@ -1,4 +1,5 @@
-<!-- FWTP TABLICZKA — WERSJA: 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
+<!-- WERSJA: 754 — NAPRAWA OPISÓW W MODELU TRASY PRZED RENDEROWANIEM -->
+<!-- HISTORIA: WERSJA 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
 <!-- WERSJA: 713 — LINIE GODZIN POD LITERAMI WARIANTÓW -->
 <!DOCTYPE html>
@@ -41,8 +42,8 @@ function FWTP_V690_NazwaPrzystanku(p){
 
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP v752 — Tabliczki</title>
-<meta name="fwtp-version" content="744"/>
+<title>FWTP v753 — Tabliczki</title>
+<meta name="fwtp-version" content="753"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
 <script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sPxCq7PaSAZgofkQN2x8yF3_xxpxKUlsaQBInBm3F64lBKh4BnCciuKKVcQf3Jz_NBdRQb_bmKwJ4NOVjU6QGqlLysKpL1bRvNsDCRXyuMD2X4c_lCpZSNAYWgDQvitBBQfYeyhxpPHINE616HmVKFWuo-TcjLVvHADEbkr04gZnMPtWXv_tkMdTM6J2H_69zBQEhkqlO36zyzkWI25gzVRr2uyvOAFbSMU_yixTmGFo2pM7GXa-r05eHZmmdxI1cbUXjQHYecTSK-rUlKBl1V72CkahBzM7wZkMpZmAFpeWTk4WDlUXa31H8r2AurzAlliqKbmn46g76HzO5_GPQZQvhtr9dmPKAeMR_rZ02HI" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sDyvQBuoxox17_KRlPp29SKwugaMaVHZH-lXg7Me4XIBEwt15mCv1uqRyqMH-xRp8urkn2GKBjKSinJt--k9NFU3LbrASJ_btilmXWb7duejD4J2XdrB913svyl51nKpYX8-HLLkfvjFTdvXu_5G1u-hJpvzjdEbX-063Y6CXHkBnc7hfu4ApUg1MwuCjTKZxQT5jUnwaqD0FLGBxUUSyKBI_nCyxAxqRHPVNvfevE_Na0ZAtSC3NEn6nVxrNhweDkytC218IoO5Rp6F_cQfQ5yerDkGbJdxZaBr6wEs6RqD_KJpB-gZEM7WGtUm4_iiYKevwPzLdRiNgD4OGJMRDaBXVG6CaQRTnhMujcROCZ8" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=pKlnhzCyCnwX8pmmZaNlxDMrn9H9NEgRSiYuEYZIh0qKYjqZnAWEtDZKpqw9xXvDFYlHzXX39nvATweO787ShH6PDI8b6Lhr9V9_USw04DZ-qSw7C0l3-WOH-r6AuMB4giHrjY0zFNPox_FDweAQXPyRUqBERuyN6-jlB-2h3l3vPuutDA3YvFZ94yMluxl8tbxMUrd3sCHEoit3JAs7ZS9MnIJei0dyT769BMUer3Xy_CTVEMV6GZIAStVJr9q2PAt0op6-vFdUrnpAbMNC6nPCDg4D2RT8jC6j4KbfWhkW-J0Ela4u5mG01FQogNoE3NHAHw96NO2OF__6kk9H1-Oes-PG1TpRDAGM86EzsDnm9qwA6Il2SoO2W1HCRcr5" charset="UTF-8"></script><style>
@@ -8746,6 +8747,94 @@ function paczkaObowiazuje(
 
 
 /* FWTP V675: wspolna normalizacja gotowego JSON z serwera i pliku lokalnego. */
+/* WERSJA 754: korekta u źródła, na lista_przystankowa.elementy.
+   Nie edytujemy gotowego HTML: separatory są mierzone i dzielone
+   na kolumny razem z przystankami. Weryfikacja fizycznego podjazdu
+   odbywa się na pełnych trasach kursów z katalogu. */
+function FWTP_V754_PoprawModeleRozgalezien(dane){
+    if(String(dane?.linia)!=='228')return;
+    const katalog=dane.katalog_tras_v210;
+    if(!Array.isArray(katalog))return;
+    const norm=x=>String(x??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        .toUpperCase().replace(/\s+/g,' ').trim();
+    const nazwaId=id=>norm(String(id||'').split('|')[1]);
+    const podjazd=trasa=>Array.isArray(trasa)&&trasa.some((id,i)=>
+        nazwaId(id)==='GNIEWKOWSKA'&&nazwaId(trasa[i+1])==='WAGONOWNIA'&&
+        nazwaId(trasa[i+2])==='GNIEWKOWSKA');
+    for(const rozklad of dane.rozkłady||[]){
+        for(const kierunek of rozklad.kierunki||[]){
+            const warianty=new Map();
+            const widoczne=new Set();
+            for(const p of kierunek.przystanki||[]){
+                for(const c of p.kursy||[]){
+                    if(/DTECH/i.test(String(c.uwagi||'')))continue;
+                    const ids=Array.isArray(c.trasa)?c.trasa:katalog[c.trasa_ref];
+                    if(!Array.isArray(ids)||!ids.length)continue;
+                    const litera=norm(c.wariant||'A');
+                    if(!warianty.has(litera))warianty.set(litera,[]);
+                    if(!warianty.get(litera).some(r=>r===ids))warianty.get(litera).push(ids);
+                    widoczne.add(litera);
+                }
+            }
+            const g=warianty.get('G')||[];
+            if(!g.some(podjazd))continue;
+            const a=warianty.get('A')||[];
+            const p=warianty.get('P')||[];
+            const jazdaOdInst=[...a,...g,...p].filter(ids=>ids.some((id,i)=>
+                nazwaId(id)==='INSTALATOROW' && nazwaId(ids[i+1])==='SZYBKA'));
+            const maWspolny=jazdaOdInst.length>0;
+            const opis=(litery)=>'Trasa w kursach '+litery.map(l=>'„'+l.toLowerCase()+'”').join(', ');
+            for(const przystanek of kierunek.przystanki||[]){
+                const el=przystanek.lista_przystankowa?.elementy;
+                if(!Array.isArray(el)||!el.length)continue;
+                const stop=e=>e?.typ==='przystanek';
+                const name=e=>norm(e?.nazwa_czysta||e?.nazwa||nazwaId(e?.id));
+                const find=(n,from=0)=>el.findIndex((e,i)=>i>=from&&stop(e)&&name(e)===norm(n));
+                const pierwszyGn=find('GNIEWKOWSKA');
+                const wagon=find('WAGONOWNIA',pierwszyGn+1);
+                const drugiGn=find('GNIEWKOWSKA',wagon+1);
+                const powrot=find('SYMPATYCZNA',drugiGn+1);
+                if(pierwszyGn<0||wagon<0||drugiGn<0||powrot<0)continue;
+                // Dopasowujemy pełną fizyczną sekwencję, nie samą nazwę.
+                if(!g.some(ids=>{
+                    const ns=ids.map(nazwaId);
+                    return ns.some((n,i)=>n==='GNIEWKOWSKA'&&
+                        ns[i+1]==='WAGONOWNIA'&&ns[i+2]==='GNIEWKOWSKA'&&
+                        ns.slice(i+3).includes('SYMPATYCZNA'));
+                }))continue;
+                const inst=find('INSTALATORÓW');
+                const szybka=find('SZYBKA',inst+1);
+                const reverse=inst>=0&&szybka>=0&&szybka<pierwszyGn;
+                const start=reverse?szybka:pierwszyGn;
+                // Usuwamy tylko stare opisy wewnątrz tego rozgałęzienia.
+                const before=el.slice(0,start);
+                const middle=el.slice(start,powrot+1).filter(e=>e?.typ!=='trasa_w_kursach');
+                const after=el.slice(powrot+1);
+                const insertBefore=(array,index,tekst)=>array.splice(index,0,
+                    {typ:'trasa_w_kursach',tekst});
+                const idx=n=>middle.findIndex(e=>stop(e)&&name(e)===norm(n));
+                const gn1=idx('GNIEWKOWSKA');
+                const gn2=middle.findIndex((e,i)=>i>gn1&&stop(e)&&name(e)==='GNIEWKOWSKA');
+                const ret=middle.findIndex((e,i)=>i>gn2&&stop(e)&&name(e)==='SYMPATYCZNA');
+                if(gn1<0||gn2<0||ret<0)continue;
+                // Wstawiamy od końca, by nie przesuwać wcześniejszych indeksów.
+                insertBefore(middle,ret,'Trasa we wszystkich kursach');
+                insertBefore(middle,gn1,opis(['G']));
+                if(reverse&&maWspolny){
+                    const si=middle.findIndex(e=>stop(e)&&name(e)==='SZYBKA');
+                    if(si>=0){
+                        const litery=['A','G','P'].filter(l=>warianty.has(l)&&
+                            warianty.get(l).some(ids=>ids.some((id,i)=>
+                                nazwaId(id)==='INSTALATOROW'&&nazwaId(ids[i+1])==='SZYBKA')));
+                        if(litery.length)insertBefore(middle,si,opis(litery));
+                    }
+                }
+                przystanek.lista_przystankowa.elementy=[...before,...middle,...after];
+            }
+        }
+    }
+}
+
 function FWTP_V675_NormalizujJSON(json){
     if(!json || typeof json!=="object")throw new Error("Nieprawidłowy JSON: brak obiektu danych.");
     if(Array.isArray(json.katalog_tras_v210)){
@@ -8768,6 +8857,7 @@ function FWTP_V675_NormalizujJSON(json){
     if(json["rozkłady"].some(r=>(r.kierunki||[]).some(k=>(k.przystanki||[]).some(p=>!p.lista_przystankowa)))){
         FWTP_V689_ListyZKursow(json);
     }
+    FWTP_V754_PoprawModeleRozgalezien(json);
     return json;
 }
 
@@ -28914,91 +29004,6 @@ html body .tabliczka.v734-dwie-kolumny {
 })();
 </script>
 
-<!-- WERSJA: 752 — fizyczne trasy kursów: rozgałęzienie i powrót z podjazdu -->
-<script id="fwtp-v752-rozgalezienia">
-/* Rozpoznanie na podstawie katalogu pełnych przebiegów i trasa_ref.
-   Naprawia także HTML starszych JSON-ów, które nie mają gotowej
-   lista_przystankowa (takim JSON-em jest dostarczony 228).
-   Zmiana następuje PRZED pomiarem i podziałem kolumn. */
-(function(){
-'use strict';
-const original=v486RenderRoutes;
-const norm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
-const name=id=>norm(String(id).split('|')[1]);
-function courseRoutes(){
- const active=v486CurrentStop(),catalog=daneLinii?.katalog_tras_v210;
- if(!active||!Array.isArray(catalog))return [];
- const byRef=new Map();
- for(const rozklad of daneLinii.rozkłady||[]){
-  const k=rozklad.kierunki?.[Number(aktualnyKierunek)];
-  if(!k)continue;
-  for(const p of k.przystanki||[])for(const c of p.kursy||[]){
-   if(/DTECH/i.test(c.uwagi||'')||!Number.isInteger(c.trasa_ref))continue;
-   const ids=catalog[c.trasa_ref];if(!Array.isArray(ids))continue;
-   if(!byRef.has(c.trasa_ref))byRef.set(c.trasa_ref,{ids,letters:new Set()});
-   byRef.get(c.trasa_ref).letters.add(norm(c.wariant||'A'));
-  }
- }
- return [...byRef.values()];
-}
-function fix(html){
- if(!html||String(daneLinii?.linia||'')!=='228')return html;
- const routes=courseRoutes();if(!routes.length)return html;
- const host=document.createElement('div');host.innerHTML=html;
- // W odróżnieniu od V751 uwzględniamy także div.v496-galaz,
- // ponieważ 228.json nie zawiera lista_przystankowa.
- const stops=[...host.querySelectorAll('li.trasa-stop')];
- const stopName=e=>norm(e.querySelector('.trasa-nazwa')?.textContent);
- const find=(n,after=-1)=>stops.findIndex((e,i)=>i>after&&stopName(e)===norm(n));
- const names=stops.map(stopName);
- const inst=find('INSTALATORÓW');
- const reverse=inst>=0&&find('SZYBKA',inst)>=0;
- const seq=reverse
-  ?['INSTALATORÓW','SZYBKA','TECHNIKÓW','PŁUŻAŃSKA','SYMPATYCZNA','GNIEWKOWSKA','WAGONOWNIA','GNIEWKOWSKA','SYMPATYCZNA','WAŁOWICKA']
-  :['WAŁOWICKA','GNIEWKOWSKA','WAGONOWNIA','GNIEWKOWSKA','SYMPATYCZNA'];
- let at=-1;const ix=[];
- for(const n of seq){at=find(n,at);if(at<0)return html;ix.push(at);}
- const branch=reverse?ix[5]:ix[1],returnAt=reverse?ix[8]:ix[4];
- const before=reverse?ix[1]:-1;
- // Weryfikacja: podjazd musi być fizycznie obecny w jednej pełnej
- // trasie, z dwoma kolejnymi, różnymi słupkami Gniewkowskiej.
- const detour=routes.filter(r=>{
-  const a=r.ids.map(name);return a.some((n,i)=>n==='GNIEWKOWSKA'&&
-   a[i+1]==='WAGONOWNIA'&&a[i+2]==='GNIEWKOWSKA');
- });
- if(!detour.length)return html;
- const detourLetters=new Set(detour.flatMap(r=>[...r.letters]));
- const allLetters=new Set(routes.flatMap(r=>[...r.letters]));
- // Na kierunku do Ursusa odcinek po Instalatorów jest wspólny
- // dla A/G/P, ale nie dla skróconego I. Bierzemy rzeczywiste
- // trasy zawierające kolejny fizyczny odcinek Instalatorów -> Szybka.
- const through=routes.filter(r=>r.ids.some((id,i)=>name(id)==='INSTALATOROW'&&
-   r.ids.slice(i+1,i+4).some(x=>name(x)==='SZYBKA')));
- const throughLetters=new Set(through.flatMap(r=>[...r.letters]));
- const textFor=letters=>'Trasa w kursach '+[...letters].sort((a,b)=>a==='A'?-1:b==='A'?1:a.localeCompare(b,'pl')).map(x=>'„'+x.toLowerCase()+'”').join(', ');
- const makeLabel=text=>{const li=document.createElement('li');li.className='trasa-separator v496-opis v514-trasa-w-kursach v752-opis';const sp=document.createElement('span');sp.className='trasa-separator-title';sp.textContent=text;li.append(sp);return li;};
- // Usuwamy stare nagłówki w obrębie naprawianego rozgałęzienia.
- // Osobny nagłówek I przed drugim Instalatorów zostaje nietknięty.
- const start=reverse?ix[1]:ix[1];
- const end=returnAt;
- const order=[...host.querySelectorAll('li.trasa-stop, .trasa-separator')];
- const from=order.indexOf(stops[start]),to=order.indexOf(stops[end]);
- if(from<0||to<from)return html;
- for(let i=from;i<to;i++){
-  const el=order[i];
-  if(el.classList.contains('trasa-separator')&&/TRASA W KURSACH|TRASA WE WSZYSTKICH KURSACH/.test(norm(el.textContent)))el.remove();
- }
- // Dotychczasowe opisy z div.v496-galaz też należy usunąć.
- for(const el of host.querySelectorAll('.v496-galaz > .trasa-separator')){
-  if(/TRASA W KURSACH|TRASA WE WSZYSTKICH KURSACH/.test(norm(el.textContent)))el.remove();
- }
- if(reverse&&throughLetters.size)stops[before].before(makeLabel(textFor(throughLetters)));
- stops[branch].before(makeLabel(textFor(detourLetters)));
- stops[returnAt].before(makeLabel('Trasa we wszystkich kursach'));
- return host.innerHTML;
-}
-v486RenderRoutes=function(routes){return fix(original(routes));};
-})();
-</script>
+
 </body>
 </html>
