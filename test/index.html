@@ -1,4 +1,4 @@
-<!-- WERSJA: 781 -->
+<!-- WERSJA: 782 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -7529,54 +7529,6 @@ function FWTP_V689_ListyZKursow(dane) {
                           ['miejscowosc','strefa'].includes(elements[next]?.typ))next++;
                     if(elements[next]?.typ==='trasa_w_kursach'){
                         elements.splice(j,1);
-                    }
-                }
-                /* WERSJA 781 — ten sam punkt powrotu co w przeciwnym
-                   kierunku 134. Rozpoznajemy wspolny przystanek po NAZWIE,
-                   a nie numerze slupka: PKP TORUNSKA 01/03.
-                   Robimy to na ZRODLOWEJ liscie, zanim trafi do modelu
-                   tabliczki i zanim zostanie podzielona na kolumny. */
-                if(String(dane.linia).trim()==='134'){
-                    const norm781=x=>String(x??'').normalize('NFD')
-                        .replace(/[\u0300-\u036f]/g,'')
-                        .replace(/[Łł]/g,'L').toUpperCase()
-                        .replace(/\s+/g,' ').trim();
-                    const isStop781=e=>e?.typ==='przystanek';
-                    const stopName781=e=>norm781(e?.nazwa_czysta||e?.nazwa||
-                        String(e?.id||'').split('|')[1]);
-                    const isAll781=e=>e?.typ==='trasa_w_kursach'&&
-                        /TRASA WE WSZYSTKICH KURSACH/.test(norm781(e?.tekst));
-                    const first781=elements.find(isStop781);
-                    if(stopName781(first781)==='OLESIN'){
-                        const pel781=elements.findIndex(e=>isStop781(e)&&
-                            stopName781(e)==='PELCOWIZNA');
-                        const pkp781=elements.findIndex((e,i)=>i>pel781&&
-                            isStop781(e)&&stopName781(e)==='PKP TORUNSKA');
-                        const zer781=elements.findIndex((e,i)=>i>pkp781&&
-                            isStop781(e)&&stopName781(e)==='ZERAN FSO');
-                        if(pel781>=0&&pkp781>pel781&&zer781>pkp781){
-                            // Przed PKP konczy sie odnoga F/M. Ten PKP
-                            // obsluguja juz rowniez kursy trasy bazowej.
-                            let wsp781=elements.findIndex((e,i)=>
-                                i>pkp781&&i<zer781&&isAll781(e));
-                            if(wsp781<0)wsp781=elements.findIndex((e,i)=>
-                                i>pkp781&&isAll781(e));
-                            const opis781=wsp781>=0
-                                ?elements.splice(wsp781,1)[0]
-                                :{typ:'trasa_w_kursach',
-                                  tekst:'Trasa we wszystkich kursach'};
-                            const pkpNow781=elements.findIndex((e,i)=>
-                                i>pel781&&isStop781(e)&&
-                                stopName781(e)==='PKP TORUNSKA');
-                            if(!isAll781(elements[pkpNow781-1]))
-                                elements.splice(pkpNow781,0,opis781);
-                            // Usuwamy osierocone powtorzenia po PKP,
-                            // ale nie opisy innych odnog.
-                            const after781=elements.findIndex((e,i)=>
-                                i>pkpNow781&&isStop781(e));
-                            for(let j=after781-1;j>pkpNow781;j--)
-                                if(isAll781(elements[j]))elements.splice(j,1);
-                        }
                     }
                 }
                 selected.lista_przystankowa={wersja:2,elementy:elements,
@@ -21910,157 +21862,50 @@ function v514RenderGotowejListy(){
         }
     }
 
-    /* WERSJA 777 — punkt ponownego połączenia gałęzi należy już do
-       wspólnej trasy. Separator "we wszystkich kursach" umieszczamy
-       PRZED pierwszym wspólnym przystankiem, a nie po nim. W 134
-       jest nim PKP TORUŃSKA po odnodze przez PELCOWIZNĘ. Nie ruszamy
-       wcześniejszych separatorów ani innych przebiegów. */
+    /* WERSJA 782 — 134 / METRO MARYMONT.
+       Punkt połączenia dwóch przebiegów jest wspólny po NAZWIE,
+       nawet gdy słupki mają różne numery. Korekta działa na OSTATECZNEJ
+       kolejności, po wszystkich ogólnych operacjach na odnogach.
+       Przenosimy separator bezpośrednio przed PKP TORUŃSKA po
+       PELCOWIŹNIE, a nie przed ŻERAŃ FSO. Pozostałe linie i drugi
+       kierunek pozostają nietknięte. */
     if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
-        const norm777=s=>String(s??'').normalize('NFD')
-            .replace(/[\u0300-\u036f]/g,'').toUpperCase()
-            .replace(/\s+/g,' ').trim();
-        const stop777=e=>e?.typ==='przystanek';
-        const opis777=e=>e?.typ==='trasa_w_kursach';
-        const nazwa777=e=>norm777(e?.nazwa||String(e?.id||'').split('|')[1]);
-        for(let i=1;i<wynik760.length-1;i++){
-            if(!stop777(wynik760[i])||nazwa777(wynik760[i])!=='PKP TORUNSKA')
-                continue;
-            let j=i+1;
-            while(j<wynik760.length&&
-                ['miejscowosc','strefa'].includes(wynik760[j]?.typ))j++;
-            if(!opis777(wynik760[j])||
-                !/TRASA WE WSZYSTKICH KURSACH/.test(norm777(wynik760[j]?.tekst)))
-                continue;
-            const nastepny=wynik760.slice(j+1).find(stop777);
-            if(!nastepny||nazwa777(nastepny)!=='ZERAN FSO')continue;
-            // Przenosimy tylko separator tego konkretnego połączenia.
-            const [wspolny777]=wynik760.splice(j,1);
-            wynik760.splice(i,0,wspolny777);
-            break;
-        }
-    }
-
-
-    /* WERSJA 778 — 134, kierunek OLESIN -> METRO MARYMONT.
-       Fizyczne PKP TORUŃSKA w rozkładach mają różne numery słupków
-       (03 w D i 01 w C), dlatego rozpoznajemy PUNKT POŁĄCZENIA
-       po odnodze przez PELCOWIZNĘ, nie po konkretnym ID ani po
-       bezpośrednim sąsiedztwie dwóch elementów. Przenosimy istniejący
-       separator przed PKP; w razie jego braku tworzymy go tylko wtedy,
-       gdy rzeczywiście istnieje odcinek wariantowy przez PELCOWIZNĘ. */
-    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
-        const norm778=x=>String(x??'').normalize('NFD')
-            .replace(/[\u0300-\u036f]/g,'').replace(/Ł/g,'L').replace(/ł/g,'l')
-            .toUpperCase().replace(/\s+/g,' ').trim();
-        const stop778=e=>e?.typ==='przystanek';
-        const name778=e=>norm778(e?.nazwa||String(e?.id||'').split('|')[1]);
-        const all778=e=>e?.typ==='trasa_w_kursach'&&
-            /TRASA WE WSZYSTKICH KURSACH/.test(norm778(e?.tekst));
-        const start778=wynik760.find(e=>stop778(e));
-        if(name778(start778)==='OLESIN'){
-            const pel778=wynik760.findIndex(e=>stop778(e)&&name778(e)==='PELCOWIZNA');
-            const pkp778=wynik760.findIndex((e,i)=>i>pel778&&stop778(e)&&
-                name778(e)==='PKP TORUNSKA');
-            const zera778=wynik760.findIndex((e,i)=>i>pkp778&&stop778(e)&&
-                name778(e)==='ZERAN FSO');
-            if(pel778>=0&&pkp778>pel778&&zera778>pkp778){
-                const wariant778=wynik760.slice(0,pel778).some(e=>
-                    e?.typ==='trasa_w_kursach'&&!all778(e));
-                const istniejePrzed778=all778(wynik760[pkp778-1]);
-                if(wariant778&&!istniejePrzed778){
-                    const marker778=wynik760.findIndex((e,i)=>
-                        i>pkp778&&i<zera778&&all778(e));
-                    const separator778=marker778>=0
-                        ?wynik760.splice(marker778,1)[0]
-                        :{typ:'trasa_w_kursach',tekst:'Trasa we wszystkich kursach'};
-                    wynik760.splice(pkp778,0,separator778);
-                }
-            }
-        }
-    }
-
-    /* WERSJA 779 — 134: powrót z odnogi do PKP TORUŃSKA.
-       Nie uzależniamy poprawki od pierwszego elementu listy ani numeru
-       słupka. W gotowym modelu separator stojący ZA PKP, a PRZED
-       ŻERANIEM FSO, należy do PKP. Przenosimy istniejący separator,
-       nie tworząc dodatkowego i nie zmieniając przeciwnego kierunku. */
-    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
-        const normal779=s=>String(s??'').normalize('NFD')
+        const norm782=s=>String(s??'').normalize('NFD')
             .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
             .toUpperCase().replace(/\s+/g,' ').trim();
-        const stop779=e=>e?.typ==='przystanek';
-        const nazwa779=e=>normal779(e?.nazwa_czysta||e?.nazwa||
+        const isStop782=e=>e?.typ==='przystanek';
+        const name782=e=>norm782(e?.nazwa_czysta||e?.nazwa||
             String(e?.id||'').split('|')[1]);
-        const all779=e=>e?.typ==='trasa_w_kursach'&&
-            /TRASA WE WSZYSTKICH KURSACH/.test(normal779(e?.tekst));
-        const pkp779=wynik760.findIndex(e=>stop779(e)&&
-            nazwa779(e)==='PKP TORUNSKA');
-        if(pkp779>=0){
-            const z779=wynik760.findIndex((e,i)=>i>pkp779&&stop779(e)&&
-                nazwa779(e)==='ZERAN FSO');
-            if(z779>pkp779){
-                const sep779=wynik760.findIndex((e,i)=>
-                    i>pkp779&&i<z779&&all779(e));
-                const before779=wynik760.slice(Math.max(0,pkp779-2),pkp779)
-                    .some(all779);
-                if(sep779>=0&&!before779){
-                    const [element779]=wynik760.splice(sep779,1);
-                    wynik760.splice(pkp779,0,element779);
-                }
-            }
-        }
-    }
-
-    /* WERSJA 780 — punkt ponownego połączenia 134: nazwa przystanku,
-       a nie ID słupka. Poprawiamy KOŃCOWĄ listę bezpośrednio przed
-       wygenerowaniem wierszy; rozpoznajemy także separator zapisany
-       jako inny typ elementu. Nie dotykamy drugiego kierunku. */
-    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
-        const nazwa780=x=>String(x??'').normalize('NFD')
-            .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
-            .toUpperCase().replace(/\s+/g,' ').trim();
-        const przystanek780=e=>String(e?.typ||'').toLowerCase()==='przystanek';
-        const nazwaStop780=e=>nazwa780(e?.nazwa_czysta||e?.nazwa||
-            String(e?.id||'').split('|')[1]);
-        const wszystkie780=e=>!przystanek780(e)&&
-            /TRASA WE WSZYSTKICH KURSACH/.test(nazwa780(e?.tekst||e?.nazwa||''));
-        const start780=wynik760.find(przystanek780);
-        // Olesin -> Metro Marymont: po PELCOWIŹNIE oba warianty
-        // obsługują PKP TORUŃSKA, choć używają różnych numerów słupków.
-        if(nazwaStop780(start780)==='OLESIN'){
-            const pel780=wynik760.findIndex(e=>przystanek780(e)&&
-                nazwaStop780(e)==='PELCOWIZNA');
-            const pkp780=wynik760.findIndex((e,i)=>i>pel780&&
-                przystanek780(e)&&nazwaStop780(e)==='PKP TORUNSKA');
-            if(pel780>=0&&pkp780>pel780){
-                const koniec780=wynik760.findIndex((e,i)=>i>pkp780&&
-                    przystanek780(e));
-                const koniecZakresu780=koniec780<0?wynik760.length:koniec780;
-                const przed780=wynik760.slice(pel780+1,pkp780)
-                    .some(wszystkie780);
-                if(!przed780){
-                    // W pierwszej kolejności przenieś istniejący opis,
-                    // również gdy w modelu jest przed Żeraniem FSO.
-                    let marker780=wynik760.findIndex((e,i)=>
-                        i>pkp780&&i<koniecZakresu780&&wszystkie780(e));
-                    if(marker780<0){
-                        marker780=wynik760.findIndex((e,i)=>
-                            i>pkp780&&wszystkie780(e));
+        const isAll782=e=>e?.typ==='trasa_w_kursach'&&
+            /TRASA WE WSZYSTKICH KURSACH/.test(norm782(e?.tekst));
+        const first782=wynik760.find(isStop782);
+        // Tylko OLESIN -> METRO MARYMONT, tylko rzeczywisty
+        // powrót z odnogi PELCOWIZNA -> PKP TORUŃSKA.
+        if(name782(first782)==='OLESIN'){
+            const pel782=wynik760.findIndex(e=>isStop782(e)&&
+                name782(e)==='PELCOWIZNA');
+            const pkp782=wynik760.findIndex((e,i)=>i>pel782&&
+                isStop782(e)&&name782(e)==='PKP TORUNSKA');
+            const zer782=wynik760.findIndex((e,i)=>i>pkp782&&
+                isStop782(e)&&name782(e)==='ZERAN FSO');
+            if(pel782>=0&&pkp782>pel782&&zer782>pkp782){
+                // Usuń opisy wspólnego odcinka leżące ZA PKP,
+                // ale przed Żeraniem. Zachowaj jeden z nich.
+                let wspolny782=null;
+                for(let j=zer782-1;j>pkp782;j--){
+                    if(isAll782(wynik760[j])){
+                        wspolny782=wynik760.splice(j,1)[0];
                     }
-                    const element780=marker780>=0
-                        ?wynik760.splice(marker780,1)[0]
-                        :{typ:'trasa_w_kursach',
-                          tekst:'Trasa we wszystkich kursach'};
-                    wynik760.splice(pkp780,0,element780);
                 }
-                // Usuń ewentualny zdublowany opis bezpośrednio za
-                // wspólnym PKP, także jeśli przetrwał wcześniejsze wersje.
-                let wspolny780=wynik760.findIndex((e,i)=>i>pel780&&
-                    przystanek780(e)&&nazwaStop780(e)==='PKP TORUNSKA');
-                for(let j=wspolny780+1;j<wynik760.length;){
-                    if(przystanek780(wynik760[j]))break;
-                    if(wszystkie780(wynik760[j]))wynik760.splice(j,1);
-                    else j++;
+                // Nie dubluj, jeżeli opis już znajduje się przed PKP.
+                let przed782=pkp782-1;
+                while(przed782>=0&&['miejscowosc','strefa']
+                    .includes(wynik760[przed782]?.typ))przed782--;
+                if(!isAll782(wynik760[przed782])){
+                    wynik760.splice(pkp782,0,wspolny782||{
+                        typ:'trasa_w_kursach',
+                        tekst:'Trasa we wszystkich kursach'
+                    });
                 }
             }
         }
