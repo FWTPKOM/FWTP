@@ -6903,6 +6903,15 @@ html body .tabliczka .rozklady-grid .minuta > .symbol {
     vertical-align: baseline !important;
 }
 </style>
+
+<style id="FWTP-V726-KONIEC-TRASY">
+/* Ostatni rzeczywisty kraniec: oś kończy się na środku kropki. */
+.tabliczka .trasa-stop.v612-koncowy .trasa-os::before,
+.tabliczka .trasa-stop[data-v725-koncowy="true"][data-v725-kontynuacja="false"] .trasa-os::before {
+  content:"" !important;display:block !important;top:0 !important;
+  bottom:calc(100% - 7.25px) !important;height:auto !important;
+}
+</style>
 </head>
 
 
@@ -20367,6 +20376,45 @@ function v514ModelListy(){
             if(nazwa1&&nazwa1===nazwa2){
                 pierwszy.koncowy=true;
                 pierwszy.kontynuacja=true;
+            }
+        }
+        /* V726 — 192: oba przebiegi odwiedzają URSYNÓW PŁD. dokładnie
+           raz. Nie rozdzielamy wspólnej trasy na dwa sztuczne ramiona.
+           Skrócone kursy u kończą tutaj, pełne jadą dalej. */
+        if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='192'){
+            const key=e=>norm(e?.nazwa||String(e?.id||'').split('|')[1]);
+            const ursynow=elementy.map((e,i)=>
+                e?.typ==='przystanek' && key(e)==='URSYNOW PŁD.'?i:-1
+            ).filter(i=>i>=0);
+            if(ursynow.length===2){
+                const [a,b]=ursynow;
+                const miedzy=elementy.slice(a+1,b);
+                const rozdzielenie=miedzy.filter(e=>e?.typ==='trasa_w_kursach');
+                const poDrugim=elementy.slice(b+1).some(e=>e?.typ==='przystanek');
+                /* Pierwszy Ursynów otwiera pełny dalszy przebieg, drugi
+                   jest wyłącznie powtórzonym krańcem skróconych kursów. */
+                if(rozdzielenie.length===1 && !poDrugim &&
+                   /\bu\b/i.test(String(rozdzielenie[0]?.tekst||''))){
+                    elementy[a].koncowy=true;
+                    elementy[a].kontynuacja=true;
+                    elementy.splice(b,1);
+                    const idx=elementy.indexOf(rozdzielenie[0]);
+                    if(idx>=0)elementy.splice(idx,1);
+                    /* Bez oznaczeń jest teraz jedynym dalszym przebiegiem:
+                       usuwamy jego zbędny separator, ale nie przystanki. */
+                    for(let i=a-1;i>=0;i--){
+                        if(elementy[i]?.typ==='przystanek')break;
+                        if(elementy[i]?.typ==='trasa_w_kursach'){
+                            elementy.splice(i,1);break;
+                        }
+                    }
+                }
+            }
+            /* OS. KABATY jest ostatnim przystankiem, bez kontynuacji. */
+            const ostatni=[...elementy].reverse().find(e=>e?.typ==='przystanek');
+            if(ostatni && key(ostatni)==='OS. KABATY'){
+                ostatni.koncowy=true;
+                ostatni.kontynuacja=false;
             }
         }
         return elementy;
