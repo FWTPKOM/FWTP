@@ -1,4 +1,4 @@
-<!-- WERSJA: 715 — globalne scalanie wspólnego krańca przed odnogą -->
+<!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
 <!-- WERSJA: 713 — LINIE GODZIN POD LITERAMI WARIANTÓW -->
 <!DOCTYPE html>
 <!-- HISTORIA: WERSJA 702 -->
@@ -6920,7 +6920,7 @@ html body .tabliczka .rozklady-grid .minuta > .symbol {
 </header>
 <main class="tabliczka-page">
 <section class="sterowanie">
-<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v714</span></h1>
+<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v717</span></h1>
 <div class="sterowanie-grid">
 <div class="pole">
 <label for="liniaInput">Linia</label>
@@ -7374,6 +7374,13 @@ function FWTP_V689_ListyZKursow(dane) {
                         // powtórzony sztuczny koniec usuwamy, gdy za pierwszym
                         // występuje rzeczywiste wydłużenie z innym krańcem.
                         const first=occurrences[0],last=occurrences.at(-1);
+                        /* V717: dwa słupki o tej samej nazwie mogą być
+                           rzeczywistymi kolejnymi przystankami JEDNEGO kursu.
+                           152: Białołęka Dworska 02 (wspólny) ->
+                           Białołęka Dworska 01 (wyłącznie wariant B).
+                           Nie wolno scalać takiej pary ani usuwać B. */
+                        if(paths.some(p=>p.ids.includes(first.e.id)&&
+                            p.ids.includes(last.e.id)))continue;
                         const extension=elements.slice(first.i+1).some(e=>shown(e)&&
                             e.koncowy&&norm(e.nazwa)!==n);
                         if(!extension)continue;
@@ -7493,6 +7500,21 @@ function FWTP_V689_ListyZKursow(dane) {
                         }
                     }
                     while(elements.length&&elements.at(-1)?.typ!=='przystanek')elements.pop();
+                }
+                /* FWTP V716 — GLOBALNIE: opis wariantu bez choćby
+                   jednego przystanku przed następnym opisem jest pusty.
+                   Typowy przypadek: kurs B kończy na wspólnym krańcu,
+                   a pozostałe kursy jadą dalej. Skrócenie nie jest odnogą.
+                   Usuwamy tylko osierocony marker, bez zmiany tras, liter
+                   ani rzeczywistych odgałęzień z przystankami. */
+                for(let j=elements.length-2;j>=0;j--){
+                    if(elements[j]?.typ!=='trasa_w_kursach')continue;
+                    let next=j+1;
+                    while(next<elements.length &&
+                          ['miejscowosc','strefa'].includes(elements[next]?.typ))next++;
+                    if(elements[next]?.typ==='trasa_w_kursach'){
+                        elements.splice(j,1);
+                    }
                 }
                 selected.lista_przystankowa={wersja:2,elementy:elements,
                     trasy:groups.map(g=>({wariant:g.letter,koniec_trasy:g.path.at(-1),trasa:g.path}))};
