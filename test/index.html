@@ -1,4 +1,4 @@
-<!-- WERSJA: 769 -->
+<!-- WERSJA: 770 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -8872,6 +8872,60 @@ function FWTP_V754_PoprawModeleRozgalezien(dane){
     }
 }
 
+/* =========================================================
+   WERSJA 770 — ODCINKI PO ROZDZIELENIU TRAS
+   Poprawiamy gotowy model PRZED renderowaniem i podziałem na kolumny.
+   Litery po separatorze pochodzą z rzeczywistych kursów słupka,
+   który rozpoczyna następną gałąź; nie z tekstu poprzedniej gałęzi.
+   Przy identycznych nazwach stosujemy fizyczne ID słupka.
+   ========================================================= */
+function FWTP_V770_PoprawOpisyOdcinkow(dane){
+    for(const rozklad of dane?.["rozkłady"]||[]){
+        for(const kierunek of rozklad.kierunki||[]){
+            const przystanki=kierunek.przystanki||[];
+            const poId=new Map(przystanki.map(p=>[String(p.id),p]));
+            for(const aktywny of przystanki){
+                const elementy=aktywny.lista_przystankowa?.elementy;
+                if(!Array.isArray(elementy))continue;
+                for(let i=0;i<elementy.length;i++){
+                    const sep=elementy[i];
+                    if(sep?.typ!=='trasa_w_kursach'||
+                       !/^Trasa w kursach bez oznaczeń$/i.test(String(sep.tekst||'').trim()))continue;
+                    // Separator dotyczy NAJBLIŻSZEGO następnego przystanku.
+                    // Nie wolno zbierać kursów z sąsiedniej odnogi.
+                    const nastepny=elementy.slice(i+1).find(e=>e?.typ==='przystanek');
+                    if(!nastepny)continue;
+                    const p=poId.get(String(nastepny.id));
+                    if(!p)continue;
+                    const kursy=(p.kursy||[]).filter(k=>
+                        !/DTECH/i.test(String(k?.uwagi||'')) &&
+                        Array.isArray(k.trasa) && k.trasa.includes(String(nastepny.id))
+                    );
+                    if(!kursy.length)continue;
+                    const litery=new Set(kursy.map(k=>String(k.wariant||'').trim().toUpperCase()));
+                    // Nie zmieniamy prawdziwej odnogi wyłącznie bez oznaczeń.
+                    const nazwane=[...litery].filter(x=>/^[A-Z]$/.test(x)).sort();
+                    if(!nazwane.length)continue;
+                    // Jeśli są to kursy w różnych kierunkach/odnogach,
+                    // wymagamy wspólnego fizycznego NASTĘPNEGO odcinka.
+                    const nastepnyPo=elementy.slice(i+1).filter(e=>e?.typ==='przystanek')[1];
+                    if(!nastepnyPo)continue;
+                    const wspolne=kursy.filter(k=>{
+                        const at=k.trasa.indexOf(String(nastepny.id));
+                        return at>=0&&k.trasa[at+1]===String(nastepnyPo.id);
+                    });
+                    const literyOdcinka=new Set(wspolne.map(k=>String(k.wariant||'').trim().toUpperCase()));
+                    const warianty=[...literyOdcinka].filter(x=>/^[A-Z]$/.test(x)).sort();
+                    if(!warianty.length)continue;
+                    const opis='Trasa w kursach '+warianty.map(x=>'„'+x.toLowerCase()+'”').join(', ')+
+                        (literyOdcinka.has('')?' oraz bez oznaczeń':'');
+                    sep.tekst=opis;
+                }
+            }
+        }
+    }
+}
+
 function FWTP_V675_NormalizujJSON(json){
     if(!json || typeof json!=="object")throw new Error("Nieprawidłowy JSON: brak obiektu danych.");
     if(Array.isArray(json.katalog_tras_v210)){
@@ -8895,6 +8949,7 @@ function FWTP_V675_NormalizujJSON(json){
         FWTP_V689_ListyZKursow(json);
     }
     FWTP_V754_PoprawModeleRozgalezien(json);
+    FWTP_V770_PoprawOpisyOdcinkow(json);
     return json;
 }
 
