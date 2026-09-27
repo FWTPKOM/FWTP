@@ -1,4 +1,4 @@
-<!-- WERSJA: 759 — GLOBALNE SCALANIE WSPÓLNEGO PRZYSTANKU PRZED ROZGAŁĘZIENIEM -->
+<!-- WERSJA: 760 — PRZENOSZENIE WSPÓLNEGO PRZYSTANKU PRZED WARIANTY -->
 <!-- HISTORIA: WERSJA 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
 <!-- WERSJA: 713 — LINIE GODZIN POD LITERAMI WARIANTÓW -->
@@ -21505,60 +21505,63 @@ function v514RenderGotowejListy(){
         return !(wyjatekV648(next)||wyjatekV648(prev));
     });
 
-    /* V759 — globalna wspólna kotwica dwóch gałęzi.
-       Układ: PRZYSTANEK X -> opis A -> przystanki odnogi A ->
-       opis B -> PRZYSTANEK X (inny słupek) -> dalsza odnoga B.
-       Drugi X jest alternatywnym słupkiem WSPÓLNEGO punktu rozjazdu,
-       a nie kolejnym przystankiem za odnogą A. Zachowujemy pierwszy X
-       przed obydwoma opisami, usuwamy tylko drugi wiersz X. Nie
-       łączymy powtórnych odwiedzin wewnątrz tej samej gałęzi,
-       pętli ani terminali. Reguła nie zależy od numeru linii. */
-    const norm759=s=>String(s??'').normalize('NFD')
+    /* V760 — wspólny przystanek dwóch gałęzi musi zostać PRZENIESIONY
+       przed pierwszy opis wariantu. W V759 szukano go przed opisem,
+       podczas gdy rzeczywisty JSON ma: opis A, stop X, dalsza odnoga,
+       opis B, stop X (inny słupek), dalsza odnoga. */
+    const norm760=s=>String(s??'').normalize('NFD')
         .replace(/[\u0300-\u036f]/g,'').toUpperCase()
         .replace(/\s+/g,' ').trim();
-    const stop759=e=>e?.typ==='przystanek';
-    const opis759=e=>e?.typ==='trasa_w_kursach';
-    const nazwa759=e=>norm759(e?.nazwa||String(e?.id||'').split('|')[1]);
-    const wynik759=elements.slice();
-    for(let i=0;i<wynik759.length;i++){
-        const anchor=wynik759[i];
-        if(!stop759(anchor)||anchor.koncowy===true)continue;
-        let firstMarker=i+1;
-        while(firstMarker<wynik759.length &&
-              ['miejscowosc','strefa'].includes(wynik759[firstMarker]?.typ))firstMarker++;
-        if(!opis759(wynik759[firstMarker]))continue;
-        let secondMarker=-1,branchStops=0;
-        for(let j=firstMarker+1;j<wynik759.length;j++){
-            const e=wynik759[j];
-            if(opis759(e)){secondMarker=j;break;}
-            if(stop759(e)){
-                if(nazwa759(e)===nazwa759(anchor)){branchStops=-999;break;}
-                branchStops++;
+    const stop760=e=>e?.typ==='przystanek';
+    const opis760=e=>e?.typ==='trasa_w_kursach';
+    const name760=e=>norm760(e?.nazwa||String(e?.id||'').split('|')[1]);
+    const wynik760=elements.slice();
+    for(let i=0;i<wynik760.length;i++){
+        if(!opis760(wynik760[i]))continue;
+        let first=i+1;
+        while(first<wynik760.length &&
+            ['miejscowosc','strefa'].includes(wynik760[first]?.typ))first++;
+        const firstStop=wynik760[first];
+        if(!stop760(firstStop)||firstStop.koncowy===true)continue;
+        let secondMarker=-1;
+        for(let j=first+1;j<wynik760.length;j++){
+            if(opis760(wynik760[j])){secondMarker=j;break;}
+            if(stop760(wynik760[j]) &&
+                name760(wynik760[j])===name760(firstStop)){
+                secondMarker=-1;break;
             }
         }
-        if(secondMarker<0||branchStops<1)continue;
+        if(secondMarker<0)continue;
         let second=secondMarker+1;
-        while(second<wynik759.length &&
-              ['miejscowosc','strefa'].includes(wynik759[second]?.typ))second++;
-        const alternate=wynik759[second];
-        if(!stop759(alternate)||!nazwa759(anchor)||
-           nazwa759(anchor)!==nazwa759(alternate)||
-           String(anchor.id||'')===String(alternate.id||''))continue;
-        // Obie gałęzie muszą mieć własny dalszy przystanek; nie łączymy
-        // dwóch fizycznych odwiedzin ani końca wariantu skróconego.
-        let nextStop=null;
-        for(let k=second+1;k<wynik759.length;k++){
-            if(opis759(wynik759[k]))break;
-            if(stop759(wynik759[k])){nextStop=wynik759[k];break;}
+        while(second<wynik760.length &&
+            ['miejscowosc','strefa'].includes(wynik760[second]?.typ))second++;
+        const other=wynik760[second];
+        if(!stop760(other)||other.koncowy===true||
+            !name760(firstStop)||name760(firstStop)!==name760(other)||
+            String(firstStop.id||'')===String(other.id||''))continue;
+        // Każda gałąź ma własny dalszy odcinek; nie łączymy pętli,
+        // kolejnych odwiedzin ani przystanków końcowych.
+        const hasStop=(from,to)=>wynik760.slice(from,to).some(stop760);
+        if(!hasStop(first+1,secondMarker))continue;
+        let end=wynik760.length;
+        for(let j=second+1;j<wynik760.length;j++){
+            if(opis760(wynik760[j])){end=j;break;}
         }
-        if(!nextStop)continue;
-        wynik759.splice(second,1);
+        if(!hasStop(second+1,end))continue;
+        const earlier=wynik760.slice(0,i).reverse().find(stop760);
+        if(earlier && name760(earlier)===name760(firstStop))continue;
+        // Zostaje jeden wspólny stop przed obydwoma wariantami.
+        // Pierwszy wiersz zachowuje własny czas i typ przystanku.
+        wynik760.splice(second,1);
+        wynik760.splice(first,1);
+        wynik760.splice(i,0,firstStop);
+        i++; // nie analizujemy ponownie przeniesionego separatora
     }
 
     let rows="";
     let stopPosition=0;
 
-    const stopCount=wynik759.filter(
+    const stopCount=wynik760.filter(
         x=>v486Text(x?.typ)==="przystanek"
     ).length;
 
@@ -21571,7 +21574,7 @@ function v514RenderGotowejListy(){
        W OBRĘBIE SWOJEGO WIERSZA. Dzięki temu kreska wychodzi
        spod kropki, ale kończy się przed separatorem.
     */
-    wynik759.forEach(element=>{
+    wynik760.forEach(element=>{
         const typ=v486Text(element?.typ);
 
         if(typ==="przystanek"){
