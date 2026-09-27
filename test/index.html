@@ -1,3 +1,4 @@
+<!-- WERSJA: 714 — globalne scalanie wspólnego krańca przed odnogą -->
 <!-- WERSJA: 713 — LINIE GODZIN POD LITERAMI WARIANTÓW -->
 <!DOCTYPE html>
 <!-- HISTORIA: WERSJA 702 -->
@@ -53,7 +54,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP v713 — Tabliczki</title>
+<title>FWTP v714 — Tabliczki</title>
 <meta name="fwtp-version" content="709"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
@@ -6932,7 +6933,7 @@ html body .tabliczka .rozklady-grid .minuta > .symbol {
 </header>
 <main class="tabliczka-page">
 <section class="sterowanie">
-<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v713</span></h1>
+<h1>Tabliczka przystankowa <span id="fwtpWersja679" style="font-size:13px;font-weight:600;color:#666;white-space:nowrap">v714</span></h1>
 <div class="sterowanie-grid">
 <div class="pole">
 <label for="liniaInput">Linia</label>
@@ -7443,6 +7444,68 @@ function FWTP_V689_ListyZKursow(dane) {
                     }else if(/TRASA W KURSACH/i.test(napis)){
                         widocznaOdnoga=true;
                     }
+                }
+                /* FWTP V714 — GLOBALNIE: wspólny kraniec kursu krótkiego
+                   i punkt kontynuacji kursu wydłużonego. Porównujemy nazwy
+                   oraz FIZYCZNE trasy, nie numer linii. Przykład: Metro
+                   Bemowo 12 / Metro Bemowo 13 na linii 121. Wspólny
+                   przystanek występuje tylko raz PRZED opisem wydłużenia. */
+                {
+                    const norm714=x=>String(x||'').normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pl-PL').trim();
+                    const stop714=e=>e?.typ==='przystanek'&&e.stan!=='miniety';
+                    const routeGroups714=groups.map(g=>({
+                        ids:g.full||g.path,letter:g.letter
+                    }));
+                    const positions714=new Map();
+                    for(let j=0;j<elements.length;j++){
+                        const e=elements[j];if(!stop714(e))continue;
+                        const n=norm714(e.nazwa);
+                        if(!positions714.has(n))positions714.set(n,[]);
+                        positions714.get(n).push(j);
+                    }
+                    for(const indices of positions714.values()){
+                        if(indices.length!==2)continue;
+                        const [firstIndex,lastIndex]=indices;
+                        const first=elements[firstIndex],last=elements[lastIndex];
+                        if(first.id===last.id)continue;
+                        // Krótki kurs naprawdę kończy na drugim słupku,
+                        // a dłuższy przejeżdża przez pierwszy i jedzie dalej.
+                        const shortRoutes=routeGroups714.filter(g=>g.ids.at(-1)===last.id);
+                        const longRoutes=routeGroups714.filter(g=>{
+                            const at=g.ids.indexOf(first.id);
+                            return at>=0&&at<g.ids.length-1&&!g.ids.includes(last.id);
+                        });
+                        if(!shortRoutes.length||!longRoutes.length)continue;
+                        // Nie scalaj dwóch rzeczywistych wizyt na jednej
+                        // trasie ani dwóch niezależnych pętli.
+                        if(routeGroups714.some(g=>g.ids.includes(first.id)&&g.ids.includes(last.id)))continue;
+                        // Po drugim słupku nie ma już żadnego przystanku
+                        // tego przebiegu: to sztucznie powtórzony kraniec.
+                        if(elements.slice(lastIndex+1).some(stop714))continue;
+                        const beforeFirst=elements[firstIndex-1];
+                        const beforeLast=elements[lastIndex-1];
+                        if(beforeFirst?.typ!=='trasa_w_kursach'||
+                           beforeLast?.typ!=='trasa_w_kursach')continue;
+                        // Pierwszy marker dotyczy wydłużenia; drugi to
+                        // niepotrzebny opis krótkiego kursu.
+                        const longLetters=new Set(longRoutes.map(g=>g.letter));
+                        const firstLabel=String(beforeFirst.tekst||'').toUpperCase();
+                        if(![...longLetters].some(l=>l&&firstLabel.includes('„'+l+'”')))continue;
+                        first.koncowy=true;
+                        first.kontynuacja=true;
+                        // Usuwamy od końca, aby nie przesuwać wcześniejszych indeksów.
+                        elements.splice(lastIndex,1);
+                        const secondMarker=elements.indexOf(beforeLast);
+                        if(secondMarker>=0)elements.splice(secondMarker,1);
+                        const firstMarker=elements.indexOf(beforeFirst);
+                        if(firstMarker>=0){
+                            elements.splice(firstMarker,1);
+                            const actualFirst=elements.indexOf(first);
+                            elements.splice(actualFirst+1,0,beforeFirst);
+                        }
+                    }
+                    while(elements.length&&elements.at(-1)?.typ!=='przystanek')elements.pop();
                 }
                 selected.lista_przystankowa={wersja:2,elementy:elements,
                     trasy:groups.map(g=>({wariant:g.letter,koniec_trasy:g.path.at(-1),trasa:g.path}))};
@@ -27956,8 +28019,8 @@ function v665SynchronizujWysokosci(kolumny){
 })();
 </script>
 
-<style id="fwtp-v713-kreski-pod-literami">
-/* WERSJA 713: prawdziwa kolejność warstw, bez przesuwania liter.
+<style id="fwtp-v714-kreski-pod-literami">
+/* WERSJA 714: prawdziwa kolejność warstw, bez przesuwania liter.
    border-bottom należy do rodzica i nie może być ustawiony pod
    tekstem przez sam z-index dziecka. Zastępujemy go pseudoelementem. */
 html body .tabliczka .rozklady-grid .godzina-row {
