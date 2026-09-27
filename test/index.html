@@ -1,3 +1,4 @@
+<!-- WERSJA: 704 — GLOBALNY WSPÓLNY KRANIEC, PEŁNE KOLUMNY, BEZ TEKSTU ROBOCZEGO -->
 <!-- WERSJA: 703 — 150: WSPÓLNY KRANIEC DZIEKANÓW LEŚNY, WARIANT I, PEŁNA PIERWSZA KOLUMNA -->
 <!-- WERSJA: 702 — KONCOWY BEZ KONTYNUACJI, DOPELNIANIE PIERWSZEJ KOLUMNY -->
 <!-- WERSJA: 702 -->
@@ -33,7 +34,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP v703 — Tabliczki</title>
+<title>FWTP v704 — Tabliczki</title>
 <meta name="fwtp-version" content="694"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
@@ -7299,65 +7300,61 @@ function FWTP_V689_ListyZKursow(dane) {
                         }
                     }
                 }
-                /* FWTP V703 — odtworzenie wspólnego krańca 150.
-                   W przebiegu zwykłym kurs kończy na Dziekanowie Leśnym 03,
-                   w wydłużonym I przejeżdża przez Dziekanów Leśny 01,
-                   zawraca przez Instytut Ekologii PAN 01 i kończy na
-                   Izabelinie-Dziekanówku. To JEDEN kraniec w liście,
-                   końcowy z kontynuacją, nie dwa oddzielne końce.
-                   Dotyczy tylko kierunku od Metra Młociny, gdy wybrany
-                   przystanek leży przed pierwszym Instytutem. */
-                if(String(dane.linia)==='150' &&
-                   /METRO MŁOCINY/i.test(String(origin||''))){
-                    const isStop=(e,n)=>e?.typ==='przystanek'&&
-                        String(e.nazwa||'').toLocaleUpperCase('pl-PL')===n;
-                    const first=elements.findIndex(e=>isStop(e,'INSTYTUT EKOLOGII PAN')&&e.stan!=='miniety');
-                    const second=elements.findIndex((e,i)=>i>first&&isStop(e,'INSTYTUT EKOLOGII PAN')&&e.stan!=='miniety');
-                    const branchEnd=elements.findIndex((e,i)=>i>first&&i<second&&isStop(e,'DZIEKANÓW LEŚNY'));
-                    const ordinaryEnd=elements.findIndex((e,i)=>i>second&&isStop(e,'DZIEKANÓW LEŚNY'));
-                    const extendedEnd=elements.findIndex((e,i)=>i>second&&isStop(e,'IZABELIN-DZIEKANÓWEK'));
-                    if(first>=0&&second>first&&branchEnd>first&&ordinaryEnd>second&&extendedEnd>second){
-                        const shared=elements[branchEnd];
-                        // Przed opisem I: wspólny przystanek końcowy z osią w dół.
-                        shared.koncowy=true;
-                        shared.kontynuacja=true;
-                        // Zwykłe kursy kończą się na drugim słupku o tej
-                        // samej nazwie; na schemacie pokazujemy kraniec raz.
-                        elements.splice(ordinaryEnd,1); // usuń drugi koniec
-                        // Nie zakładajmy, że marker zawsze stoi dokładnie przed końcem.
-                        for(let j=elements.length-1;j>second;j--){
-                            if(elements[j].typ==='trasa_w_kursach' &&
-                               /BEZ OZNACZEŃ/i.test(elements[j].tekst||'') &&
-                               !elements.slice(j+1).some(e=>e.typ==='przystanek'&&
-                                   !isStop(e,'DZIEKANÓW LEŚNY'))){elements.splice(j,1);}
-                        }
-                        // Pierwotny marker I przed Dziekanowem był błędny:
-                        // sam kraniec jest wspólny, I zaczyna się dopiero
-                        // na powrotnej drodze do Instytutu Ekologii PAN.
-                        if(branchEnd>0&&elements[branchEnd-1]?.typ==='trasa_w_kursach'&&
-                           /[„\"]i[”\"]/i.test(elements[branchEnd-1].tekst||''))
-                            elements.splice(branchEnd-1,1);
-                        // Marker I jest ZA wspólnym krańcem, nie przed nim.
-                        const sharedIndex=elements.indexOf(shared);
-                        const secondIndex=elements.findIndex((e,i)=>i>sharedIndex&&
-                            isStop(e,'INSTYTUT EKOLOGII PAN')&&e.stan!=='miniety');
-                        const idxI=elements.findIndex((e,i)=>i>sharedIndex&&i<secondIndex&&
-                            e.typ==='trasa_w_kursach'&&/[„\"]i[”\"]/i.test(e.tekst||''));
-                        if(idxI<0)elements.splice(sharedIndex+1,0,
-                            {typ:'trasa_w_kursach',tekst:'TRASA W KURSACH „i”'});
-                        // Po powrotnym Instytucie wszystkie dalsze przystanki
-                        // dotyczą wyłącznie wariantu I.
-                        const instytutPowrot=elements.findIndex((e,i)=>i>sharedIndex&&
-                            isStop(e,'INSTYTUT EKOLOGII PAN')&&e.stan!=='miniety');
-                        if(instytutPowrot>=0&&!elements.slice(instytutPowrot+1,instytutPowrot+3)
-                            .some(e=>e.typ==='trasa_w_kursach'&&/W TYM WARIANCIE/i.test(e.tekst||'')))
-                            elements.splice(instytutPowrot+1,0,
-                                {typ:'trasa_w_kursach',tekst:'PRZYSTANKI W TYM WARIANCIE'});
-                        // Koniec wydłużenia: po Izabelinie nic nie dopisujemy.
-                        const iz=elements.findIndex((e,i)=>i>instytutPowrot&&isStop(e,'IZABELIN-DZIEKANÓWEK'));
-                        if(iz>=0){elements[iz].koncowy=true;elements[iz].kontynuacja=false;
-                            elements.splice(iz+1);}
+                /* FWTP V704 — GLOBALNE scalanie wspólnego krańca.
+                   Warunek wynika WYŁĄCZNIE z przebiegów: krótki kurs
+                   kończy na krańcu, dłuższy obsługuje kraniec i zawraca
+                   na wydłużenie. Brak numerów linii i nazw na sztywno. */
+                {
+                    const norm=x=>String(x||'').normalize('NFD')
+                        .replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pl-PL').trim();
+                    const shown=e=>e?.typ==='przystanek'&&e.stan!=='miniety';
+                    const paths=groups.map(g=>({g,ids:g.full||g.path}));
+                    const sharedNames=new Set();
+                    for(const short of paths){
+                        const terminal=short.ids.at(-1);
+                        if(!terminal)continue;
+                        const n=norm(byId.get(terminal)?.nazwa_czysta||byId.get(terminal)?.nazwa||name(terminal));
+                        if(!n)continue;
+                        if(paths.some(long=>long!==short&&long.ids.some((id,i)=>
+                            i<long.ids.length-1&&norm(byId.get(id)?.nazwa_czysta||byId.get(id)?.nazwa||name(id))===n)))
+                            sharedNames.add(n);
                     }
+                    for(const n of sharedNames){
+                        const occurrences=elements.map((e,i)=>({e,i})).filter(x=>shown(x.e)&&norm(x.e.nazwa)===n);
+                        if(occurrences.length<2)continue;
+                        // Wspólny kraniec ma zostać przy pierwszym przejeździe;
+                        // powtórzony sztuczny koniec usuwamy, gdy za pierwszym
+                        // występuje rzeczywiste wydłużenie z innym krańcem.
+                        const first=occurrences[0],last=occurrences.at(-1);
+                        const extension=elements.slice(first.i+1).some(e=>shown(e)&&
+                            e.koncowy&&norm(e.nazwa)!==n);
+                        if(!extension)continue;
+                        first.e.koncowy=true;first.e.kontynuacja=true;
+                        elements.splice(last.i,1);
+                        // Opis zwykłych kursów nie może zostać osierocony
+                        // przed usuniętym drugim wystąpieniem krańca.
+                        let j=last.i-1;
+                        while(j>=0&&elements[j]?.typ==='miejscowosc')j--;
+                        if(j>=0&&elements[j]?.typ==='trasa_w_kursach'&&
+                           /BEZ OZNACZEN/i.test(elements[j].tekst||''))elements.splice(j,1);
+                        // Oznaczenie wydłużenia znajduje się ZA wspólnym
+                        // krańcem, nie przed nim. Zachowujemy litery z JSON.
+                        const firstIndex=elements.indexOf(first.e);
+                        if(firstIndex>0&&elements[firstIndex-1]?.typ==='trasa_w_kursach'){
+                            const marker=elements[firstIndex-1];
+                            const following=elements.slice(firstIndex+1).find(e=>shown(e));
+                            if(following&&paths.some(p=>p.ids.some((id,i)=>
+                                i<p.ids.length-1&&norm(name(id))===n))) {
+                                elements.splice(firstIndex-1,1);
+                                elements.splice(firstIndex,0,marker);
+                            }
+                        }
+                    }
+                    // Tekst roboczy nigdy nie jest elementem tabliczki.
+                    for(let j=elements.length-1;j>=0;j--)
+                        if(elements[j].typ==='trasa_w_kursach'&&
+                           /PRZYSTANKI W TYM WARIANCIE/i.test(elements[j].tekst||''))
+                            elements.splice(j,1);
                 }
                 selected.lista_przystankowa={wersja:2,elementy:elements,
                     trasy:groups.map(g=>({wariant:g.letter,koniec_trasy:g.path.at(-1),trasa:g.path}))};
@@ -21347,6 +21344,8 @@ function v498DopasujKolumnyTrasy(){
             const pierwszaLista=kolumny[0].querySelector('.trasa-lista');
             const drugaLista=kolumny[1].querySelector('.trasa-lista');
             if(pierwszaLista && drugaLista){
+                // V704: rzeczywista wysokość dostępna, po finalnym zawijaniu.
+                // Dodatkowy margines dawniej zostawiał 1–2 przystanki w drugiej.
                 const granica=columns.getBoundingClientRect().bottom;
                 let licznik=0;
                 while(drugaLista.firstElementChild && licznik++<wszystkie.length){
@@ -21359,7 +21358,7 @@ function v498DopasujKolumnyTrasy(){
                         v665SynchronizujWysokosci(columns);
                     }
                     const dol=pierwszaLista.lastElementChild?.getBoundingClientRect().bottom||0;
-                    if(dol>granica-3 || pierwszaLista.scrollHeight>kolumny[0].clientHeight+2){
+                    if(dol>granica+1 && pierwszaLista.scrollHeight>kolumny[0].clientHeight+1){
                         if(para)drugaLista.insertBefore(para,drugaLista.firstChild);
                         drugaLista.insertBefore(kandydat,drugaLista.firstChild);
                         if(typeof v665SynchronizujWysokosci==='function'){
@@ -27651,9 +27650,9 @@ html body .tabliczka.v664-elastyczna .trasa-nazwa:not(.zawijaj){
    // gdy CSS zmienił wysokość nazw bez zmiany procentowej szerokości.
    // Klucz renderu resetuje się przy wymianie elementu .trasa-columns.
    const v703Render=lista.querySelector('.trasa-lista');
-   const v703NeedsPass=v703Render&&!t.dataset.v703PassDone;
+   const v703NeedsPass=v703Render&&t._v704LastRender!==v703Render;
    if((v702Changed||v703NeedsPass)&&!t.dataset.v702Repacking){
-      t.dataset.v703PassDone='1';
+      t._v704LastRender=v703Render;
       t.dataset.v702Repacking='1';
       requestAnimationFrame(()=>{
          try{if(t.isConnected&&typeof v498DopasujKolumnyTrasy==='function')
