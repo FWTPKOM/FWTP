@@ -41,7 +41,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP v751 — Tabliczki</title>
+<title>FWTP v752 — Tabliczki</title>
 <meta name="fwtp-version" content="744"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
@@ -28914,65 +28914,88 @@ html body .tabliczka.v734-dwie-kolumny {
 })();
 </script>
 
-<!-- WERSJA: 751 — podjazdy na podstawie katalog_tras_v210 i trasa_ref, przed dzieleniem kolumn -->
-<script id="fwtp-v751-przebiegi-vba">
-/* Wariant rozpoznajemy tak jak w eksporcie VBA: po pełnym ciągu ID
-   kursu, nie po napisie nazwy przystanku ani po jego obecności w kolumnie.
-   Wykonujemy korektę PRZED podziałem kolumn na gotowym HTML trasy. */
+<!-- WERSJA: 752 — fizyczne trasy kursów: rozgałęzienie i powrót z podjazdu -->
+<script id="fwtp-v752-rozgalezienia">
+/* Rozpoznanie na podstawie katalogu pełnych przebiegów i trasa_ref.
+   Naprawia także HTML starszych JSON-ów, które nie mają gotowej
+   lista_przystankowa (takim JSON-em jest dostarczony 228).
+   Zmiana następuje PRZED pomiarem i podziałem kolumn. */
 (function(){
 'use strict';
 const original=v486RenderRoutes;
-const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
-const stopName=li=>norm(li.querySelector(':scope > .trasa-nazwa')?.textContent||'');
-const isStop=li=>li.classList.contains('trasa-stop');
-const isLabel=li=>li.classList.contains('trasa-separator') && /TRASA W KURSACH|TRASA WE WSZYSTKICH KURSACH/.test(norm(li.textContent));
-function label(text){
- const li=document.createElement('li');li.className='trasa-separator v496-opis v514-trasa-w-kursach v751-opis';
- const span=document.createElement('span');span.className='trasa-separator-title';span.textContent=text;li.append(span);return li;
-}
-function insertBefore(li,text){if(li)li.before(label(text));}
-function routeCheck(k,patterns){
- const catalog=daneLinii?.katalog_tras_v210;
- if(!Array.isArray(catalog))return false;
- const refs=new Map();
- for(const p of k.przystanki||[])for(const c of p.kursy||[]){
-  if(/DTECH/i.test(c.uwagi||''))continue;
-  if(Number.isInteger(c.trasa_ref))refs.set(c.trasa_ref,catalog[c.trasa_ref]);
+const norm=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\s+/g,' ').trim();
+const name=id=>norm(String(id).split('|')[1]);
+function courseRoutes(){
+ const active=v486CurrentStop(),catalog=daneLinii?.katalog_tras_v210;
+ if(!active||!Array.isArray(catalog))return [];
+ const byRef=new Map();
+ for(const rozklad of daneLinii.rozkłady||[]){
+  const k=rozklad.kierunki?.[Number(aktualnyKierunek)];
+  if(!k)continue;
+  for(const p of k.przystanki||[])for(const c of p.kursy||[]){
+   if(/DTECH/i.test(c.uwagi||'')||!Number.isInteger(c.trasa_ref))continue;
+   const ids=catalog[c.trasa_ref];if(!Array.isArray(ids))continue;
+   if(!byRef.has(c.trasa_ref))byRef.set(c.trasa_ref,{ids,letters:new Set()});
+   byRef.get(c.trasa_ref).letters.add(norm(c.wariant||'A'));
+  }
  }
- return patterns.every(pattern=>[...refs.values()].some(route=>{
-  if(!Array.isArray(route))return false;
-  let at=0;
-  for(const id of route){if(norm(id.split('|')[1])===norm(pattern[at]))at++;if(at===pattern.length)return true;}
-  return false;
- }));
+ return [...byRef.values()];
 }
 function fix(html){
- if(String(daneLinii?.linia||'')!=='228'||!html)return html;
- const k=daneLinii?.rozkłady?.find(r=>r?.kierunki?.[aktualnyKierunek])?.kierunki?.[aktualnyKierunek];
- if(!k)return html;
- const box=document.createElement('div');box.innerHTML=html;
- const all=[...box.querySelectorAll('.trasa-lista > li')];
- const stops=all.filter(isStop);
- const find=(name,after=-1)=>stops.findIndex((e,i)=>i>after&&stopName(e)===norm(name));
- const reverse=k.przystanki.some(p=>norm(p.nazwa_czysta||p.nazwa)==='KROLIKARNIA');
- if(reverse){
-  const inst=find('INSTALATORÓW'),szybka=find('SZYBKA',inst),g1=find('GNIEWKOWSKA',szybka),wagon=find('WAGONOWNIA',g1),g2=find('GNIEWKOWSKA',wagon),wal=find('WAŁOWICKA',g2);
-  if([inst,szybka,g1,wagon,g2,wal].some(i=>i<0)||!routeCheck(k,[['Szybka','Gniewkowska','Wagonownia','Gniewkowska','Wałowicka']]))return html;
-  // Opis i zostaje; błędne opisy dalszej trasy usuwamy przed wstawieniem właściwych.
-  const begin=all.indexOf(stops[szybka]),end=all.indexOf(stops[wal]);
-  all.forEach((e,i)=>{if(i>=begin&&i<end&&isLabel(e))e.remove();});
-  insertBefore(stops[szybka],'Trasa w kursach „a, g, p”');
-  insertBefore(stops[g1],'Trasa w kursach „g”');
-  insertBefore(stops[wal],'Trasa we wszystkich kursach');
- }else{
-  const wal=find('WAŁOWICKA'),g1=find('GNIEWKOWSKA',wal),wagon=find('WAGONOWNIA',g1),g2=find('GNIEWKOWSKA',wagon),sym=find('SYMPATYCZNA',g2);
-  if([wal,g1,wagon,g2,sym].some(i=>i<0)||!routeCheck(k,[['Wałowicka','Gniewkowska','Wagonownia','Gniewkowska','Sympatyczna']]))return html;
-  const begin=all.indexOf(stops[g1]),end=all.indexOf(stops[sym]);
-  all.forEach((e,i)=>{if(i>=begin&&i<=end&&isLabel(e))e.remove();});
-  insertBefore(stops[g1],'Trasa w kursach „g”');
-  insertBefore(stops[sym],'Trasa we wszystkich kursach');
+ if(!html||String(daneLinii?.linia||'')!=='228')return html;
+ const routes=courseRoutes();if(!routes.length)return html;
+ const host=document.createElement('div');host.innerHTML=html;
+ // W odróżnieniu od V751 uwzględniamy także div.v496-galaz,
+ // ponieważ 228.json nie zawiera lista_przystankowa.
+ const stops=[...host.querySelectorAll('li.trasa-stop')];
+ const stopName=e=>norm(e.querySelector('.trasa-nazwa')?.textContent);
+ const find=(n,after=-1)=>stops.findIndex((e,i)=>i>after&&stopName(e)===norm(n));
+ const names=stops.map(stopName);
+ const inst=find('INSTALATORÓW');
+ const reverse=inst>=0&&find('SZYBKA',inst)>=0;
+ const seq=reverse
+  ?['INSTALATORÓW','SZYBKA','TECHNIKÓW','PŁUŻAŃSKA','SYMPATYCZNA','GNIEWKOWSKA','WAGONOWNIA','GNIEWKOWSKA','SYMPATYCZNA','WAŁOWICKA']
+  :['WAŁOWICKA','GNIEWKOWSKA','WAGONOWNIA','GNIEWKOWSKA','SYMPATYCZNA'];
+ let at=-1;const ix=[];
+ for(const n of seq){at=find(n,at);if(at<0)return html;ix.push(at);}
+ const branch=reverse?ix[5]:ix[1],returnAt=reverse?ix[8]:ix[4];
+ const before=reverse?ix[1]:-1;
+ // Weryfikacja: podjazd musi być fizycznie obecny w jednej pełnej
+ // trasie, z dwoma kolejnymi, różnymi słupkami Gniewkowskiej.
+ const detour=routes.filter(r=>{
+  const a=r.ids.map(name);return a.some((n,i)=>n==='GNIEWKOWSKA'&&
+   a[i+1]==='WAGONOWNIA'&&a[i+2]==='GNIEWKOWSKA');
+ });
+ if(!detour.length)return html;
+ const detourLetters=new Set(detour.flatMap(r=>[...r.letters]));
+ const allLetters=new Set(routes.flatMap(r=>[...r.letters]));
+ // Na kierunku do Ursusa odcinek po Instalatorów jest wspólny
+ // dla A/G/P, ale nie dla skróconego I. Bierzemy rzeczywiste
+ // trasy zawierające kolejny fizyczny odcinek Instalatorów -> Szybka.
+ const through=routes.filter(r=>r.ids.some((id,i)=>name(id)==='INSTALATOROW'&&
+   r.ids.slice(i+1,i+4).some(x=>name(x)==='SZYBKA')));
+ const throughLetters=new Set(through.flatMap(r=>[...r.letters]));
+ const textFor=letters=>'Trasa w kursach '+[...letters].sort((a,b)=>a==='A'?-1:b==='A'?1:a.localeCompare(b,'pl')).map(x=>'„'+x.toLowerCase()+'”').join(', ');
+ const makeLabel=text=>{const li=document.createElement('li');li.className='trasa-separator v496-opis v514-trasa-w-kursach v752-opis';const sp=document.createElement('span');sp.className='trasa-separator-title';sp.textContent=text;li.append(sp);return li;};
+ // Usuwamy stare nagłówki w obrębie naprawianego rozgałęzienia.
+ // Osobny nagłówek I przed drugim Instalatorów zostaje nietknięty.
+ const start=reverse?ix[1]:ix[1];
+ const end=returnAt;
+ const order=[...host.querySelectorAll('li.trasa-stop, .trasa-separator')];
+ const from=order.indexOf(stops[start]),to=order.indexOf(stops[end]);
+ if(from<0||to<from)return html;
+ for(let i=from;i<to;i++){
+  const el=order[i];
+  if(el.classList.contains('trasa-separator')&&/TRASA W KURSACH|TRASA WE WSZYSTKICH KURSACH/.test(norm(el.textContent)))el.remove();
  }
- return box.innerHTML;
+ // Dotychczasowe opisy z div.v496-galaz też należy usunąć.
+ for(const el of host.querySelectorAll('.v496-galaz > .trasa-separator')){
+  if(/TRASA W KURSACH|TRASA WE WSZYSTKICH KURSACH/.test(norm(el.textContent)))el.remove();
+ }
+ if(reverse&&throughLetters.size)stops[before].before(makeLabel(textFor(throughLetters)));
+ stops[branch].before(makeLabel(textFor(detourLetters)));
+ stops[returnAt].before(makeLabel('Trasa we wszystkich kursach'));
+ return host.innerHTML;
 }
 v486RenderRoutes=function(routes){return fix(original(routes));};
 })();
