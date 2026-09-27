@@ -1,4 +1,4 @@
-<!-- WERSJA: 687 — WYPEŁNIANIE PIERWSZEJ KOLUMNY BEZ ZMIAN LOGIKI TRAS -->
+<!-- WERSJA: 688 — WSPOLNE ODCINKI I KONCE KURSOW SKROCONYCH -->
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
 <!DOCTYPE html>
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
@@ -6,7 +6,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>FWTP - Tabliczki (v686)</title>
+<title>FWTP - Tabliczki (v688)</title>
 <meta name="fwtp-version" content="686"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
@@ -6888,8 +6888,8 @@ root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.expo
 <div id="wynik"></div>
 </main>
 <script>
-/* FWTP — WERSJA 684. Wspólny silnik tras: porównania parami, bez nadpisywania liter VBA. */
-function FWTP_V686_ListyZKursow(dane) {
+/* FWTP — WERSJA 688. Poprawka opisów wspólnych odcinków i końców kursów skróconych. */
+function FWTP_V688_ListyZKursow(dane) {
     const rozklady=dane?.["rozkłady"]||[];
     const clean=x=>String(x??'').trim();
     const edgeKey=(a,b)=>JSON.stringify([a,b]);
@@ -7003,8 +7003,15 @@ function FWTP_V686_ListyZKursow(dane) {
                     const activeGs=groups.filter(g=>!g.late);
                     const real=gs;
                     if(!real.length)return '';
-                    const all=activeGs.length&&activeGs.every(g=>real.includes(g))&&
-                        groups.every(g=>real.includes(g));
+                    // V688: kursy kończące wcześniej (np. 126 B/M) nie
+                    // odbierają wspólnemu odcinkowi statusu „we wszystkich”.
+                    // Porównujemy rzeczywiste, pełne przebiegi bieżącego
+                    // kierunku; kursy rozpoczynające się po drodze pomijamy.
+                    // Samotna odnoga wydłużona (np. 131 W) nie jest „wszystkimi”.
+                    const fullEnd=base?.full?.at(-1);
+                    const fullRoutes=activeGs.filter(g=>g.full.at(-1)===fullEnd);
+                    const all=real.length>=3 && fullRoutes.length>1 &&
+                        fullRoutes.every(g=>real.some(r=>r.full===g.full && r.letter===g.letter));
                     if(all)return 'TRASA WE WSZYSTKICH KURSACH';
                     const labels=new Set(real.map(g=>g.letter));
                     const unmarked=labels.has('')||labels.has('A');
@@ -7081,7 +7088,17 @@ function FWTP_V686_ListyZKursow(dane) {
                         if(!live.length)return;
                         // Po końcu C na cmentarzu pozostaje tylko W:
                         // dokładnie tutaj zmienia się napis przed powrotną Widokową.
-                        if(ended&&genuineSplitSeen)marker(live);
+                        // V688: po zakończeniu kursu skróconego marker jest
+                        // potrzebny wyłącznie wewnątrz NADAL ROZŁĄCZONYCH
+                        // odnóg (110: C kończy na cmentarzu, W wraca).
+                        // Gdy wszystkie pozostałe przebiegi jadą już wspólnie
+                        // (126: M kończy na Metrze Kondratowicza), brak markera.
+                        const outsideBranch=groups.some(g=>
+                            !parts.some(p=>p.full===g.full && p.letter===g.letter) &&
+                            !g.full.includes(id) &&
+                            g.path.some(stop=>!emitted.has(stop))
+                        );
+                        if(ended&&genuineSplitSeen&&outsideBranch)marker(live);
                     }
                     if(live.length===1){for(const id of live[0].path)addStop(id,live);return;}
                     const axis=live.slice().sort((a,b)=>b.count-a.count||b.path.length-a.path.length)[0];
@@ -8368,7 +8385,7 @@ function FWTP_V675_NormalizujJSON(json){
     }
     if(!Array.isArray(json["rozkłady"]))throw new Error("Brak tablicy rozkłady w JSON.");
     if(json["rozkłady"].some(r=>(r.kierunki||[]).some(k=>(k.przystanki||[]).some(p=>!p.lista_przystankowa)))){
-        FWTP_V686_ListyZKursow(json);
+        FWTP_V688_ListyZKursow(json);
     }
     return json;
 }
