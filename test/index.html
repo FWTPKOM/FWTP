@@ -1,4 +1,4 @@
-<!-- WERSJA: 697 — SADYBA KONCOWY Z KONTYNUACJA BEZ DUPLIKATU -->
+<!-- WERSJA: 698 — 134 WSPOLNA GEOMETRIA DNI, WARIANT F I METRO BRODNO -->
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
 <!DOCTYPE html>
 <!-- HISTORIA: WERSJA 680 — POWROTY PARAMI, LITERY Z VBA -->
@@ -6911,7 +6911,7 @@ root.FWTPRaw={convert,gather,catalog};if(typeof module!=='undefined')module.expo
 <div id="wynik"></div>
 </main>
 <script>
-/* FWTP — WERSJA 697. Sadyba przed wariantem W, koniec z kontynuacją. */
+/* FWTP — WERSJA 698. 134: fizyczne przebiegi z obu dni, F i powroty. */
 function FWTP_V689_ListyZKursow(dane) {
     // Przeniesienie modelu V59/V61/V63/V86: oś, fizyczne eventy,
     // dokładny powrót, litery odcinków, odrębne skrócenia i wydłużenia.
@@ -6940,6 +6940,49 @@ function FWTP_V689_ListyZKursow(dane) {
         for(const k of allDirs){
             const stops=k.przystanki||[],origin=stops[0]?.id;
             const byId=new Map(stops.map(s=>[s.id,s]));
+            // FWTP V698: LP w identyfikatorze jest lokalne dla rozkladu.
+            // 134: ten sam przystanek w dni robocze i swieta ma inne LP,
+            // a czasem nawet inny slupek (KS Polonez 01/03).
+            // Przebiegi z innych dni mapujemy po nazwie i slupku, a nowe
+            // przystanki zachowujemy jako odrebne elementy listy.
+            const mappedWeek=[];
+            if(String(dane.linia)==='134'){
+                const norm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pl-PL').trim();
+                const index=new Map(), byName=new Map();
+                for(const sp of stops){
+                    const n=norm(sp.nazwa_czysta||sp.nazwa),nr=String(sp.nr||'').trim();
+                    index.set(JSON.stringify([n,nr]),sp.id);
+                    if(!byName.has(n))byName.set(n,[]);
+                    byName.get(n).push(sp.id);
+                }
+                for(const other of allDirs){
+                    const otherStops=new Map((other.przystanki||[]).map(sp=>[sp.id,sp]));
+                    const otherOrigin=other.przystanki?.[0]?.id;
+                    const seen=new Set();
+                    for(const sp of other.przystanki||[])for(const c of sp.kursy||[]){
+                        if(seen.has(c.numer))continue;seen.add(c.numer);
+                        const original=routeOf(c);
+                        if(!original.length||original[0]!==otherOrigin)continue;
+                        const mapped=original.map(id=>{
+                            const source=otherStops.get(id);
+                            if(!source)return id;
+                            const n=norm(source.nazwa_czysta||source.nazwa),nr=String(source.nr||'').trim();
+                            const exact=index.get(JSON.stringify([n,nr]));
+                            const sameName=byName.get(n)||[];
+                            const mappedId=exact||(sameName.length===1?sameName[0]:null);
+                            if(mappedId)return mappedId;
+                            const virtual='FWTP_134_INNY_DZIEN|'+id;
+                            if(!byId.has(virtual))byId.set(virtual,{...source,id:virtual});
+                            return virtual;
+                        });
+                        mappedWeek.push({path:mapped,letter:letter(c),full:mapped,count:1,late:true});
+                    }
+                }
+                // F oznacza swiateczny kurs przez Metro Brodno
+                // zakonczony na Zeraniu FSO, a nie zwykle skrocenie Z.
+                for(const v of k.warianty||[])if(String(v.litera).toUpperCase()==='F')
+                    v.opis='kurs przez METRO BRÓDNO, skrócony do przystanku ŻERAŃ FSO';
+            }
             const coursesMap=new Map();
             for(const s of stops)for(const c of s.kursy||[]){
                 const path=routeOf(c);if(!path.length||!c.numer)continue;
@@ -7002,7 +7045,7 @@ function FWTP_V689_ListyZKursow(dane) {
                     if(!groupsMap.has(id))groupsMap.set(id,{path,full:c.path,letter:letter(c),count:counts.get(key(c.path))||0,late:false});
                 }
                 const groups=[...groupsMap.values()];
-                for(const w of week.values()){
+                for(const w of (String(dane.linia)==='134'?mappedWeek:week.values())){
                     const at=w.path.indexOf(selected.id);if(at<0)continue;
                     const path=w.path.slice(at),id=key([path,w.letter]);
                     if(!groupsMap.has(id)){
@@ -7013,7 +7056,7 @@ function FWTP_V689_ListyZKursow(dane) {
                 // dostarczają geometrii i oznaczeń (110: C z soboty).
                 // Nie pobieramy liter kursów rozpoczynających się w środku.
                 const currentLetters=new Set(physical.map(letter));
-                const weekLetters=new Set([...week.values()]
+                const weekLetters=new Set([...(String(dane.linia)==='134'?mappedWeek:week.values())]
                     .filter(w=>w.path[0]===origin&&w.path.includes(selected.id))
                     .map(w=>w.letter));
                 const elements=[],emitted=new Set();let prevTown='';
@@ -7094,7 +7137,7 @@ function FWTP_V689_ListyZKursow(dane) {
                 // fragment rzeczywistej trasy, niezależnie od wcześniejszych podjazdów.
                 const eventMembers=ids=>groups.filter(g=>contains(g.path,ids));
                 const label=(ids,gs)=>{
-                    const members=gs||eventMembers(ids);
+                    const members=(gs||eventMembers(ids)).filter(g=>String(dane.linia)!=='134'||g.letter!=='Z');
                     const present=members.filter(g=>!g.late&&currentLetters.has(g.letter));
                     // V691: C (110) z drugiego rozkładu jest rzeczywistym
                     // przebiegiem, nawet jeśli w bieżącym dniu brak jego minut.
@@ -7130,6 +7173,23 @@ function FWTP_V689_ListyZKursow(dane) {
                     const es=[...(events.get(i)?.values()||[])];
                     const bs=[...baseBranches.values()].filter(b=>b.start===i).sort((a,b)=>a.end-b.end);
                     if(es.length||bs.length){
+                        // V698: przy dwóch pełnych przebiegach 134 pokazujemy
+                        // najpierw zwykłą trasę (Toruńska, PKP Toruńska),
+                        // następnie świąteczny podjazd przez Metro Bródno.
+                        // Kurs Z kończy zwykłą trasę i nie jest wariantem odnogi.
+                        if(String(dane.linia)==='134'&&bs.length&&es.length){
+                            const b=bs[0];
+                            const baseMembers=groups.filter(g=>
+                                contains(g.path,b.ids)&&
+                                !['Z','F'].includes(g.letter));
+                            marker(b.ids,baseMembers);
+                            renderBranch(b.ids);
+                            for(const e of es){
+                                const members=eventMembers(e.ids).filter(g=>g.letter!=='Z');
+                                marker(e.ids,members);renderBranch(e.ids);
+                            }
+                            i=b.end;continue;
+                        }
                         // Zagnieżdżone odnogi: najpierw ich wspólny prefiks.
                         // Nie duplikujemy tych samych fizycznych przystanków.
                         for(const e of es){marker(e.ids,eventMembers(e.ids));renderBranch(e.ids);}
