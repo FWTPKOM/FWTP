@@ -1,4 +1,4 @@
-<!-- WERSJA: 787 -->
+<!-- WERSJA: 788 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -21935,6 +21935,50 @@ function v514RenderGotowejListy(){
 
     /* WERSJA 787: usunięto późną poprawkę V786.
        134 jest naprawiane w v514ModelListy(), przed V760 i podziałem kolumn. */
+
+    /* WERSJA 788 — OSTATECZNY PUNKT POWROTU 134.
+       Przywrócenie zachowania działającej logiki 134 (dawna v331):
+       pierwszy wspólny przystanek po odnodze jest rozpoznawany po NAZWIE,
+       nie po numerze słupka.
+
+       Na końcowym modelu, dokładnie przed renderowaniem, jeżeli mamy:
+         ... PELCOWIZNA -> PKP TORUŃSKA -> TRASA WE WSZYSTKICH -> ŻERAŃ FSO
+       to wspólna trasa zaczyna się JUŻ na PKP TORUŃSKA, więc otrzymujemy:
+         ... PELCOWIZNA -> TRASA WE WSZYSTKICH -> PKP TORUŃSKA -> ŻERAŃ FSO.
+
+       Celowo NIE sprawdzamy numeru słupka, liter f/m ani numeru kierunku.
+       Warunek dotyczy wyłącznie linii 134 i tej konkretnej sekwencji nazw,
+       dzięki czemu nie wpływa na pozostałe linie ani na poprawny drugi kierunek. */
+    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
+        const norm788=v=>String(v??'')
+            .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+            .replace(/[Łł]/g,'L').toUpperCase().replace(/\s+/g,' ').trim();
+        const nazwa788=e=>norm788(e?.nazwa||String(e?.id||'').split('|')[1]||'');
+        const jestStop788=e=>v486Text(e?.typ)==='przystanek';
+        const jestAll788=e=>v486Text(e?.typ)==='trasa_w_kursach' &&
+            norm788(e?.tekst).includes('TRASA WE WSZYSTKICH KURSACH');
+
+        for(let pel788=0;pel788<wynik760.length;pel788++){
+            if(!jestStop788(wynik760[pel788]) || nazwa788(wynik760[pel788])!=='PELCOWIZNA') continue;
+
+            const pkp788=wynik760.findIndex((e,i)=>
+                i>pel788 && jestStop788(e) && nazwa788(e)==='PKP TORUNSKA');
+            if(pkp788<0) continue;
+
+            const all788=wynik760.findIndex((e,i)=>i>pkp788 && jestAll788(e));
+            if(all788<0) continue;
+
+            const zeran788=wynik760.findIndex((e,i)=>
+                i>all788 && jestStop788(e) && nazwa788(e)==='ZERAN FSO');
+            if(zeran788<0) continue;
+
+            const [separator788]=wynik760.splice(all788,1);
+            const nowyPkp788=wynik760.findIndex((e,i)=>
+                i>pel788 && jestStop788(e) && nazwa788(e)==='PKP TORUNSKA');
+            if(nowyPkp788>=0) wynik760.splice(nowyPkp788,0,separator788);
+            break;
+        }
+    }
 
     let rows="";
     let stopPosition=0;
