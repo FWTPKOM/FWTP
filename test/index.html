@@ -22163,6 +22163,94 @@ function v514RenderGotowejListy(){
         }
     }
 
+    /* =========================================================
+       WERSJA 795 — OSOBNA LOGIKA LINII 134 / OLESIN -> METRO MARYMONT
+
+       Ta korekta działa NA OSTATECZNEJ TABLICY wynik760, tuż przed
+       renderowaniem. Nie korzysta z pełnego ID słupka PKP Toruńska.
+
+       W tym kierunku przebiegi mają różne fizyczne słupki:
+         trasa podstawowa: PKP TORUŃSKA 03
+         trasa przez Metro Bródno: PKP TORUŃSKA 01
+
+       Są to jednak ten sam LOGICZNY punkt ponownego połączenia.
+       Dlatego końcowa kolejność musi być zawsze:
+         ... PELCOWIZNA
+         TRASA WE WSZYSTKICH KURSACH
+         PKP TORUŃSKA
+         ŻERAŃ FSO ...
+
+       Nie dotykamy żadnej innej linii ani drugiego kierunku 134.
+       ========================================================= */
+    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
+        const n795=v=>String(v??'').normalize('NFD')
+            .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
+            .toUpperCase().replace(/\s+/g,' ').trim();
+        const stop795=e=>String(e?.typ||'').toLowerCase()==='przystanek';
+        const sep795=e=>String(e?.typ||'').toLowerCase()==='trasa_w_kursach';
+        const name795=e=>n795(e?.nazwa||String(e?.id||'').split('|')[1]||'');
+        const all795=e=>sep795(e)&&n795(e?.tekst||'').includes('WE WSZYSTKICH KURSACH');
+
+        /* Uruchamiamy WYŁĄCZNIE dla kierunku, w którym istnieje sekwencja
+           Pelcowizna -> PKP Toruńska -> Żerań FSO. Drugi kierunek nie ma
+           tej sekwencji i pozostaje dokładnie taki jak w V790. */
+        let pel795=wynik760.findIndex(e=>stop795(e)&&name795(e)==='PELCOWIZNA');
+        let pkp795=wynik760.findIndex((e,i)=>i>pel795&&stop795(e)&&name795(e)==='PKP TORUNSKA');
+        let zer795=wynik760.findIndex((e,i)=>i>pkp795&&stop795(e)&&name795(e)==='ZERAN FSO');
+
+        if(pel795>=0 && pkp795>pel795 && zer795>pkp795){
+            /* Zachowujemy jeden istniejący separator „we wszystkich”.
+               Usuwamy wszystkie jego kopie pomiędzy Pelcowizną i Żeraniem,
+               niezależnie od tego czy błędnie stoją przed czy po PKP. */
+            let marker795=null;
+            for(let i=zer795-1;i>pel795;i--){
+                if(all795(wynik760[i])){
+                    if(!marker795) marker795={...wynik760[i]};
+                    wynik760.splice(i,1);
+                }
+            }
+            if(!marker795){
+                marker795={typ:'trasa_w_kursach',tekst:'Trasa we wszystkich kursach'};
+            }else{
+                marker795.tekst='Trasa we wszystkich kursach';
+            }
+
+            /* Po splice indeksy liczymy ponownie i separator wkładamy
+               BEZPOŚREDNIO przed logicznym PKP Toruńska. */
+            pel795=wynik760.findIndex(e=>stop795(e)&&name795(e)==='PELCOWIZNA');
+            pkp795=wynik760.findIndex((e,i)=>i>pel795&&stop795(e)&&name795(e)==='PKP TORUNSKA');
+            zer795=wynik760.findIndex((e,i)=>i>pkp795&&stop795(e)&&name795(e)==='ZERAN FSO');
+            if(pkp795>pel795 && zer795>pkp795){
+                wynik760.splice(pkp795,0,marker795);
+
+                /* Czas po dłuższej odnodze nie może się cofnąć.
+                   Pelcowizna -> PKP Toruńska musi wzrosnąć co najmniej o 1,
+                   a Żerań FSO nie może mieć czasu mniejszego od PKP. */
+                const num795=v=>{
+                    const x=Number(v);
+                    return Number.isFinite(x)?x:null;
+                };
+                const pPel=wynik760.findIndex(e=>stop795(e)&&name795(e)==='PELCOWIZNA');
+                const pPkp=wynik760.findIndex((e,i)=>i>pPel&&stop795(e)&&name795(e)==='PKP TORUNSKA');
+                const pZer=wynik760.findIndex((e,i)=>i>pPkp&&stop795(e)&&name795(e)==='ZERAN FSO');
+                if(pPel>=0&&pPkp>pPel){
+                    const tPel=num795(wynik760[pPel]?.czas_przejazdu);
+                    const tPkp=num795(wynik760[pPkp]?.czas_przejazdu);
+                    if(tPel!==null && (tPkp===null||tPkp<=tPel)){
+                        wynik760[pPkp].czas_przejazdu=tPel+1;
+                    }
+                    if(pZer>pPkp){
+                        const nowPkp=num795(wynik760[pPkp]?.czas_przejazdu);
+                        const tZer=num795(wynik760[pZer]?.czas_przejazdu);
+                        if(nowPkp!==null && (tZer===null||tZer<nowPkp)){
+                            wynik760[pZer].czas_przejazdu=nowPkp+1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let rows="";
     let stopPosition=0;
 
