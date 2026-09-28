@@ -1,4 +1,4 @@
-<!-- WERSJA: 795 -->
+<!-- WERSJA: 796 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -23195,16 +23195,79 @@ function v508OznaczRzeczywisteKonce(){
 }
 
 
+/* =========================================================
+   FWTP V796 — 134: OSTATECZNE SCALENIE PO PODZIALE NA KOLUMNY
+   =========================================================
+   Przyczyna regresji 793–795: model listy był poprawiany PRZED V498,
+   ale V498 ponownie dzielił gotowy DOM na kolumny. W efekcie fizyczny
+   PKP TORUŃSKA pozostawał na końcu pierwszej kolumny, a separator
+   „Trasa we wszystkich kursach” trafiał do drugiej.
+
+   Dla 134 punkt scalenia jest logiczny, nie fizyczny: różne przebiegi
+   mogą mieć inne ID/słupki PKP TORUŃSKA. Po OSTATECZNYM podziale DOM
+   przenosimy więc istniejący pełny wiersz PKP TORUŃSKA bezpośrednio
+   za separator wspólnego odcinka. Nie tworzymy nowego przystanku i
+   nie porównujemy ID. TORUŃSKA zostaje w odnodze bez oznaczeń/Z.
+   ========================================================= */
+function FWTP_V796_Scal134PoKolumnach(){
+    if(String(daneLinii?.linia||aktualnaLinia||'').trim()!=='134')return;
+
+    const root=document.querySelector('#wynik .trasa-columns');
+    if(!root)return;
+
+    const norm=x=>String(x??'').normalize('NFD')
+        .replace(/[\u0300-\u036f]/g,'')
+        .toLocaleUpperCase('pl-PL')
+        .replace(/\s+/g,' ').trim();
+
+    const seps=[...root.querySelectorAll('.trasa-separator')];
+    const wspolny=seps.find(el=>
+        norm(el.textContent).includes('TRASA WE WSZYSTKICH KURSACH')
+    );
+    if(!wspolny)return;
+
+    const stops=[...root.querySelectorAll('.trasa-stop')];
+    const pkps=stops.filter(el=>{
+        const n=el.querySelector('.trasa-nazwa');
+        return norm(n?.textContent)==='PKP TORUNSKA';
+    });
+    if(!pkps.length)return;
+
+    // Zachowujemy pierwszy kompletny wyrenderowany wiersz. Pozostałe
+    // logiczne duplikaty usuwamy — ID może być inne w D i C.
+    const pkp=pkps[0];
+    pkps.slice(1).forEach(el=>el.remove());
+
+    // Separator może po splitterze znajdować się w innej <ul> niż PKP.
+    // insertAdjacentElement przenosi TEN SAM wiersz wraz z czasem/NŻ.
+    wspolny.insertAdjacentElement('afterend',pkp);
+
+    // PKP TORUŃSKA jest początkiem wspólnego odcinka, nie krańcem.
+    pkp.classList.remove('kraniec-koniec','koniec-trasy-210',
+        'v514-rzeczywisty-koniec','v612-koncowy','v612-koncowy-przelotowy');
+    pkp.classList.add('ma-kontynuacje-trasy');
+    pkp.querySelector('.trasa-nazwa')?.style.removeProperty('font-weight');
+}
+
 function v498UruchomDopasowanie(){
     requestAnimationFrame(()=>{
         requestAnimationFrame(()=>{
             v498DopasujKolumnyTrasy();
+
+            // V796 musi działać PO splitterze V498 — wcześniej późniejsza
+            // logika kolumn ponownie rozdzielała separator i PKP TORUŃSKA.
+            FWTP_V796_Scal134PoKolumnach();
 
             /*
                V508: dopiero po ostatecznym układzie DOM/kolumn
                nakładamy końce tras z dokładnych ID kurs.trasa.
             */
             v508OznaczRzeczywisteKonce();
+
+            // V508 pracuje po fizycznych ID i może ponownie oznaczyć PKP
+            // jako koniec któregoś przebiegu. Przy 134 po scaleniu logicznym
+            // przywracamy jego pozycję/styl jeszcze raz.
+            FWTP_V796_Scal134PoKolumnach();
         });
     });
 }
