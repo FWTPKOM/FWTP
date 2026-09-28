@@ -1,4 +1,4 @@
-<!-- WERSJA: 808 -->
+<!-- WERSJA: 809 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -21742,87 +21742,73 @@ function v514RenderGotowejListy(){
     }
 
     /* =========================================================
-       WERSJA 808 — 142: DWA NIEZALEŻNE RAMIONA PO WĘKARSKIEJ
+       WERSJA 809 — 142: ROZGAŁĘZIENIE PO WĘKARSKIEJ
 
-       Przywrócenie zasady ze starego generatora VBA:
-       jeżeli po wspólnym odcinku dwie rzeczywiste trasy rozchodzą się
-       i nie wracają już do wspólnej osi, obie dalsze części są osobnymi
-       gałęziami. Żadna gałąź nie jest kontynuacją drugiej.
+       Nie próbujemy już rozpoznawać STRZYGŁOWSKIEJ po ID ani po
+       przynależności do zestawu nazw. To właśnie było źródłem V808.
 
-       142, kierunek od WIATRACZNEJ:
-         WĘKARSKA
-         -> "s" -> RYCHNOWSKA ... SKALNICOWA
-         -> bez oznaczeń -> STRZYGŁOWSKA ... ALEKSANDRÓW
+       Dla 142 istnieją dwa NIEZALEŻNE ramiona po WĘKARSKIEJ:
+         1) „s” -> RYCHNOWSKA ... SKALNICOWA (koniec ramienia),
+         2) bez oznaczeń -> STRZYGŁOWSKA ... ALEKSANDRÓW.
 
-       Ważne: nie zakładamy, że trasa bazowa ma wariant="". W JSON-ie
-       może być technicznie oznaczona jako A. Rozpoznajemy ją po jej
-       RZECZYWISTYM przebiegu: zawiera STRZYGŁOWSKĄ i kończy się na
-       ALEKSANDROWIE. Dzięki temu poprawka nie zależy od litery wariantu.
+       Jeżeli generator przed tą poprawką ułożył elementy tak:
+         ... SKALNICOWA, [elementy drugiego ramienia], separator BEZ OZNACZEŃ ...
+       to CAŁY fragment pomiędzy SKALNICOWĄ a separatorem przenosimy
+       bezpośrednio POD separator. Nie dotykamy żadnej innej linii.
        ========================================================= */
     if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='142'){
-        const model808=v486CurrentStop()?.lista_przystankowa;
-        const trasy808=Array.isArray(model808?.trasy)?model808.trasy:[];
-        const norm808=s=>String(s??'').normalize('NFD')
+        const norm809=s=>String(s??'').normalize('NFD')
             .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
             .toUpperCase().replace(/\s+/g,' ').trim();
-        const nazwaId808=id=>norm808(String(id||'').split('|')[1]||'');
-        const nazwaEl808=e=>norm808(e?.nazwa_czysta||e?.nazwa||
+        const nazwa809=e=>norm809(e?.nazwa_czysta||e?.nazwa||
             String(e?.id||'').split('|')[1]||'');
-        const stop808=e=>e?.typ==='przystanek';
-        const sep808=e=>e?.typ==='trasa_w_kursach';
-        const koniec808=t=>nazwaId808(t?.koniec_trasy||
-            (Array.isArray(t?.trasa)&&t.trasa.length?t.trasa[t.trasa.length-1]:''));
-        const ma808=(t,n)=>Array.isArray(t?.trasa)&&t.trasa.some(id=>nazwaId808(id)===n);
+        const stop809=e=>e?.typ==='przystanek';
+        const sep809=e=>e?.typ==='trasa_w_kursach';
 
-        // Dwa fizyczne ramiona po Wękarskiej.
-        const trasaS808=trasy808.find(t=>
-            norm808(t?.wariant)==='S' &&
-            ma808(t,'RYCHNOWSKA') &&
-            koniec808(t)==='SKALNICOWA'
-        );
-        const trasaBazowa808=trasy808.find(t=>
-            ma808(t,'STRZYGLOWSKA') &&
-            koniec808(t)==='ALEKSANDROW'
+        const idxS809=wynik760.findIndex(e=>
+            sep809(e) &&
+            /TRASA W KURSACH/.test(norm809(e?.tekst)) &&
+            /(?:^|[^A-Z])S(?:[^A-Z]|$)/.test(norm809(e?.tekst))
         );
 
-        if(trasaS808 && trasaBazowa808){
-            const nazwyS808=new Set((trasaS808.trasa||[]).map(nazwaId808));
-            const nazwyBazowe808=new Set((trasaBazowa808.trasa||[]).map(nazwaId808));
+        if(idxS809>=0){
+            const idxSkal809=wynik760.findIndex((e,i)=>
+                i>idxS809 && stop809(e) && nazwa809(e)==='SKALNICOWA'
+            );
 
-            const idxS808=wynik760.findIndex(e=>sep808(e) &&
-                /TRASA W KURSACH/.test(norm808(e?.tekst)) &&
-                /(?:^|[^A-Z])S(?:[^A-Z]|$)/.test(norm808(e?.tekst)));
-            const idxSkal808=wynik760.findIndex((e,i)=>i>idxS808 &&
-                stop808(e) && nazwaEl808(e)==='SKALNICOWA');
-            let idxBez808=wynik760.findIndex((e,i)=>i>idxSkal808 &&
-                sep808(e) && /BEZ OZNACZEN/.test(norm808(e?.tekst)));
+            if(idxSkal809>=0){
+                let idxBez809=wynik760.findIndex((e,i)=>
+                    i>idxSkal809 && sep809(e) &&
+                    /BEZ OZNACZEN/.test(norm809(e?.tekst))
+                );
 
-            if(idxS808>=0 && idxSkal808>=0 && idxBez808>idxSkal808){
-                // Wszystko pomiędzy końcem S a nagłówkiem bazowej gałęzi,
-                // co należy wyłącznie do przebiegu na ALEKSANDRÓW,
-                // musi znaleźć się POD nagłówkiem "bez oznaczeń".
-                const przenies808=[];
-                for(let i=idxBez808-1;i>idxSkal808;i--){
-                    const e=wynik760[i];
-                    if(!stop808(e)) continue;
-                    const n=nazwaEl808(e);
-                    if(nazwyBazowe808.has(n) && !nazwyS808.has(n)){
-                        przenies808.unshift(wynik760.splice(i,1)[0]);
+                if(idxBez809>idxSkal809+1){
+                    // To NIE jest dalszy ciąg ramienia „s”.
+                    // Są to elementy drugiego ramienia, które generator
+                    // wstawił przed jego nagłówkiem. Zachowujemy ich
+                    // kolejność i przenosimy cały blok pod nagłówek.
+                    const drugieRamie809=wynik760.splice(
+                        idxSkal809+1,
+                        idxBez809-idxSkal809-1
+                    );
+
+                    idxBez809=wynik760.findIndex((e,i)=>
+                        i>idxSkal809 && sep809(e) &&
+                        /BEZ OZNACZEN/.test(norm809(e?.tekst))
+                    );
+
+                    if(idxBez809>=0 && drugieRamie809.length){
+                        wynik760.splice(idxBez809+1,0,...drugieRamie809);
                     }
                 }
 
-                if(przenies808.length){
-                    idxBez808=wynik760.findIndex((e,i)=>i>idxSkal808 &&
-                        sep808(e) && /BEZ OZNACZEN/.test(norm808(e?.tekst)));
-                    wynik760.splice(idxBez808+1,0,...przenies808);
-                }
-
-                // SKALNICOWA jest rzeczywistym końcem ramienia S.
-                const skal808=wynik760.find((e,i)=>i>idxS808 &&
-                    stop808(e) && nazwaEl808(e)==='SKALNICOWA');
-                if(skal808){
-                    skal808.koncowy=true;
-                    skal808.kontynuacja=false;
+                // SKALNICOWA kończy wyłącznie ramię „s”.
+                const skal809=wynik760.find((e,i)=>
+                    i>idxS809 && stop809(e) && nazwa809(e)==='SKALNICOWA'
+                );
+                if(skal809){
+                    skal809.koncowy=true;
+                    skal809.kontynuacja=false;
                 }
             }
         }
