@@ -1,4 +1,4 @@
-<!-- WERSJA: 794 -->
+<!-- WERSJA: 795 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -22688,8 +22688,72 @@ function v498PobierzStrumienWierszy(columns){
 
     if(!lista)return [];
 
-    return Array.from(lista.children)
-        .map(el=>el.outerHTML);
+    let wiersze498=Array.from(lista.children);
+
+    /* =========================================================
+       FWTP V795 — 134: SCALENIE PKP TORUŃSKA PRZED SPLITTEREM
+       =========================================================
+       V794 poprawiała model danych, ale późniejsze etapy DOM mogły
+       ponownie zostawić PKP TORUŃSKA przed separatorem wspólnego
+       odcinka. To właśnie było widoczne na tabliczce: PKP kończyło
+       pierwszą kolumnę, a "Trasa we wszystkich kursach" zaczynała
+       drugą.
+
+       Tutaj naprawiamy FINALNY strumień LI, zanim V498 zacznie
+       mierzyć i dzielić go na kolumny. Nie porównujemy ID słupka.
+       Dla 134 punktem scalenia jest LOGICZNA NAZWA PKP TORUŃSKA.
+
+       Wynik musi być zawsze:
+         ... TORUŃSKA
+         TRASA WE WSZYSTKICH KURSACH
+         PKP TORUŃSKA
+         ŻERAŃ FSO
+         ... METRO MARYMONT
+
+       Dzięki temu istniejąca reguła splittera "separator + następny
+       przystanek" trzyma napis razem właśnie z PKP TORUŃSKA.
+       ========================================================= */
+    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
+        const norm795=x=>String(x??'').normalize('NFD')
+            .replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pl-PL')
+            .replace(/\s+/g,' ').trim();
+        const nazwa795=el=>norm795(
+            el?.querySelector?.(':scope > .trasa-nazwa')?.textContent||''
+        );
+        const wspolny795=el=>
+            el?.classList?.contains('trasa-separator') &&
+            norm795(el.textContent).includes('TRASA WE WSZYSTKICH KURSACH');
+
+        const sep795=wiersze498.findIndex(wspolny795);
+        if(sep795>=0){
+            // Znajdź wszystkie logiczne PKP TORUŃSKA niezależnie od ID.
+            const pkp795=wiersze498.filter(el=>
+                el?.classList?.contains('trasa-stop') &&
+                nazwa795(el)==='PKP TORUNSKA'
+            );
+
+            if(pkp795.length){
+                // Zachowujemy jeden pełny, już wyrenderowany wiersz.
+                const zachowaj795=pkp795[0];
+
+                // Usuń każde PKP z dotychczasowej pozycji, aby nie mogło
+                // pozostać wewnątrz gałęzi bez oznaczeń/Z.
+                wiersze498=wiersze498.filter(el=>
+                    !(el?.classList?.contains('trasa-stop') &&
+                      nazwa795(el)==='PKP TORUNSKA')
+                );
+
+                // Po usunięciu przelicz pozycję separatora i włóż PKP
+                // DOKŁADNIE jako pierwszy wspólny przystanek.
+                const sepPo795=wiersze498.findIndex(wspolny795);
+                if(sepPo795>=0){
+                    wiersze498.splice(sepPo795+1,0,zachowaj795);
+                }
+            }
+        }
+    }
+
+    return wiersze498.map(el=>el.outerHTML);
 }
 
 function v498RenderGrupy(columns,grupy){
