@@ -1,4 +1,4 @@
-<!-- WERSJA: 787 -->
+<!-- WERSJA: 788 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -22092,9 +22092,141 @@ function v514RenderGotowejListy(){
         }
     }
 
-    /* V785: usunięto późne przestawianie PKP TORUŃSKA z V784.
-       Dla 134 kolejność jest już zbudowana poprawnie przez model V638
-       w v785ModelListy134(), więc renderer nie zmienia jej ponownie. */
+    /* =========================================================
+       FWTP V788 — 134: JEDNO ROZGAŁĘZIENIE, BEZ POWTARZANIA OPISÓW
+       =========================================================
+       V787 potrafił odnaleźć przebiegi z D i C, ale renderer traktował
+       kilka kursów o tym samym fizycznym odgałęzieniu jako kolejne
+       niezależne gałęzie. Skutek: kilka razy "m", "z" i "bez oznaczeń".
+
+       Tutaj — tak jak w korekcie 126 — składamy FINALNY fragment tylko raz:
+         KS POLONEZ
+         -> M,F -> fizyczna odnoga przez METRO BRÓDNO
+         -> bez oznaczeń,Z -> fizyczna odnoga bez METRA BRÓDNO
+         -> WE WSZYSTKICH KURSACH
+         -> PKP TORUŃSKA
+         -> ŻERAŃ FSO
+
+       Źródłem przebiegów nadal są WYŁĄCZNIE katalog_tras_v210 + kurs.trasa_ref
+       z D i C. Nie dopisujemy liter, których nie ma przy kursach.
+       ========================================================= */
+    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
+        const norm788=x=>String(x??'').normalize('NFD')
+            .replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pl-PL')
+            .replace(/\s+/g,' ').trim();
+        const name788=p=>norm788(p?.nazwa_czysta||p?.nazwa||
+            String(p?.id||'').split('|')[1]);
+        const isStop788=e=>e?.typ==='przystanek';
+        const stopName788=e=>name788(e);
+        const katalog788=Array.isArray(daneLinii?.katalog_tras_v210)
+            ?daneLinii.katalog_tras_v210:[];
+
+        // Pełna mapa słupków ze wszystkich rozkładów D/C.
+        const stopMap788=new Map();
+        (daneLinii?.rozkłady||[]).forEach(r=>{
+            const d=r?.kierunki?.[aktualnyKierunek];
+            (d?.przystanki||[]).forEach(p=>{
+                const id=v486StopId(p);
+                if(id&&!stopMap788.has(id))stopMap788.set(id,p);
+            });
+        });
+
+        const active788=v486CurrentStop();
+        const activeId788=v486StopId(active788);
+        const kursy788=[];
+        const seen788=new Set();
+        (daneLinii?.rozkłady||[]).forEach((r,ri)=>{
+            const d=r?.kierunki?.[aktualnyKierunek];
+            const p=(d?.przystanki||[]).find(x=>v486StopId(x)===activeId788);
+            (p?.kursy||[]).forEach((k,ki)=>{
+                if(v637KursTechniczny(k))return;
+                const ref=Number(k?.trasa_ref);
+                if(!Number.isInteger(ref)||!Array.isArray(katalog788[ref]))return;
+                const key=[ri,ref,String(k?.wariant??''),String(k?.numer??ki)].join('|');
+                if(seen788.has(key))return;
+                seen788.add(key);
+                kursy788.push({k,ids:katalog788[ref].map(String)});
+            });
+        });
+
+        const indeksNazwy788=(ids,nazwa,od=0)=>{
+            for(let i=od;i<ids.length;i++){
+                if(name788(stopMap788.get(ids[i]))===nazwa)return i;
+            }
+            return -1;
+        };
+        const maNazwe788=(x,n)=>indeksNazwy788(x.ids,n)>=0;
+        const litera788=x=>String(x.k?.wariant||'').trim().toUpperCase();
+
+        const kandydaci788=kursy788.filter(x=>
+            maNazwe788(x,'KS POLONEZ')&&maNazwe788(x,'PKP TORUNSKA'));
+        const mf788=kandydaci788.filter(x=>
+            ['M','F'].includes(litera788(x))&&maNazwe788(x,'METRO BRODNO'));
+        const bz788=kandydaci788.filter(x=>
+            (litera788(x)===''||litera788(x)==='Z')&&!maNazwe788(x,'METRO BRODNO'));
+
+        const najdluzsza788=arr=>arr.slice().sort((a,b)=>b.ids.length-a.ids.length)[0];
+        const trasaMF788=najdluzsza788(mf788);
+        const trasaBZ788=najdluzsza788(bz788);
+
+        const segment788=(trasa,odNazwa,doNazwa)=>{
+            if(!trasa)return [];
+            const a=indeksNazwy788(trasa.ids,odNazwa);
+            const b=indeksNazwy788(trasa.ids,doNazwa,a+1);
+            if(a<0||b<=a)return [];
+            return trasa.ids.slice(a+1,b).filter(id=>{
+                const p=stopMap788.get(id);
+                return p&&v486StopType(p)!=='TECH';
+            });
+        };
+        const mfIds788=segment788(trasaMF788,'KS POLONEZ','PKP TORUNSKA');
+        const bzIds788=segment788(trasaBZ788,'KS POLONEZ','PKP TORUNSKA');
+
+        // Jeden fizyczny przystanek = jeden wiersz. Zachowujemy jednak
+        // różne słupki o tej samej nazwie, jeśli naprawdę występują kolejno.
+        const elemStop788=(id,koncowy=false)=>{
+            const p=stopMap788.get(id);
+            if(!p)return null;
+            return {typ:'przystanek',id,nazwa:p.nazwa_czysta||p.nazwa,
+                nr:p.nr,typ_przystanku:p.typ,stan:'normalny',
+                koncowy:!!koncowy,kontynuacja:false};
+        };
+        const sep788=tekst=>({typ:'trasa_w_kursach',tekst});
+
+        const idxPol788=wynik760.findIndex(e=>isStop788(e)&&stopName788(e)==='KS POLONEZ');
+        const idxZer788=wynik760.findIndex((e,i)=>i>idxPol788&&isStop788(e)&&stopName788(e)==='ZERAN FSO');
+        if(idxPol788>=0&&idxZer788>idxPol788&&trasaMF788&&trasaBZ788){
+            // Wspólny PKP TORUŃSKA bierzemy z przebiegu, nie z nazwy w DOM.
+            const pMF=indeksNazwy788(trasaMF788.ids,'PKP TORUNSKA');
+            const pkpId788=pMF>=0?trasaMF788.ids[pMF]:null;
+            const nowy788=[];
+
+            if(mfIds788.length){
+                nowy788.push(sep788('Trasa w kursach „m”, „f”'));
+                mfIds788.forEach(id=>{
+                    const e=elemStop788(id,false); if(e)nowy788.push(e);
+                });
+            }
+            if(bzIds788.length){
+                nowy788.push(sep788('Trasa w kursach bez oznaczeń, „z”'));
+                bzIds788.forEach(id=>{
+                    const e=elemStop788(id,false); if(e)nowy788.push(e);
+                });
+            }
+            if(pkpId788){
+                nowy788.push(sep788('Trasa we wszystkich kursach'));
+                const e=elemStop788(pkpId788,false); if(e)nowy788.push(e);
+            }
+
+            // ŻERAŃ FSO jest tutaj wspólnym PRZELOTOWYM przystankiem.
+            // Nie wolno go pogrubiać ani kończyć na nim osi.
+            const zerStary788=wynik760[idxZer788];
+            const zer788={...zerStary788,koncowy:false,kontynuacja:false};
+            nowy788.push(zer788);
+
+            wynik760.splice(idxPol788+1,idxZer788-idxPol788,...nowy788);
+        }
+    }
 
     let rows="";
     let stopPosition=0;
