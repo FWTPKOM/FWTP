@@ -1,5 +1,5 @@
-<!-- WERSJA: 799 — 134: NAPRAWA CONST; GENERATOR MODYFIKUJE TABLICĘ IN-PLACE -->
-<!-- 134: punkt powrotu PKP TORUŃSKA ustala V787 przed V760; V760 nie dotyka 134 -->
+<!-- WERSJA: 800 — 134: CZYSTY SILNIK Z DZIAŁAJĄCEJ V638; USUNIĘTE KONFLIKTUJĄCE REGUŁY -->
+<!-- 134: osobny czysty model V800 oparty na działającej logice V638; bez V689/V760 i bez późnych łatek 134 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -8972,7 +8972,7 @@ function FWTP_V675_NormalizujJSON(json){
         return window.FWTPRaw.convert(json);
     }
     if(!Array.isArray(json["rozkłady"]))throw new Error("Brak tablicy rozkłady w JSON.");
-    if(json["rozkłady"].some(r=>(r.kierunki||[]).some(k=>(k.przystanki||[]).some(p=>!p.lista_przystankowa)))){
+    if(String(json.linia)!=='134' && json["rozkłady"].some(r=>(r.kierunki||[]).some(k=>(k.przystanki||[]).some(p=>!p.lista_przystankowa)))){
         FWTP_V689_ListyZKursow(json);
     }
     FWTP_V754_PoprawModeleRozgalezien(json);
@@ -20562,7 +20562,218 @@ function v496RenderRoutes(routes){
      aby dwa słupki o tej samej nazwie nie pomyliły zaznaczenia.
    ========================================================= */
 
+
+
+/* =========================================================
+   WERSJA 800 — LINIA 134: CZYSTY SILNIK Z DZIAŁAJĄCEJ V638
+   =========================================================
+   Dla 134 nie używamy V689 ani późniejszych rekonstrukcji V760/V78x/V79x.
+   Model jest budowany bezpośrednio z katalog_tras_v210 i kursów D+C,
+   dokładnie algorytmem, który działał w wersji 638.
+   Różne fizyczne ID mogą połączyć się po unikalnej nazwie, dlatego
+   PKP TORUŃSKA wraca do wspólnej osi po obu gałęziach.
+   ========================================================= */
+const v800Cache134=new Map();
+function v800KursTechniczny(k){
+    const uwagi=String(k?.uwagi||'').toUpperCase();
+    return /(?:^|[^A-Z])D?TECH(?:$|[^A-Z])/.test(uwagi) ||
+        k?.techniczny===true;
+}
+
+function v800Model134Z638(){
+    const active=v486CurrentStop();
+    const katalog=daneLinii?.katalog_tras_v210;
+    if(!active || !Array.isArray(katalog) || !katalog.length)return null;
+    const activeId=v486StopId(active);
+    const cacheKey=[daneLinii?.linia,aktualnyKierunek,activeId,
+        daneLinii?.rozkłady?.length].join('|');
+    if(v800Cache134.has(cacheKey))return v800Cache134.get(cacheKey);
+    const stops=new Map();
+    (daneLinii?.rozkłady||[]).forEach(r=>{
+        const dir=r?.kierunki?.[aktualnyKierunek];
+        (dir?.przystanki||[]).forEach(p=>{
+            const id=v486StopId(p);
+            if(id && !stops.has(id))stops.set(id,p);
+        });
+    });
+    const activeIndex=Number(aktualnyPrzystanek);
+    const routes=new Map();
+    const allCourseLetters=new Set();
+    const sourceCourses=v486Array(active?.kursy).filter(k=>!v800KursTechniczny(k));
+    for(const course of sourceCourses){
+        const ref=Number(course.trasa_ref);
+        const full=Number.isInteger(ref) && Array.isArray(katalog[ref])
+            ? katalog[ref].map(String) : v486Array(course.trasa).map(String);
+        const start=full.indexOf(activeId);
+        if(start<0)continue;
+        const ids=full.slice(start).filter(id=>{
+            const p=stops.get(id);
+            return p && v486StopType(p)!=='TECH';
+        });
+        if(!ids.length)continue;
+        const key=ids.join('\u001f');
+        const letter=String(course.wariant||'').trim().toUpperCase();
+        if(letter)allCourseLetters.add(letter);
+        if(!routes.has(key))routes.set(key,{
+            ids,letters:new Set(),courses:[],terminal:new Set(),
+            order:routes.size
+        });
+        const r=routes.get(key);
+        r.letters.add(letter);
+        r.courses.push(course);
+        if(course.koniec_trasy)r.terminal.add(String(course.koniec_trasy));
+    }
+    const list=[...routes.values()];
+    if(!list.length)return null;
+    // Wariant podstawowy ma pierwszeństwo; nie zmieniamy oznaczeń kursów.
+    list.sort((a,b)=>{
+        const aBase=a.letters.has('')||a.letters.has('A');
+        const bBase=b.letters.has('')||b.letters.has('A');
+        return Number(bBase)-Number(aBase)||b.ids.length-a.ids.length||a.order-b.order;
+    });
+    const base=list[0];
+    const logical=(id,routeA,routeB)=>{
+        if(!id)return '';
+        const p=stops.get(id);
+        if(!p)return id;
+        const name=String(p.nazwa_czysta||p.nazwa||'').trim().toUpperCase();
+        const occurrences=r=>r.ids.filter(x=>{
+            const q=stops.get(x);
+            return String(q?.nazwa_czysta||q?.nazwa||'').trim().toUpperCase()===name;
+        }).length;
+        // Różne słupki można scalić tylko dla niepowtarzających się nazw.
+        if(occurrences(routeA)===1&&occurrences(routeB)===1)return 'NAME:'+name;
+        return id;
+    };
+    const same=(idA,idB,a,b)=>idA===idB ||
+        logical(idA,a,b)===logical(idB,a,b);
+    const result=[];
+    const emitted=new Set();
+    const routeEndIds=new Set(list.flatMap(r=>[...r.terminal]));
+    const routeMask=(r)=>r.letters;
+    const labels=(subset)=>{
+        const letters=new Set();
+        subset.forEach(r=>routeMask(r).forEach(x=>letters.add(x)));
+        const all=new Set(sourceCourses.map(c=>String(c.wariant||'').trim().toUpperCase()));
+        const complete=[...all].every(x=>letters.has(x));
+        if(complete)return 'Trasa we wszystkich kursach';
+        const show=[...letters].filter(x=>x && (x!=='A'||all.size>=4));
+        const empty=letters.has('')||(letters.has('A')&&all.size<4);
+        if(!show.length && empty)return 'Trasa w kursach bez oznaczeń';
+        return 'Trasa w kursach '+[
+            ...(empty?['bez oznaczeń']:[]),...show.map(x=>'„'+x.toLowerCase()+'”')
+        ].join(', ');
+    };
+    let lastLabel=null,lastTown=null,lastZone=null;
+    const separator=(typ,tekst)=>{
+        if(!tekst)return;
+        if(typ==='trasa_w_kursach'&&tekst===lastLabel)return;
+        if(typ==='trasa_w_kursach')lastLabel=tekst;
+        result.push({typ,tekst});
+    };
+    const emit=(id,subset)=>{
+        const p=stops.get(id);
+        if(!p)return;
+        const town=String(p.miejscowosc||'').trim();
+        const zone=String(p.strefa||'').trim();
+        if(town&&town!==lastTown && result.some(e=>e.typ==='przystanek')){
+            separator('miejscowosc',town);lastTown=town;
+        }
+        if(zone&&zone!==lastZone && result.some(e=>e.typ==='przystanek')){
+            separator('strefa',/^STREFA/i.test(zone)?zone:'STREFA '+zone);
+            lastZone=zone;
+        }
+        const ending=subset.some(r=>r.terminal.has(id)||r.ids.at(-1)===id);
+        const continuation=subset.some(r=>r.ids.indexOf(id)>=0&&
+            r.ids.indexOf(id)<r.ids.length-1);
+        const first=result.every(e=>e.typ!=='przystanek');
+        const elem={typ:'przystanek',id,nazwa:p.nazwa_czysta||p.nazwa,
+            nr:p.nr,typ_przystanku:p.typ,
+            stan:first?'aktualny':'normalny',koncowy:ending,
+            kontynuacja:ending&&continuation};
+        result.push(elem);
+        emitted.add(id);
+    };
+    // Każda fizyczna krawędź ma własny zbiór kursów. Pozwala to
+    // odtworzyć zagnieżdżone rozgałęzienia bez wyjątków numerów linii.
+    const edgeRoutes=new Map();
+    list.forEach(r=>r.ids.slice(0,-1).forEach((id,i)=>{
+        const key=id+'\u001e'+r.ids[i+1];
+        if(!edgeRoutes.has(key))edgeRoutes.set(key,new Set());
+        edgeRoutes.get(key).add(r);
+    }));
+    // Wspólna oś bazowa, a odnogi wstawiane przed punktem ponownego
+    // połączenia. Każda odnoga może mieć własne kolejne rozgałęzienia.
+    const walk=(route,start,end,subset,depth)=>{
+        if(depth>list.length*4+12)return;
+        let i=start;
+        while(i<end){
+            const id=route.ids[i];
+            if(i>start){
+                const from=route.ids[i-1];
+                const group=[...edgeRoutes.get(from+'\u001e'+id)||[]];
+                if(group.length)subset=group;
+            }
+            if(i===0||!emitted.has(id))emit(id,subset);
+            // Alternatywne krawędzie od tego samego punktu, zebrane
+            // na podstawie pełnych fizycznych przebiegów.
+            const choices=[];
+            list.forEach(other=>{
+                if(other===route)return;
+                for(let j=0;j<other.ids.length-1;j++){
+                    if(!same(other.ids[j],id,other,route))continue;
+                    const next=other.ids[j+1];
+                    if(i+1<route.ids.length &&
+                       same(next,route.ids[i+1],other,route))continue;
+                    if(choices.some(x=>x.route===other&&x.start===j+1))continue;
+                    choices.push({route:other,start:j+1});
+                    break;
+                }
+            });
+            for(const branch of choices){
+                const r=branch.route;
+                const token=id+'|'+r.order+'|'+branch.start;
+                if(v638Seen.has(token))continue;
+                v638Seen.add(token);
+                let join=-1;
+                for(let j=branch.start;j<r.ids.length;j++){
+                    if(route.ids.slice(i+1).some(x=>same(x,r.ids[j],route,r))){
+                        join=j;break;
+                    }
+                }
+                const branchEnd=join>=0?join:r.ids.length;
+                if(branchEnd<=branch.start)continue;
+                separator('trasa_w_kursach',labels([r]));
+                walk(r,branch.start,branchEnd,[r],depth+1);
+                separator('trasa_w_kursach',labels(subset));
+            }
+            i++;
+        }
+    };
+    const v638Seen=new Set();
+    separator('trasa_w_kursach',labels(list));
+    walk(base,0,base.ids.length,list,0);
+    // Warianty zaczynające się dalej na wspólnej osi nie są osobnymi
+    // gałęziami. Niezależne przebiegi dołączamy tylko gdy ich nie było.
+    list.forEach(r=>{
+        if(r.ids.every(id=>emitted.has(id)))return;
+        const start=r.ids.findIndex(id=>!emitted.has(id));
+        if(start<0)return;
+        separator('trasa_w_kursach',labels([r]));
+        walk(r,start,r.ids.length,[r],0);
+    });
+    if(result.length && result[0].typ==='trasa_w_kursach' &&
+       result[0].tekst==='Trasa we wszystkich kursach')result.shift();
+    v800Cache134.set(cacheKey,result);
+    return result;
+}
+
 function v514ModelListy(){
+    /* V800: 134 omija CAŁĄ aktualną logikę składania listy. */
+    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
+        const model134=v800Model134Z638();
+        if(Array.isArray(model134)&&model134.length)return model134;
+    }
     const active=v486CurrentStop();
     const model=active?.lista_przystankowa;
 
@@ -20932,73 +21143,8 @@ function v514ModelListy(){
                 }
             }
         }
-        /* WERSJA 799 — 134, OLESIN -> METRO MARYMONT.
-           POPRAWKA: `elementy` jest const, więc nie przypisujemy nowej tablicy;
-           finalny model jest wpisywany do istniejącej tablicy przez splice().
-           JEDYNY generator porządku rozgałęzienia 134.
-           Nie próbujemy już przesuwać pojedynczego separatora w zastanym modelu.
-           Bierzemy gotowe elementy obu gałęzi i składamy je od nowa:
-
-             KS POLONEZ
-             -> M,F -> SUWALSKA ... PELCOWIZNA
-             -> BEZ OZNACZEŃ,Z -> TORUŃSKA
-             -> WE WSZYSTKICH KURSACH -> PKP TORUŃSKA
-             -> ŻERAŃ FSO ... METRO MARYMONT
-
-           PKP TORUŃSKA jest punktem logicznego ponownego połączenia tras.
-           Jego różne fizyczne ID w przebiegach nie służą do wykrywania połączenia. */
-        if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
-            const n798=v=>String(v??'').normalize('NFD')
-                .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
-                .toUpperCase().replace(/\s+/g,' ').trim();
-            const stop798=e=>e?.typ==='przystanek';
-            const sep798=e=>e?.typ==='trasa_w_kursach';
-            const name798=e=>n798(e?.nazwa||String(e?.id||'').split('|')[1]||'');
-            const text798=e=>n798(e?.tekst||'').replace(/[„”"']/g,' ');
-            const isAll798=e=>sep798(e)&&/TRASA WE WSZYSTKICH KURSACH/.test(text798(e));
-            const isBez798=e=>sep798(e)&&/BEZ OZNACZEN/.test(text798(e));
-            const isFM798=e=>{
-                if(!sep798(e))return false;
-                const t=' '+text798(e)+' ';
-                return /TRASA W KURSACH/.test(t)&&
-                    /(^|[^A-Z])M([^A-Z]|$)/.test(t)&&
-                    /(^|[^A-Z])F([^A-Z]|$)/.test(t);
-            };
-
-            const ks=elementy.findIndex(e=>stop798(e)&&name798(e)==='KS POLONEZ');
-            const bez=elementy.findIndex((e,i)=>i>ks&&isBez798(e));
-            const tor=elementy.findIndex((e,i)=>i>bez&&stop798(e)&&name798(e)==='TORUNSKA');
-            const fm=elementy.findIndex((e,i)=>i>ks&&isFM798(e));
-            const suw=elementy.findIndex((e,i)=>i>fm&&stop798(e)&&name798(e)==='SUWALSKA');
-            const pel=elementy.findIndex((e,i)=>i>suw&&stop798(e)&&name798(e)==='PELCOWIZNA');
-            const pkp=elementy.findIndex((e,i)=>i>pel&&stop798(e)&&name798(e)==='PKP TORUNSKA');
-            const all=elementy.findIndex(isAll798);
-            const zer=elementy.findIndex((e,i)=>i>all&&stop798(e)&&name798(e)==='ZERAN FSO');
-
-            if(ks>=0&&bez>ks&&tor>bez&&fm>ks&&suw>fm&&pel>suw&&pkp>pel&&all>=0&&zer>all){
-                const prefix=elementy.slice(0,ks+1);
-
-                // Gałąź M,F: separator + wszystko od SUWALSKIEJ do PELCOWIZNY.
-                // PKP TORUŃSKA jest już wspólna, więc nie wchodzi do tej gałęzi.
-                const galazFM=[elementy[fm],...elementy.slice(suw,pel+1)];
-
-                // Gałąź bez oznaczeń,Z: tylko jej własny odcinek do TORUŃSKIEJ.
-                const galazBez=[elementy[bez],...elementy.slice(bez+1,tor+1)
-                    .filter(e=>!isFM798(e)&&!isAll798(e))];
-
-                // Wspólny PKP wybieramy z istniejącego elementu, ale miejsce
-                // ustalamy po NAZWIE, nie po fizycznym ID słupka.
-                const wspolnyPKP={...elementy[pkp],koncowy:false,kontynuacja:false};
-                const markerAll={...elementy[all],tekst:'Trasa we wszystkich kursach'};
-
-                // Sufiks od ŻERANIA do końca pozostaje dokładnie z JSON-u.
-                // Usuwamy tylko ewentualne separatory wariantów, które należały
-                // do wcześniejszych błędnych rekonstrukcji gałęzi.
-                const suffix=elementy.slice(zer).filter(e=>!sep798(e));
-
-                elementy.splice(0, elementy.length, ...prefix, ...galazFM, ...galazBez, markerAll, wspolnyPKP, ...suffix);
-            }
-        }
+        /* V800: brak jakichkolwiek lokalnych łatek 134 w tym modelu.
+           Linia 134 wychodzi wcześniej przez v800Model134Z638(). */
         return elementy;
     }
 
@@ -21967,11 +22113,8 @@ function v514RenderGotowejListy(){
     /* WERSJA 787: usunięto późną poprawkę V786.
        134 jest naprawiane w v514ModelListy(), przed V760 i podziałem kolumn. */
 
-    /* WERSJA 797 — USUNIĘTO KONFLIKTUJĄCE ŁATKI 788, 789, 790 i 795 DLA 134.
-       Dla 134 źródłem prawdy jest teraz wyłącznie V787 wykonane w v514ModelListy(),
-       zanim powstanie wynik760. Globalny V760 jest dla 134 wyłączony.
-       Dzięki temu późniejszy kod nie może ponownie przenieść PKP TORUŃSKA
-       do gałęzi „bez oznaczeń, z”. */
+    /* WERSJA 800 — 134 nie dociera tutaj z aktualnym modelem: v514ModelListy()
+       zwraca wcześniej czysty model v800Model134Z638(). V760 pozostaje pominięty dla 134. */
 
     let rows="";
     let stopPosition=0;
