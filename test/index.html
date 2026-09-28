@@ -1,4 +1,4 @@
-<!-- WERSJA: 789 -->
+<!-- WERSJA: 790 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -22057,6 +22057,99 @@ function v514RenderGotowejListy(){
                             last789=t;
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /* WERSJA 790 — 134 / kierunek do METRO MARYMONT.
+       Naprawa wykonywana na tablicy, która ZA CHWILĘ jest renderowana.
+       Nie próbujemy już ustalać wspólności po pełnym ID słupka.
+
+       JSON dla 134 ma:
+         D: TORUŃSKA 05 -> PKP TORUŃSKA 03 -> ŻERAŃ FSO 03
+         C: ... PELCOWIZNA 06 -> PKP TORUŃSKA 01 -> ŻERAŃ FSO 03
+       Zatem PKP TORUŃSKA jest logicznym punktem powrotu obu przebiegów,
+       mimo różnych numerów 03 / 01.
+
+       Końcowy model musi mieć:
+         PELCOWIZNA
+         TRASA WE WSZYSTKICH KURSACH
+         PKP TORUŃSKA
+         ŻERAŃ FSO
+
+       Dodatkowo czas PKP/ŻERANIA pobieramy ponownie z czasy_odcinkow
+       aktualnego rozkładu. Nie dziedziczymy czasu z przenoszonego elementu. */
+    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
+        const key790=v=>String(v??'').normalize('NFD')
+            .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
+            .toUpperCase().replace(/\s+/g,' ').trim();
+        const isStop790=e=>String(e?.typ||'').toLowerCase()==='przystanek';
+        const isSep790=e=>String(e?.typ||'').toLowerCase()==='trasa_w_kursach';
+        const nm790=e=>key790(e?.nazwa||String(e?.id||'').split('|')[1]||'');
+        const isAll790=e=>isSep790(e)&&key790(e?.tekst).includes('WE WSZYSTKICH KURSACH');
+
+        const iPel790=wynik760.findIndex(e=>isStop790(e)&&nm790(e)==='PELCOWIZNA');
+        const iPkp790=wynik760.findIndex((e,i)=>i>iPel790&&isStop790(e)&&nm790(e)==='PKP TORUNSKA');
+        const iZer790=wynik760.findIndex((e,i)=>i>iPkp790&&isStop790(e)&&nm790(e)==='ZERAN FSO');
+
+        if(iPel790>=0&&iPkp790>iPel790&&iZer790>iPkp790){
+            /* Usuń każdy stary „we wszystkich” od Pelcowizny aż do Żerania.
+               Robimy to od końca, żeby indeksy się nie rozjechały. */
+            for(let i=iZer790-1;i>iPel790;i--){
+                if(isAll790(wynik760[i])) wynik760.splice(i,1);
+            }
+
+            /* Po splice odszukujemy elementy jeszcze raz. */
+            const pel2=wynik760.findIndex(e=>isStop790(e)&&nm790(e)==='PELCOWIZNA');
+            const pkp2=wynik760.findIndex((e,i)=>i>pel2&&isStop790(e)&&nm790(e)==='PKP TORUNSKA');
+            if(pel2>=0&&pkp2>pel2){
+                wynik760.splice(pkp2,0,{
+                    typ:'trasa_w_kursach',
+                    tekst:'Trasa we wszystkich kursach'
+                });
+            }
+
+            /* Rzeczywiste czasy z JSON aktualnego dnia/kierunku.
+               Liczymy od dokładnego aktualnego przystanku po czasy_odcinkow. */
+            const dir790=v486CurrentDirection?.();
+            const edges790=Array.isArray(dir790?.czasy_odcinkow)?dir790.czasy_odcinkow:[];
+            const start790=String(v486CurrentStop?.()?.id||'');
+            const timeById790=new Map();
+            if(start790&&edges790.length){
+                let current790=start790;
+                let total790=0;
+                timeById790.set(current790,0);
+                /* czasy_odcinkow są zapisane w kolejności przebiegu.
+                   Startujemy od odcinka wychodzącego z aktywnego ID. */
+                let started790=false;
+                for(const ed of edges790){
+                    const od=String(ed?.od||''), do_=String(ed?.do||'');
+                    if(!started790){
+                        if(od!==current790) continue;
+                        started790=true;
+                    }
+                    if(od!==current790) continue;
+                    const m=Number(ed?.minuty);
+                    if(!Number.isFinite(m)) continue;
+                    total790+=m;
+                    current790=do_;
+                    timeById790.set(current790,total790);
+                }
+            }
+
+            /* Po nazwie wybieramy właściwy słupek z bieżącego rozkładu.
+               To daje dla C: Pelcowizna 27, PKP Toruńska 28, Żerań FSO 29. */
+            const byName790=new Map();
+            for(const [id,t] of timeById790){
+                const n=key790(id.split('|')[1]||'');
+                if(!byName790.has(n)||t>byName790.get(n)) byName790.set(n,t);
+            }
+            for(const e of wynik760){
+                if(!isStop790(e)) continue;
+                const n=nm790(e);
+                if((n==='PKP TORUNSKA'||n==='ZERAN FSO')&&byName790.has(n)){
+                    e.czas_przejazdu=byName790.get(n);
                 }
             }
         }
