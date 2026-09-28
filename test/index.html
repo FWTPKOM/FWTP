@@ -1,4 +1,4 @@
-<!-- WERSJA: 788 -->
+<!-- WERSJA: 789 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -21977,6 +21977,88 @@ function v514RenderGotowejListy(){
                 i>pel788 && jestStop788(e) && nazwa788(e)==='PKP TORUNSKA');
             if(nowyPkp788>=0) wynik760.splice(nowyPkp788,0,separator788);
             break;
+        }
+    }
+
+    /* WERSJA 789 — 134: naprawa KOŃCOWEGO modelu, bez zgadywania słupka.
+       Jeżeli po odnodze przez METRO BRÓDNO widzimy PELCOWIZNĘ, PKP TORUŃSKA
+       i później ŻERAŃ FSO, to PKP TORUŃSKA jest pierwszym wspólnym
+       przystankiem obu przebiegów. Niezależnie od numeru słupka:
+
+         ... PELCOWIZNA -> [WSZYSTKIE] -> PKP TORUŃSKA -> ŻERAŃ FSO ...
+
+       Usuwamy istniejący PKP TORUŃSKA oraz marker „wszystkie” z ich starych
+       miejsc i wstawiamy je bezpośrednio przed ŻERANIEM FSO. Dzięki temu
+       PKP TORUŃSKA nie należy już do sekcji f/m.
+
+       Czas: po dłuższej odnodze czas nie może spaść. Od PKP TORUŃSKA dalej
+       wymuszamy niemalejące czasy. Jeżeli pierwszy wspólny stop miał czas
+       z krótszej trasy, przyjmujemy co najmniej czas poprzedniego stopu + 1.
+       Dalsze przystanki również nie mogą mieć mniejszego czasu niż poprzedni. */
+    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
+        const n789=v=>String(v??'').normalize('NFD')
+            .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
+            .toUpperCase().replace(/\s+/g,' ').trim();
+        const stop789=e=>String(e?.typ||'').toLowerCase()==='przystanek';
+        const sep789=e=>String(e?.typ||'').toLowerCase()==='trasa_w_kursach';
+        const name789=e=>n789(e?.nazwa||String(e?.id||'').split('|')[1]||'');
+        const all789=e=>sep789(e)&&n789(e?.tekst).includes('TRASA WE WSZYSTKICH KURSACH');
+        const num789=v=>{
+            const x=Number(v); return Number.isFinite(x)?x:null;
+        };
+
+        const pel789=wynik760.findIndex(e=>stop789(e)&&name789(e)==='PELCOWIZNA');
+        if(pel789>=0){
+            let pkp789=wynik760.findIndex((e,i)=>i>pel789&&stop789(e)&&name789(e)==='PKP TORUNSKA');
+            let zer789=wynik760.findIndex((e,i)=>i>pel789&&stop789(e)&&name789(e)==='ZERAN FSO');
+            if(pkp789>=0&&zer789>pkp789){
+                // Zachowaj pełne dane PKP (NŻ, nr, stan itd.).
+                const pkpObj789={...wynik760[pkp789]};
+
+                // Usuń wszystkie markery „wszystkie” między Pelcowizną a Żeraniem;
+                // jeden właściwy marker wstawimy przed wspólnym PKP Toruńska.
+                let markerObj789=null;
+                for(let i=wynik760.length-1;i>pel789;i--){
+                    if(stop789(wynik760[i])&&name789(wynik760[i])==='ZERAN FSO' && i<zer789) break;
+                    if(all789(wynik760[i])){
+                        markerObj789=markerObj789||{...wynik760[i]};
+                        wynik760.splice(i,1);
+                        if(i<pkp789)pkp789--;
+                        if(i<zer789)zer789--;
+                    }
+                }
+                if(!markerObj789) markerObj789={typ:'trasa_w_kursach',tekst:'Trasa we wszystkich kursach'};
+
+                // Usuń PKP z odnogi f/m.
+                wynik760.splice(pkp789,1);
+
+                // Po usunięciach odszukaj Żerań ponownie i wstaw wspólny początek.
+                zer789=wynik760.findIndex((e,i)=>i>pel789&&stop789(e)&&name789(e)==='ZERAN FSO');
+                if(zer789>=0){
+                    // Czas wspólnego PKP musi być późniejszy od Pelcowizny.
+                    const pelObj789=wynik760[pel789];
+                    const tPel789=num789(pelObj789?.czas_przejazdu);
+                    const tPkp789=num789(pkpObj789?.czas_przejazdu);
+                    if(tPel789!==null && (tPkp789===null || tPkp789<=tPel789))
+                        pkpObj789.czas_przejazdu=tPel789+1;
+
+                    wynik760.splice(zer789,0,markerObj789,pkpObj789);
+
+                    // Od PKP do końca czasy nie mogą się cofać.
+                    let last789=num789(pkpObj789.czas_przejazdu);
+                    const start789=wynik760.findIndex((e,i)=>i>pel789&&stop789(e)&&name789(e)==='PKP TORUNSKA');
+                    for(let i=start789+1;i<wynik760.length;i++){
+                        const e=wynik760[i];
+                        if(!stop789(e))continue;
+                        const t=num789(e.czas_przejazdu);
+                        if(last789!==null && t!==null && t<last789){
+                            e.czas_przejazdu=last789;
+                        }else if(t!==null){
+                            last789=t;
+                        }
+                    }
+                }
+            }
         }
     }
 
