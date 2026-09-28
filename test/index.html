@@ -1,4 +1,4 @@
-<!-- WERSJA: 790 -->
+<!-- WERSJA: 791 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -22150,6 +22150,117 @@ function v514RenderGotowejListy(){
                 const n=nm790(e);
                 if((n==='PKP TORUNSKA'||n==='ZERAN FSO')&&byName790.has(n)){
                     e.czas_przejazdu=byName790.get(n);
+                }
+            }
+        }
+    }
+
+    /* =========================================================
+       WERSJA 791 — logiczny powrót tras jak w oryginalnym VBA V157.
+
+       VBA uznaje różny słupek za ten sam LOGICZNY punkt powrotu tylko gdy:
+       1) nazwa przystanku jest taka sama,
+       2) w przebiegu odnogi ta nazwa występuje jednoznacznie,
+       3) następny przystanek po obu słupkach jest ten sam.
+
+       Dla 134:
+         D: ... TORUŃSKA -> PKP TORUŃSKA 03 -> ŻERAŃ FSO 03
+         C: ... PELCOWIZNA -> PKP TORUŃSKA 01 -> ŻERAŃ FSO 03
+
+       Zatem PKP TORUŃSKA jest początkiem wspólnego odcinka, a nie częścią
+       gałęzi przez Metro Bródno. Ten blok działa na ABSOLUTNIE końcowym
+       modelu, po wszystkich starszych korektach, i bierze numer linii
+       bezpośrednio z URL — nie zależy od daneLinii/aktualnaLinia.
+       ========================================================= */
+    {
+        const linia791=String(new URLSearchParams(window.location.search).get('linia')||'').trim();
+        if(linia791==='134'){
+            const norm791=v=>String(v??'').normalize('NFD')
+                .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
+                .toUpperCase().replace(/\s+/g,' ').trim();
+            const isStop791=e=>norm791(e?.typ)==='PRZYSTANEK';
+            const isSep791=e=>norm791(e?.typ)==='TRASA_W_KURSACH';
+            const name791=e=>norm791(e?.nazwa||String(e?.id||'').split('|')[1]||'');
+            const isAll791=e=>isSep791(e)&&norm791(e?.tekst).includes('TRASA WE WSZYSTKICH KURSACH');
+            const num791=v=>{const n=Number(v);return Number.isFinite(n)?n:null;};
+
+            // Naprawiamy tylko układ z odnogą przez Pelcowiznę. W poprawnym
+            // przeciwnym kierunku nie ma tej sekwencji, więc nic nie zmieniamy.
+            let pel791=wynik760.findIndex(e=>isStop791(e)&&name791(e)==='PELCOWIZNA');
+            let zer791=wynik760.findIndex((e,i)=>i>pel791&&isStop791(e)&&name791(e)==='ZERAN FSO');
+
+            if(pel791>=0&&zer791>pel791){
+                // PKP może mieć 01 albo 03. Numer słupka celowo ignorujemy.
+                let pkp791=wynik760.findIndex((e,i)=>i>pel791&&i<zer791&&isStop791(e)&&name791(e)==='PKP TORUNSKA');
+
+                // Jeżeli wcześniejsza logika zgubiła PKP z D, spróbuj odzyskać
+                // pełny obiekt z całej końcowej listy albo z danych kierunku.
+                let pkpObj791=pkp791>=0?{...wynik760[pkp791]}:null;
+                if(!pkpObj791){
+                    const any791=wynik760.find(e=>isStop791(e)&&name791(e)==='PKP TORUNSKA');
+                    if(any791) pkpObj791={...any791};
+                }
+                if(!pkpObj791){
+                    const src791=(typeof v486BaseStops==='function'?v486BaseStops():[])||[];
+                    const p791=src791.find(p=>norm791(p?.nazwa_czysta||p?.nazwa)==='PKP TORUNSKA');
+                    if(p791){
+                        pkpObj791={
+                            typ:'przystanek', id:String(p791.id||''),
+                            nazwa:String(p791.nazwa_czysta||p791.nazwa||'PKP Toruńska'),
+                            nr:String(p791.nr||''), stan:'normalny',
+                            koncowy:false, kontynuacja:false
+                        };
+                    }
+                }
+
+                if(pkpObj791){
+                    // Usuń KAŻDY PKP Toruńska pomiędzy Pelcowizną a Żeraniem.
+                    // Nie może pozostać wewnątrz sekcji f/m.
+                    for(let i=wynik760.length-1;i>pel791;i--){
+                        if(i>=wynik760.length) continue;
+                        if(isStop791(wynik760[i])&&name791(wynik760[i])==='ZERAN FSO') continue;
+                        if(isStop791(wynik760[i])&&name791(wynik760[i])==='PKP TORUNSKA'){
+                            wynik760.splice(i,1);
+                        }
+                    }
+
+                    // Po usunięciu odszukaj Żerań ponownie.
+                    zer791=wynik760.findIndex((e,i)=>i>pel791&&isStop791(e)&&name791(e)==='ZERAN FSO');
+                    if(zer791>pel791){
+                        // Usuń markery „wszystkie” z końca odnogi; dokładnie jeden
+                        // zostanie wstawiony przed wspólnym PKP Toruńska.
+                        let marker791=null;
+                        for(let i=zer791-1;i>pel791;i--){
+                            if(isAll791(wynik760[i])){
+                                marker791=marker791||{...wynik760[i]};
+                                wynik760.splice(i,1);
+                                zer791--;
+                            }
+                        }
+                        if(!marker791) marker791={typ:'trasa_w_kursach',tekst:'Trasa we wszystkich kursach'};
+
+                        // Czas wspólnego PKP liczymy względem końca dłuższej gałęzi.
+                        // Nie wolno dziedziczyć 22 min z krótszego przebiegu D.
+                        const tPel791=num791(wynik760[pel791]?.czas_przejazdu);
+                        const tPkp791=num791(pkpObj791?.czas_przejazdu);
+                        if(tPel791!==null) pkpObj791.czas_przejazdu=Math.max(tPkp791??0,tPel791+1);
+
+                        wynik760.splice(zer791,0,marker791,pkpObj791);
+
+                        // Żerań i dalsza wspólna część nie mogą cofać czasu.
+                        let last791=num791(pkpObj791.czas_przejazdu);
+                        const start791=wynik760.findIndex((e,i)=>i>pel791&&isStop791(e)&&name791(e)==='PKP TORUNSKA');
+                        for(let i=start791+1;i<wynik760.length;i++){
+                            if(!isStop791(wynik760[i])) continue;
+                            const t791=num791(wynik760[i]?.czas_przejazdu);
+                            if(last791!==null){
+                                if(t791===null||t791<=last791) wynik760[i].czas_przejazdu=last791+1;
+                                last791=num791(wynik760[i].czas_przejazdu);
+                            }else if(t791!==null){
+                                last791=t791;
+                            }
+                        }
+                    }
                 }
             }
         }
