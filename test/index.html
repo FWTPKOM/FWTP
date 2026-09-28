@@ -1,5 +1,5 @@
-<!-- WERSJA: 801 — 134: NOWY SILNIK D+C; WARIANTY ZBIERANE ZE WSZYSTKICH ROZKŁADÓW -->
-<!-- 134: osobny model V801; D+C łączone po logicznym przystanku, bez konfliktujących reguł 134 -->
+<!-- WERSJA: 802 — 134: JEDEN FINALNY MODEL BEZ DUBLOWANIA PRZYSTANKÓW -->
+<!-- 134: V802 usuwa rekursywne dublowanie; kier. Metro Marymont składany jeden raz z dwóch gałęzi i wspólnego sufiksu -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -20660,6 +20660,102 @@ function v801Model134(){
     }
     const list=[...routes.values()];
     if(!list.length)return null;
+
+    /* =========================================================
+       WERSJA 802 — 134 / METRO MARYMONT
+       ---------------------------------------------------------
+       Nie używamy tu rekursywnego walk(), bo ten sam przebieg D/C
+       może występować pod kilkoma fizycznymi ID i algorytm ponownie
+       wchodził w już wyrenderowane gałęzie. Składamy JEDEN model:
+
+       wspólny początek -> M,F -> gałąź przez Metro Bródno
+       -> bez oznaczeń,Z -> gałąź przez Toruńską
+       -> we wszystkich kursach -> PKP Toruńska -> wspólny koniec.
+
+       Punkt połączenia PKP TORUŃSKA jest rozpoznawany PO NAZWIE,
+       nigdy po fizycznym ID słupka.
+       ========================================================= */
+    const n802=v=>String(v??'').normalize('NFD')
+        .replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pl-PL')
+        .replace(/\s+/g,' ').trim();
+    const name802=id=>{
+        const p=stops.get(id);
+        return n802(p?.nazwa_czysta||p?.nazwa);
+    };
+    const has802=(r,name)=>r.ids.some(id=>name802(id)===name);
+    const currentDest802=n802(
+        daneLinii?.rozkłady?.[aktualnyRozklad]?.kierunki?.[aktualnyKierunek]?.nazwa ||
+        daneLinii?.rozkłady?.[0]?.kierunki?.[aktualnyKierunek]?.nazwa || ''
+    );
+    const isMarymont802=currentDest802.includes('MARYMONT') ||
+        list.some(r=>r.ids.length && name802(r.ids.at(-1))==='METRO MARYMONT');
+
+    if(isMarymont802){
+        const przezBrodno802=list
+            .filter(r=>has802(r,'KS POLONEZ') && has802(r,'PELCOWIZNA') && has802(r,'METRO BRÓDNO'))
+            .sort((a,b)=>b.ids.length-a.ids.length)[0];
+        const przezTorunska802=list
+            .filter(r=>has802(r,'KS POLONEZ') && has802(r,'TORUŃSKA') && has802(r,'PKP TORUŃSKA') && !has802(r,'METRO BRÓDNO'))
+            .sort((a,b)=>b.ids.length-a.ids.length)[0];
+        const wspolna802=list
+            .filter(r=>has802(r,'PKP TORUŃSKA') && has802(r,'METRO MARYMONT'))
+            .sort((a,b)=>b.ids.length-a.ids.length)[0];
+
+        if(przezBrodno802 && przezTorunska802 && wspolna802){
+            const out=[];
+            const pushStop=(id,opts={})=>{
+                const p=stops.get(id); if(!p)return;
+                out.push({
+                    typ:'przystanek', id,
+                    nazwa:p.nazwa_czysta||p.nazwa, nr:p.nr,
+                    typ_przystanku:p.typ,
+                    stan:opts.aktualny?'aktualny':'normalny',
+                    koncowy:opts.koncowy===true,
+                    kontynuacja:opts.kontynuacja===true
+                });
+            };
+            const marker=t=>out.push({typ:'trasa_w_kursach',tekst:t});
+            const idxName=(r,name,from=0)=>r.ids.findIndex((id,i)=>i>=from&&name802(id)===name);
+
+            const ks=idxName(przezTorunska802,'KS POLONEZ');
+            const pkpDirect=idxName(przezTorunska802,'PKP TORUŃSKA',Math.max(0,ks+1));
+            const ksB=idxName(przezBrodno802,'KS POLONEZ');
+            const pkpB=idxName(przezBrodno802,'PKP TORUŃSKA',Math.max(0,ksB+1));
+            const pkpW=idxName(wspolna802,'PKP TORUŃSKA');
+
+            if(ks>=0 && pkpDirect>ks && ksB>=0 && pkpB>ksB && pkpW>=0){
+                // Wspólny początek do KS POLONEZ — dokładnie raz.
+                przezTorunska802.ids.slice(0,ks+1).forEach((id,i)=>pushStop(id,{aktualny:i===0}));
+
+                // Pierwsza odnoga: M,F — bez PKP TORUŃSKA.
+                marker('Trasa w kursach „m”, „f”');
+                przezBrodno802.ids.slice(ksB+1,pkpB).forEach(id=>pushStop(id));
+
+                // Druga odnoga: bez oznaczeń,Z — również bez PKP TORUŃSKA.
+                marker('Trasa w kursach bez oznaczeń, „z”');
+                przezTorunska802.ids.slice(ks+1,pkpDirect).forEach(id=>pushStop(id));
+
+                // Od PKP TORUŃSKA obie gałęzie są już wspólne.
+                marker('Trasa we wszystkich kursach');
+                const tail=wspolna802.ids.slice(pkpW);
+                tail.forEach((id,i)=>pushStop(id,{
+                    koncowy:i===tail.length-1,
+                    kontynuacja:false
+                }));
+
+                // ŻERAŃ FSO w tym widoku jest przelotowy, nawet jeżeli
+                // część kursów F/Z tam kończy — nie pogrubiamy go.
+                out.forEach(e=>{
+                    if(e.typ==='przystanek' && n802(e.nazwa)==='ŻERAŃ FSO'){
+                        e.koncowy=false; e.kontynuacja=false;
+                    }
+                });
+
+                v801Cache134.set(cacheKey,out);
+                return out;
+            }
+        }
+    }
     // Wariant podstawowy ma pierwszeństwo; nie zmieniamy oznaczeń kursów.
     list.sort((a,b)=>{
         const aBase=a.letters.has('')||a.letters.has('A');
