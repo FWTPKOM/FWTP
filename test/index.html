@@ -1,4 +1,4 @@
-<!-- WERSJA: 786 -->
+<!-- WERSJA: 787 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -20923,6 +20923,56 @@ function v514ModelListy(){
                 }
             }
         }
+        /* WERSJA 787 — 134, kierunek OLESIN -> METRO MARYMONT.
+           Naprawa jest wykonywana TUTAJ, na gotowej lista_przystankowa.elementy,
+           zanim V760 i podział na kolumny zaczną cokolwiek przestawiać.
+
+           PKP TORUŃSKA występuje w przebiegu podstawowym i w przebiegu przez
+           METRO BRÓDNO, lecz na różnych słupkach. Dlatego numer słupka NIE
+           może decydować o miejscu powrotu. W gotowym JSON-ie błędny układ ma:
+
+             TRASA f,m -> ... -> PELCOWIZNA -> PKP TORUŃSKA
+             -> TRASA WE WSZYSTKICH KURSACH -> ŻERAŃ FSO
+
+           Wspólna część ma zaczynać się od PKP TORUŃSKA, więc przenosimy
+           separator „wszystkie” PRZED PKP TORUŃSKA. Samego przystanku nie
+           usuwamy ani nie klonujemy — zachowujemy jego czas, nr i NŻ.
+
+           Warunek jest celowo ograniczony do sekwencji f/m + Pelcowizna +
+           PKP Toruńska + wszystkie + Żerań FSO, więc nie dotyka drugiego
+           kierunku ani innych linii. */
+        if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
+            const n787=v=>String(v??'').normalize('NFD')
+                .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
+                .toUpperCase().replace(/\s+/g,' ').trim();
+            const stop787=e=>e?.typ==='przystanek';
+            const sep787=e=>e?.typ==='trasa_w_kursach';
+            const name787=e=>n787(e?.nazwa||String(e?.id||'').split('|')[1]||'');
+            const text787=e=>n787(e?.tekst||'').replace(/[„”"']/g,' ');
+            const isFM787=e=>{
+                if(!sep787(e))return false;
+                const t=' '+text787(e)+' ';
+                return /TRASA W KURSACH/.test(t) &&
+                       /(^|[^A-Z])F([^A-Z]|$)/.test(t) &&
+                       /(^|[^A-Z])M([^A-Z]|$)/.test(t);
+            };
+            const isAll787=e=>sep787(e)&&
+                /TRASA WE WSZYSTKICH KURSACH/.test(text787(e));
+
+            const fm787=elementy.findIndex(isFM787);
+            if(fm787>=0){
+                const pel787=elementy.findIndex((e,i)=>i>fm787&&stop787(e)&&name787(e)==='PELCOWIZNA');
+                const pkp787=elementy.findIndex((e,i)=>i>pel787&&stop787(e)&&name787(e)==='PKP TORUNSKA');
+                const all787=elementy.findIndex((e,i)=>i>pkp787&&isAll787(e));
+                const zeran787=elementy.findIndex((e,i)=>i>all787&&stop787(e)&&name787(e)==='ZERAN FSO');
+
+                if(pel787>fm787 && pkp787>pel787 && all787>pkp787 && zeran787>all787){
+                    const [marker787]=elementy.splice(all787,1);
+                    const pkpPo787=elementy.findIndex((e,i)=>i>pel787&&stop787(e)&&name787(e)==='PKP TORUNSKA');
+                    if(pkpPo787>=0) elementy.splice(pkpPo787,0,marker787);
+                }
+            }
+        }
         return elementy;
     }
 
@@ -21883,62 +21933,8 @@ function v514RenderGotowejListy(){
     /* WERSJA 785: usunięto późne ręczne przesuwanie PKP Toruńska.
        Połączenie wariantów jest teraz wyznaczane wcześniej, w generatorze przebiegów. */
 
-    /* WERSJA 786 — 134: naprawa na OSTATECZNYM modelu listy.
-       Część danych 134 ma gotową lista_przystankowa, więc generator przebiegów
-       (w którym działa V785) nie jest wtedy wykonywany. To właśnie dlatego
-       wcześniejsze poprawki nie zmieniały widoku.
-
-       Jeżeli finalna kolejność ma postać:
-           TRASA W KURSACH f,m -> ... -> PELCOWIZNA -> PKP TORUŃSKA
-           -> TRASA WE WSZYSTKICH KURSACH -> ŻERAŃ FSO
-       to PKP TORUŃSKA jest już pierwszym wspólnym przystankiem obu przebiegów.
-       Przenosimy CAŁY wiersz PKP TORUŃSKA bezpośrednio ZA separatorem
-       „Trasa we wszystkich kursach”. Numer słupka nie ma znaczenia.
-
-       Warunek kolejności jest celowo ścisły: jeżeli drugi kierunek ma już
-       WSZYSTKIE -> PKP TORUŃSKA, niczego w nim nie zmieniamy. */
-    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
-        const n786=v=>String(v??'').normalize('NFD')
-            .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
-            .toUpperCase().replace(/\s+/g,' ').trim();
-        const stop786=e=>e?.typ==='przystanek';
-        const sep786=e=>e?.typ==='trasa_w_kursach';
-        const nazwa786=e=>n786(e?.nazwa||String(e?.id||'').split('|')[1]||'');
-        const tekst786=e=>n786(e?.tekst||'').replace(/[„”"']/g,' ');
-
-        // Szukamy WYŁĄCZNIE błędnego układu. Dzięki temu poprawny
-        // przeciwny kierunek nie jest dotykany.
-        const fm786=wynik760.findIndex(e=>{
-            if(!sep786(e))return false;
-            const t=tekst786(e);
-            return /TRASA W KURSACH/.test(t) &&
-                   /(^|[^A-Z])F([^A-Z]|$)/.test(t) &&
-                   /(^|[^A-Z])M([^A-Z]|$)/.test(t);
-        });
-        if(fm786>=0){
-            const pkp786=wynik760.findIndex((e,i)=>
-                i>fm786 && stop786(e) && nazwa786(e)==='PKP TORUNSKA');
-            const all786=wynik760.findIndex((e,i)=>
-                i>fm786 && sep786(e) && /TRASA WE WSZYSTKICH KURSACH/.test(tekst786(e)));
-            const zeran786=wynik760.findIndex((e,i)=>
-                i>fm786 && stop786(e) && nazwa786(e)==='ZERAN FSO');
-
-            // Naprawiamy tylko dokładnie przypadek widoczny w 134:
-            // PKP jest jeszcze w odnodze f/m, a marker wszystkich jest później.
-            if(pkp786>fm786 && all786>pkp786 && zeran786>all786){
-                const [wspolny786]=wynik760.splice(pkp786,1);
-                // Po usunięciu elementu przed separatorem jego indeks maleje o 1.
-                const allPoUsunieciu786=wynik760.findIndex((e,i)=>
-                    i>fm786 && sep786(e) &&
-                    /TRASA WE WSZYSTKICH KURSACH/.test(tekst786(e)));
-                if(allPoUsunieciu786>=0){
-                    wspolny786.koncowy=false;
-                    wspolny786.kontynuacja=false;
-                    wynik760.splice(allPoUsunieciu786+1,0,wspolny786);
-                }
-            }
-        }
-    }
+    /* WERSJA 787: usunięto późną poprawkę V786.
+       134 jest naprawiane w v514ModelListy(), przed V760 i podziałem kolumn. */
 
     let rows="";
     let stopPosition=0;
