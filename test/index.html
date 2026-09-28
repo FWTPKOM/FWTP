@@ -1,4 +1,4 @@
-<!-- WERSJA: 792 -->
+<!-- WERSJA: 793 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -22093,218 +22093,175 @@ function v514RenderGotowejListy(){
     }
 
     /* =========================================================
-       FWTP V788 — 134: JEDNO ROZGAŁĘZIENIE, BEZ POWTARZANIA OPISÓW
+       FWTP V793 — 134: ŁĄCZENIE ODNÓG PO LOGICZNEJ NAZWIE PRZYSTANKU
        =========================================================
-       V787 potrafił odnaleźć przebiegi z D i C, ale renderer traktował
-       kilka kursów o tym samym fizycznym odgałęzieniu jako kolejne
-       niezależne gałęzie. Skutek: kilka razy "m", "z" i "bez oznaczeń".
+       Dla 134 NIE porównujemy pełnego ID przy szukaniu miejsca,
+       w którym dwie fizyczne trasy ponownie się łączą. Ten sam
+       logiczny przystanek może mieć inny słupek / inne ID w D i C.
 
-       Tutaj — tak jak w korekcie 126 — składamy FINALNY fragment tylko raz:
+       Docelowy układ:
          KS POLONEZ
-         -> M,F -> fizyczna odnoga przez METRO BRÓDNO
-         -> bez oznaczeń,Z -> fizyczna odnoga bez METRA BRÓDNO
-         -> WE WSZYSTKICH KURSACH
+         -> Trasa w kursach „m”, „f”
+         -> odnoga przez METRO BRÓDNO
+         -> Trasa w kursach bez oznaczeń, „z”
+         -> odnoga przez TORUŃSKĄ
+         -> Trasa we wszystkich kursach
          -> PKP TORUŃSKA
-         -> ŻERAŃ FSO
+         -> ŻERAŃ FSO -> ... -> METRO MARYMONT
 
-       Źródłem przebiegów nadal są WYŁĄCZNIE katalog_tras_v210 + kurs.trasa_ref
-       z D i C. Nie dopisujemy liter, których nie ma przy kursach.
+       PKP TORUŃSKA jest wykrywany po znormalizowanej NAZWIE.
+       Fizyczne ID zachowujemy dopiero przy tworzeniu konkretnego wiersza.
        ========================================================= */
     if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
-        const norm788=x=>String(x??'').normalize('NFD')
+        const norm793=x=>String(x??'').normalize('NFD')
             .replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pl-PL')
             .replace(/\s+/g,' ').trim();
-        const name788=p=>norm788(p?.nazwa_czysta||p?.nazwa||
-            String(p?.id||'').split('|')[1]);
-        const isStop788=e=>e?.typ==='przystanek';
-        const stopName788=e=>name788(e);
-        const katalog788=Array.isArray(daneLinii?.katalog_tras_v210)
+        const katalog793=Array.isArray(daneLinii?.katalog_tras_v210)
             ?daneLinii.katalog_tras_v210:[];
 
-        // Pełna mapa słupków ze wszystkich rozkładów D/C.
-        const stopMap788=new Map();
+        const stopMap793=new Map();
         (daneLinii?.rozkłady||[]).forEach(r=>{
             const d=r?.kierunki?.[aktualnyKierunek];
             (d?.przystanki||[]).forEach(p=>{
                 const id=v486StopId(p);
-                if(id&&!stopMap788.has(id))stopMap788.set(id,p);
+                if(id&&!stopMap793.has(id))stopMap793.set(id,p);
             });
         });
 
-        const active788=v486CurrentStop();
-        const activeId788=v486StopId(active788);
-        const kursy788=[];
-        const seen788=new Set();
-        (daneLinii?.rozkłady||[]).forEach((r,ri)=>{
-            const d=r?.kierunki?.[aktualnyKierunek];
-            const p=(d?.przystanki||[]).find(x=>v486StopId(x)===activeId788);
-            (p?.kursy||[]).forEach((k,ki)=>{
-                if(v637KursTechniczny(k))return;
-                const ref=Number(k?.trasa_ref);
-                if(!Number.isInteger(ref)||!Array.isArray(katalog788[ref]))return;
-                const key=[ri,ref,String(k?.wariant??''),String(k?.numer??ki)].join('|');
-                if(seen788.has(key))return;
-                seen788.add(key);
-                kursy788.push({k,ids:katalog788[ref].map(String)});
-            });
-        });
-
-        const indeksNazwy788=(ids,nazwa,od=0)=>{
-            for(let i=od;i<ids.length;i++){
-                if(name788(stopMap788.get(ids[i]))===nazwa)return i;
+        const nazwaId793=id=>{
+            const p=stopMap793.get(String(id));
+            return norm793(p?.nazwa_czysta||p?.nazwa||String(id||'').split('|')[1]);
+        };
+        const nazwaElem793=e=>norm793(e?.nazwa_czysta||e?.nazwa||
+            String(e?.id||'').split('|')[1]);
+        const isStop793=e=>e?.typ==='przystanek';
+        const indexName793=(ids,name,from=0)=>{
+            const n=norm793(name);
+            for(let i=Math.max(0,from);i<ids.length;i++){
+                if(nazwaId793(ids[i])===n)return i;
             }
             return -1;
         };
-        const maNazwe788=(x,n)=>indeksNazwy788(x.ids,n)>=0;
-        const litera788=x=>String(x.k?.wariant||'').trim().toUpperCase();
+        const hasName793=(route,name)=>indexName793(route.ids,name)>=0;
+        const letter793=route=>norm793(route.k?.wariant||'');
 
-        const kandydaci788=kursy788.filter(x=>
-            maNazwe788(x,'KS POLONEZ')&&maNazwe788(x,'PKP TORUNSKA'));
-        const mf788=kandydaci788.filter(x=>
-            ['M','F'].includes(litera788(x))&&maNazwe788(x,'METRO BRODNO'));
-        const bz788=kandydaci788.filter(x=>
-            (litera788(x)===''||litera788(x)==='Z')&&!maNazwe788(x,'METRO BRODNO'));
+        const active793=v486CurrentStop();
+        const activeId793=v486StopId(active793);
+        const routes793=[];
+        const seen793=new Set();
 
-        const najdluzsza788=arr=>arr.slice().sort((a,b)=>b.ids.length-a.ids.length)[0];
-        const trasaMF788=najdluzsza788(mf788);
-        const trasaBZ788=najdluzsza788(bz788);
+        // Łączymy przebiegi D + C, bo 134 ma inne przebiegi zależnie od dnia.
+        (daneLinii?.rozkłady||[]).forEach((r,ri)=>{
+            const d=r?.kierunki?.[aktualnyKierunek];
+            const p=(d?.przystanki||[]).find(x=>v486StopId(x)===activeId793);
+            (p?.kursy||[]).forEach((k,ki)=>{
+                if(v637KursTechniczny(k))return;
+                const ref=Number(k?.trasa_ref);
+                if(!Number.isInteger(ref)||!Array.isArray(katalog793[ref]))return;
+                const ids=katalog793[ref].map(String);
+                const key=[ri,ref,String(k?.wariant??''),String(k?.numer??ki)].join('|');
+                if(seen793.has(key))return;
+                seen793.add(key);
+                routes793.push({k,ids});
+            });
+        });
 
-        const segment788=(trasa,odNazwa,doNazwa)=>{
-            if(!trasa)return [];
-            const a=indeksNazwy788(trasa.ids,odNazwa);
-            const b=indeksNazwy788(trasa.ids,doNazwa,a+1);
-            if(a<0||b<=a)return [];
-            return trasa.ids.slice(a+1,b).filter(id=>{
-                const p=stopMap788.get(id);
-                return p&&v486StopType(p)!=='TECH';
+        const candidates793=routes793.filter(r=>
+            hasName793(r,'KS POLONEZ')&&hasName793(r,'PKP TORUNSKA')
+        );
+        const mf793=candidates793.filter(r=>
+            ['M','F'].includes(letter793(r))&&hasName793(r,'METRO BRODNO')
+        );
+        const bz793=candidates793.filter(r=>
+            (letter793(r)===''||letter793(r)==='Z')&&!hasName793(r,'METRO BRODNO')
+        );
+        const longest793=a=>a.slice().sort((x,y)=>y.ids.length-x.ids.length)[0]||null;
+        const routeMF793=longest793(mf793);
+        const routeBZ793=longest793(bz793);
+
+        const branchBeforeCommon793=route=>{
+            if(!route)return [];
+            const a=indexName793(route.ids,'KS POLONEZ');
+            const common=indexName793(route.ids,'PKP TORUNSKA',a+1);
+            if(a<0||common<=a)return [];
+            // endpoint PKP TORUŃSKA NIE należy do odnogi.
+            return route.ids.slice(a+1,common).filter(id=>{
+                const p=stopMap793.get(id);
+                return p&&v486StopType(p)!=='TECH'&&nazwaId793(id)!=='PKP TORUNSKA';
             });
         };
-        /* =========================================================
-           V791 — 134: PKP TORUŃSKA JEST PIERWSZYM WSPÓLNYM PRZYSTANKIEM
-           =========================================================
-           Nie wystarczy zakończyć slice() na pierwszym indeksie nazwy,
-           bo w katalogu D+C mogą występować różne fizyczne słupki / ID
-           tej samej nazwy. Z obu odnóg usuwamy KAŻDE PKP TORUŃSKA.
-           Ten przystanek wolno dodać wyłącznie raz — dopiero po
-           separatorze „Trasa we wszystkich kursach”.
-           ========================================================= */
-        const bezWspolnegoPKP791=ids=>ids.filter(id=>
-            name788(stopMap788.get(id))!=='PKP TORUNSKA'
-        );
-        const mfIds788=bezWspolnegoPKP791(
-            segment788(trasaMF788,'KS POLONEZ','PKP TORUNSKA')
-        );
-        const bzIds788=bezWspolnegoPKP791(
-            segment788(trasaBZ788,'KS POLONEZ','PKP TORUNSKA')
-        );
 
-        // Jeden fizyczny przystanek = jeden wiersz. Zachowujemy jednak
-        // różne słupki o tej samej nazwie, jeśli naprawdę występują kolejno.
-        const elemStop788=(id,koncowy=false)=>{
-            const p=stopMap788.get(id);
+        const mfIds793=branchBeforeCommon793(routeMF793);
+        const bzIds793=branchBeforeCommon793(routeBZ793);
+
+        const elem793=(id,last=false)=>{
+            const p=stopMap793.get(String(id));
             if(!p)return null;
-            return {typ:'przystanek',id,nazwa:p.nazwa_czysta||p.nazwa,
-                nr:p.nr,typ_przystanku:p.typ,stan:'normalny',
-                koncowy:!!koncowy,kontynuacja:false};
+            return {
+                typ:'przystanek', id:String(id),
+                nazwa:p.nazwa_czysta||p.nazwa, nr:p.nr,
+                typ_przystanku:p.typ, stan:'normalny',
+                koncowy:!!last, kontynuacja:false
+            };
         };
-        const sep788=tekst=>({typ:'trasa_w_kursach',tekst});
+        const sep793=tekst=>({typ:'trasa_w_kursach',tekst});
 
-        const idxPol788=wynik760.findIndex(e=>isStop788(e)&&stopName788(e)==='KS POLONEZ');
-        const idxZer788=wynik760.findIndex((e,i)=>i>idxPol788&&isStop788(e)&&stopName788(e)==='ZERAN FSO');
-        /* V792: zachowujemy PEŁNY, już poprawnie zbudowany element PKP TORUŃSKA
-           z lista_przystankowa. Samo odtworzenie go z katalogowego ID w V791
-           gubiło dane potrzebne rendererowi, więc separator był widoczny, ale
-           PKP TORUŃSKA znikała i pierwszym wierszem stawał się ŻERAŃ FSO. */
-        const pkpElement792=wynik760.find((e,i)=>
-            i>idxPol788 && isStop788(e) && stopName788(e)==='PKP TORUNSKA'
-        );
-        if(idxPol788>=0&&idxZer788>idxPol788&&trasaMF788&&trasaBZ788){
-            const pMF=indeksNazwy788(trasaMF788.ids,'PKP TORUNSKA');
-            const pkpId788=pMF>=0?trasaMF788.ids[pMF]:null;
-            const nowy788=[];
+        const idxPol793=wynik760.findIndex(e=>isStop793(e)&&nazwaElem793(e)==='KS POLONEZ');
+        if(idxPol793>=0&&routeMF793&&routeBZ793){
+            const rebuilt793=[];
 
-            if(mfIds788.length){
-                nowy788.push(sep788('Trasa w kursach „m”, „f”'));
-                mfIds788.forEach(id=>{
-                    const e=elemStop788(id,false); if(e)nowy788.push(e);
-                });
+            if(mfIds793.length){
+                rebuilt793.push(sep793('Trasa w kursach „m”, „f”'));
+                mfIds793.forEach(id=>{const e=elem793(id,false);if(e)rebuilt793.push(e);});
             }
-            if(bzIds788.length){
-                nowy788.push(sep788('Trasa w kursach bez oznaczeń, „z”'));
-                bzIds788.forEach(id=>{
-                    const e=elemStop788(id,false); if(e)nowy788.push(e);
-                });
+            if(bzIds793.length){
+                rebuilt793.push(sep793('Trasa w kursach bez oznaczeń, „z”'));
+                bzIds793.forEach(id=>{const e=elem793(id,false);if(e)rebuilt793.push(e);});
             }
-            /* V791: granica wspólnego odcinka jest sztywno PRZED PKP TORUŃSKA.
-               Najpierw separator, potem dokładnie jeden fizyczny PKP TORUŃSKA. */
-            if(pkpId788){
-                // Ochrona przed ewentualnym PKP pozostawionym przez dowolną
-                // wcześniejszą rekonstrukcję / różny fizyczny słupek D i C.
-                for(let i=nowy788.length-1;i>=0;i--){
-                    if(isStop788(nowy788[i])&&stopName788(nowy788[i])==='PKP TORUNSKA'){
-                        nowy788.splice(i,1);
-                    }
+
+            // WSPÓLNY PUNKT ustalamy po nazwie, NIE po ID.
+            // Bierzemy fizyczny słupek PKP z wybranego przebiegu M/F;
+            // gdy go nie ma, z przebiegu bez oznaczeń/Z.
+            let commonRoute793=routeMF793||routeBZ793;
+            let p793=indexName793(commonRoute793.ids,'PKP TORUNSKA');
+            if(p793<0){
+                commonRoute793=routeBZ793;
+                p793=indexName793(commonRoute793.ids,'PKP TORUNSKA');
+            }
+
+            if(p793>=0){
+                // Końcem wspólnego odcinka jest OSTATNI METRO MARYMONT
+                // występujący za PKP TORUŃSKA w tym fizycznym przebiegu.
+                let end793=-1;
+                for(let i=p793+1;i<commonRoute793.ids.length;i++){
+                    if(nazwaId793(commonRoute793.ids[i])==='METRO MARYMONT')end793=i;
                 }
-                nowy788.push(sep788('Trasa we wszystkich kursach'));
-                // V792: PKP musi być pierwszym wspólnym przystankiem i musi
-                // zachować komplet metadanych z gotowej listy JSON.
-                const e=pkpElement792 ? {...pkpElement792} : elemStop788(pkpId788,false);
-                if(e){
-                    e.koncowy=false;
-                    e.kontynuacja=false;
-                    e.stan='normalny';
-                    nowy788.push(e);
-                }
-            }
+                if(end793<0)end793=commonRoute793.ids.length-1;
 
-            /* =========================================================
-               V790 — 134: WSPÓLNY ODCINEK ZACZYNA SIĘ NA PKP TORUŃSKA
-               =========================================================
-               PKP TORUŃSKA nie należy do gałęzi „bez oznaczeń, z”.
-               Po obu odnogach wstawiamy:
-                   TRASA WE WSZYSTKICH KURSACH
-                   PKP TORUŃSKA
-                   ŻERAŃ FSO
-                   OS. POTOK
-                   PARK KASKADA
-                   METRO MARYMONT
-               aż do rzeczywistego końca przebiegu.
-
-               Ogon bierzemy z fizycznego katalogu tras D+C, a nie ze
-               starego wynik760, dzięki czemu nic po METRO MARYMONT nie
-               zostaje i jednocześnie nie gubimy odcinka za ŻERANIEM FSO.
-               ========================================================= */
-            const wspolne788=kandydaci788.filter(x=>{
-                const p=indeksNazwy788(x.ids,'PKP TORUNSKA');
-                const z=indeksNazwy788(x.ids,'ZERAN FSO',p+1);
-                const m=indeksNazwy788(x.ids,'METRO MARYMONT',z+1);
-                return p>=0&&z>p&&m>z;
-            });
-            const trasaWspolna788=najdluzsza788(wspolne788)||trasaMF788||trasaBZ788;
-            const pW788=indeksNazwy788(trasaWspolna788.ids,'PKP TORUNSKA');
-            let mW788=indeksNazwy788(trasaWspolna788.ids,'METRO MARYMONT',pW788+1);
-            // Jeżeli nazwa występuje dwa razy pod rząd / na dwóch słupkach,
-            // końcem ma być OSTATNIE wystąpienie w tym przebiegu.
-            for(let i=mW788+1;i<trasaWspolna788.ids.length;i++){
-                if(name788(stopMap788.get(trasaWspolna788.ids[i]))==='METRO MARYMONT')mW788=i;
-            }
-            if(pW788>=0&&mW788>pW788){
-                const tailIds788=trasaWspolna788.ids.slice(pW788+1,mW788+1)
+                const sharedIds793=commonRoute793.ids.slice(p793,end793+1)
                     .filter(id=>{
-                        const p=stopMap788.get(id);
+                        const p=stopMap793.get(id);
                         return p&&v486StopType(p)!=='TECH';
                     });
-                tailIds788.forEach((id,i)=>{
-                    const e=elemStop788(id,i===tailIds788.length-1);
-                    if(e){
-                        // Wszystkie pośrednie, w tym ŻERAŃ FSO, są przelotowe.
-                        if(i<tailIds788.length-1){e.koncowy=false;e.kontynuacja=false;}
-                        nowy788.push(e);
+
+                // Najpierw separator, POTEM PKP TORUŃSKA. Splitter kolumn
+                // trzyma separator razem z następnym przystankiem.
+                rebuilt793.push(sep793('Trasa we wszystkich kursach'));
+                sharedIds793.forEach((id,i)=>{
+                    const e=elem793(id,i===sharedIds793.length-1);
+                    if(!e)return;
+                    // ŻERAŃ FSO i wszystkie inne pośrednie są przelotowe.
+                    if(i<sharedIds793.length-1){
+                        e.koncowy=false;
+                        e.kontynuacja=false;
                     }
+                    rebuilt793.push(e);
                 });
             }
 
-            wynik760.splice(idxPol788+1, wynik760.length-(idxPol788+1), ...nowy788);
+            // Po KS POLONEZ zastępujemy CAŁY stary ogon jednym poprawnym
+            // strumieniem. Dzięki temu nic starego nie zostaje po METRO MARYMONT.
+            wynik760.splice(idxPol793+1,wynik760.length-(idxPol793+1),...rebuilt793);
         }
     }
 
