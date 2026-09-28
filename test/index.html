@@ -1,4 +1,4 @@
-<!-- WERSJA: 786 -->
+<!-- WERSJA: 787 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -20537,8 +20537,8 @@ function v496RenderRoutes(routes){
 
 
 /* =========================================================
-   FWTP V785 — LINIA 134: PRZYWRÓCENIE MODELU TRAS Z V638
-   Tylko linia 134 korzysta z działającej rekonstrukcji V638.
+   FWTP V787 — LINIA 134: WSPÓLNY MODEL TRAS D + C
+   Linia 134 korzysta z rekonstrukcji fizycznych tras V638, ale zbiera przebiegi z D i C.
    Pozostałe linie zachowują pełną logikę V784.
    ========================================================= */
 /* V786: helper z V638 wymagany przez odtworzoną logikę 134. */
@@ -20568,7 +20568,29 @@ function v785ModelListy134(){
     const activeIndex=Number(aktualnyPrzystanek);
     const routes=new Map();
     const allCourseLetters=new Set();
-    const sourceCourses=v486Array(active?.kursy).filter(k=>!v637KursTechniczny(k));
+    /* FWTP V787 — 134 ma różne fizyczne przebiegi w D oraz C.
+       Nie wolno budować drzewa tylko z kursów aktywnego rozkładu dnia,
+       bo wtedy znika np. odnoga przez METRO BRÓDNO albo wariant podstawowy.
+       Zbieramy kursy z TEGO SAMEGO fizycznego słupka i kierunku ze wszystkich
+       rozkładów (D/C), dokładnie po pełnym ID przystanku. Litery pozostają
+       wyłącznie tymi zapisanymi przy kursach w JSON. */
+    const sourceCourses=[];
+    const seenCourses=new Set();
+    (daneLinii?.rozkłady||[]).forEach((rozklad,rozkladIndex)=>{
+        const dir=rozklad?.kierunki?.[aktualnyKierunek];
+        const p=v486Array(dir?.przystanki).find(x=>v486StopId(x)===activeId);
+        if(!p)return;
+        v486Array(p.kursy).forEach((k,kursIndex)=>{
+            if(v637KursTechniczny(k))return;
+            /* numer kursu może powtarzać się między D i C, dlatego do klucza
+               dokładamy rozkład oraz trasa_ref/wariant. */
+            const key=[rozkladIndex,String(k?.numer??kursIndex),String(k?.trasa_ref??''),
+                String(k?.wariant??''),String(k?.czas??'')].join('|');
+            if(seenCourses.has(key))return;
+            seenCourses.add(key);
+            sourceCourses.push(k);
+        });
+    });
     for(const course of sourceCourses){
         const ref=Number(course.trasa_ref);
         const full=Number.isInteger(ref) && Array.isArray(katalog[ref])
