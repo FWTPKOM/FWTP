@@ -1,4 +1,4 @@
-<!-- WERSJA: 784 -->
+<!-- WERSJA: 785 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -7207,7 +7207,25 @@ function FWTP_V689_ListyZKursow(dane) {
                        g.path.length<=axis.length)continue;
                     const split=common;
                     let ai=-1,gi=-1;
-                    outer:for(let j=split;j<g.path.length;j++)for(let i=split;i<axis.length;i++)if(g.path[j]===axis[i]){ai=i;gi=j;break outer;}
+                    /* WERSJA 785 — punkt ponownego połączenia przebiegów.
+                       Normalnie wymagamy tego samego ID. Dla linii 134 PKP Toruńska
+                       jest jednak tym samym punktem wspólnej trasy mimo różnych
+                       numerów słupków w przebiegu podstawowym i przez Metro Bródno.
+                       Rozpoznajemy więc TEN punkt po nazwie już podczas budowania
+                       odnogi. Dzięki temu PKP Toruńska nie trafia do odnogi f/m:
+                       odnoga kończy się na Pelcowiźnie, marker „wszystkie” pojawia
+                       się przed PKP Toruńska, a sam PKP Toruńska jest renderowany
+                       z osi wspólnej przed Żeraniem FSO. */
+                    const v785NormName=id=>String(byId.get(id)?.nazwa_czysta||byId.get(id)?.nazwa||name(id)||'')
+                        .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+                        .replace(/[Łł]/g,'L').toUpperCase().replace(/\s+/g,' ').trim();
+                    const v785SameJoin=(a,b)=>{
+                        if(a===b)return true;
+                        if(String(dane.linia)!=='134')return false;
+                        const na=v785NormName(a), nb=v785NormName(b);
+                        return na==='PKP TORUNSKA' && nb==='PKP TORUNSKA';
+                    };
+                    outer:for(let j=split;j<g.path.length;j++)for(let i=split;i<axis.length;i++)if(v785SameJoin(g.path[j],axis[i])){ai=i;gi=j;break outer;}
                     if(ai>=0){
                         addEvent(split,g.path.slice(split,gi),g);
                         if(ai>split){const id=key([split,ai]);if(!baseBranches.has(id))baseBranches.set(id,{start:split,end:ai,ids:axis.slice(split,ai),routes:[]});}
@@ -21862,57 +21880,8 @@ function v514RenderGotowejListy(){
         }
     }
 
-    /* WERSJA 784 — 134, kierunek OLESIN -> METRO MARYMONT.
-       PKP TORUŃSKA jest pierwszym przystankiem WSPÓLNEJ trasy,
-       a nie ostatnim przystankiem odnogi przez PELCOWIZNĘ.
-       Przenosimy CAŁY element przystanku ZA separatorem wszystkich
-       kursów i PRZED ŻERANIEM FSO; numer słupka nie ma znaczenia.
-       Wykonujemy to na końcowej liście po V760/V761, tuż przed HTML. */
-    if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134' &&
-       (Number(aktualnyKierunek)===0 ||
-        /OLESIN/i.test(String(v486BaseStops()?.[0]?.nazwa||'')))){
-        const normalizuj784=s=>String(s??'').normalize('NFD')
-            .replace(/[\u0300-\u036f]/g,'').replace(/[Łł]/g,'L')
-            .toUpperCase().replace(/\s+/g,' ').trim();
-        const nazwa784=e=>normalizuj784(e?.nazwa_czysta||e?.nazwa||
-            String(e?.id||'').split('|')[1]);
-        const stop784=e=>e?.typ==='przystanek';
-        const wszystkie784=e=>e?.typ==='trasa_w_kursach' &&
-            /TRASA WE WSZYSTKICH KURSACH/.test(normalizuj784(e?.tekst));
-        const zeran784=wynik760.findIndex(e=>stop784(e)&&
-            nazwa784(e)==='ZERAN FSO');
-        if(zeran784>=0){
-            // Szukamy PKP na końcu odnogi przed Żeraniem, a nie
-            // po numerze ID: obie odnogi mogą mieć różne słupki.
-            let pkp784=-1;
-            for(let i=0;i<zeran784;i++){
-                if(stop784(wynik760[i]) &&
-                   nazwa784(wynik760[i])==='PKP TORUNSKA')pkp784=i;
-            }
-            if(pkp784>=0){
-                const pkpElement784=wynik760.splice(pkp784,1)[0];
-                // Usuń wyłącznie separatory wspólnej trasy w obrębie
-                // tego końcowego rozgałęzienia. Zachowaj f/m, z itd.
-                let z784=wynik760.findIndex(e=>stop784(e)&&
-                    nazwa784(e)==='ZERAN FSO');
-                let tor784=-1;
-                for(let i=0;i<z784;i++){
-                    if(stop784(wynik760[i])&&
-                       nazwa784(wynik760[i])==='TORUNSKA')tor784=i;
-                }
-                for(let i=z784-1;i>tor784;i--){
-                    if(wszystkie784(wynik760[i]))wynik760.splice(i,1);
-                }
-                z784=wynik760.findIndex(e=>stop784(e)&&
-                    nazwa784(e)==='ZERAN FSO');
-                // Wstaw wspólną część w jednym, niepodzielnym bloku.
-                wynik760.splice(z784,0,
-                    {typ:'trasa_w_kursach',
-                     tekst:'Trasa we wszystkich kursach'},
-                    pkpElement784);
-            }
-        }
-    }
+    /* WERSJA 785: usunięto późne ręczne przesuwanie PKP Toruńska.
+       Połączenie wariantów jest teraz wyznaczane wcześniej, w generatorze przebiegów. */
 
     let rows="";
     let stopPosition=0;
