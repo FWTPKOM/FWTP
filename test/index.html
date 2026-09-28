@@ -1,5 +1,5 @@
-<!-- WERSJA: 800 — 134: CZYSTY SILNIK Z DZIAŁAJĄCEJ V638; USUNIĘTE KONFLIKTUJĄCE REGUŁY -->
-<!-- 134: osobny czysty model V800 oparty na działającej logice V638; bez V689/V760 i bez późnych łatek 134 -->
+<!-- WERSJA: 801 — 134: NOWY SILNIK D+C; WARIANTY ZBIERANE ZE WSZYSTKICH ROZKŁADÓW -->
+<!-- 134: osobny model V801; D+C łączone po logicznym przystanku, bez konfliktujących reguł 134 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -20565,7 +20565,7 @@ function v496RenderRoutes(routes){
 
 
 /* =========================================================
-   WERSJA 800 — LINIA 134: CZYSTY SILNIK Z DZIAŁAJĄCEJ V638
+   WERSJA 801 — LINIA 134: NOWY SILNIK D+C
    =========================================================
    Dla 134 nie używamy V689 ani późniejszych rekonstrukcji V760/V78x/V79x.
    Model jest budowany bezpośrednio z katalog_tras_v210 i kursów D+C,
@@ -20573,21 +20573,21 @@ function v496RenderRoutes(routes){
    Różne fizyczne ID mogą połączyć się po unikalnej nazwie, dlatego
    PKP TORUŃSKA wraca do wspólnej osi po obu gałęziach.
    ========================================================= */
-const v800Cache134=new Map();
-function v800KursTechniczny(k){
+const v801Cache134=new Map();
+function v801KursTechniczny(k){
     const uwagi=String(k?.uwagi||'').toUpperCase();
     return /(?:^|[^A-Z])D?TECH(?:$|[^A-Z])/.test(uwagi) ||
         k?.techniczny===true;
 }
 
-function v800Model134Z638(){
+function v801Model134(){
     const active=v486CurrentStop();
     const katalog=daneLinii?.katalog_tras_v210;
     if(!active || !Array.isArray(katalog) || !katalog.length)return null;
     const activeId=v486StopId(active);
     const cacheKey=[daneLinii?.linia,aktualnyKierunek,activeId,
         daneLinii?.rozkłady?.length].join('|');
-    if(v800Cache134.has(cacheKey))return v800Cache134.get(cacheKey);
+    if(v801Cache134.has(cacheKey))return v801Cache134.get(cacheKey);
     const stops=new Map();
     (daneLinii?.rozkłady||[]).forEach(r=>{
         const dir=r?.kierunki?.[aktualnyKierunek];
@@ -20599,12 +20599,47 @@ function v800Model134Z638(){
     const activeIndex=Number(aktualnyPrzystanek);
     const routes=new Map();
     const allCourseLetters=new Set();
-    const sourceCourses=v486Array(active?.kursy).filter(k=>!v800KursTechniczny(k));
-    for(const course of sourceCourses){
+
+    // V801: 134 ma różne przebiegi w D i C. Nie wolno brać kursów tylko
+    // z aktualnie wybranego dnia. Szukamy tego samego LOGICZNEGO przystanku
+    // (nazwa + numer), ale zachowujemy jego fizyczne ID z danego rozkładu.
+    const norm801=v=>String(v??'').normalize('NFD')
+        .replace(/[\u0300-\u036f]/g,'').toLocaleUpperCase('pl-PL')
+        .replace(/\s+/g,' ').trim();
+    const activeLogical=[norm801(active?.nazwa_czysta||active?.nazwa),norm801(active?.nr)].join('|');
+    const sourceEntries=[];
+    (daneLinii?.rozkłady||[]).forEach(roz=>{
+        const dir=roz?.kierunki?.[aktualnyKierunek];
+        const p=(dir?.przystanki||[]).find(x=>
+            [norm801(x?.nazwa_czysta||x?.nazwa),norm801(x?.nr)].join('|')===activeLogical
+        );
+        if(!p)return;
+        const sourceId=v486StopId(p);
+        v486Array(p?.kursy).forEach(course=>{
+            if(!v801KursTechniczny(course))sourceEntries.push({course,sourceId});
+        });
+    });
+    // Awaryjnie zachowujemy aktualny dzień, jeśli inny rozkład nie ma odpowiednika.
+    if(!sourceEntries.length){
+        v486Array(active?.kursy).forEach(course=>{
+            if(!v801KursTechniczny(course))sourceEntries.push({course,sourceId:activeId});
+        });
+    }
+    const sourceCourses=sourceEntries.map(x=>x.course);
+    for(const entry of sourceEntries){
+        const course=entry.course;
         const ref=Number(course.trasa_ref);
         const full=Number.isInteger(ref) && Array.isArray(katalog[ref])
             ? katalog[ref].map(String) : v486Array(course.trasa).map(String);
-        const start=full.indexOf(activeId);
+        let start=full.indexOf(entry.sourceId);
+        if(start<0){
+            // Gdy katalog używa innego słupka dla tego samego logicznego przystanku,
+            // dopasuj początek wyłącznie po jednoznacznej nazwie+numerze.
+            start=full.findIndex(id=>{
+                const q=stops.get(id);
+                return q && [norm801(q?.nazwa_czysta||q?.nazwa),norm801(q?.nr)].join('|')===activeLogical;
+            });
+        }
         if(start<0)continue;
         const ids=full.slice(start).filter(id=>{
             const p=stops.get(id);
@@ -20764,14 +20799,14 @@ function v800Model134Z638(){
     });
     if(result.length && result[0].typ==='trasa_w_kursach' &&
        result[0].tekst==='Trasa we wszystkich kursach')result.shift();
-    v800Cache134.set(cacheKey,result);
+    v801Cache134.set(cacheKey,result);
     return result;
 }
 
 function v514ModelListy(){
-    /* V800: 134 omija CAŁĄ aktualną logikę składania listy. */
+    /* V801: 134 omija CAŁĄ aktualną logikę składania listy. */
     if(String(daneLinii?.linia||aktualnaLinia||'').trim()==='134'){
-        const model134=v800Model134Z638();
+        const model134=v801Model134();
         if(Array.isArray(model134)&&model134.length)return model134;
     }
     const active=v486CurrentStop();
