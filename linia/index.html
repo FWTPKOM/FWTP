@@ -1285,7 +1285,7 @@
 <script>
 
 /* =========================================================
-   FWTP v59
+   FWTP v60
    - trasa_zmieniona / TO: pomarańczowe przystanki i odcinki objazdowe
      - N14/N86 i podobne: lokalna oś główna wg liczby rzeczywistych kursów
    - Nxx: wariant A nadal jest preferowaną osią główną, ale lokalny częstszy przejazd prosty ma pierwszeństwo
@@ -4243,7 +4243,7 @@ function znajdzRozklad() {
                                 kurs => {
 
                                     /*
-                                     * FWTP v59
+                                     * FWTP v60
                                      *
                                      * W nowych JSON-ach kurs bazowy może być
                                      * bez pola "wariant", mimo że rozkład
@@ -4286,13 +4286,47 @@ function znajdzRozklad() {
             }
 
 
-            (
-                Array.isArray(
-                    rozklad.warianty
-                )
-                    ? rozklad.warianty
-                    : []
-            ).forEach(
+            /*
+             * FWTP v60:
+             * nowy eksport zapisuje warianty przy kierunku.
+             * Stary eksport zapisywał je przy rozkładzie.
+             */
+            const definicjeTegoRozkladu = [];
+
+
+            if (Array.isArray(rozklad.warianty)) {
+
+                rozklad.warianty.forEach(
+                    wariant =>
+                        definicjeTegoRozkladu.push(
+                            wariant
+                        )
+                );
+            }
+
+
+            rozklad.kierunki.forEach(
+                kierunek => {
+
+                    if (
+                        kierunek &&
+                        Array.isArray(
+                            kierunek.warianty
+                        )
+                    ) {
+
+                        kierunek.warianty.forEach(
+                            wariant =>
+                                definicjeTegoRozkladu.push(
+                                    wariant
+                                )
+                        );
+                    }
+                }
+            );
+
+
+            definicjeTegoRozkladu.forEach(
                 wariant => {
 
                     if (!wariant)
@@ -4557,6 +4591,25 @@ function znajdzRozklad() {
             kierunek:
                 bazaKierunku.kierunek ||
                 "",
+
+            /*
+             * FWTP v60:
+             * tylko metadane wariantów dla UI /linia/.
+             * Lista przystanków nadal powstaje dokładnie
+             * tym samym kodem co wcześniej.
+             */
+            warianty:
+                Array.isArray(
+                    bazaKierunku.warianty
+                )
+                    ? bazaKierunku.warianty.map(
+                        wariant =>
+                            Object.assign(
+                                {},
+                                wariant
+                            )
+                      )
+                    : [],
 
             przystanki:
                 []
@@ -5803,7 +5856,7 @@ function formatujDateInput(
    ========================================================= */
 
 /*
- * FWTP v59
+ * FWTP v60
  *
  * Eksporter może zachować wariant A w polu "warianty",
  * ale kurs bazowy w tablicy "kursy" pozostawić BEZ litery.
@@ -5815,23 +5868,74 @@ function formatujDateInput(
  * Nie dopisujemy A do źródłowego JSON-u i nie zmieniamy
  * zasad wyświetlania litery A przy minucie.
  */
+function pobierzDefinicjeWariantowZObiektu(
+    obiekt
+) {
+
+    if (!obiekt) {
+        return [];
+    }
+
+
+    /*
+     * FWTP v60
+     *
+     * STARY JSON:
+     *   rozklad.warianty
+     *
+     * NOWY JSON:
+     *   rozklad.kierunki[x].warianty
+     *
+     * Obsługujemy oba formaty. Nie dotykamy w żaden sposób
+     * logiki budowania listy przystanków.
+     */
+    const wynik = [];
+
+
+    if (Array.isArray(obiekt.warianty)) {
+
+        obiekt.warianty.forEach(
+            wariant => wynik.push(wariant)
+        );
+    }
+
+
+    if (Array.isArray(obiekt.kierunki)) {
+
+        obiekt.kierunki.forEach(
+            kierunek => {
+
+                if (
+                    kierunek &&
+                    Array.isArray(kierunek.warianty)
+                ) {
+
+                    kierunek.warianty.forEach(
+                        wariant => wynik.push(wariant)
+                    );
+                }
+            }
+        );
+    }
+
+
+    return wynik;
+}
+
+
 function czyRozkladDefiniujeWariantA(
     rozklad
 ) {
 
-    return !!(
-        rozklad &&
-        Array.isArray(
-            rozklad.warianty
-        ) &&
-        rozklad.warianty.some(
-            wariant =>
-                String(
-                    wariant?.litera || ""
-                )
-                    .trim()
-                    .toUpperCase() === "A"
-        )
+    return pobierzDefinicjeWariantowZObiektu(
+        rozklad
+    ).some(
+        wariant =>
+            String(
+                wariant?.litera || ""
+            )
+                .trim()
+                .toUpperCase() === "A"
     );
 }
 
@@ -5928,6 +6032,37 @@ function zbierzWariantyDlaKierunku(
 
     const set =
         new Set();
+
+
+    /*
+     * FWTP v60:
+     * w nowym JSON-ie źródłem publicznych wariantów jest również
+     * kierunek.warianty. To naprawia przyciski A/W/C itd.,
+     * gdy kurs bazowy nie ma już wpisanego wariant:"A".
+     */
+    (
+        kierunek &&
+        Array.isArray(
+            kierunek.warianty
+        )
+            ? kierunek.warianty
+            : []
+    ).forEach(
+        wariant => {
+
+            const litera =
+                String(
+                    wariant?.litera || ""
+                )
+                    .trim()
+                    .toUpperCase();
+
+
+            if (litera) {
+                set.add(litera);
+            }
+        }
+    );
 
 
     (
@@ -6031,6 +6166,31 @@ function znajdzDomyslnyWariant(
             );
         }
     );
+
+
+    /*
+     * FWTP v60:
+     * bazowy A może nie występować w kurs.wariant.
+     */
+    if (
+        kierunek &&
+        Array.isArray(kierunek.warianty) &&
+        kierunek.warianty.some(
+            wariant =>
+                String(
+                    wariant?.litera || ""
+                )
+                    .trim()
+                    .toUpperCase() === "A"
+        ) &&
+        !wariantStarty.has("A")
+    ) {
+
+        wariantStarty.set(
+            "A",
+            0
+        );
+    }
 
 
     const lista =
@@ -13262,11 +13422,21 @@ function pokazRozkladWybranegoPrzystanku(
      */
 
     const definicjeWariantowRozkladu =
-        Array.isArray(
-            rozklad.warianty
+        (
+            kierunekDlaDaty &&
+            Array.isArray(
+                kierunekDlaDaty.warianty
+            ) &&
+            kierunekDlaDaty.warianty.length > 0
         )
-            ? rozklad.warianty
-            : [];
+            ? kierunekDlaDaty.warianty
+            : (
+                Array.isArray(
+                    rozklad.warianty
+                )
+                    ? rozklad.warianty
+                    : []
+              );
 
 
     /*
@@ -13737,7 +13907,7 @@ function pokazRozkladWybranegoPrzystanku(
 
 
                 /*
-                 * FWTP v59:
+                 * FWTP v60:
                  * literę pokazujemy według PUBLICZNYCH wariantów
                  * aktualnego kierunku.
                  *
