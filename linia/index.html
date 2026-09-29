@@ -1285,7 +1285,7 @@
 <script>
 
 /* =========================================================
-   FWTP v57
+   FWTP v58
    - trasa_zmieniona / TO: pomarańczowe przystanki i odcinki objazdowe
      - N14/N86 i podobne: lokalna oś główna wg liczby rzeczywistych kursów
    - Nxx: wariant A nadal jest preferowaną osią główną, ale lokalny częstszy przejazd prosty ma pierwszeństwo
@@ -4603,13 +4603,20 @@ function znajdzRozklad() {
                             );
 
 
-                        const kanonicznaLitera =
+                        let kanonicznaLitera =
                             najlepszyRozklad
                                 .mapaWariantow
                                 .get(
                                     lokalnaLitera
                                 ) ||
                             lokalnaLitera;
+
+
+                        kanonicznaLitera =
+                            kanonizujPustyWariantBazowy(
+                                kanonicznaLitera,
+                                najlepszyRozklad.rozklad
+                            );
 
 
                         nowyKurs.wariant =
@@ -4729,13 +4736,20 @@ function znajdzRozklad() {
                                     );
 
 
-                                const kanonicznaLitera =
+                                let kanonicznaLitera =
                                     info
                                         .mapaWariantow
                                         .get(
                                             lokalnaLitera
                                         ) ||
                                     lokalnaLitera;
+
+
+                                kanonicznaLitera =
+                                    kanonizujPustyWariantBazowy(
+                                        kanonicznaLitera,
+                                        rozklad
+                                    );
 
 
                                 nowyKurs.wariant =
@@ -5770,6 +5784,66 @@ function formatujDateInput(
 /* =========================================================
    WARIANT
    ========================================================= */
+
+/*
+ * FWTP v58
+ *
+ * Eksporter może zachować wariant A w polu "warianty",
+ * ale kurs bazowy w tablicy "kursy" pozostawić BEZ litery.
+ *
+ * Dla strony /linia/ taki pusty wariant musi być traktowany
+ * LOGICZNIE jako A, jeżeli aktualny rozkład rzeczywiście
+ * posiada publiczną definicję A.
+ *
+ * Nie dopisujemy A do źródłowego JSON-u i nie zmieniamy
+ * zasad wyświetlania litery A przy minucie.
+ */
+function czyRozkladDefiniujeWariantA(
+    rozklad
+) {
+
+    return !!(
+        rozklad &&
+        Array.isArray(
+            rozklad.warianty
+        ) &&
+        rozklad.warianty.some(
+            wariant =>
+                String(
+                    wariant?.litera || ""
+                )
+                    .trim()
+                    .toUpperCase() === "A"
+        )
+    );
+}
+
+
+function kanonizujPustyWariantBazowy(
+    litera,
+    rozklad
+) {
+
+    const znak =
+        String(
+            litera || ""
+        )
+            .trim()
+            .toUpperCase();
+
+
+    if (znak) {
+        return znak;
+    }
+
+
+    return czyRozkladDefiniujeWariantA(
+        rozklad
+    )
+        ? "A"
+        : "";
+}
+
 
 function pobierzWariant(k) {
 
@@ -13646,13 +13720,15 @@ function pokazRozkladWybranegoPrzystanku(
 
 
                 /*
-                 * Literę pokazujemy WYŁĄCZNIE wtedy, gdy wariant
-                 * oznacza rzeczywistą zmianę krańca:
-                 * - kurs skrócony,
-                 * - kurs wydłużony.
+                 * FWTP v58:
+                 * literę pokazujemy według PUBLICZNYCH wariantów
+                 * aktualnego kierunku.
                  *
-                 * Główny przebieg oraz warianty jadące do tego
-                 * samego krańca są bez liter.
+                 * Dotyczy to również podjazdów / innych przebiegów
+                 * jadących do tego samego krańca.
+                 *
+                 * A pozostaje ukryte przy 1-3 wariantach i jest
+                 * widoczne od 4 wariantów, zgodnie z regułą FWTP.
                  */
                 let literaDoPokazania =
                     czyPokazacWariantWTabeli(
