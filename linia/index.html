@@ -8,7 +8,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>FWTP - Rozkła</title>
+<title>FWTP - Rozkład</title>
 
 <link rel="stylesheet" href="../css/style.css">
 
@@ -1285,7 +1285,7 @@
 <script>
 
 /* =========================================================
-   FWTP v60
+   FWTP v61
    - trasa_zmieniona / TO: pomarańczowe przystanki i odcinki objazdowe
      - N14/N86 i podobne: lokalna oś główna wg liczby rzeczywistych kursów
    - Nxx: wariant A nadal jest preferowaną osią główną, ale lokalny częstszy przejazd prosty ma pierwszeństwo
@@ -4243,7 +4243,7 @@ function znajdzRozklad() {
                                 kurs => {
 
                                     /*
-                                     * FWTP v60
+                                     * FWTP v61
                                      *
                                      * W nowych JSON-ach kurs bazowy może być
                                      * bez pola "wariant", mimo że rozkład
@@ -4287,7 +4287,7 @@ function znajdzRozklad() {
 
 
             /*
-             * FWTP v60:
+             * FWTP v61:
              * nowy eksport zapisuje warianty przy kierunku.
              * Stary eksport zapisywał je przy rozkładzie.
              */
@@ -4593,7 +4593,7 @@ function znajdzRozklad() {
                 "",
 
             /*
-             * FWTP v60:
+             * FWTP v61:
              * tylko metadane wariantów dla UI /linia/.
              * Lista przystanków nadal powstaje dokładnie
              * tym samym kodem co wcześniej.
@@ -5856,7 +5856,7 @@ function formatujDateInput(
    ========================================================= */
 
 /*
- * FWTP v60
+ * FWTP v61
  *
  * Eksporter może zachować wariant A w polu "warianty",
  * ale kurs bazowy w tablicy "kursy" pozostawić BEZ litery.
@@ -5878,7 +5878,7 @@ function pobierzDefinicjeWariantowZObiektu(
 
 
     /*
-     * FWTP v60
+     * FWTP v61
      *
      * STARY JSON:
      *   rozklad.warianty
@@ -6035,7 +6035,7 @@ function zbierzWariantyDlaKierunku(
 
 
     /*
-     * FWTP v60:
+     * FWTP v61:
      * w nowym JSON-ie źródłem publicznych wariantów jest również
      * kierunek.warianty. To naprawia przyciski A/W/C itd.,
      * gdy kurs bazowy nie ma już wpisanego wariant:"A".
@@ -6116,6 +6116,130 @@ function zbierzWariantyDlaKierunku(
 
 
 /* =========================================================
+   FWTP v61 - GOTOWY PRZEBIEG WARIANTU Z NOWEGO JSON
+   =========================================================
+
+   Nowy eksporter może mieć wariant zdefiniowany w:
+       kierunek.warianty
+   i gotowy przebieg w:
+       lista_przystankowa.trasy
+
+   nawet jeżeli w wybranym dniu żaden obiekt kursu nie ma
+   pola wariant z tą literą.
+
+   To jest dokładnie przypadek 110 / wariant C.
+
+   WAŻNE:
+   ta funkcja NIE buduje listy przystanków.
+   Wyłącznie odczytuje gotową trasę zapisaną przez eksporter.
+   ========================================================= */
+
+function pobierzGotowaTraseWariantuFWTP(
+    kierunek,
+    litera
+) {
+
+    const szukana =
+        String(
+            litera || ""
+        )
+            .trim()
+            .toUpperCase();
+
+
+    if (
+        !kierunek ||
+        !szukana ||
+        !Array.isArray(
+            kierunek.przystanki
+        )
+    ) {
+
+        return null;
+    }
+
+
+    for (
+        const przystanek of
+        kierunek.przystanki
+    ) {
+
+        const lista =
+            przystanek &&
+            przystanek.lista_przystankowa;
+
+
+        const trasy =
+            lista &&
+            Array.isArray(lista.trasy)
+                ? lista.trasy
+                : [];
+
+
+        const znaleziona =
+            trasy.find(
+                trasa =>
+                    String(
+                        trasa?.wariant || ""
+                    )
+                        .trim()
+                        .toUpperCase() ===
+                    szukana
+            );
+
+
+        if (
+            znaleziona &&
+            Array.isArray(
+                znaleziona.trasa
+            ) &&
+            znaleziona.trasa.length > 0
+        ) {
+
+            return znaleziona;
+        }
+    }
+
+
+    return null;
+}
+
+
+function czyPrzystanekNalezyDoGotowejTrasyFWTP(
+    przystanek,
+    gotowaTrasa
+) {
+
+    if (
+        !przystanek ||
+        !gotowaTrasa ||
+        !Array.isArray(
+            gotowaTrasa.trasa
+        )
+    ) {
+
+        return false;
+    }
+
+
+    const id =
+        String(
+            przystanek.id || ""
+        ).trim();
+
+
+    if (!id) {
+        return false;
+    }
+
+
+    return gotowaTrasa.trasa.includes(
+        id
+    );
+}
+
+
+/* =========================================================
    DOMYŚLNY WARIANT
    ========================================================= */
 
@@ -6169,7 +6293,7 @@ function znajdzDomyslnyWariant(
 
 
     /*
-     * FWTP v60:
+     * FWTP v61:
      * bazowy A może nie występować w kurs.wariant.
      */
     if (
@@ -8626,11 +8750,19 @@ function pokazListePrzystankow(
 const wariantySkrocone =
     new Set(
         (
+            kierunekDlaDaty &&
             Array.isArray(
-                rozklad.warianty
-            )
-                ? rozklad.warianty
-                : []
+                kierunekDlaDaty.warianty
+            ) &&
+            kierunekDlaDaty.warianty.length > 0
+                ? kierunekDlaDaty.warianty
+                : (
+                    Array.isArray(
+                        rozklad.warianty
+                    )
+                        ? rozklad.warianty
+                        : []
+                  )
         )
             .filter(
                 wariant => {
@@ -8675,9 +8807,27 @@ const wariantySkrocone =
      * końcem mają być szare. Ostatni obsługiwany przystanek
      * pozostaje końcówką wariantu (kwadrat).
      */
-    const selectedActive =
+    /*
+     * FWTP v61:
+     *
+     * Najpierw zachowujemy dotychczasową logikę kursów.
+     * Jeżeli wybrany wariant nie występuje w kurs.wariant
+     * (np. 110/C w nowym JSON-ie), NIE wymyślamy trasy.
+     * Bierzemy gotowy przebieg tego wariantu zapisany przez
+     * eksporter w lista_przystankowa.trasy.
+     */
+    const gotowaTrasaWybranegoWariantu =
         aktualnyWariant
-            ? przystanki.map(
+            ? pobierzGotowaTraseWariantuFWTP(
+                kierunekDlaDaty,
+                aktualnyWariant
+              )
+            : null;
+
+
+    const czyWybranyWariantMaKursy =
+        aktualnyWariant
+            ? przystanki.some(
                 p =>
                     (
                         p.kursy ||
@@ -8687,7 +8837,40 @@ const wariantySkrocone =
                             pobierzWariant(k) ===
                             aktualnyWariant
                     )
-            )
+              )
+            : false;
+
+
+    const selectedActive =
+        aktualnyWariant
+            ? przystanki.map(
+                p => {
+
+                    const aktywnyWKursach =
+                        (
+                            p.kursy ||
+                            []
+                        ).some(
+                            k =>
+                                pobierzWariant(k) ===
+                                aktualnyWariant
+                        );
+
+
+                    if (
+                        czyWybranyWariantMaKursy
+                    ) {
+
+                        return aktywnyWKursach;
+                    }
+
+
+                    return czyPrzystanekNalezyDoGotowejTrasyFWTP(
+                        p,
+                        gotowaTrasaWybranegoWariantu
+                    );
+                }
+              )
             : czasyKursu.map(
                 czas =>
                     czasNaMinuty(
@@ -13907,7 +14090,7 @@ function pokazRozkladWybranegoPrzystanku(
 
 
                 /*
-                 * FWTP v60:
+                 * FWTP v61:
                  * literę pokazujemy według PUBLICZNYCH wariantów
                  * aktualnego kierunku.
                  *
