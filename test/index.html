@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 637 — NAPRAWA LISTY PRZYSTANKÓW DLA LINII Z WARIANTAMI -->
+<!-- WERSJA: 638 — NAPRAWA ODCZYTU lista_przystankowa.elementy DLA WARIANTÓW -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -19100,18 +19100,54 @@ function v496RenderRoutes(routes){
    ========================================================= */
 
 function v514ModelListy(){
-    const active=v486CurrentStop();
-    const model=active?.lista_przystankowa;
+    /* =========================================================
+       FWTP V638
 
+       NIE uzależniamy gotowej listy od lista_przystankowa.wersja.
+       W części JSON-ów z wariantami pole elementy[] istnieje, ale
+       numer wersji modelu jest inny albo nie występuje. W V637
+       powodowało to zwrócenie null i później komunikat
+       „Brak danych trasy dla tego przystanku.”.
+
+       Dodatkowo szukamy najbogatszego obiektu tego SAMEGO
+       przystanku we wszystkich rozkładach. Jest to potrzebne,
+       ponieważ katalog przystanków łączy D/C i dany słupek może
+       mieć lista_przystankowa tylko w jednym z bloków.
+       ========================================================= */
+
+    const active=v486CurrentStop();
+    if(!active)return null;
+
+    const direct=active?.lista_przystankowa;
     if(
-        model &&
-        Number(model.wersja)>=2 &&
-        Array.isArray(model.elementy)
+        direct &&
+        Array.isArray(direct.elementy) &&
+        direct.elementy.length
     ){
-        return model.elementy;
+        return direct.elementy;
     }
 
-    return null;
+    const activeId=v486StopId(active);
+    let najlepsze=null;
+
+    v486Array(
+        daneLinii?.["rozkłady"] ?? daneLinii?.rozklady
+    ).forEach(rozklad=>{
+        const kierunek=v486Array(rozklad?.kierunki)[aktualnyKierunek];
+
+        v486Array(kierunek?.przystanki).forEach(p=>{
+            if(v486StopId(p)!==activeId)return;
+
+            const elementy=p?.lista_przystankowa?.elementy;
+            if(!Array.isArray(elementy) || !elementy.length)return;
+
+            if(!najlepsze || elementy.length>najlepsze.length){
+                najlepsze=elementy;
+            }
+        });
+    });
+
+    return najlepsze;
 }
 
 function v514StopPoId(id){
