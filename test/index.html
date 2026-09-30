@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 644 — BAZA V636; PEŁNY SILNIK LISTY V502 PRZYWRÓCONY WEWNĄTRZ GŁÓWNEGO SKRYPTU -->
+<!-- WERSJA: 645 — BAZA V636; KOMPLET ZALEŻNOŚCI DZIAŁAJĄCEGO SILNIKA LISTY V502 -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -23141,6 +23141,2604 @@ function v498UruchomDopasowanie(){
             v508OznaczRzeczywisteKonce();
         });
     });
+}
+
+
+/* =========================================================
+   FWTP — WERSJA 645
+   KOMPLET ZALEŻNOŚCI DZIAŁAJĄCEGO SILNIKA LISTY V502
+   Przywrócone automatycznie po pełnym grafie wywołań.
+   ========================================================= */
+function __bezCache_galezieWewnetrzne302(){
+
+    const grupy=katalogPrzebiegowWszystkichDni300();
+    if(grupy.length<2) return[];
+
+    const baza=grupy[0];
+    const bazaNazwy=(baza?.przebieg||[]).map(x=>x.nazwa);
+    const mapa=new Map();
+
+    grupy.slice(1).forEach(grupa=>{
+
+        const trasa=(grupa?.przebieg||[]).map(x=>x.nazwa);
+        if(!trasa.length||!bazaNazwy.length) return;
+
+        let prefix=0;
+        while(
+            prefix<trasa.length&&
+            prefix<bazaNazwy.length&&
+            trasa[prefix]===bazaNazwy[prefix]
+        ){
+            prefix++;
+        }
+
+        if(prefix===0||prefix>=trasa.length) return;
+
+        let rejoinTrasa=-1;
+        let rejoinBaza=-1;
+
+        for(let i=prefix;i<trasa.length;i++){
+            const j=bazaNazwy.indexOf(trasa[i],prefix);
+            if(j>=0){
+                rejoinTrasa=i;
+                rejoinBaza=j;
+                break;
+            }
+        }
+
+        /*
+           Bez ponownego połączenia = zwykłe skrócenie,
+           a nie alternatywna gałąź.
+        */
+        if(rejoinTrasa<0||rejoinBaza<0) return;
+
+        const branch=(grupa?.przebieg||[]).slice(prefix,rejoinTrasa);
+        if(!branch.length) return;
+
+        const splitNazwa=trasa[prefix-1];
+        const rejoinNazwa=trasa[rejoinTrasa];
+        const klucz=[
+            splitNazwa,
+            ...branch.map(x=>x.nazwa),
+            rejoinNazwa
+        ].join(">");
+
+        if(!mapa.has(klucz)){
+            mapa.set(klucz,{
+                splitNazwa,
+                rejoinNazwa,
+                przystanki:branch,
+                litery:new Set()
+            });
+        }
+
+        Array.from(grupa?.litery||[]).forEach(l=>{
+            l=String(l||"").trim().toLowerCase();
+            if(l) mapa.get(klucz).litery.add(l);
+        });
+    });
+
+    return Array.from(mapa.values());
+}
+
+function __bezCache_katalogPrzebiegowWszystkichDni300(){
+
+    const grupy = new Map();
+
+    wszystkieKursyWszystkichDniDoTrasy300().forEach(
+        kurs => {
+
+            const przebieg =
+                przebiegKursuBezDaty300(kurs);
+
+            if(!przebieg.length){
+                return;
+            }
+
+            const klucz =
+                przebieg.map(x => x.nazwa).join(">");
+
+            if(!grupy.has(klucz)){
+                grupy.set(klucz, {
+                    klucz,
+                    przebieg,
+                    kursy: [],
+                    litery: new Set()
+                });
+            }
+
+            const grupa = grupy.get(klucz);
+
+            grupa.kursy.push(kurs);
+
+            const litera =
+                String(
+                    kurs?.wariant || ""
+                ).trim();
+
+            if(litera){
+                grupa.litery.add(
+                    kanonicznaLiteraWariantu(litera)
+                );
+            }
+        }
+    );
+
+    return Array.from(grupy.values());
+}
+
+function __bezCache_stanLogicznyPrzystanku302(element){
+
+    const nazwa=logicznaNazwaPrzystanku298(element?.p||element);
+    const grupy=katalogPrzebiegowWszystkichDni300();
+
+    const jadace=grupy.filter(
+        grupa=>(grupa?.przebieg||[]).some(x=>x.nazwa===nazwa)
+    );
+
+    if(!grupy.length||jadace.length===grupy.length){
+        return{typ:"wszystkie",litery:[]};
+    }
+
+    const litery=new Set();
+
+    jadace.forEach(grupa=>{
+        Array.from(grupa?.litery||[]).forEach(l=>{
+            l=String(l||"").trim().toLowerCase();
+            if(l) litery.add(l);
+        });
+    });
+
+    return{
+        typ:litery.size?"wariant":"podstawowa",
+        litery:Array.from(litery)
+    };
+}
+
+function aktywnaGalaz313(){
+
+    const aktywny=
+        typeof aktywnyFizycznyPrzystanek276==="function"
+            ? aktywnyFizycznyPrzystanek276()
+            : wybranyFizycznyPrzystanek262;
+
+    if(!aktywny){
+        return null;
+    }
+
+    const nazwa=
+        logicznaNazwaPrzystanku298(
+            aktywny
+        );
+
+    if(!nazwa){
+        return null;
+    }
+
+    return (
+        galezieWewnetrzne302()
+            .find(
+                galaz=>
+                    (galaz?.przystanki||[])
+                        .some(
+                            element=>
+                                logicznaNazwaPrzystanku298(
+                                    element?.p||element
+                                )===nazwa
+                        )
+            )||
+        null
+    );
+}
+
+function aktywnyFizycznyMaJednaDalszaTrase319(){
+
+    const przebiegi=
+        przyszlePrzebiegiAktywnegoFizycznego319();
+
+    return(
+        przebiegi.length===1
+    );
+}
+
+function aktywnyFizycznyPrzystanek276(){
+
+    if(
+        wybranyFizycznyPrzystanek262&&
+        (
+            String(
+                wybranyFizycznyPrzystanek262?.nazwa||""
+            ).trim()||
+            String(
+                wybranyFizycznyPrzystanek262?.nr||""
+            ).trim()
+        )
+    ){
+        return wybranyFizycznyPrzystanek262;
+    }
+
+    const kierunek=
+        kierunekBazowy();
+
+    return(
+        kierunek
+            ?.przystanki
+            ?.[aktualnyPrzystanek]||
+        null
+    );
+}
+
+function czyElementJestWspolnymSplitem324(element){
+
+    const nazwa=
+        logicznaNazwaPrzystanku298(
+            element?.p||element
+        );
+
+    if(!nazwa){
+        return false;
+    }
+
+    return galezieWewnetrzne302()
+        .some(
+            galaz=>
+                String(
+                    galaz?.splitNazwa||
+                    ""
+                )===nazwa
+        );
+}
+
+function czyGalazowymJestDokladnieAktywny315(element){
+
+    if(!element?._galaz304){
+        return false;
+    }
+
+    const aktywny=
+        typeof aktywnyFizycznyPrzystanek276==="function"
+            ? aktywnyFizycznyPrzystanek276()
+            : wybranyFizycznyPrzystanek262;
+
+    const p=
+        element?.p||
+        element;
+
+    if(!aktywny||!p){
+        return false;
+    }
+
+    return czyTenSamPrzystanekPoNazwieINumerze(
+        p,
+        aktywny
+    );
+}
+
+function czyKraniecKursowPodstawowych424(element){
+    const p=
+        element?.p||
+        element;
+
+    return czyKraniecPodstawowyKierunku426(p);
+}
+
+function czyKraniecPodstawowyKierunku426(p){
+    if(!p){
+        return false;
+    }
+
+    const krance426=
+        listaKrancowKierunku426();
+
+    /*
+       Osobny kraniec podstawowy ma sens tylko wtedy, gdy nagłówek
+       rzeczywiście zawiera co najmniej dwa krańce.
+    */
+    if(krance426.length<2){
+        return false;
+    }
+
+    return(
+        normalizuj(String(p.nazwa||""))===
+        normalizuj(krance426[0])
+    );
+}
+
+function czyNazwaRozkladuPasujeDoDnia272(nazwa,data){
+
+    const s=
+        String(
+            nazwa||""
+        )
+        .toLocaleLowerCase("pl-PL")
+        .replace(/\u00a0/g," ")
+        .replace(/\s+/g," ")
+        .trim();
+
+    const dzien=
+        data instanceof Date
+            ? data.getDay()
+            : -1;
+
+    const sobota=
+        dzien===6;
+
+    const niedziela=
+        dzien===0;
+
+    const weekend=
+        sobota||
+        niedziela;
+
+    const maSobote=
+        s.includes("sobot");
+
+    const maNiedziele=
+        s.includes("niedziel");
+
+    const maSwieto=
+        s.includes("świę")||
+        s.includes("swiet");
+
+    const maPonPiat=
+        (
+            s.includes("poniedział")||
+            s.includes("poniedzial")
+        )&&
+        s.includes("piąt")||
+        s.includes("piat");
+
+    const maRoboczy=
+        s.includes("powszed")||
+        s.includes("robocz");
+
+    if(sobota){
+
+        /*
+           Najwyżej punktujemy rozkład jawnie zawierający soboty.
+           "W SOBOTY, NIEDZIELE I ŚWIĘTA" pasuje tutaj idealnie.
+        */
+        return maSobote;
+    }
+
+    if(niedziela){
+
+        return(
+            maNiedziele||
+            maSwieto
+        );
+    }
+
+    /*
+       Poniedziałek–piątek.
+       Odrzucamy rozkłady weekendowe.
+    */
+    if(
+        maSobote||
+        maNiedziele
+    ){
+        return false;
+    }
+
+    if(
+        maPonPiat||
+        maRoboczy
+    ){
+        return true;
+    }
+
+    /*
+       Nazwa typu "OD PONIEDZIAŁKU DO PIĄTKU OPRÓCZ ŚWIĄT"
+       zostanie złapana przez maPonPiat. Ten fallback jest dla
+       prostszych nazw, które nie zawierają słów weekendowych.
+    */
+    return !maSwieto;
+}
+
+function czyPrzystanekKrancemZNaglowka423(p){
+    if(!p){
+        return false;
+    }
+
+    const nazwaStopu423=
+        normalizuj(
+            String(p.nazwa||"")
+        );
+
+    if(!nazwaStopu423){
+        return false;
+    }
+
+    const krance423=
+        listaKrancowKierunku426();
+
+    if(!krance423.length){
+        return false;
+    }
+
+    /*
+       WERSJA 426:
+       Przy kierunku wielokrańcowym pierwsza nazwa jest krańcem
+       PODSTAWOWYM i nie może dostać klasy kończącej oś.
+       Klasa 423 zostaje tylko dla końców wydłużeń.
+
+       Dla zwykłego kierunku z jednym krańcem zachowujemy stare
+       działanie bez zmian.
+    */
+    const doZakonczeniaOsi=
+        krance423.length>1
+            ? krance423.slice(1)
+            : krance423;
+
+    return doZakonczeniaOsi.some(
+        nazwa423=>
+            normalizuj(nazwa423)===
+            nazwaStopu423
+    );
+}
+
+function czySaRozneTrasyMiedzyDniami256(){
+
+    const rozklady=
+        Array.isArray(daneLinii?.rozkłady)
+            ? daneLinii.rozkłady
+            : [];
+
+    if(rozklady.length<2){
+        return false;
+    }
+
+    const baza=rozklady[0];
+
+    for(let ri=1;ri<rozklady.length;ri++){
+
+        const r=rozklady[ri];
+
+        const max=
+            Math.max(
+                baza?.kierunki?.length||0,
+                r?.kierunki?.length||0
+            );
+
+        for(let ki=0;ki<max;ki++){
+
+            const a=
+                sygnaturaKierunku251(
+                    baza?.kierunki?.[ki]
+                );
+
+            const bb=
+                sygnaturaKierunku251(
+                    r?.kierunki?.[ki]
+                );
+
+            if(a&&bb&&a!==bb){
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+function czyTylkoKoniecCzesciPrzebiegow306(
+    poprzedniElement,
+    aktualnyElement
+){
+
+    const poprzednia=
+        logicznaNazwaPrzystanku298(
+            poprzedniElement?.p||
+            poprzedniElement
+        );
+
+    const aktualna=
+        logicznaNazwaPrzystanku298(
+            aktualnyElement?.p||
+            aktualnyElement
+        );
+
+    if(!poprzednia||!aktualna){
+        return false;
+    }
+
+    const grupy=
+        katalogPrzebiegowWszystkichDni300();
+
+    let jedzieDalej=false;
+    let konczySie=false;
+
+    for(const grupa of grupy){
+
+        const nazwy=
+            (grupa?.przebieg||[])
+                .map(x=>x.nazwa);
+
+        const i=
+            nazwy.indexOf(
+                poprzednia
+            );
+
+        if(i<0){
+            continue;
+        }
+
+        if(
+            i+1<nazwy.length&&
+            nazwy[i+1]===aktualna
+        ){
+            jedzieDalej=true;
+        }
+        else if(
+            i===nazwy.length-1
+        ){
+            konczySie=true;
+        }
+    }
+
+    return(
+        jedzieDalej&&
+        konczySie
+    );
+}
+
+function galazJestPrzedAktywnym315(element){
+
+    if(
+        !element?._galaz304||
+        !element?._rejoinNazwa304
+    ){
+        return false;
+    }
+
+    const aktywny=
+        typeof aktywnyFizycznyPrzystanek276==="function"
+            ? aktywnyFizycznyPrzystanek276()
+            : wybranyFizycznyPrzystanek262;
+
+    if(!aktywny){
+        return false;
+    }
+
+    const aktywnaNazwa=
+        logicznaNazwaPrzystanku298(
+            aktywny
+        );
+
+    const rejoin=
+        String(
+            element._rejoinNazwa304||
+            ""
+        );
+
+    if(!aktywnaNazwa||!rejoin){
+        return false;
+    }
+
+    /*
+       Szukamy rzeczywistego przebiegu zawierającego aktywny punkt
+       oraz punkt ponownego połączenia. Jeżeli aktywny leży na nim
+       na rejoin albo dalej, cała alternatywna odnoga jest już za nami.
+    */
+    return katalogPrzebiegowWszystkichDni300()
+        .some(
+            grupa=>{
+
+                const nazwy=
+                    (grupa?.przebieg||[])
+                        .map(x=>x.nazwa);
+
+                const iRejoin=
+                    nazwy.indexOf(
+                        rejoin
+                    );
+
+                const iAktywny=
+                    nazwy.indexOf(
+                        aktywnaNazwa
+                    );
+
+                return(
+                    iRejoin>=0&&
+                    iAktywny>=iRejoin
+                );
+            }
+        );
+}
+
+function galezieWewnetrzne302(){
+
+    if(
+        cachePrzebiegow306.dane===daneLinii&&
+        cachePrzebiegow306.kierunek===aktualnyKierunek&&
+        Array.isArray(cachePrzebiegow306.galezie)
+    ){
+        return cachePrzebiegow306.galezie;
+    }
+
+    const wynik=
+        __bezCache_galezieWewnetrzne302();
+
+    cachePrzebiegow306.dane=daneLinii;
+    cachePrzebiegow306.kierunek=aktualnyKierunek;
+    cachePrzebiegow306.galezie=wynik;
+
+    return wynik;
+}
+
+function indeksWybranegoFizycznegoWKierunku275(
+    kierunek
+){
+
+    if(
+        !kierunek||
+        !wybranyFizycznyPrzystanek262
+    ){
+        return -1;
+    }
+
+    const key=
+        kluczFizycznegoPrzystanku273(
+            wybranyFizycznyPrzystanek262
+        );
+
+    return(
+        kierunek.przystanki||
+        []
+    ).findIndex(
+        p=>
+            kluczFizycznegoPrzystanku273(p)===
+            key
+    );
+}
+
+function katalogPrzebiegowWszystkichDni300(){
+
+    if(
+        cachePrzebiegow306.dane===daneLinii&&
+        cachePrzebiegow306.kierunek===aktualnyKierunek&&
+        Array.isArray(cachePrzebiegow306.katalog)
+    ){
+        return cachePrzebiegow306.katalog;
+    }
+
+    const wynik=
+        __bezCache_katalogPrzebiegowWszystkichDni300();
+
+    cachePrzebiegow306.dane=daneLinii;
+    cachePrzebiegow306.kierunek=aktualnyKierunek;
+    cachePrzebiegow306.katalog=wynik;
+    cachePrzebiegow306.galezie=null;
+
+    return wynik;
+}
+
+function kierunekZawierajacyWybranyPrzystanek275(){
+
+    if(!wybranyFizycznyPrzystanek262){
+        return null;
+    }
+
+    const key=
+        kluczFizycznegoPrzystanku273(
+            wybranyFizycznyPrzystanek262
+        );
+
+    if(!key){
+        return null;
+    }
+
+    /*
+       Najpierw preferujemy trasę wybranego dnia, jeśli rzeczywiście
+       zawiera dokładnie ten słupek.
+    */
+    const rozkladDnia=
+        rozkladBazowyDlaWybranejDaty272();
+
+    const kierunekDnia=
+        rozkladDnia
+            ?.kierunki
+            ?.[aktualnyKierunek];
+
+    if(
+        (
+            kierunekDnia?.przystanki||
+            []
+        ).some(
+            p=>
+                kluczFizycznegoPrzystanku273(p)===
+                key
+        )
+    ){
+        return kierunekDnia;
+    }
+
+    /*
+       Jeśli słupek nie istnieje w wybranym dniu, znajdujemy
+       rzeczywistą trasę z innego rodzaju dnia. Wybieramy najpełniejszą
+       z tras zawierających dokładnie NAZWA + NR.
+    */
+    let najlepszy=null;
+    let najlepszaDlugosc=-1;
+
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            const kierunek=
+                rozklad
+                    ?.kierunki
+                    ?.[aktualnyKierunek];
+
+            const lista=
+                kierunek?.przystanki||
+                [];
+
+            const zawiera=
+                lista.some(
+                    p=>
+                        kluczFizycznegoPrzystanku273(p)===
+                        key
+                );
+
+            if(
+                zawiera&&
+                lista.length>najlepszaDlugosc
+            ){
+                najlepszy=kierunek;
+                najlepszaDlugosc=lista.length;
+            }
+        }
+    );
+
+    return najlepszy;
+}
+
+function kluczFizycznegoPrzystanku273(p){
+
+    return(
+        normalizuj(
+            p?.nazwa
+        )+
+        "|"+
+        String(
+            p?.nr||""
+        ).trim()
+    );
+}
+
+function kluczLogiczny252(p){
+    /*
+       v254: numer słupka i LP nie rozdzielają wspólnego przystanku.
+       To potrzebne np. dla KS POLONEZ i PKP TORUŃSKA po odcinku,
+       na którym liczba wcześniejszych przystanków jest inna.
+    */
+    return normTrasy251(
+        p?.nazwa
+    );
+}
+
+function kluczPunktu253(p){
+
+            /*
+               v254:
+               przy porównywaniu przebiegów różnych rodzajów dni
+               wspólny przystanek rozpoznajemy po NAZWIE.
+
+               Nie używamy ani numeru słupka, ani LP, bo po objazdowym
+               fragmencie LP może być przesunięte. Licznik wystąpień
+               poniżej nadal rozróżnia powtarzającą się tę samą nazwę.
+            */
+            return normalizujNazwe208(
+                p?.nazwa
+            );
+        }
+
+function konceKursowSkroconych255(){
+
+    const wynik=new Map();
+
+    (daneLinii?.rozkłady||[])
+        .forEach(
+            rozklad=>{
+
+                const mapaOpisow=
+                    new Map(
+                        (rozklad?.warianty||[])
+                            .map(
+                                w=>[
+                                    String(w?.litera||"").trim().toUpperCase(),
+                                    String(w?.opis||"").trim()
+                                ]
+                            )
+                    );
+
+                const kierunek=
+                    rozklad?.kierunki?.[
+                        aktualnyKierunek
+                    ];
+
+                if(!kierunek){
+                    return;
+                }
+
+                const kursy=new Map();
+
+                (kierunek?.przystanki||[])
+                    .forEach(
+                        (p,index)=>
+                            (p?.kursy||[])
+                                .forEach(
+                                    k=>{
+                                        const lit=
+                                            String(
+                                                k?.wariant||
+                                                ""
+                                            ).trim().toUpperCase();
+
+                                        const opis=
+                                            mapaOpisow.get(lit)||
+                                            "";
+
+                                        if(
+                                            !lit||
+                                            !/skrócon|tylko do/i.test(opis)
+                                        ){
+                                            return;
+                                        }
+
+                                        const nr=
+                                            String(k?.numer||"");
+
+                                        const old=
+                                            kursy.get(nr);
+
+                                        if(
+                                            !old||
+                                            index>old.index
+                                        ){
+                                            kursy.set(
+                                                nr,
+                                                {
+                                                    index,
+                                                    p,
+                                                    litera:lit
+                                                }
+                                            );
+                                        }
+                                    }
+                                )
+                    );
+
+                kursy.forEach(
+                    x=>{
+                        const key=
+                            normTrasy251(
+                                x.p?.nazwa
+                            );
+
+                        if(!wynik.has(key)){
+                            wynik.set(
+                                key,
+                                new Set()
+                            );
+                        }
+
+                        wynik.get(key)
+                            .add(
+                                x.litera.toLowerCase()
+                            );
+                    }
+                );
+            }
+        );
+
+    return wynik;
+}
+
+function listaKrancowKierunku426(){
+    let tekstKierunku426="";
+
+    try{
+        tekstKierunku426=
+            String(
+                kierunekZDokladnychKursow206()||
+                ""
+            );
+    }catch(e){
+        tekstKierunku426="";
+    }
+
+    if(!tekstKierunku426.trim()){
+        tekstKierunku426=
+            String(
+                nazwaKierunku(
+                    kierunekBazowy()
+                )||
+                ""
+            );
+    }
+
+    return tekstKierunku426
+        .split(/\s*\/\s*/)
+        .map(x=>String(x||"").trim())
+        .filter(Boolean);
+}
+
+function listaWszystkichFizycznychPrzystankow273(){
+
+    const wynik=[];
+    const dodane=new Set();
+
+    /*
+       Jako pierwszą bierzemy najpełniejszą rzeczywistą trasę.
+       Dzięki temu zwykłe przystanki zachowują naturalną kolejność.
+    */
+    const bazowy=
+        znajdzNajpelniejszyKierunek(
+            aktualnyKierunek
+        );
+
+    const dodajListe=
+        lista=>{
+
+            (
+                Array.isArray(lista)
+                    ? lista
+                    : []
+            ).forEach(
+                (p,indexZrodlowy)=>{
+
+                    const key=
+                        kluczFizycznegoPrzystanku273(
+                            p
+                        );
+
+                    if(
+                        !key||
+                        dodane.has(key)
+                    ){
+                        return;
+                    }
+
+                    dodane.add(key);
+
+                    wynik.push({
+                        p,
+                        key,
+                        indexZrodlowy
+                    });
+                }
+            );
+        };
+
+    dodajListe(
+        bazowy?.przystanki
+    );
+
+    /*
+       Potem dokładamy słupki istniejące tylko w innych
+       rozkładach / rodzajach dnia.
+    */
+    (
+        daneLinii?.rozkłady||
+        []
+    ).forEach(
+        rozklad=>{
+
+            dodajListe(
+                rozklad
+                    ?.kierunki
+                    ?.[aktualnyKierunek]
+                    ?.przystanki
+            );
+        }
+    );
+
+    return wynik;
+}
+
+function literyTejSamejGalezi313(stan,galaz){
+
+    if(
+        !stan||
+        stan.typ!=="wariant"||
+        !galaz
+    ){
+        return false;
+    }
+
+    const litery=
+        new Set(
+            (stan.litery||[])
+                .map(
+                    x=>
+                        String(x||"")
+                            .trim()
+                            .toLowerCase()
+                )
+                .filter(Boolean)
+        );
+
+    return (
+        Array.from(
+            galaz?.litery||
+            []
+        )
+            .some(
+                x=>
+                    litery.has(
+                        String(x||"")
+                            .trim()
+                            .toLowerCase()
+                    )
+            )
+    );
+}
+
+function logicznaNazwaPrzystanku298(p){
+
+    return String(p?.nazwa||"")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g,"")
+        .replace(/\s+/g," ")
+        .trim()
+        .toUpperCase();
+}
+
+function nazwaRodzajuDnia251(nazwa){
+
+    const s=
+        String(nazwa||"")
+            .trim()
+            .toLocaleLowerCase("pl-PL");
+
+    if(
+        s.includes("sobot")&&
+        (
+            s.includes("niedziel")||
+            s.includes("świę")
+        )
+    ){
+        return "soboty, niedziele i święta";
+    }
+
+    if(s.includes("sobot")){
+        return "soboty";
+    }
+
+    if(
+        s.includes("niedziel")||
+        s.includes("świę")
+    ){
+        return "niedziele i święta";
+    }
+
+    return String(nazwa||"").trim();
+}
+
+function normTrasy251(v){
+    return String(v||"")
+        .trim()
+        .toLocaleUpperCase("pl-PL")
+        .replace(/\s+/g," ");
+}
+
+function nowaLitera251(zajete){
+
+    /*
+       A jest bazą. Zostawiamy istniejące Z itd.
+       Pierwsza wolna publiczna litera to zwykle B.
+    */
+    for(let c=66;c<=89;c++){
+
+        const l=
+            String.fromCharCode(c);
+
+        if(!zajete.has(l)){
+            zajete.add(l);
+            return l;
+        }
+    }
+
+    return"";
+}
+
+function oznaczKonceSkroconych255(root=document){
+
+    if(!trybRoznychTrasDni256){
+        return;
+    }
+
+    const konce=
+        konceKursowSkroconych255();
+
+    if(!konce.size){
+        return;
+    }
+
+    root.querySelectorAll(
+        ".tabliczka .trasa-stop"
+    ).forEach(
+        stop=>{
+
+            const nazwaEl=
+                stop.querySelector(
+                    ".trasa-nazwa, .trasa-nazwa-aktywna"
+                );
+
+            if(!nazwaEl){
+                return;
+            }
+
+            const nazwa=
+                normTrasy251(
+                    nazwaEl.textContent
+                );
+
+            const litery=
+                konce.get(nazwa);
+
+            if(
+                !litery||
+                !litery.size||
+                stop.querySelector(
+                    ".koniec-skroconych-255"
+                )
+            ){
+                return;
+            }
+
+            const info=
+                document.createElement(
+                    "div"
+                );
+
+            info.className=
+                "koniec-skroconych-255";
+
+            info.textContent=
+                "Koniec kursów "+
+                [...litery]
+                    .sort()
+                    .map(
+                        l=>'„'+l+'”'
+                    )
+                    .join(", ");
+
+            stop.appendChild(info);
+        }
+    );
+}
+
+function oznaczWspolnePrzystanki252(){
+
+    const rozklady=
+        Array.isArray(daneLinii?.rozkłady)
+            ? daneLinii.rozkłady
+            : [];
+
+    const mapy=[];
+
+    rozklady.forEach(
+        r=>{
+            const kierunki=[];
+            (r?.kierunki||[]).forEach(
+                (k,ki)=>{
+                    const set=new Set();
+                    (k?.przystanki||[])
+                        .filter(
+                            p=>
+                                String(p?.typ||"STOP")
+                                    .trim()
+                                    .toUpperCase()!=="TECH"
+                        )
+                        .forEach(
+                            p=>set.add(
+                                kluczLogiczny252(p)
+                            )
+                        );
+                    kierunki[ki]=set;
+                }
+            );
+            mapy.push(kierunki);
+        }
+    );
+
+    rozklady.forEach(
+        (r,ri)=>
+            (r?.kierunki||[]).forEach(
+                (k,ki)=>
+                    (k?.przystanki||[]).forEach(
+                        p=>{
+                            const key=kluczLogiczny252(p);
+                            let ile=0;
+                            mapy.forEach(
+                                mk=>{
+                                    if(mk?.[ki]?.has(key)){
+                                        ile++;
+                                    }
+                                }
+                            );
+                            p._wspolnyMiedzyDniami252=
+                                ile>1;
+                        }
+                    )
+            )
+    );
+}
+
+function przebiegKursuBezDaty300(kursRef){
+
+    const rozklad =
+        daneLinii?.rozkłady?.[kursRef?._rozkladIndex];
+
+    const kierunek =
+        Array.isArray(rozklad?.kierunki)
+            ? rozklad.kierunki[kursRef?._kierunekIndex]
+            : null;
+
+    if(!kierunek){
+        return [];
+    }
+
+    const wynik = [];
+
+    (kierunek.przystanki || []).forEach(
+        p => {
+
+            const maTenKurs =
+                (p?.kursy || []).some(
+                    k =>
+                        String(k?.numer || "") === String(kursRef?.numer || "") &&
+                        String(k?.wariant || "").trim() === String(kursRef?.wariant || "").trim() &&
+                        String(k?.brygada || "").trim() === String(kursRef?.brygada || "").trim() &&
+                        symbolDnia(k) === kursRef?.symbol &&
+                        czasNaMinuty(k?.czas) !== null
+                );
+
+            if(!maTenKurs){
+                return;
+            }
+
+            const nazwa =
+                logicznaNazwaPrzystanku298(p);
+
+            if(!nazwa){
+                return;
+            }
+
+            /*
+               329:
+               Nie wolno scalać kolejnych przystanków tylko dlatego,
+               że mają tę samą nazwę. W 134 są kolejno:
+                   METRO BRÓDNO 04
+                   METRO BRÓDNO 10
+               i oba są prawdziwymi punktami przebiegu.
+            */
+            wynik.push({
+                nazwa,
+                p
+            });
+        }
+    );
+
+    return wynik;
+}
+
+function przyszlePrzebiegiAktywnegoFizycznego319(){
+
+    const aktywny=
+        typeof aktywnyFizycznyPrzystanek276==="function"
+            ? aktywnyFizycznyPrzystanek276()
+            : wybranyFizycznyPrzystanek262;
+
+    if(!aktywny){
+        return[];
+    }
+
+    const mapa=
+        new Map();
+
+    for(
+        const rozklad of
+        (
+            daneLinii?.rozkłady||
+            daneLinii?.rozklady||
+            []
+        )
+    ){
+
+        const kierunek=
+            rozklad?.kierunki?.[
+                aktualnyKierunek
+            ];
+
+        if(!kierunek){
+            continue;
+        }
+
+        const lista=
+            kierunek.przystanki||
+            [];
+
+        const idx=
+            lista.findIndex(
+                p=>
+                    czyTenSamPrzystanekPoNazwieINumerze(
+                        p,
+                        aktywny
+                    )
+            );
+
+        if(idx<0){
+            continue;
+        }
+
+        const przyszlosc=
+            lista
+                .slice(idx)
+                .map(
+                    p=>
+                        logicznaNazwaPrzystanku298(
+                            p
+                        )
+                )
+                .filter(Boolean);
+
+        const klucz=
+            przyszlosc.join("→");
+
+        if(
+            klucz&&
+            !mapa.has(klucz)
+        ){
+            mapa.set(
+                klucz,
+                przyszlosc
+            );
+        }
+    }
+
+    return Array.from(
+        mapa.values()
+    );
+}
+
+function renderGalezieWewnetrzne302(){
+
+    return"";
+}
+
+function renderSeparator304(stan){
+
+    if(!stan){
+        return"";
+    }
+
+    if(
+        aktywnyFizycznyMaJednaDalszaTrase319()
+    ){
+        return"";
+    }
+
+    if(stan.typ==="wszystkie"){
+
+        if(
+            aktywnaGalaz313()
+        ){
+            return"";
+        }
+
+        return(
+            '<li class="trasa-separator">'+
+            '<span class="trasa-separator-title">'+
+            'Trasa we wszystkich kursach'+
+            '</span>'+
+            '</li>'
+        );
+    }
+
+    if(
+        stan.typ==="wariant"&&
+        Array.isArray(stan.litery)&&
+        stan.litery.length
+    ){
+
+        const aktywna=
+            aktywnaGalaz313();
+
+        if(
+            aktywna&&
+            literyTejSamejGalezi313(
+                stan,
+                aktywna
+            )
+        ){
+            return"";
+        }
+
+        const litery=
+            Array.from(
+                new Set(
+                    stan.litery
+                        .map(
+                            l=>
+                                String(l||"")
+                                    .trim()
+                                    .toLowerCase()
+                        )
+                        .filter(Boolean)
+                )
+            );
+
+        return(
+            '<li class="trasa-separator">'+
+            '<span class="trasa-separator-title">'+
+            'Trasa w kursach '+
+            litery
+                .map(
+                    l=>
+                        '„'+
+                        escapeHtml(l)+
+                        '”'
+                )
+                .join(', ')+
+            '</span>'+
+            '</li>'
+        );
+    }
+
+    return"";
+}
+
+function rozdzielSpecjalneLiteryMiedzyDniami254(){
+
+    const rozklady=
+        Array.isArray(daneLinii?.rozkłady)
+            ? daneLinii.rozkłady
+            : [];
+
+    if(rozklady.length<2){
+        return;
+    }
+
+    const literyBazy=
+        new Set(
+            (rozklady[0]?.warianty||[])
+                .map(
+                    w=>
+                        String(
+                            w?.litera||
+                            ""
+                        ).trim().toUpperCase()
+                )
+                .filter(Boolean)
+        );
+
+    const zajete=
+        zajeteLitery251();
+
+    /*
+       B rezerwujemy dla odmiennej pełnej trasy dnia.
+    */
+    zajete.add("B");
+
+    for(let ri=1;ri<rozklady.length;ri++){
+
+        const r=rozklady[ri];
+
+        if(!Array.isArray(r?.warianty)){
+            continue;
+        }
+
+        const zamiany=
+            new Map();
+
+        r.warianty.forEach(
+            w=>{
+
+                const stara=
+                    String(
+                        w?.litera||
+                        ""
+                    ).trim().toUpperCase();
+
+                if(
+                    !stara||
+                    stara==="A"||
+                    !literyBazy.has(stara)
+                ){
+                    return;
+                }
+
+                /*
+                   Rozdzielamy przede wszystkim kursy specjalne:
+                   skrócone, wydłużone, do zajezdni, tylko do...
+                */
+                const opis=
+                    String(
+                        w?.opis||
+                        ""
+                    );
+
+                if(
+                    !/skrócon|wydłuż|zajezdni|tylko do/i
+                        .test(opis)
+                ){
+                    return;
+                }
+
+                const nowa=
+                    nowaLitera251(
+                        zajete
+                    );
+
+                if(!nowa){
+                    return;
+                }
+
+                zamiany.set(
+                    stara,
+                    nowa
+                );
+
+                w.litera=
+                    nowa;
+
+                /*
+                   v255:
+                   opis musi być różny od powszedniego Z.
+                   Inaczej kanonicznaLiteraWariantu() scalałaby
+                   identyczne opisy i z powrotem pokazywała Z
+                   zamiast nowej litery C.
+                */
+                w.opis=
+                    String(
+                        w?.opis||
+                        ""
+                    ).trim()+
+                    " ("+
+                    nazwaRodzajuDnia251(
+                        r?.nazwa
+                    )+
+                    ")";
+
+                w._osobnaLiteraDnia254=
+                    true;
+            }
+        );
+
+        if(!zamiany.size){
+            continue;
+        }
+
+        (r?.kierunki||[])
+            .forEach(
+                k=>
+                    (k?.przystanki||[])
+                        .forEach(
+                            p=>{
+
+                                (p?.kursy||[])
+                                    .forEach(
+                                        kurs=>{
+
+                                            const stara=
+                                                String(
+                                                    kurs?.wariant||
+                                                    ""
+                                                )
+                                                .trim()
+                                                .toUpperCase();
+
+                                            if(
+                                                zamiany.has(
+                                                    stara
+                                                )
+                                            ){
+                                                kurs.wariant=
+                                                    zamiany.get(
+                                                        stara
+                                                    );
+                                            }
+                                        }
+                                    );
+
+                                (p?.godziny||[])
+                                    .forEach(
+                                        g=>
+                                            (g?.minuty||[])
+                                                .forEach(
+                                                    m=>{
+
+                                                        const stara=
+                                                            String(
+                                                                m?.wariant||
+                                                                ""
+                                                            )
+                                                            .trim()
+                                                            .toUpperCase();
+
+                                                        if(
+                                                            zamiany.has(
+                                                                stara
+                                                            )
+                                                        ){
+                                                            m.wariant=
+                                                                zamiany.get(
+                                                                    stara
+                                                                );
+                                                        }
+                                                    }
+                                                )
+                                    );
+                            }
+                        )
+            );
+    }
+}
+
+function rozkladBazowyDlaWybranejDaty272(){
+
+    const rozklady=
+        Array.isArray(
+            daneLinii?.rozkłady
+        )
+            ? daneLinii.rozkłady
+            : [];
+
+    if(!rozklady.length){
+        return null;
+    }
+
+    const pasujace=
+        rozklady.filter(
+            r=>
+                czyNazwaRozkladuPasujeDoDnia272(
+                    r?.nazwa,
+                    wybranaData
+                )
+        );
+
+    /*
+       Jeżeli kilka rozkładów pasuje do tego samego rodzaju dnia,
+       wybieramy ten, który rzeczywiście ma dany kierunek i ma
+       najwięcej przystanków. Nie mieszamy jednak tras z innym
+       rodzajem dnia.
+    */
+    let najlepszy=null;
+    let najlepszaDlugosc=-1;
+
+    pasujace.forEach(
+        r=>{
+
+            const k=
+                Array.isArray(
+                    r?.kierunki
+                )
+                    ? r.kierunki[
+                        aktualnyKierunek
+                    ]
+                    : null;
+
+            const dlugosc=
+                Array.isArray(
+                    k?.przystanki
+                )
+                    ? k.przystanki.length
+                    : -1;
+
+            if(dlugosc>najlepszaDlugosc){
+                najlepszy=r;
+                najlepszaDlugosc=dlugosc;
+            }
+        }
+    );
+
+    if(najlepszy){
+        return najlepszy;
+    }
+
+    /*
+       Bezpieczny fallback dla nietypowo nazwanych rozkładów.
+       Nie zmienia dotychczasowego działania innych linii.
+    */
+    return null;
+}
+
+function sekwencjaPunktow253(info){
+
+            const wystapienia=
+                new Map();
+
+            return info.punkty.map(
+                pkt=>{
+
+                    const para=
+                        kluczPunktu253(
+                            pkt.p
+                        );
+
+                    const nrWyst=
+                        (
+                            wystapienia.get(
+                                para
+                            )||
+                            0
+                        )+1;
+
+                    wystapienia.set(
+                        para,
+                        nrWyst
+                    );
+
+                    return{
+                        p:pkt.p,
+                        key:
+                            para+
+                            "|occ:"+
+                            nrWyst
+                    };
+                }
+            );
+        }
+
+function seq259(k){
+
+        const occ=new Map();
+
+        return (k?.przystanki||[])
+            .map(
+                p=>{
+
+                    const nazwa=
+                        normalizujNazwe208(
+                            p?.nazwa
+                        );
+
+                    const nrWyst=
+                        (occ.get(nazwa)||0)+1;
+
+                    occ.set(
+                        nazwa,
+                        nrWyst
+                    );
+
+                    return{
+                        p,
+                        key:
+                            nazwa+
+                            "|occ:"+
+                            nrWyst
+                    };
+                }
+            );
+    }
+
+function stanLogicznyPrzystanku302(element){
+
+    /*
+       324:
+       Punkt rozdzielenia jest jeszcze wspólny.
+       Nie oznaczamy go literą odnogi.
+    */
+    if(
+        czyElementJestWspolnymSplitem324(
+            element
+        )
+    ){
+        return{
+            typ:"wszystkie",
+            litery:[]
+        };
+    }
+
+
+    const nazwa=
+        logicznaNazwaPrzystanku298(
+            element?.p||
+            element
+        );
+
+    const klucz=[
+        aktualnyKierunek,
+        nazwa
+    ].join("|");
+
+    if(cacheStanowTrasy306.has(klucz)){
+        return cacheStanowTrasy306.get(klucz);
+    }
+
+    const wynik=
+        __bezCache_stanLogicznyPrzystanku302(
+            element
+        );
+
+    cacheStanowTrasy306.set(
+        klucz,
+        wynik
+    );
+
+    return wynik;
+}
+
+function sygnaturaKierunku251(kierunek){
+
+    return (
+        Array.isArray(kierunek?.przystanki)
+            ? kierunek.przystanki
+            : []
+    )
+    .filter(
+        p=>
+            String(
+                p?.typ||
+                "STOP"
+            ).trim().toUpperCase()!=="TECH"
+    )
+    .map(
+        p=>
+            /*
+               v252:
+               numer słupka nie decyduje o przebiegu.
+               Ten sam przystanek z innym numerem w innym
+               rodzaju dnia nadal jest tym samym punktem trasy.
+            */
+            normTrasy251(p?.nazwa)
+    )
+    .join(">");
+}
+
+function wspolnyKierunekDni259(index){
+
+    const kierunki=
+        (daneLinii?.rozkłady||[])
+            .map(
+                r=>
+                    Array.isArray(r?.kierunki)
+                        ? r.kierunki[index]
+                        : null
+            )
+            .filter(
+                k=>
+                    k&&
+                    Array.isArray(k?.przystanki)
+            );
+
+    if(!kierunki.length){
+        return null;
+    }
+
+    if(kierunki.length===1){
+        return kierunki[0];
+    }
+
+    function seq259(k){
+
+        const occ=new Map();
+
+        return (k?.przystanki||[])
+            .map(
+                p=>{
+
+                    const nazwa=
+                        normalizujNazwe208(
+                            p?.nazwa
+                        );
+
+                    const nrWyst=
+                        (occ.get(nazwa)||0)+1;
+
+                    occ.set(
+                        nazwa,
+                        nrWyst
+                    );
+
+                    return{
+                        p,
+                        key:
+                            nazwa+
+                            "|occ:"+
+                            nrWyst
+                    };
+                }
+            );
+    }
+
+    let wynik=[
+        ...seq259(
+            kierunki[0]
+        )
+    ];
+
+    for(let n=1;n<kierunki.length;n++){
+
+        const seq=
+            seq259(
+                kierunki[n]
+            );
+
+        let i=0;
+
+        while(i<seq.length){
+
+            if(
+                wynik.some(
+                    x=>x.key===seq[i].key
+                )
+            ){
+                i++;
+                continue;
+            }
+
+            const dodatkowe=[];
+
+            while(
+                i<seq.length&&
+                !wynik.some(
+                    x=>x.key===seq[i].key
+                )
+            ){
+                dodatkowe.push(
+                    seq[i]
+                );
+                i++;
+            }
+
+            if(!dodatkowe.length){
+                continue;
+            }
+
+            if(i<seq.length){
+
+                const anchorKey=
+                    seq[i].key;
+
+                const gdzie=
+                    wynik.findIndex(
+                        x=>x.key===anchorKey
+                    );
+
+                if(gdzie>=0){
+                    wynik.splice(
+                        gdzie,
+                        0,
+                        ...dodatkowe
+                    );
+                }
+                else{
+                    wynik.push(
+                        ...dodatkowe
+                    );
+                }
+            }
+            else{
+                wynik.push(
+                    ...dodatkowe
+                );
+            }
+        }
+    }
+
+    return{
+        ...kierunki[0],
+        przystanki:
+            wynik.map(
+                x=>x.p
+            ),
+        _wspolnyKierunekDni259:true
+    };
+}
+
+function wstawGalezieWPrzebieg304(lista){
+
+    if(
+        aktywnyFizycznyMaJednaDalszaTrase319()
+    ){
+        return[...(lista||[])];
+    }
+
+    const wynik=[...(lista||[])];
+
+    for(const galaz of galezieWewnetrzne302()){
+
+        const splitIndex=
+            wynik.findIndex(
+                e=>
+                    !e?._separator304&&
+                    logicznaNazwaPrzystanku298(e?.p||e)===
+                    galaz.splitNazwa
+            );
+
+        /*
+           324:
+           splitIndex wskazuje OSTATNI WSPÓLNY przystanek.
+           Ten przystanek nie należy jeszcze do wariantu.
+           Wariant zaczyna się dopiero od następnego różnego punktu.
+        */
+        const separatorPoSplit324=
+            splitIndex+1;
+
+        const rejoinIndex=
+            wynik.findIndex(
+                (e,i)=>
+                    i>splitIndex&&
+                    !e?._separator304&&
+                    logicznaNazwaPrzystanku298(e?.p||e)===
+                    galaz.rejoinNazwa
+            );
+
+        if(splitIndex<0||rejoinIndex<0) continue;
+
+        /*
+           329:
+           Przy pierwszym przystanku lista bazowa może już zawierać
+           rzeczywistą odnogę wariantową. Wtedy ponowne wstawienie
+           _galaz304 dawało drugi identyczny blok "Trasa w kursach b".
+
+           Porównujemy pełną sekwencję nazw pomiędzy split i rejoin.
+           Powtórzone nazwy są zachowane, więc:
+               METRO BRÓDNO
+               METRO BRÓDNO
+           musi wystąpić dwa razy.
+        */
+        const oczekiwanaGalaz329=
+            (galaz.przystanki||[])
+                .map(
+                    x=>
+                        logicznaNazwaPrzystanku298(
+                            x?.p||x
+                        )
+                );
+
+        const pomiedzy329=
+            wynik
+                .slice(
+                    splitIndex+1,
+                    rejoinIndex
+                )
+                .filter(
+                    e=>
+                        !e?._separator304
+                )
+                .map(
+                    e=>
+                        logicznaNazwaPrzystanku298(
+                            e?.p||e
+                        )
+                );
+
+        const galazJuzJest329=
+            oczekiwanaGalaz329.length>0&&
+            pomiedzy329.length>=oczekiwanaGalaz329.length&&
+            (()=>{
+
+                for(
+                    let start329=0;
+                    start329<=
+                        pomiedzy329.length-
+                        oczekiwanaGalaz329.length;
+                    start329++
+                ){
+                    let zgodna329=true;
+
+                    for(
+                        let j329=0;
+                        j329<oczekiwanaGalaz329.length;
+                        j329++
+                    ){
+                        if(
+                            pomiedzy329[start329+j329]!==
+                            oczekiwanaGalaz329[j329]
+                        ){
+                            zgodna329=false;
+                            break;
+                        }
+                    }
+
+                    if(zgodna329){
+                        return true;
+                    }
+                }
+
+                return false;
+            })();
+
+        if(galazJuzJest329){
+            continue;
+        }
+
+        const litery=Array.from(galaz.litery||[]);
+
+        const blok=[
+            {
+                _separator304:true,
+                stan304:{
+                    typ:"wariant",
+                    litery
+                }
+            },
+            ...galaz.przystanki.map(
+                x=>({
+                    p:x?.p||x,
+                    _galaz304:true,
+                    _splitNazwa304:galaz.splitNazwa,
+                    _rejoinNazwa304:galaz.rejoinNazwa,
+                    stan304:{
+                        typ:"wariant",
+                        litery
+                    }
+                })
+            ),
+            {
+                _separator304:true,
+                stan304:{
+                    typ:"wszystkie",
+                    litery:[]
+                }
+            }
+        ];
+
+        /*
+           Wstawiamy bezpośrednio PRZED przystankiem ponownego
+           połączenia. Sam rejoin pozostaje tylko raz.
+        */
+        wynik.splice(rejoinIndex,0,...blok);
+    }
+
+
+    /*
+       313:
+       Gdy aktywny przystanek jest już wewnątrz odnogi, punkt,
+       w którym ta odnoga zaczynała się, jest już za nami.
+       Usuwamy WYŁĄCZNIE ten jeden wspólny przystanek przed
+       separatorem (dla 134: KS POLONEZ). Nie przycinamy listy
+       i nie usuwamy żadnego przystanku samej odnogi.
+    */
+    const aktywna313=
+        aktywnaGalaz313();
+
+    if(aktywna313){
+
+        const separatorIndex=
+            wynik.findIndex(
+                e=>
+                    e?._separator304&&
+                    literyTejSamejGalezi313(
+                        e.stan304,
+                        aktywna313
+                    )
+            );
+
+        if(separatorIndex>0){
+
+            const przedSeparatorem=
+                wynik[
+                    separatorIndex-1
+                ];
+
+            if(
+                przedSeparatorem&&
+                !przedSeparatorem._separator304&&
+                !przedSeparatorem._galaz304
+            ){
+                wynik.splice(
+                    separatorIndex-1,
+                    1
+                );
+            }
+        }
+    }
+
+    return wynik;
+}
+
+function wszystkieKursyWszystkichDniDoTrasy300(){
+
+    const wynik = [];
+
+    (daneLinii?.rozkłady || []).forEach(
+        (rozklad, rozkladIndex) => {
+
+            const kierunek =
+                Array.isArray(rozklad?.kierunki)
+                    ? rozklad.kierunki[aktualnyKierunek]
+                    : null;
+
+            if(!kierunek){
+                return;
+            }
+
+            const mapa = new Map();
+
+            (kierunek.przystanki || []).forEach(
+                (p, stopIndex) => {
+
+                    (p?.kursy || []).forEach(
+                        k => {
+
+                            if(czasNaMinuty(k?.czas) === null){
+                                return;
+                            }
+
+                            const numer = String(k?.numer || "");
+                            const wariant = String(k?.wariant || "").trim();
+                            const brygada = String(k?.brygada || "").trim();
+                            const symbol = symbolDnia(k);
+
+                            const key = [
+                                numer,
+                                wariant,
+                                brygada,
+                                symbol
+                            ].join("|");
+
+                            if(!mapa.has(key)){
+                                mapa.set(key, {
+                                    numer,
+                                    wariant,
+                                    brygada,
+                                    symbol,
+                                    _rozkladIndex: rozkladIndex,
+                                    _kierunekIndex: aktualnyKierunek,
+                                    _pierwszyStopIndex: stopIndex
+                                });
+                            }
+                        }
+                    );
+                }
+            );
+
+            mapa.forEach(k => wynik.push(k));
+        }
+    );
+
+    return wynik;
+}
+
+function zajeteLitery251(){
+
+    const wynik=new Set();
+
+    (daneLinii?.rozkłady||[])
+        .forEach(
+            r=>
+                (r?.warianty||[])
+                    .forEach(
+                        w=>{
+                            const l=
+                                String(
+                                    w?.litera||
+                                    ""
+                                )
+                                .trim()
+                                .toUpperCase();
+
+                            if(l){
+                                wynik.add(l);
+                            }
+                        }
+                    )
+        );
+
+    return wynik;
+}
+
+function zaplanujKonceSkroconych255(){
+    requestAnimationFrame(
+        ()=>
+            requestAnimationFrame(
+                ()=>
+                    oznaczKonceSkroconych255(
+                        document
+                    )
+            )
+    );
+}
+
+function zastosujWariantyRoznychDni251(){
+
+    const rozklady=
+        Array.isArray(daneLinii?.rozkłady)
+            ? daneLinii.rozkłady
+            : [];
+
+    oznaczWspolnePrzystanki252();
+
+    if(rozklady.length<2){
+        return;
+    }
+
+    const baza=rozklady[0];
+
+    if(
+        !Array.isArray(baza?.kierunki)||
+        !baza.kierunki.length
+    ){
+        return;
+    }
+
+    /*
+       v254:
+       najpierw rozdzielamy np. Z powszednie / Z weekendowe.
+       B pozostaje zarezerwowane dla odmiennego pełnego przebiegu.
+    */
+
+    rozdzielSpecjalneLiteryMiedzyDniami254();
+
+    /*
+       WERSJA 327
+
+       NIE tworzymy A globalnie dla każdej linii.
+
+       A uzupełniamy tylko wtedy, gdy SAM JSON tej linii ma już
+       zdefiniowane:
+           A = "kurs bez podjazdów"
+
+       To dokładnie przypadek linii 134.
+
+       W 134 kierunek 0 ma A zapisane przy kursach, ale kierunek 1
+       ma puste pole wariantu. Dlatego pierwszy kierunek działał,
+       a drugi nie.
+
+       Teraz w rozkładzie bazowym:
+       - puste zwykłe kursy dostają A,
+       - Z i inne istniejące warianty pozostają bez zmian,
+       - synchronizujemy także pole godziny/minuty.
+
+       Dzięki temu nie wpływamy na linie, które nie mają w swoim JSON
+       jawnej definicji "A - kurs bez podjazdów".
+    */
+    const definicjaA=
+        (
+            Array.isArray(baza?.warianty)
+                ? baza.warianty
+                : []
+        ).find(
+            wariant=>
+                String(
+                    wariant?.litera||
+                    ""
+                )
+                    .trim()
+                    .toUpperCase()==="A"&&
+                /bez\s+podjazd/i.test(
+                    String(
+                        wariant?.opis||
+                        ""
+                    )
+                )
+        );
+
+    if(definicjaA){
+
+        (
+            baza?.kierunki||
+            []
+        ).forEach(
+            kierunek=>{
+
+                (
+                    kierunek?.przystanki||
+                    []
+                ).forEach(
+                    p=>{
+
+                        (
+                            p?.kursy||
+                            []
+                        ).forEach(
+                            kurs=>{
+
+                                const stara=
+                                    String(
+                                        kurs?.wariant||
+                                        ""
+                                    )
+                                        .trim()
+                                        .toUpperCase();
+
+                                if(!stara){
+                                    kurs.wariant="A";
+                                    kurs._wariantBazowyBezPodjazdow327=true;
+                                }
+                            }
+                        );
+
+                        (
+                            p?.godziny||
+                            []
+                        ).forEach(
+                            godzina=>
+                                (
+                                    godzina?.minuty||
+                                    []
+                                ).forEach(
+                                    minuta=>{
+
+                                        const stara=
+                                            String(
+                                                minuta?.wariant||
+                                                ""
+                                            )
+                                                .trim()
+                                                .toUpperCase();
+
+                                        if(!stara){
+                                            minuta.wariant="A";
+                                        }
+                                    }
+                                )
+                        );
+                    }
+                );
+            }
+        );
+    }
+
+
+    const zajete=
+        zajeteLitery251();
+
+    /*
+       Ta sama odmienna "rodzina" rozkładu dostaje tę samą literę
+       w obu kierunkach. Dla 134 sobota/święto = B zarówno do
+       METRO MARYMONT, jak i do OLESINA.
+    */
+    for(
+        let ri=1;
+        ri<rozklady.length;
+        ri++
+    ){
+
+        const r=rozklady[ri];
+
+        if(!Array.isArray(r?.kierunki)){
+            continue;
+        }
+
+        let rozniSie=false;
+
+        const max=
+            Math.max(
+                baza.kierunki.length,
+                r.kierunki.length
+            );
+
+        for(let ki=0;ki<max;ki++){
+
+            const a=
+                sygnaturaKierunku251(
+                    baza.kierunki?.[ki]
+                );
+
+            const b=
+                sygnaturaKierunku251(
+                    r.kierunki?.[ki]
+                );
+
+            if(
+                a&&
+                b&&
+                a!==b
+            ){
+                rozniSie=true;
+                break;
+            }
+        }
+
+        if(!rozniSie){
+            continue;
+        }
+
+        const litera=
+            nowaLitera251(
+                zajete
+            );
+
+        if(!litera){
+            continue;
+        }
+
+        const opis=
+            "kurs trasą obowiązującą w "+
+            nazwaRodzajuDnia251(
+                r?.nazwa
+            );
+
+        if(!Array.isArray(r.warianty)){
+            r.warianty=[];
+        }
+
+        /*
+           Publiczna definicja wariantu. Dzięki niej B przechodzi przez
+           dokładnie ten sam renderer legendy i minut co warianty JSON.
+        */
+        r.warianty.push({
+            litera,
+            opis,
+            _wariantRoznegoDnia251:true
+        });
+
+        r.kierunki.forEach(
+            kierunek=>{
+
+                (
+                    Array.isArray(
+                        kierunek?.przystanki
+                    )
+                        ? kierunek.przystanki
+                        : []
+                ).forEach(
+                    p=>{
+
+                        /*
+                           Normalne kursy A w tym rozkładzie stają się B.
+                           Kursów specjalnych, np. Z = skrócony do
+                           ŻERAŃ FSO, NIE nadpisujemy.
+                        */
+                        (p?.kursy||[])
+                            .forEach(
+                                kurs=>{
+
+                                    const stara=
+                                        String(
+                                            kurs?.wariant||
+                                            ""
+                                        )
+                                        .trim()
+                                        .toUpperCase();
+
+                                    if(
+                                        !stara||
+                                        stara==="A"
+                                    ){
+                                        kurs.wariant=
+                                            litera;
+                                        kurs._wariantRoznegoDnia251=
+                                            true;
+                                    }
+                                }
+                            );
+
+                        /*
+                           Pole "godziny" jest używane w części starszych
+                           ścieżek renderowania. Synchronizujemy je także,
+                           żeby litera była zawsze przy właściwej minucie.
+                        */
+                        (p?.godziny||[])
+                            .forEach(
+                                godzina=>
+                                    (godzina?.minuty||[])
+                                        .forEach(
+                                            minuta=>{
+
+                                                const stara=
+                                                    String(
+                                                        minuta?.wariant||
+                                                        ""
+                                                    )
+                                                    .trim()
+                                                    .toUpperCase();
+
+                                                if(
+                                                    !stara||
+                                                    stara==="A"
+                                                ){
+                                                    minuta.wariant=
+                                                        litera;
+                                                }
+                                            }
+                                        )
+                            );
+                    }
+                );
+            }
+        );
+    }
 }
 
 function renderuj(){
