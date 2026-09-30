@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 638 — WARIANTY: USUNIĘTA BLOKADA RENDEROWANIA PRZEZ BRAK KURS.TRASA -->
+<!-- WERSJA: 639 — GOTOWA LISTA: ODCZYT Z DOKŁADNEGO PRZYSTANKU WE WSZYSTKICH ROZKŁADACH -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -19100,15 +19100,122 @@ function v496RenderRoutes(routes){
    ========================================================= */
 
 function v514ModelListy(){
-    const active=v486CurrentStop();
-    const model=active?.lista_przystankowa;
+
+    /*
+       =========================================================
+       FWTP — WERSJA 639
+       GOTOWA LISTA Z DOKŁADNEGO PRZYSTANKU
+       =========================================================
+
+       Problem V638:
+       v486CurrentStop() pochodzi z katalogu przystanków złożonego
+       z wielu bloków rozkładów. Ten obiekt nie zawsze jest tym
+       samym obiektem JSON, który posiada lista_przystankowa.
+
+       Efekt:
+       - rozkład godzin był widoczny,
+       - legenda była widoczna,
+       - prawa lista była pusta.
+
+       Od V639:
+       1. ustalamy dokładne ID aktualnie wybranego słupka,
+       2. przeszukujemy WSZYSTKIE rozkłady dla aktualnego kierunku,
+       3. szukamy dokładnie tego samego ID,
+       4. bierzemy jego gotowe lista_przystankowa.elementy[],
+       5. niczego w elementach nie przebudowujemy.
+
+       Logika samej listy przystanków pozostaje bez zmian.
+       =========================================================
+    */
+
+    const active=
+        v486CurrentStop();
+
+    const activeId=
+        v486StopId(active);
+
+    /*
+       Najpierw zwykła, najkrótsza ścieżka.
+    */
+    const directModel=
+        active?.lista_przystankowa;
 
     if(
-        model &&
-        Number(model.wersja)>=2 &&
-        Array.isArray(model.elementy)
+        directModel &&
+        Number(directModel.wersja)>=2 &&
+        Array.isArray(directModel.elementy) &&
+        directModel.elementy.length
     ){
-        return model.elementy;
+        return directModel.elementy;
+    }
+
+    /*
+       Fallback V639:
+       dokładny fizyczny przystanek we wszystkich blokach D/C.
+    */
+    if(activeId){
+
+        const rozklady=
+            v486Array(
+                daneLinii?.["rozkłady"] ??
+                daneLinii?.rozklady
+            );
+
+        let najlepsze=null;
+
+        for(const rozklad of rozklady){
+
+            const kierunek=
+                v486Array(
+                    rozklad?.kierunki
+                )[
+                    Number(
+                        aktualnyKierunek
+                    )
+                ];
+
+            if(!kierunek){
+                continue;
+            }
+
+            const stop=
+                v486Array(
+                    kierunek.przystanki
+                ).find(
+                    p=>
+                        v486StopId(p)===
+                        activeId
+                );
+
+            const model=
+                stop?.lista_przystankowa;
+
+            if(
+                !model ||
+                Number(model.wersja)<2 ||
+                !Array.isArray(model.elementy) ||
+                !model.elementy.length
+            ){
+                continue;
+            }
+
+            /*
+               Jeżeli ten sam słupek występuje w kilku blokach,
+               wybieramy bogatszą gotową listę. Nie łączymy ich.
+            */
+            if(
+                !najlepsze ||
+                model.elementy.length>
+                    najlepsze.length
+            ){
+                najlepsze=
+                    model.elementy;
+            }
+        }
+
+        if(najlepsze){
+            return najlepsze;
+        }
     }
 
     return null;
