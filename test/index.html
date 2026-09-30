@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 638 — NAPRAWA ODCZYTU lista_przystankowa.elementy DLA WARIANTÓW -->
+<!-- WERSJA: 639 — GOTOWA LISTA elementy[] MA PIERWSZEŃSTWO PRZED routes[] -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -19101,24 +19101,34 @@ function v496RenderRoutes(routes){
 
 function v514ModelListy(){
     /* =========================================================
-       FWTP V638
+       FWTP V639
 
-       NIE uzależniamy gotowej listy od lista_przystankowa.wersja.
-       W części JSON-ów z wariantami pole elementy[] istnieje, ale
-       numer wersji modelu jest inny albo nie występuje. W V637
-       powodowało to zwrócenie null i później komunikat
-       „Brak danych trasy dla tego przystanku.”.
+       Źródłem wybranego przystanku jest katalog używany przez
+       <select>, czyli kierunekBazowy().przystanki.
 
-       Dodatkowo szukamy najbogatszego obiektu tego SAMEGO
-       przystanku we wszystkich rozkładach. Jest to potrzebne,
-       ponieważ katalog przystanków łączy D/C i dany słupek może
-       mieć lista_przystankowa tylko w jednym z bloków.
+       NIE wolno używać tutaj v486CurrentStop(), ponieważ ta
+       funkcja bierze ten sam NUMER INDEKSU z pojedynczego
+       rozkładu. Po połączeniu przystanków D/C oraz wariantów
+       indeks katalogu nie musi odpowiadać indeksowi w tym
+       pojedynczym rozkładzie. Dla prostych linii (np. 102)
+       indeksy zwykle się zgadzały, a przy wariantach (np. 126)
+       mogły wskazywać inny przystanek albo brak przystanku.
+
+       Jeżeli wybrany obiekt z katalogu ma elementy[], zwracamy
+       je natychmiast. Dopiero jako awaryjny fallback szukamy
+       tego SAMEGO dokładnego ID w pozostałych rozkładach.
        ========================================================= */
 
-    const active=v486CurrentStop();
+    const katalog=
+        kierunekBazowy()?.przystanki || [];
+
+    const active=
+        katalog[Number(aktualnyPrzystanek)] || null;
+
     if(!active)return null;
 
     const direct=active?.lista_przystankowa;
+
     if(
         direct &&
         Array.isArray(direct.elementy) &&
@@ -19128,20 +19138,31 @@ function v514ModelListy(){
     }
 
     const activeId=v486StopId(active);
+    if(!activeId)return null;
+
     let najlepsze=null;
 
     v486Array(
         daneLinii?.["rozkłady"] ?? daneLinii?.rozklady
     ).forEach(rozklad=>{
-        const kierunek=v486Array(rozklad?.kierunki)[aktualnyKierunek];
+        const kierunek=
+            v486Array(rozklad?.kierunki)[aktualnyKierunek];
 
         v486Array(kierunek?.przystanki).forEach(p=>{
             if(v486StopId(p)!==activeId)return;
 
-            const elementy=p?.lista_przystankowa?.elementy;
-            if(!Array.isArray(elementy) || !elementy.length)return;
+            const elementy=
+                p?.lista_przystankowa?.elementy;
 
-            if(!najlepsze || elementy.length>najlepsze.length){
+            if(
+                !Array.isArray(elementy) ||
+                !elementy.length
+            )return;
+
+            if(
+                !najlepsze ||
+                elementy.length>najlepsze.length
+            ){
                 najlepsze=elementy;
             }
         });
@@ -20595,22 +20616,39 @@ function renderuj(){
        źródłem listy przystanków. Nie wolno zatrzymywać renderowania
        tylko dlatego, że starszy model routes[] jest pusty.
        ========================================================= */
+    /* =========================================================
+       FWTP — WERSJA 639
+
+       Dwie całkowicie rozdzielone ścieżki:
+
+       1. NOWY JSON ma lista_przystankowa.elementy[]:
+          gotowa lista jest źródłem prawdy i NIE uruchamiamy
+          v486BuildRoutes().
+
+       2. STARY JSON nie ma elementy[]:
+          dopiero wtedy korzystamy ze starego routes[].
+
+       Dzięki temu linie wariantowe, np. 126, nie są odrzucane
+       przez starą walidację tras przed wyrenderowaniem gotowej
+       listy przygotowanej w JSON.
+       ========================================================= */
     const gotowaListaPrzystankowa =
         v514ModelListy();
 
-    const routes=
-        v486MarkSharedRoutes(
-            v486BuildRoutes()
-        );
+    let routes=[];
 
-    if(
-        !gotowaListaPrzystankowa &&
-        !routes.length
-    ){
-        pokazBlad(
-            "Brak danych trasy dla tego przystanku."
-        );
-        return;
+    if(!gotowaListaPrzystankowa){
+        routes=
+            v486MarkSharedRoutes(
+                v486BuildRoutes()
+            );
+
+        if(!routes.length){
+            pokazBlad(
+                "Brak danych trasy dla tego przystanku."
+            );
+            return;
+        }
     }
 
     const grupy=
