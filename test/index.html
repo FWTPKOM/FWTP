@@ -1,4 +1,4 @@
-<!-- WERSJA: 860 — STAŁA KARTKA, AUTOMATYCZNY PODZIAŁ I 3 KOLUMNY -->
+<!-- WERSJA: 861 — BEZ PROCENTÓW PODZIAŁU, STAŁA KARTKA -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30106,18 +30106,34 @@ html body .tabliczka .trasa-separator.trasa-miejscowosc-429 .trasa-separator-tit
 
 
 
-<style id="fwtp-v860-layout">
-/* Stały arkusz; przesuwamy tylko granicę rozkład / lista. */
-html body .tabliczka.v860-uklad {width:210mm!important;min-width:210mm!important;max-width:210mm!important;grid-template-columns:var(--v860-lewa) minmax(0,1fr)!important;}
-html body .tabliczka.v860-uklad .panel-lewy,html body .tabliczka.v860-uklad .panel-prawy{min-width:0!important;max-width:none!important;width:auto!important;}
-html body .tabliczka.v860-uklad .trasa-columns,html body .tabliczka.v860-uklad .trasa-head{width:100%!important;max-width:100%!important;display:grid!important;grid-template-columns:repeat(var(--v860-ilosc),minmax(0,1fr))!important;}
-html body .tabliczka.v860-uklad .trasa-kol{min-width:0!important;}
-/* Nie zmieniamy czcionki, rozstawu liter ani wyśrodkowania miejscowości. */
-html body .tabliczka.v860-uklad .trasa-separator[class*="miejscowosc"] .trasa-separator-title{width:auto!important;min-width:0!important;max-width:100%!important;margin-left:auto!important;margin-right:auto!important;position:static!important;transform:none!important;text-align:center!important;white-space:normal!important;overflow-wrap:normal!important;word-break:normal!important;}
+<style id="fwtp-v861-layout">
+/* Tylko podział dwóch paneli jest dynamiczny. Kartka ma stałe 210 mm. */
+html body .tabliczka.v861-uklad {
+ width:210mm!important;min-width:210mm!important;max-width:210mm!important;
+ grid-template-columns:var(--v861-lewa, 345px) minmax(0,1fr)!important;
+ box-sizing:border-box!important;
+}
+html body .tabliczka.v861-uklad .panel-lewy,
+html body .tabliczka.v861-uklad .panel-prawy {min-width:0!important;width:auto!important;max-width:none!important;}
+html body .tabliczka.v861-uklad .naglowek-tabliczki {max-width:calc(100% - 12px)!important;min-width:0!important;}
+html body .tabliczka.v861-uklad .trasa-columns,
+html body .tabliczka.v861-uklad .trasa-head {
+ display:grid!important;width:100%!important;max-width:100%!important;
+ grid-template-columns:repeat(var(--v861-kolumny,2),minmax(0,1fr))!important;
+}
+html body .tabliczka.v861-uklad .trasa-kol {min-width:0!important;max-width:100%!important;overflow:hidden!important;}
+html body .tabliczka.v861-uklad .trasa-stop {min-width:0!important;max-width:100%!important;}
+html body .tabliczka.v861-uklad .trasa-separator[class*="miejscowosc"] .trasa-separator-title {
+ width:auto!important;min-width:0!important;max-width:calc(100% - 8px)!important;
+ margin-left:auto!important;margin-right:auto!important;
+ text-align:center!important;white-space:normal!important;
+ overflow-wrap:break-word!important;word-break:normal!important;
+ /* Oryginalny krój i odstępy liter pozostają bez zmian. */
+}
 </style>
-<script id="fwtp-v860-layout-js">
+<script id="fwtp-v861-layout-js">
 (()=>{
-let busy=false,pending=false;
+let busy=false,queued=false;
 function update(){
  if(busy)return;
  const tab=document.querySelector('#wynik .tabliczka');
@@ -30126,45 +30142,47 @@ function update(){
  if(!tab||!left||!right||!root)return;
  busy=true;
  try{
-  // Mierz rozkład, a nie pustą przestrzeń lewego panelu.
-  const tables=[...left.querySelectorAll('table,.rozklady-grid')];
-  const leftX=left.getBoundingClientRect().left;
+  // Nie mierzymy szerokości całego nagłówka: ten element rozciągał lewy panel.
+  // Mierzymy rzeczywistą szerokość tabel, razem z obramowaniem.
+  const tables=[...left.querySelectorAll('table')].filter(t=>t.getBoundingClientRect().width>0);
+  const x=left.getBoundingClientRect().left;
   let needed=0;
-  for(const t of tables){const r=t.getBoundingClientRect();if(r.width>0)needed=Math.max(needed,r.right-leftX);}
-  const header=left.querySelector('.naglowek-tabliczki');
-  if(header)needed=Math.max(needed,header.getBoundingClientRect().right-leftX);
-  const available=tab.clientWidth-8;
-  // Maksymalnie dużo miejsca dla listy, bez nachodzenia na rozkład.
-  const leftWidth=Math.max(310,Math.min(available-305,Math.ceil(needed+8)));
-  tab.style.setProperty('--v860-lewa',leftWidth+'px');
-  tab.classList.add('v860-uklad');
-  let cols=[...root.children].filter(x=>x.classList.contains('trasa-kol'));
+  for(const t of tables){needed=Math.max(needed,Math.ceil(t.getBoundingClientRect().right-x));}
+  const grid=left.querySelector('.rozklady-grid');
+  if(grid)needed=Math.max(needed,Math.ceil(grid.scrollWidth));
+  // Numer linii oraz nazwa kierunku muszą nadal mieścić się w nagłówku.
+  // Granica nie zależy od starych 46/54, 50/50 ani 57/43 procent.
+  const pageInner=tab.clientWidth;
+  const leftWidth=Math.max(305,Math.min(pageInner-320,Math.ceil(needed+10)));
+  tab.style.setProperty('--v861-lewa',leftWidth+'px');
+  tab.classList.add('v861-uklad');
+  let cols=[...root.children].filter(c=>c.classList.contains('trasa-kol'));
   if(cols.length<2)return;
-  tab.style.setProperty('--v860-ilosc',cols.length);
-  // Granica: dolna krawędź kartki, niezależna od rozciągania listy.
-  const limit=tab.getBoundingClientRect().bottom-9;
   const list=c=>c?.querySelector('.trasa-lista');
+  // Mierzymy limit od górnej krawędzi kartki, a nie jej bieżącej
+  // wysokości powiększanej przez listę.
+  const limit=tab.getBoundingClientRect().top+tab.clientHeight-12;
   const exceeds=c=>{const l=list(c);return !!(l?.lastElementChild&&l.lastElementChild.getBoundingClientRect().bottom>limit);};
   if(cols.length===2&&(exceeds(cols[0])||exceeds(cols[1]))){
-    const third=cols[1].cloneNode(false);third.innerHTML='<ul class="trasa-lista"></ul>';
+    const third=cols[1].cloneNode(false);
+    third.innerHTML='<ul class="trasa-lista"></ul>';
     root.appendChild(third);cols.push(third);
-    tab.classList.add('v854-trzy','v856-trzy','trasa-3-kol');
+    tab.classList.add('trasa-3-kol','v854-trzy','v856-trzy');
     root.classList.remove('cols-2','cols-1');root.classList.add('cols-3');
     const head=right.querySelector('.trasa-head');
     if(head){head.classList.remove('cols-2','cols-1');head.classList.add('cols-3');head.innerHTML='<div class="trasa-head-label">czasy, trasa, przystanki</div>'.repeat(3);}
-    tab.style.setProperty('--v860-ilosc',3);
   }
+  tab.style.setProperty('--v861-kolumny',cols.length);
   if(cols.length===3){
-   // Pierwsza kolumna ma zostać maksymalnie zapełniona.
-   for(let i=0;i<2;i++){
-    const a=list(cols[i]),b=list(cols[i+1]);let guard=0;
-    while(a&&b&&a.children.length>1&&exceeds(cols[i])&&guard++<400)
-      b.insertBefore(a.lastElementChild,b.firstChild);
-   }
+    for(let i=0;i<2;i++){
+      const a=list(cols[i]),b=list(cols[i+1]);let guard=0;
+      while(a&&b&&a.children.length>1&&exceeds(cols[i])&&guard++<400)
+        b.insertBefore(a.lastElementChild,b.firstChild);
+    }
   }
  }finally{busy=false;}
 }
-function queue(){if(pending)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{pending=false;update();}));}
+function queue(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;update();}));}
 const target=document.getElementById('wynik');if(target)new MutationObserver(queue).observe(target,{childList:true,subtree:false});
 window.addEventListener('resize',queue);window.addEventListener('load',queue);queue();
 })();
