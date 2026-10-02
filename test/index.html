@@ -1,4 +1,4 @@
-<!-- WERSJA: 874 — DYNAMICZNA SZEROKOSC KOLUMN DLA JEDNOWYRAZOWYCH MIEJSCOWOSCI -->
+<!-- WERSJA: 875 — MIEJSCOWOSCI 1PX I DWUWIERSZOWE PRZYSTANKI -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30228,67 +30228,43 @@ html body .tabliczka .trasa-extra-stop > .trasa-nz{
 })();
 </script>
 
-<style id="fwtp-v874-szerokosci">
-/* Jedna siatka dla listy i nagłówków; zachowuje wygląd separatorów V825. */
+<style id="fwtp-v875-typografia">
+/* Miejscowości: zachowaj wielkość i krój z V825; rozstaw 1px. */
+html body .tabliczka .trasa-separator[class*="miejscowosc"] > .trasa-separator-title {
+ letter-spacing:1px!important;font-stretch:normal!important;
+ font-size:inherit!important;line-height:inherit!important;
+ white-space:normal!important;word-break:normal!important;overflow-wrap:normal!important;
+}
+/* Nie dopuść do rozpychania trzeciej kolumny przez jeden długi napis. */
 html body .tabliczka.v861-uklad .trasa-columns.cols-3,
-html body .tabliczka.v861-uklad .trasa-head.cols-3 {
- grid-template-columns:var(--v874-siatka,repeat(3,minmax(0,1fr)))!important;
-}
+html body .tabliczka.v861-uklad .trasa-head.cols-3 {grid-template-columns:repeat(3,minmax(0,1fr))!important}
 html body .tabliczka.v861-uklad .trasa-columns.cols-2,
-html body .tabliczka.v861-uklad .trasa-head.cols-2 {
- grid-template-columns:var(--v874-siatka2,repeat(2,minmax(0,1fr)))!important;
+html body .tabliczka.v861-uklad .trasa-head.cols-2 {grid-template-columns:repeat(2,minmax(0,1fr))!important}
+html body .tabliczka .trasa-stop > .trasa-nazwa,
+html body .tabliczka .trasa-extra-stop > .trasa-nazwa {
+ min-width:0!important;max-width:100%!important;white-space:normal!important;
+ word-break:normal!important;overflow-wrap:normal!important;hyphens:none!important;
 }
+html body .tabliczka .trasa-stop.v665-jednoliniowy > .trasa-nazwa,
+html body .tabliczka .trasa-extra-stop.v665-jednoliniowy > .trasa-nazwa {white-space:normal!important}
 </style>
-<script id="fwtp-v874-pomiar-kolumn">
+<script id="fwtp-v875-synchronizacja">
 (()=>{
  let queued=false;
- function measure(){
-  const tab=document.querySelector('#wynik .tabliczka');
-  const right=tab?.querySelector('.panel-prawy');
-  const grid=right?.querySelector('.trasa-columns');
-  if(!tab||!grid)return;
-  const cols=[...grid.children].filter(x=>x.classList.contains('trasa-kol'));
-  if(cols.length<2||cols.length>3)return;
-  const total=grid.clientWidth;
-  if(total<200)return;
-  const canvas=document.createElement('canvas');
-  const ctx=canvas.getContext('2d');
-  const minimum=cols.map(col=>{
-   let needed=0;
-   col.querySelectorAll('.trasa-separator[class*="miejscowosc"] .trasa-separator-title').forEach(el=>{
-    const raw=(el.dataset.v873Original||el.textContent||'').trim().replace(/\s+/g,' ');
-    if(!raw||raw.split(' ').length!==1)return;
-    const st=getComputedStyle(el);
-    ctx.font=st.font;
-    const textWidth=ctx.measureText(raw).width+(raw.length-1)*(parseFloat(st.letterSpacing)||0);
-    const separator=el.closest('.trasa-separator');
-    const axis=col.querySelector('.trasa-stop .trasa-kropka')||col.querySelector('.trasa-stop [class*="kropka"]');
-    const colRect=col.getBoundingClientRect();
-    const axisX=axis?axis.getBoundingClientRect().left-colRect.left:32;
-    // Wyśrodkowana nazwa nie może przecinać osi po lewej.
-    needed=Math.max(needed,2*(axisX+textWidth/2+6));
-   });
-   return Math.max(105,Math.ceil(needed));
+ function refresh(){
+  const root=document.querySelector('#wynik .tabliczka');if(!root)return;
+  root.querySelectorAll('.trasa-columns').forEach(cols=>{
+   if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(cols);
   });
-  // Przy stałej kartce nie wolno przydzielić więcej miejsca niż istnieje.
-  const sum=minimum.reduce((a,b)=>a+b,0);
-  let sizes;
-  if(sum<=total){const rest=(total-sum)/cols.length;sizes=minimum.map(v=>v+rest);}
-  else {
-   const base=cols.length===3?112:145;
-   const free=Math.max(0,total-base*cols.length);
-   const weights=minimum.map(v=>Math.max(0,v-base));
-   const wsum=weights.reduce((a,b)=>a+b,0);
-   sizes=weights.map(w=>base+(wsum?free*w/wsum:free/cols.length));
-  }
-  const val=sizes.map(v=>Math.max(0,v).toFixed(2)+'px').join(' ');
-  const prop=cols.length===3?'--v874-siatka':'--v874-siatka2';
-  if(grid.style.getPropertyValue(prop)!==val){grid.style.setProperty(prop,val);right.querySelector('.trasa-head')?.style.setProperty(prop,val);}
+  root.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+   const name=row.querySelector(':scope > .trasa-nazwa');if(!name)return;
+   const multi=name.getClientRects().length>1 || name.scrollHeight>Math.ceil(parseFloat(getComputedStyle(name).lineHeight)||17)+3;
+   if(multi){row.classList.add('v665-dwuliniowy');row.classList.remove('v665-jednoliniowy');}
+  });
  }
- function queue(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;measure();}));}
- const host=document.getElementById('wynik');
- if(host)new MutationObserver(queue).observe(host,{childList:true,subtree:false});
- window.addEventListener('resize',queue);queue();
+ function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;refresh();}));}
+ const host=document.getElementById('wynik');if(host)new MutationObserver(schedule).observe(host,{childList:true,subtree:false});
+ window.addEventListener('resize',schedule);schedule();
 })();
 </script>
 </body>
