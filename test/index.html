@@ -1,4 +1,4 @@
-<!-- WERSJA: 882 — OS PRZYSTANKOW I AUTOMATYCZNE SZEROKOSCI -->
+<!-- WERSJA: 883 — POMIAR KOLIZJI NA RZECZYWISTYCH WSPOLRZEDNYCH -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30273,44 +30273,94 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429 > .
  max-width:calc(100% - 20px)!important;
 }
 </style>
-<script id="fwtp-v882-pomiar">
+<script id="fwtp-v883-rzeczywisty-pomiar">
 (()=>{
- let queued=false,busy=false;
- function update(){if(busy)return;busy=true;try{
- const tab=document.querySelector('#wynik .tabliczka');
- const root=tab?.querySelector('.trasa-columns'),head=tab?.querySelector('.trasa-head');
- if(!root)return;
- if(root.classList.contains('cols-1')){
-   const col=root.querySelector('.trasa-kol');if(!col)return;
-   const names=[...col.querySelectorAll('.trasa-stop > .trasa-nazwa')];
-   const needed=Math.max(220,...names.map(n=>Math.ceil(n.scrollWidth+66)));
-   const max=tab.querySelector('.panel-prawy')?.clientWidth||needed;
-   const w=Math.min(max,needed);
-   tab.style.setProperty('--v882-single-width',w+'px');
-   // Oś, kropki, numer i tekst pozostają w tym samym przesuniętym kontenerze.
-   if(head){head.classList.add('cols-1');head.style.width=w+'px';head.style.marginLeft='auto';}
- }else if(root.classList.contains('cols-3')){
-   const cols=[...root.children].filter(c=>c.classList.contains('trasa-kol'));
+ let pending=false,working=false;
+ const px=v=>Math.round(v*100)/100;
+ function measure(){
+  if(working)return;working=true;
+  try{
+   const tab=document.querySelector('#wynik .tabliczka');
+   const root=tab?.querySelector('.trasa-columns');
+   const head=tab?.querySelector('.trasa-head');
+   if(!root)return;
+   const cols=[...root.children].filter(e=>e.classList.contains('trasa-kol'));
+   if(!cols.length)return;
+   if(cols.length===1){
+    const names=[...cols[0].querySelectorAll('.trasa-stop .trasa-nazwa')];
+    const required=Math.max(220,...names.map(n=>Math.ceil(n.scrollWidth+66)));
+    const available=tab.querySelector('.panel-prawy')?.clientWidth||required;
+    const width=Math.min(required,available);
+    tab.style.setProperty('--v882-single-width',width+'px');
+    if(head){head.style.width=width+'px';head.style.marginLeft='auto'}
+    return;
+   }
    if(cols.length!==3)return;
-   // Preferuj szerszą pierwszą kolumnę, gdy jej miejscowość zbliża się do osi.
-   const measure=col=>{
-     const dot=col.querySelector('.trasa-stop .trasa-kropka');
-     const axis=dot?.getBoundingClientRect().left??-1;
-     return [...col.querySelectorAll('.trasa-miejscowosc-429 > .trasa-separator-title')]
-       .some(el=>el.getBoundingClientRect().left<axis+5);
+   // Zachowaj szerokość całej kartki; dziel jedynie istniejący obszar listy.
+   const total=root.clientWidth;
+   if(total<100)return;
+   let widths=[0.34,0.33,0.33].map(f=>f*total);
+   const setWidths=()=>{
+    const grid=widths.map(px).map(v=>v+'px').join(' ');
+    root.style.setProperty('grid-template-columns',grid,'important');
+    if(head)head.style.setProperty('grid-template-columns',grid,'important');
    };
-   const collision=measure(cols[0]);
-   const split=collision?'36% 33% 31%':'34% 33% 33%';
-   root.style.setProperty('grid-template-columns',split,'important');
-   if(head)head.style.setProperty('grid-template-columns',split,'important');
-   // Wielowyrazowe miejscowości mogą zawijać się tylko między wyrazami.
-   cols.forEach(col=>col.querySelectorAll('.trasa-miejscowosc-429 > .trasa-separator-title').forEach(el=>{
-      el.style.whiteSpace='normal';el.style.wordBreak='normal';el.style.overflowWrap='normal';
+   setWidths();
+   const axisX=col=>{
+    const dot=col.querySelector('.trasa-stop .trasa-kropka');
+    return dot?dot.getBoundingClientRect().left+dot.getBoundingClientRect().width/2:null;
+   };
+   const titles=col=>[...col.querySelectorAll('.trasa-miejscowosc-429 > .trasa-separator-title')];
+   // Wielowyrazowe nazwy mogą przejść do następnego wiersza; bez łamania słów.
+   cols.forEach(col=>titles(col).forEach(el=>{
+    const original=el.dataset.v883Original||(el.dataset.v883Original=el.textContent.trim().replace(/\s+/g,' '));
+    el.textContent=original;
+    el.style.fontSize='15px';
+    el.style.letterSpacing='1px';
+    el.style.whiteSpace='normal';el.style.overflowWrap='normal';el.style.wordBreak='normal';
    }));
+   const conflicts=col=>{
+    const axis=axisX(col);if(axis===null)return [];
+    return titles(col).filter(el=>{
+      const r=el.getBoundingClientRect();
+      return r.left<axis+5 && r.right>axis-5;
+    });
+   };
+   // Przenieś wielowyrazową nazwę do dwóch wierszy, jeśli przecina oś.
+   cols.forEach(col=>conflicts(col).forEach(el=>{
+    const words=el.dataset.v883Original.split(' ');
+    if(words.length<2)return;
+    let best=1,score=Infinity;
+    for(let i=1;i<words.length;i++){
+      const scoreHere=Math.max(words.slice(0,i).join(' ').length,words.slice(i).join(' ').length);
+      if(scoreHere<score){score=scoreHere;best=i}
+    }
+    el.replaceChildren(document.createTextNode(words.slice(0,best).join(' ')),document.createElement('br'),document.createTextNode(words.slice(best).join(' ')));
+   }));
+   // Powiększ potrzebującą kolumnę kosztem innych, w granicach ich minimum.
+   for(let round=0;round<35;round++){
+     const counts=cols.map(c=>conflicts(c).length);
+     const target=counts.indexOf(Math.max(...counts));
+     if(counts[target]===0)break;
+     const donors=[0,1,2].filter(i=>i!==target&&widths[i]>145).sort((a,b)=>widths[b]-widths[a]);
+     if(!donors.length)break;
+     const donor=donors[0];const delta=Math.min(4,widths[donor]-145);
+     if(delta<=0)break;
+     widths[target]+=delta;widths[donor]-=delta;setWidths();
+   }
+   // Ostateczne zabezpieczenie jednowyrazowych nazw, bez wyjścia na oś.
+   cols.forEach(col=>conflicts(col).forEach(el=>{
+     if(el.dataset.v883Original.includes(' '))return;
+     for(let size=14.5;size>=12;size-=0.5){
+       el.style.fontSize=size+'px';
+       if(!conflicts(col).includes(el))break;
+     }
+   }));
+  }finally{working=false}
  }
- }finally{busy=false}}
- function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;update()}));}
- const host=document.getElementById('wynik');if(host)new MutationObserver(schedule).observe(host,{childList:true,subtree:false});
+ function schedule(){if(pending)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{pending=false;measure()}))}
+ const host=document.getElementById('wynik');
+ if(host)new MutationObserver(schedule).observe(host,{childList:true,subtree:false});
  window.addEventListener('resize',schedule);schedule();
 })();
 </script>
