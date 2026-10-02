@@ -1,4 +1,4 @@
-<!-- WERSJA: 856 — TRZECIA KOLUMNA I BEZPIECZNE MIEJSCOWOSCI -->
+<!-- WERSJA: 857 — DYNAMICZNA SZEROKOŚĆ I TRZECIA KOLUMNA -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30271,6 +30271,90 @@ html body .tabliczka.v856-trzy .trasa-head.cols-3 {display:grid!important;grid-t
  function schedule(){if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;update();});}
  const result=document.getElementById('wynik');if(result)new MutationObserver(schedule).observe(result,{childList:true,subtree:false});
  window.addEventListener('load',schedule);schedule();
+})();
+</script>
+
+<style id="fwtp-v857-layout">
+html body .tabliczka.v857-dynamiczna {--lewa: auto !important;--prawa:auto !important;grid-template-columns:var(--v857-lewa) var(--v857-prawa)!important;width:max-content!important;max-width:none!important;}
+html body .tabliczka.v857-dynamiczna .panel-prawy {width:var(--v857-prawa)!important;min-width:var(--v857-prawa)!important;}
+html body .tabliczka.v857-dynamiczna .trasa-columns,
+html body .tabliczka.v857-dynamiczna .trasa-head {width:100%!important;max-width:none!important;display:grid!important;grid-template-columns:var(--v857-kolumny)!important;}
+html body .tabliczka.v857-dynamiczna .trasa-separator[class*="miejscowosc"] .trasa-separator-title {
+position:relative!important;left:auto!important;right:auto!important;transform:none!important;
+margin-left:auto!important;margin-right:auto!important;text-align:center!important;
+width:max-content!important;max-width:calc(100% - 12px)!important;white-space:normal!important;
+}
+</style>
+<script id="fwtp-v857-js">
+(function(){
+let queued=false,working=false;
+function update(){
+ if(working)return;
+ const tab=document.querySelector('#wynik .tabliczka');
+ const root=tab?.querySelector('.trasa-columns');
+ const left=tab?.querySelector('.panel-lewy');
+ const right=tab?.querySelector('.panel-prawy');
+ if(!root||!left||!right)return;
+ const lists=()=>[...root.querySelectorAll(':scope > .trasa-kol > .trasa-lista')];
+ if(lists().length<2)return;
+ working=true;
+ try{
+  // Rzeczywisty koniec rozkładu/legendy, nie rozciągniętego panelu.
+  const anchors=[...left.querySelectorAll('.rozklady-grid,.rozklady-wrap,:scope > .legenda')];
+  const top=root.getBoundingClientRect().top;
+  const contentBottom=Math.max(...anchors.map(x=>x.getBoundingClientRect().bottom),top+530);
+  const limit=Math.max(530,contentBottom-top+65);
+  const overflow=()=>{const ls=lists();return ls.slice(0,2).some(l=>l.lastElementChild&&l.lastElementChild.getBoundingClientRect().bottom>top+limit+1);};
+  if(lists().length===2 && overflow()){
+    const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol'));
+    const third=cols[1].cloneNode(false);
+    third.innerHTML='<ul class="trasa-lista"></ul>';
+    root.appendChild(third);
+    root.classList.remove('cols-2','cols-1');root.classList.add('cols-3');
+    tab.classList.add('v857-trzy','v854-trzy','v856-trzy');
+    const head=tab.querySelector('.trasa-head');
+    if(head){head.classList.remove('cols-2','cols-1');head.classList.add('cols-3');head.innerHTML='<div class="trasa-head-label">czasy, trasa, przystanki</div>'.repeat(3);}
+  }
+  const ls=lists();
+  if(ls.length===3){
+    for(let j=0;j<2;j++){
+      let guard=0;
+      while(ls[j].children.length>1&&ls[j].lastElementChild.getBoundingClientRect().bottom>top+limit&&guard++<350)
+        ls[j+1].insertBefore(ls[j].lastElementChild,ls[j+1].firstChild);
+    }
+  }
+  const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol'));
+  const widths=cols.map(c=>{
+    const r=c.getBoundingClientRect();
+    let required=Math.max(185,Math.ceil(r.width));
+    const axis=c.querySelector('.trasa-stop .trasa-os');
+    const axisX=axis?axis.getBoundingClientRect().left-r.left+5:32;
+    for(const title of c.querySelectorAll('.trasa-separator[class*="miejscowosc"] .trasa-separator-title')){
+      const ctx=document.createElement('canvas').getContext('2d');
+      ctx.font=getComputedStyle(title).font;
+      const words=(title.textContent||'').trim().split(/\s+/);
+      const longest=Math.max(0,...words.map(w=>ctx.measureText(w).width));
+      // Środek napisu pozostaje środkiem kolumny.
+      required=Math.max(required,Math.ceil(2*(axisX+7)+longest+14));
+    }
+    return required;
+  });
+  const rightWidth=widths.reduce((a,b)=>a+b,0);
+  const leftWidth=Math.ceil(Math.max(left.querySelector('.rozklady-grid')?.scrollWidth||0,left.getBoundingClientRect().width,355))+12;
+  tab.style.setProperty('--v857-lewa',leftWidth+'px');
+  tab.style.setProperty('--v857-prawa',rightWidth+'px');
+  tab.style.setProperty('--v857-kolumny',widths.map(w=>w+'px').join(' '));
+  tab.classList.add('v857-dynamiczna');
+  root.style.removeProperty('grid-template-columns');
+  root.style.removeProperty('width');
+  const head=tab.querySelector('.trasa-head');
+  if(head){head.style.removeProperty('grid-template-columns');head.style.removeProperty('width');}
+ }finally{working=false;}
+}
+function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;update();}));}
+new MutationObserver(schedule).observe(document.getElementById('wynik'),{childList:true,subtree:false});
+window.addEventListener('load',schedule);
+schedule();
 })();
 </script>
 </body>
