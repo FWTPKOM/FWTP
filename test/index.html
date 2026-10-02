@@ -1,4 +1,4 @@
-<!-- WERSJA: 853 — BEZ PUSTYCH WIERSZY PO OSTATNIEJ GODZINIE -->
+<!-- WERSJA: 854 — BEZ PUSTYCH WIERSZY PO OSTATNIEJ GODZINIE -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30054,5 +30054,151 @@ html body .tabliczka .trasa-stop.v806-ostatni-rzeczywisty-koniec > .trasa-nazwa-
 })();
 </script>
 
+
+<!-- WERSJA: 855 — DYNAMICZNA SZEROKOSC KOLUMN DLA MIEJSCOWOSCI -->
+<style id="fwtp-v854-lista">
+/* Nie obcinaj nazw miejscowości, także dwuwierszowych. */
+html body .tabliczka .trasa-columns .trasa-separator.trasa-miejscowosc-429,
+html body .tabliczka .trasa-columns .trasa-separator[class*="miejscowosc"] {
+ height:auto!important; min-height:0!important; overflow:visible!important;
+ white-space:normal!important;
+}
+html body .tabliczka .trasa-columns .trasa-separator.trasa-miejscowosc-429 .trasa-separator-title,
+html body .tabliczka .trasa-columns .trasa-separator[class*="miejscowosc"] .trasa-separator-title {
+ height:auto!important; max-height:none!important; min-height:0!important;
+ overflow:visible!important; white-space:normal!important;
+ overflow-wrap:normal!important; word-break:normal!important;
+ text-overflow:clip!important; line-height:1.12!important;
+}
+html body .tabliczka.v854-trzy .trasa-columns.cols-3,
+html body .tabliczka.v854-trzy .trasa-head.cols-3 {
+ display:grid!important; grid-template-columns:repeat(3,minmax(0,1fr))!important;
+}
+html body .tabliczka.v854-trzy .trasa-columns.cols-3 > .trasa-kol {min-width:0!important;}
+html body .tabliczka.v854-trzy .trasa-columns.cols-3 > .trasa-kol:not(:last-child){border-right:1px solid #999!important;}
+</style>
+<script id="fwtp-v854-lista-js">
+(function(){
+ let running=false, pending=false;
+ function fix(){
+  if(running)return;
+  const tab=document.querySelector('#wynik .tabliczka');
+  const root=tab?.querySelector('.trasa-columns.cols-2');
+  if(!root || root.children.length!==2 || tab.classList.contains('v854-trzy'))return;
+  const cols=[...root.children];
+  const list=cols[1].querySelector('.trasa-lista');
+  if(!list)return;
+  const limit=root.getBoundingClientRect().bottom-2;
+  const overflow=()=>list.getBoundingClientRect().bottom>limit+1 || list.scrollHeight>cols[1].clientHeight+2;
+  if(!overflow())return;
+  running=true;
+  try {
+   tab.classList.add('v854-trzy','trasa-3-kol');
+   tab.classList.remove('trasa-2-kol','v664-elastyczna','v734-dwie-kolumny');
+   root.classList.replace('cols-2','cols-3');
+   root.style.setProperty('grid-template-columns','repeat(3,minmax(0,1fr))','important');
+   const head=tab.querySelector('.trasa-head');
+   if(head){head.classList.remove('cols-1','cols-2');head.classList.add('cols-3');head.innerHTML='<div class="trasa-head-label">czasy, trasa, przystanki</div>'.repeat(3);}
+   const third=cols[1].cloneNode(false);
+   third.innerHTML='<ul class="trasa-lista"></ul>';
+   root.appendChild(third);
+   const thirdList=third.querySelector('.trasa-lista');
+   // Zostawiamy pierwszą kolumnę możliwie pełną; przenosimy nadmiar
+   // z drugiej do trzeciej, bez zmiany kolejności przystanków.
+   const secondList=cols[1].querySelector('.trasa-lista');
+   let guard=0;
+   while(secondList.children.length>1 && guard++<300){
+     const bottom=secondList.lastElementChild.getBoundingClientRect().bottom;
+     if(bottom<=limit+1)break;
+     const item=secondList.lastElementChild;
+     thirdList.insertBefore(item,thirdList.firstChild);
+     if(secondList.lastElementChild?.classList.contains('trasa-separator') && secondList.children.length>1){
+       thirdList.insertBefore(secondList.lastElementChild,thirdList.firstChild);
+     }
+   }
+   // Jeśli pierwsza kolumna stała się zbyt wysoka po zwężeniu,
+   // przełóż jej końcowe elementy na początek drugiej.
+   const firstList=cols[0].querySelector('.trasa-lista');
+   guard=0;
+   while(firstList && firstList.children.length>1 && firstList.lastElementChild.getBoundingClientRect().bottom>limit+1 && guard++<300){
+     secondList.insertBefore(firstList.lastElementChild,secondList.firstChild);
+   }
+   guard=0;
+   while(secondList.children.length>1 && secondList.lastElementChild.getBoundingClientRect().bottom>limit+1 && guard++<300){
+     thirdList.insertBefore(secondList.lastElementChild,thirdList.firstChild);
+   }
+   if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(root);
+  }finally{running=false;}
+ }
+ function schedule(){if(pending)return;pending=true;requestAnimationFrame(()=>{pending=false;fix();});}
+ const target=document.getElementById('wynik');
+ if(target)new MutationObserver(schedule).observe(target,{childList:true,subtree:false});
+ window.addEventListener('load',schedule);
+ schedule();
+})();
+</script>
+
+
+<style id="fwtp-v855-szerokosc-miejscowosci">
+/* Miejscowość nie może nachodzić na oś przystanków. */
+html body .tabliczka .trasa-columns > .trasa-kol { box-sizing:border-box!important; }
+html body .tabliczka .trasa-separator.trasa-miejscowosc-429 .trasa-separator-title {
+ box-sizing:border-box!important; min-width:0!important; max-width:100%!important;
+ overflow-wrap:normal!important; word-break:normal!important;
+}
+</style>
+<script id="fwtp-v855-szerokosc-miejscowosci-js">
+(function(){
+ let busy=false, queued=false;
+ function adjust(){
+  if(busy)return;
+  const tab=document.querySelector('#wynik .tabliczka');
+  const root=tab?.querySelector('.trasa-columns');
+  if(!root)return;
+  const cols=[...root.children].filter(c=>c.classList.contains('trasa-kol'));
+  if(!cols.length)return;
+  busy=true;
+  try{
+   // Najpierw zdejmujemy wyłącznie poprzednie nadpisanie V855.
+   root.style.removeProperty('grid-template-columns');
+   const widths=cols.map(col=>{
+    const rect=col.getBoundingClientRect();
+    let need=Math.ceil(rect.width);
+    const axis=col.querySelector('.trasa-stop');
+    const axisX=axis?axis.getBoundingClientRect().left-rect.left+5:35;
+    for(const el of col.querySelectorAll('.trasa-separator.trasa-miejscowosc-429 .trasa-separator-title')){
+     const cs=getComputedStyle(el);
+     const words=(el.textContent||'').trim().split(/\s+/);
+     const measure=document.createElement('canvas').getContext('2d');
+     measure.font=cs.font;
+     const longest=Math.max(0,...words.map(w=>measure.measureText(w).width));
+     // Nazwa miejscowości jest centrowana: jej lewy brzeg
+     // nie może wejść w pionową oś przystanków.
+     const required=Math.ceil(2*(axisX+6+longest/2)+8);
+     need=Math.max(need,required);
+    }
+    return need;
+   });
+   const current=cols.map(c=>c.getBoundingClientRect().width);
+   if(widths.some((w,i)=>w>current[i]+1)){
+    const total=widths.reduce((a,b)=>a+b,0);
+    root.style.setProperty('grid-template-columns',widths.map(w=>w+'px').join(' '),'important');
+    root.style.setProperty('width',total+'px','important');
+    root.style.setProperty('max-width','none','important');
+    const head=tab.querySelector('.trasa-head');
+    if(head){head.style.setProperty('grid-template-columns',widths.map(w=>w+'px').join(' '),'important');head.style.setProperty('width',total+'px','important');}
+    // Rozszerz tabliczkę zamiast nakładać listę na rozkład.
+    const panel=root.parentElement;
+    if(panel){panel.style.setProperty('min-width',total+'px','important');}
+   }
+  }finally{busy=false;}
+ }
+ function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;adjust();});}
+ const target=document.getElementById('wynik');
+ if(target)new MutationObserver(schedule).observe(target,{childList:true,subtree:false});
+ window.addEventListener('load',schedule);
+ schedule();
+})();
+</script>
 </body>
 </html>
