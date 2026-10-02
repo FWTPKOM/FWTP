@@ -1,4 +1,4 @@
-<!-- WERSJA: 864 — BEZ KOLIZJI NAZW Z OSIĄ I NZ -->
+<!-- WERSJA: 866 — SZEROKOSC WEDLUG ROZKLADU I NAGLOWKA -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30183,47 +30183,62 @@ window.addEventListener('resize',queue);window.addEventListener('load',queue);qu
 })();
 </script>
 
-<style id="fwtp-v864-kolizje">
-/* Stała kartka, bez ingerencji w podział paneli, rozmiary czcionek i kierunek. */
-html body .tabliczka.v861-uklad .trasa-columns .trasa-kol {min-width:0!important;box-sizing:border-box!important;}
-/* Nazwy miejscowości pozostają na środku kolumny. Ograniczenie do
-   przestrzeni po prawej stronie osi jest symetryczne po obu stronach. */
-html body .tabliczka.v861-uklad .trasa-columns .trasa-separator[class*="miejscowosc"] .trasa-separator-title {
- display:block!important;position:relative!important;left:auto!important;right:auto!important;
- transform:none!important;box-sizing:border-box!important;
- width:fit-content!important;min-width:0!important;
- max-width:var(--v864-bezpieczna-nazwa,calc(100% - 64px))!important;
- margin-inline:auto!important;text-align:center!important;
- white-space:normal!important;overflow-wrap:anywhere!important;word-break:normal!important;
- letter-spacing:inherit!important;font-size:inherit!important;
+<style id="fwtp-v865-typografia-i-panel">
+/* Wymiary kartki są stałe; szerokość panelu jest mierzona z tabel. */
+html body .tabliczka.v861-uklad{width:210mm!important;min-width:210mm!important;max-width:210mm!important;grid-template-columns:var(--v865-szerokosc-rozkladu,355px) minmax(0,1fr)!important}
+html body .tabliczka.v861-uklad .panel-lewy{min-width:0!important;max-width:100%!important}
+html body .tabliczka.v861-uklad .trasa-columns .trasa-stop .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-columns .trasa-stop .trasa-nazwa-aktywna{
+ overflow-wrap:normal!important;word-break:keep-all!important;hyphens:none!important;white-space:normal!important;
 }
-/* Nazwy przystanków nie mogą wchodzić na oznaczenia NŻ ani sąsiednią kolumnę. */
-html body .tabliczka.v861-uklad .trasa-columns .trasa-stop > .trasa-nazwa,
-html body .tabliczka.v861-uklad .trasa-columns .trasa-stop > .trasa-nazwa-aktywna {
- min-width:0!important;max-width:calc(100% - 15px)!important;
- overflow-wrap:break-word!important;word-break:normal!important;white-space:normal!important;
+html body .tabliczka.v861-uklad .trasa-stop .v865-jednowyrazowa{white-space:nowrap!important;word-break:keep-all!important;overflow-wrap:normal!important}
+/* Przywrócenie kroju separatorów miejscowości bez ściskania liter. */
+html body .tabliczka.v861-uklad .trasa-columns .trasa-separator[class*="miejscowosc"] .trasa-separator-title{
+ font-size:inherit!important;letter-spacing:normal!important;font-stretch:normal!important;
+ width:auto!important;max-width:100%!important;min-width:0!important;
+ overflow-wrap:normal!important;word-break:keep-all!important;hyphens:none!important;
+ text-align:center!important;margin-inline:auto!important;
 }
-html body .tabliczka.v861-uklad .trasa-columns .trasa-stop > .trasa-nz {z-index:5!important;}
 </style>
-<script id="fwtp-v864-pomiar-osi">
+<script id="fwtp-v865-pomiar">
 (()=>{
- let pending=false;
- function fix(){
-  const root=document.querySelector('#wynik .tabliczka.v861-uklad .trasa-columns');
-  if(!root)return;
-  for(const col of root.querySelectorAll(':scope > .trasa-kol')){
-   const r=col.getBoundingClientRect();
-   const dot=col.querySelector('.trasa-stop .trasa-kropka, .trasa-stop .trasa-dot, .trasa-stop .kropka');
-   const stop=col.querySelector('.trasa-stop');
-   const axisX=dot?dot.getBoundingClientRect().left+dot.getBoundingClientRect().width/2-r.left:
-    stop?Math.min(45,stop.getBoundingClientRect().left-r.left+16):34;
-   const clearance=Math.ceil(2*Math.max(axisX+5,0)+6);
-   col.style.setProperty('--v864-bezpieczna-nazwa',Math.max(45,Math.floor(r.width-clearance))+'px');
-  }
+ let busy=false;
+ function apply(){
+  if(busy)return;
+  const tab=document.querySelector('#wynik .tabliczka.v861-uklad');
+  const left=tab?.querySelector('.panel-lewy');
+  const grid=left?.querySelector('.rozklady-grid');
+  if(!tab||!left||!grid)return;
+  busy=true;
+  try{
+   const bounds=grid.getBoundingClientRect();
+   const leftBounds=left.getBoundingClientRect();
+   // Tabele + zapas na obramowanie; nie mierzymy szerokiego nagłówka.
+   // Nagłówek też ogranicza minimalną szerokość: numer linii +
+   // miejsce na zawijany kierunek. Nie używamy scrollWidth całego
+   // nagłówka, bo wymuszałoby to szerokość pełnego, niezawiniętego tekstu.
+   const header=left.querySelector('.naglowek-tabliczki');
+   const numberBox=header?.querySelector('.numer-linii-box');
+   const numberWidth=numberBox?.getBoundingClientRect().width || 0;
+   const headerStyle=header ? getComputedStyle(header) : null;
+   const headerGap=parseFloat(headerStyle?.columnGap)||12;
+   const headerPadding=headerStyle ? (parseFloat(headerStyle.paddingLeft)||0)+(parseFloat(headerStyle.paddingRight)||0) : 0;
+   const headerMinimum=numberWidth+headerGap+135+headerPadding;
+   const width=Math.ceil(Math.max(bounds.right-leftBounds.left+8,headerMinimum));
+   tab.style.setProperty('--v865-szerokosc-rozkladu',width+'px');
+   for(const node of tab.querySelectorAll('.trasa-stop .trasa-nazwa,.trasa-stop .trasa-nazwa-aktywna')){
+    if(node.children.length)continue;
+    const txt=(node.textContent||'').trim();
+    if(txt && !/\s/.test(txt)){
+      const span=document.createElement('span');span.className='v865-jednowyrazowa';span.textContent=txt;
+      node.replaceChildren(span);
+    }
+   }
+  }finally{busy=false;}
  }
- function schedule(){if(pending)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{pending=false;fix();}));}
- const target=document.getElementById('wynik');if(target)new MutationObserver(schedule).observe(target,{childList:true,subtree:false});
- window.addEventListener('resize',schedule);window.addEventListener('load',schedule);schedule();
+ const target=document.getElementById('wynik');
+ if(target)new MutationObserver(()=>requestAnimationFrame(apply)).observe(target,{childList:true,subtree:false});
+ window.addEventListener('load',apply);window.addEventListener('resize',apply);requestAnimationFrame(apply);
 })();
 </script>
 </body>
