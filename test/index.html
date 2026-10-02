@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- WERSJA: 639 — GOTOWA LISTA elementy[] MA PIERWSZEŃSTWO PRZED routes[] -->
+<!-- WERSJA: 810 — BAZA PIERWSZY PLIK; NAZWY PRZYSTANKÓW I TYPY LINII Z DRUGIEGO -->
 <html lang="pl">
 <head>
 <meta charset="utf-8"/>
@@ -17144,29 +17144,31 @@ function renderLegenda(){
    ========================================================= */
 
 function typLinii(numer){
+    // WERSJA 771: jedna wspólna klasyfikacja wszystkich numerów linii.
+    // Prefiksy literowe sprawdzamy przed zakresami liczbowymi.
+    const tekst=String(numer??"").trim().toUpperCase();
 
-    const tekst=
-        String(
-            numer||""
-        )
-            .trim()
-            .toUpperCase();
+    if(/^Z-?\d+$/.test(tekst)) return "LINIA ZASTĘPCZA";
+    if(/^L-?\d+$/.test(tekst)) return "LINIA STREFOWA UZUPEŁNIAJĄCA";
+    if(/^E-?\d+$/.test(tekst)) return "LINIA EKSPRESOWA";
+    if(/^N\d+$/.test(tekst)) return "LINIA NOCNA";
 
-    if(/^Z-/.test(tekst)){
-        return"LINIA ZASTĘPCZA";
-    }
-
+    if(!/^\d+$/.test(tekst)) return "LINIA ZWYKŁA";
     const n=Number(tekst);
 
-    if(
-        Number.isFinite(n)&&
-        n>=1&&
-        n<=79
-    ){
-        return"LINIA TRAMWAJOWA";
-    }
+    if(n>=1 && n<=39)   return "LINIA ZWYKŁA";
+    if(n>=40 && n<=49)  return "LINIA ZWYKŁA OKRESOWA";
+    if(n>=60 && n<=79)  return "LINIA ZASTĘPCZA";
+    if(n>=100 && n<=299)return "LINIA ZWYKŁA";
+    if(n>=300 && n<=399)return "LINIA ZWYKŁA OKRESOWA";
+    if(n>=400 && n<=499)return "LINIA PRZYSPIESZONA OKRESOWA";
+    if(n>=500 && n<=599)return "LINIA PRZYSPIESZONA";
+    if(n>=700 && n<=799)return "LINIA STREFOWA";
+    if(n>=800 && n<=899)return "LINIA STREFOWA OKRESOWA";
+    if(n>=900 && n<=999)return "LINIA ZWYKŁA";
 
-    return"LINIA ZWYKŁA";
+    // Nie przypisujemy nieokreślonym numerom nowej kategorii.
+    return "LINIA ZWYKŁA";
 }
 
 
@@ -19471,6 +19473,34 @@ function v514RenderSeparator(element){
     return "";
 }
 
+
+/* FWTP V810 — wyłącznie formatowanie nazw przystanków */
+function FWTP_V690_NazwaPrzystanku(p){
+    if(!p)return '';
+    const str=x=>String(x??'').trim();
+    const norm=x=>str(x).normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        .toLocaleLowerCase('pl-PL').replace(/\s+/g,' ').trim();
+    const id=str(p.id);
+    const fields=id.split('|');
+    const fromId=fields.length>=3?fields.slice(1,-1).join('|').trim():'';
+    // Lista miejscowosci pochodzi z projektowego parsera, a nie z dowolnego nawiasu.
+    const towns=new Set((window.__FWTP_MIEJSCOWOSCI||[]).map(norm));
+    if(p.miejscowosc)towns.add(norm(p.miejscowosc));
+    const sources=[p.nazwa_pelna,p.nazwa,p.nazwa_przystanku,fromId,p.nazwa_czysta]
+        .map(str).filter(Boolean);
+    const base=str(p.nazwa_czysta||p.nazwa||fromId);
+    // Priorytet pelnej nazwy z rekordu: nigdy nie dopisuj miejscowosci do nazwy.
+    for(const full of sources){
+        const m=/^(.*?)\s*\(([^()]*)\)\s*$/.exec(full);
+        if(!m)continue;
+        const prefix=str(m[1]);
+        if(base && norm(base)!==norm(prefix) && norm(base)!==norm(full))continue;
+        if(towns.has(norm(m[2])))return prefix;
+        return full; // np. DW. ZACHODNI (TUNELOWA)
+    }
+    return base||fromId;
+}
+
 function v514RenderStop(element,position,total){
     const id=v486Text(element?.id);
     const p=v514StopPoId(id);
@@ -19479,11 +19509,14 @@ function v514RenderStop(element,position,total){
        Gdyby w przyszłości VBA zapisało element, którego nie ma już
        w tablicy przystanków, nadal pokażemy nazwę z elementu JSON.
     */
-    const name=v486Text(
-        element?.nazwa ||
-        p?.nazwa_czysta ||
-        p?.nazwa
-    ).trim();
+    const name=v486Text(FWTP_V690_NazwaPrzystanku({
+        ...(p||{}),
+        ...(element||{}),
+        id:id||p?.id,
+        nazwa_pelna:element?.nazwa_pelna||p?.nazwa_pelna||element?.nazwa||p?.nazwa||'',
+        nazwa_czysta:element?.nazwa_czysta||p?.nazwa_czysta||element?.nazwa||p?.nazwa||'',
+        miejscowosc:element?.miejscowosc||p?.miejscowosc||''
+    })).trim();
 
     const activeId=v486StopId(v486CurrentStop());
 
