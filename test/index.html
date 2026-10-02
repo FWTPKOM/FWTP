@@ -1,4 +1,4 @@
-<!-- WERSJA: 866 — SZEROKOSC WEDLUG ROZKLADU I NAGLOWKA -->
+<!-- WERSJA: 867 — WYMIAROWANIE KOLUMN, NZ, WIERSZE, NAGLOWEK -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30239,6 +30239,97 @@ html body .tabliczka.v861-uklad .trasa-columns .trasa-separator[class*="miejscow
  const target=document.getElementById('wynik');
  if(target)new MutationObserver(()=>requestAnimationFrame(apply)).observe(target,{childList:true,subtree:false});
  window.addEventListener('load',apply);window.addEventListener('resize',apply);requestAnimationFrame(apply);
+})();
+</script>
+<style id="fwtp-v867-poprawki">
+/* Nie zmieniamy szerokości kartki, fontów ani środka separatorów. */
+html body .tabliczka.v861-uklad {width:210mm!important;min-width:210mm!important;max-width:210mm!important;}
+html body .tabliczka.v861-uklad .trasa-columns .trasa-stop {box-sizing:border-box!important;min-width:0!important;}
+html body .tabliczka.v861-uklad .trasa-stop > .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-stop > .trasa-nazwa-aktywna {
+ min-width:0!important;box-sizing:border-box!important;word-break:normal!important;
+ overflow-wrap:normal!important;hyphens:none!important;
+}
+html body .tabliczka.v861-uklad .trasa-stop > .trasa-nz {flex-shrink:0!important;white-space:nowrap!important;}
+html body .tabliczka.v861-uklad .trasa-stop.v665-dwuliniowy > .trasa-czas,
+html body .tabliczka.v861-uklad .trasa-stop.v665-dwuliniowy > .trasa-os {
+ align-self:start!important;
+}
+html body .tabliczka.v861-uklad .trasa-separator[class*="miejscowosc"] .trasa-separator-title {
+ font-size:17px!important;font-stretch:normal!important;letter-spacing:normal!important;
+ text-align:center!important;white-space:normal!important;overflow-wrap:normal!important;
+ word-break:keep-all!important;margin-inline:auto!important;
+}
+/* Awaryjny nagłówek pionowy pozwala odzyskać szerokość listy. */
+html body .tabliczka.v867-naglowek-pion .naglowek-tabliczki {
+ display:flex!important;flex-direction:column!important;align-items:flex-start!important;
+ height:auto!important;min-height:0!important;
+}
+html body .tabliczka.v867-naglowek-pion .naglowek-tabliczki .dane-linii {
+ width:100%!important;max-width:100%!important;min-width:0!important;
+ position:static!important;transform:none!important;
+}
+</style>
+<script id="fwtp-v867-geometria">
+(()=>{
+ let busy=false,scheduled=false;
+ const px=(v)=>Number.parseFloat(v)||0;
+ function run(){
+  if(busy)return;
+  const tab=document.querySelector('#wynik .tabliczka');
+  const left=tab?.querySelector('.panel-lewy');
+  const right=tab?.querySelector('.panel-prawy');
+  const columns=right?.querySelector('.trasa-columns');
+  const grid=left?.querySelector('.rozklady-grid');
+  if(!tab||!left||!right||!columns||!grid)return;
+  busy=true;
+  try{
+   tab.classList.add('v861-uklad');
+   const header=left.querySelector('.naglowek-tabliczki');
+   const number=header?.querySelector('.numer-linii-box');
+   const tableWidth=Math.ceil(grid.getBoundingClientRect().width+20);
+   const numWidth=Math.ceil((number?.getBoundingClientRect().width||175)+35);
+   const available=tab.getBoundingClientRect().width-8;
+   const colCount=columns.querySelectorAll(':scope > .trasa-kol').length;
+   const minimumColumn=colCount===3?183:198;
+   const requiredRight=minimumColumn*colCount;
+   // W pierwszej kolejności zachowujemy nagłówek obok numeru.
+   const normalHeaderMin=numWidth+125;
+   let leftWidth=Math.max(tableWidth,normalHeaderMin);
+   const needsVertical=available-leftWidth<requiredRight && available-Math.max(tableWidth,numWidth)>=requiredRight;
+   tab.classList.toggle('v867-naglowek-pion',needsVertical);
+   if(needsVertical)leftWidth=Math.max(tableWidth,numWidth);
+   // Nigdy nie zwężamy poniżej szerokości tabel rozkładu.
+   leftWidth=Math.min(leftWidth,available-minimumColumn*2);
+   tab.style.setProperty('--v865-szerokosc-rozkladu',Math.ceil(leftWidth)+'px');
+   // Usuwamy sztuczne łamanie jednego słowa dodane w poprzednich wersjach.
+   for(const name of columns.querySelectorAll('.trasa-stop > .trasa-nazwa,.trasa-stop > .trasa-nazwa-aktywna')){
+    const only=name.querySelector(':scope > .v865-jednowyrazowa');
+    if(only&&name.children.length===1)name.textContent=only.textContent;
+   }
+   // Pozostawiamy NŻ w jego własnym polu, nie nadpisujemy położenia osi.
+   if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(columns);
+   // Gdy nagłówek przeniesiono pod numer, legenda może trafić pod listę,
+   // ale tylko jeśli szerokość rozkładu jest wąskim gardłem.
+   const legend=left.querySelector(':scope > .legenda');
+   const moved=right.querySelector(':scope > .v867-legenda');
+   if(needsVertical&&legend){
+     const holder=document.createElement('div');holder.className='v867-legenda';
+     holder.style.cssText='padding:8px 10px 4px;clear:both;';
+     legend.parentNode.insertBefore(document.createComment('v867-legenda'),legend);
+     holder.appendChild(legend);right.appendChild(holder);
+   }else if(!needsVertical&&moved){
+     const original=moved.querySelector('.legenda');
+     const marker=[...left.childNodes].find(n=>n.nodeType===8&&n.nodeValue==='v867-legenda');
+     if(original){if(marker){marker.replaceWith(original);}else left.appendChild(original);}
+     moved.remove();
+   }
+  }finally{busy=false;}
+ }
+ function schedule(){if(scheduled)return;scheduled=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{scheduled=false;run();}));}
+ const target=document.getElementById('wynik');
+ if(target)new MutationObserver(schedule).observe(target,{childList:true,subtree:false});
+ window.addEventListener('resize',schedule);window.addEventListener('load',schedule);schedule();
 })();
 </script>
 </body>
