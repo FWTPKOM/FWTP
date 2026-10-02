@@ -1,4 +1,4 @@
-<!-- WERSJA: 850 — PUSTE GODZINY POMIEDZY WIERSZAMI JSON -->
+<!-- WERSJA: 851 — BEZ PUSTYCH WIERSZY PO OSTATNIEJ GODZINIE -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -13108,43 +13108,56 @@ function grupujGodziny(kursy){
 
 
 function wspolneGodzinyDlaGrup(grupy){
-    // V850: zachowujemy porządek godzin z JSON, ale także PUSTE WIERSZE
-    // dla każdej brakującej godziny między pierwszą a ostatnią.
-    // Wspólna oś godzin obowiązuje we wszystkich kolumnach dni.
-    const obecne=[];
-    const widziane=new Set();
+    // V851: wspólne godziny dni bez zawijania po ostatniej godzinie.
+    // Nie łączymy końca D z początkiem C jako kolejnych godzin.
+    const porzadki=[];
     for(const grupa of (grupy||[])){
+        const godziny=[];
+        const widziane=new Set();
         const kursy=pobierzKursyDlaSymbolu(grupa.symbol);
         for(const [godzina] of grupujGodziny(kursy)){
             const h=Number(godzina);
-            if(Number.isInteger(h) && h>=0 && h<=23 && !widziane.has(h)){
+            if(Number.isInteger(h)&&h>=0&&h<=23&&!widziane.has(h)){
                 widziane.add(h);
-                obecne.push(h);
+                godziny.push(h);
+            }
+        }
+        if(godziny.length)porzadki.push(godziny);
+    }
+    if(!porzadki.length)return [];
+    // Podstawą jest kolejność godzin z JSON w pierwszej grupie.
+    // Dla rosnącej kolejności uzupełniamy wszystkie godziny od
+    // najwcześniejszej do najpóźniejszej, łącznie z pustymi.
+    const bazowe=porzadki[0];
+    const rosnaco=bazowe.every((h,i)=>i===0||h>=bazowe[i-1]);
+    const wszystkie=[...new Set(porzadki.flat())];
+    if(rosnaco){
+        const od=Math.min(...wszystkie);
+        const doGodziny=Math.max(...wszystkie);
+        return Array.from({length:doGodziny-od+1},(_,i)=>od+i);
+    }
+    // Nietypowy porządek przechodzący przez północ: zachowaj
+    // kolejność bazowego JSON i nie dopisuj godzin po jego końcu.
+    const wynik=[];
+    const dodane=new Set();
+    for(let i=0;i<bazowe.length;i++){
+        const h=bazowe[i];
+        if(!dodane.has(h)){wynik.push(h);dodane.add(h);}
+        if(i+1<bazowe.length){
+            const nastepna=bazowe[i+1];
+            let x=(h+1)%24;
+            while(x!==nastepna&&wynik.length<24){
+                if(!dodane.has(x)){wynik.push(x);dodane.add(x);}
+                x=(x+1)%24;
             }
         }
     }
-    if(!obecne.length)return [];
-    // Godziny mogą przekraczać północ: wykrywamy porządek z pierwszego
-    // wystąpienia zamiast sortować wartości godzin liczbowo.
-    const wynik=[];
-    const pierwsza=obecne[0];
-    let poprzednia=pierwsza;
-    let zakres=[pierwsza];
-    for(let i=1;i<obecne.length;i++){
-        const h=obecne[i];
-        const odleglosc=(h-poprzednia+24)%24;
-        if(odleglosc===0)continue;
-        // Zabezpieczenie przed nieregularną kolejnością źródeł:
-        // dopełniamy tylko do 24 godzin w ramach jednej doby.
-        for(let krok=1;krok<=odleglosc;krok++){
-            const godzina=(poprzednia+krok)%24;
-            if(zakres.length>=24)break;
-            zakres.push(godzina);
-        }
-        poprzednia=h;
-        if(zakres.length>=24)break;
+    // Godziny obecne tylko w innych dniach dołączamy w obrębie
+    // zakresu bez wymuszania pełnej doby na końcu.
+    for(const h of wszystkie){
+        if(!dodane.has(h)){wynik.push(h);dodane.add(h);}
     }
-    return zakres;
+    return wynik;
 }
 
 /* =========================================================
