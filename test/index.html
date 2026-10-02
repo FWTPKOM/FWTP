@@ -1,4 +1,4 @@
-<!-- WERSJA: 849 — GODZINY W KOLEJNOSCI Z JSON -->
+<!-- WERSJA: 850 — PUSTE GODZINY POMIEDZY WIERSZAMI JSON -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -13108,24 +13108,44 @@ function grupujGodziny(kursy){
 
 
 function wspolneGodzinyDlaGrup(grupy){
-    // V849: kolejność godzin zgodna z tablicami w JSON.
-    // Map zachowuje kolejność pierwszego wystąpienia kursu.
-    // Bez sortowania, przesuwania godzin nocnych i dopisywania godzin.
-    const wynik=[];
+    // V850: zachowujemy porządek godzin z JSON, ale także PUSTE WIERSZE
+    // dla każdej brakującej godziny między pierwszą a ostatnią.
+    // Wspólna oś godzin obowiązuje we wszystkich kolumnach dni.
+    const obecne=[];
     const widziane=new Set();
     for(const grupa of (grupy||[])){
         const kursy=pobierzKursyDlaSymbolu(grupa.symbol);
         for(const [godzina] of grupujGodziny(kursy)){
             const h=Number(godzina);
-            if(!widziane.has(h)){
+            if(Number.isInteger(h) && h>=0 && h<=23 && !widziane.has(h)){
                 widziane.add(h);
-                wynik.push(h);
+                obecne.push(h);
             }
         }
     }
-    return wynik;
+    if(!obecne.length)return [];
+    // Godziny mogą przekraczać północ: wykrywamy porządek z pierwszego
+    // wystąpienia zamiast sortować wartości godzin liczbowo.
+    const wynik=[];
+    const pierwsza=obecne[0];
+    let poprzednia=pierwsza;
+    let zakres=[pierwsza];
+    for(let i=1;i<obecne.length;i++){
+        const h=obecne[i];
+        const odleglosc=(h-poprzednia+24)%24;
+        if(odleglosc===0)continue;
+        // Zabezpieczenie przed nieregularną kolejnością źródeł:
+        // dopełniamy tylko do 24 godzin w ramach jednej doby.
+        for(let krok=1;krok<=odleglosc;krok++){
+            const godzina=(poprzednia+krok)%24;
+            if(zakres.length>=24)break;
+            zakres.push(godzina);
+        }
+        poprzednia=h;
+        if(zakres.length>=24)break;
+    }
+    return zakres;
 }
-
 
 /* =========================================================
    FWTP V490 — UDZIAŁ WARIANTU A BEZ STAREGO SILNIKA
