@@ -1,4 +1,4 @@
-<!-- WERSJA: 884 — POWROT DO UKLADU V825 BEZ NOWYCH OSI PRZEZ SEPARATORY -->
+<!-- WERSJA: 885 — DYNAMICZNE KOLUMNY, SEPARATORY I GRANICA -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -29790,6 +29790,88 @@ html body .tabliczka .trasa-stop.v806-ostatni-rzeczywisty-koniec > .trasa-nazwa-
 
     window.addEventListener('load',()=>requestAnimationFrame(poprawOstatniKoniec806));
     requestAnimationFrame(poprawOstatniKoniec806);
+})();
+</script>
+
+
+<!-- V885: zachowany silnik rozdziału 1/2/3 kolumn z V825. Bez stałych procentów szerokości. -->
+<style id="fwtp-v885-dynamiczne">
+html body .tabliczka .trasa-columns,
+html body .tabliczka .trasa-head { min-width:0!important; }
+html body .tabliczka .trasa-columns.cols-2,
+html body .tabliczka .trasa-head.cols-2 { grid-template-columns:repeat(2,minmax(0,1fr))!important; }
+html body .tabliczka .trasa-columns.cols-3,
+html body .tabliczka .trasa-head.cols-3 { grid-template-columns:repeat(3,minmax(0,1fr))!important; }
+html body .tabliczka .trasa-columns .trasa-separator.trasa-miejscowosc-429:not(.v588-objazd) > .trasa-separator-title {
+ font-size:15px!important;letter-spacing:1px!important;line-height:13px!important;
+ white-space:normal!important;overflow-wrap:normal!important;word-break:normal!important;
+ min-width:0!important;max-width:calc(100% - 12px)!important;
+}
+html body .tabliczka .trasa-columns .trasa-separator.trasa-miejscowosc-429:not(.v588-objazd) {
+ padding-top:3px!important;padding-bottom:6px!important;
+}
+html body .tabliczka .trasa-columns .trasa-separator.trasa-miejscowosc-429:not(.v588-objazd)::before,
+html body .tabliczka .trasa-columns .trasa-separator.trasa-miejscowosc-429:not(.v588-objazd)::after {
+ flex:1 1 0!important;min-width:0!important;
+}
+</style>
+<script id="fwtp-v885-dynamiczne-js">
+(()=>{
+ let busy=false,queued=false;
+ function fit(){
+  if(busy)return;busy=true;
+  try{
+   const tab=document.querySelector('#wynik .tabliczka');
+   const grid=tab?.querySelector('.trasa-columns');
+   const head=tab?.querySelector('.trasa-head');
+   if(!grid)return;
+   const cols=[...grid.children].filter(e=>e.classList.contains('trasa-kol'));
+   if(!cols.length)return;
+   // Jedna kolumna: przesuwamy cały grid i nagłówek, razem z osią i kropkami.
+   if(cols.length===1){
+    const col=cols[0], available=grid.parentElement?.clientWidth||grid.clientWidth;
+    const stops=[...col.querySelectorAll('.trasa-stop')];
+    const needed=Math.ceil(Math.max(0,...stops.map(el=>{
+     const n=el.querySelector('.trasa-nazwa');
+     if(!n)return 0;
+     const st=getComputedStyle(n),c=document.createElement('canvas').getContext('2d');c.font=st.font;
+     return c.measureText(n.textContent.trim()).width+75;
+    })));
+    const w=Math.min(available,Math.max(needed,grid.clientWidth/2));
+    grid.style.setProperty('width',w+'px','important');
+    grid.style.setProperty('margin-left','auto','important');
+    if(head){head.style.setProperty('width',w+'px','important');head.style.setProperty('margin-left','auto','important');}
+   }else{
+    grid.style.removeProperty('width');grid.style.removeProperty('margin-left');
+    if(head){head.style.removeProperty('width');head.style.removeProperty('margin-left');}
+   }
+   // Nazwy wielowyrazowe: zawijaj tylko tam, gdzie rzeczywiście przecinają oś.
+   const axis=col=>{const dot=col.querySelector('.trasa-kropka');if(!dot)return null;const r=dot.getBoundingClientRect();return r.left+r.width/2};
+   for(const col of cols){
+    const x=axis(col);if(x===null)continue;
+    for(const title of col.querySelectorAll('.trasa-miejscowosc-429:not(.v588-objazd) > .trasa-separator-title')){
+     const raw=title.dataset.v885Text||(title.dataset.v885Text=title.textContent.replace(/\s+/g,' ').trim());
+     title.textContent=raw;
+     const words=raw.split(/\s+/);
+     if(words.length<2)continue;
+     const r=title.getBoundingClientRect();
+     if(r.left>=x+3||r.right<=x-3)continue;
+     let best=1,score=Infinity;
+     for(let k=1;k<words.length;k++){
+      const a=words.slice(0,k).join(' '),b=words.slice(k).join(' ');
+      const v=Math.max(a.length,b.length);
+      if(v<score){score=v;best=k;}
+     }
+     title.replaceChildren(document.createTextNode(words.slice(0,best).join(' ')),document.createElement('br'),document.createTextNode(words.slice(best).join(' ')));
+    }
+   }
+   if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(grid);
+  }finally{busy=false;}
+ }
+ function queue(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;fit()}));}
+ const host=document.getElementById('wynik');
+ if(host)new MutationObserver(queue).observe(host,{childList:true,subtree:false});
+ window.addEventListener('resize',queue);queue();
 })();
 </script>
 
