@@ -1,4 +1,4 @@
-<!-- WERSJA: 934 — JEDEN MECHANIZM WYSOKOSCI WIERSZY (V917), BEZ KONFLIKTU V665 -->
+<!-- WERSJA: 935 — JEDEN MECHANIZM WYSOKOSCI WIERSZY (V917), BEZ KONFLIKTU V665 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30850,37 +30850,58 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
      n.stop.style.setProperty('height',lines.length===3?'49.5px':lines.length===2?'33px':'16.5px','important');
     });
    });
-   // V934: podział sprawdzamy PO rzeczywistym zawinięciu V917.
-   // Stary V498 oceniał wysokość zanim nazwy zostały ułożone.
+   // V935: podział na podstawie sumy RZECZYWISTYCH wysokości wierszy,
+   // z uwzględnieniem dwóch/trzech linii i zapasu pod ramką.
+   const limit=tab.getBoundingClientRect().bottom-12;
+   const rowHeight=e=>Math.max(e.getBoundingClientRect().height,e.offsetHeight,16.5);
+   const overflow=list=>!!(list?.lastElementChild &&
+       list.lastElementChild.getBoundingClientRect().bottom>limit);
    if(cols.length===1){
-    const list=cols[0].querySelector('.trasa-lista');
-    const frameBottom=tab.getBoundingClientRect().bottom-7;
-    const rows=list?[...list.children]:[];
-    if(rows.length>1 && rows[rows.length-1].getBoundingClientRect().bottom>frameBottom){
-     const panel=tab.querySelector('.panel-prawy');
-     const target=Math.min(tab.clientWidth*.62,Math.max(390,available*1.8));
-     tab.style.setProperty('grid-template-columns','minmax(0,1fr) '+target+'px','important');
-     tab.style.setProperty('--v904-prawa',target+'px');
+    const first=cols[0].querySelector('.trasa-lista');
+    if(first && first.children.length>1 && overflow(first)){
+     // Tworzymy drugą kolumnę bez stałej szerokości 390 px.
+     // Szerokości obu kolumn obliczy niżej ten sam pomiar V917.
      tab.classList.remove('v904-jedna-prawo');
      tab.classList.add('trasa-2-kol');
      grid.classList.replace('cols-1','cols-2');
      grid.style.setProperty('width','100%','important');
      grid.style.setProperty('max-width','100%','important');
      const second=document.createElement('div');second.className='trasa-kol';
-     const ul=document.createElement('ul');ul.className=list.className;second.appendChild(ul);
-     grid.appendChild(second);
+     const other=document.createElement('ul');other.className=first.className;
+     second.appendChild(other);grid.appendChild(second);
      const head=tab.querySelector('.trasa-head');
-     if(head){head.classList.replace('cols-1','cols-2');head.style.setProperty('width','100%','important');
-      head.innerHTML='<div class="trasa-head-label">czasy, trasa, przystanki</div>'.repeat(2);}
-     // Przenosimy od końca tyle elementów, aby pierwszy słupek nie przekroczył ramki.
-     let guard=rows.length;
-     while(guard-- > 0 && list.lastElementChild &&
-           list.lastElementChild.getBoundingClientRect().bottom>frameBottom){
-       ul.insertBefore(list.lastElementChild,ul.firstChild);
+     if(head){head.classList.replace('cols-1','cols-2');
+       head.style.setProperty('width','100%','important');
+       head.innerHTML='<div class="trasa-head-label">czasy, trasa, przystanki</div>'.repeat(2);}
+     // Nie przenosimy tylko ostatniego przystanku: przenosimy całe
+     // przepełnienie, mierząc faktyczną wysokość każdego wiersza.
+     const rows=[...first.children];
+     const availableHeight=Math.max(100,limit-first.getBoundingClientRect().top);
+     let used=0,cut=rows.length;
+     for(let i=0;i<rows.length;i++){
+      const h=rowHeight(rows[i]);
+      if(i>0 && used+h>availableHeight){cut=i;break;}
+      used+=h;
      }
-     // V917 przeliczy nazwy przy nowych szerokościach obu kolumn.
+     cut=Math.min(rows.length-1,Math.max(1,cut));
+     rows.slice(cut).forEach(el=>other.appendChild(el));
+     // Kolejny pomiar przeliczy szerokości po nowym podziale.
      requestAnimationFrame(()=>{busy=false;apply();});
      return;
+    }
+   }
+   if(cols.length===2){
+    const first=cols[0].querySelector('.trasa-lista');
+    const second=cols[1].querySelector('.trasa-lista');
+    // Po zmianie szerokości nazwy mogły zawinąć się inaczej.
+    // Dopóki pierwsza kolumna jest za długa, przesuwamy kolejne
+    // kompletne wiersze na początek drugiej.
+    if(first && second && first.children.length>1 && overflow(first)){
+     let moved=0;
+     while(first.children.length>1 && overflow(first) && moved++<100){
+      second.insertBefore(first.lastElementChild,second.firstChild);
+     }
+     if(moved>0){requestAnimationFrame(()=>{busy=false;apply();});return;}
     }
    }
    if(cols.length===1){
