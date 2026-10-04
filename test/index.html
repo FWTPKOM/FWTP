@@ -1,4 +1,4 @@
-<!-- WERSJA: 938 — DYNAMICZNE KOLUMNY Z V906 + ODTWARZANIE BRAKUJĄCEJ TRASY Z V935 -->
+<!-- WERSJA: 939 — DYNAMICZNE KOLUMNY Z V906 + ODTWARZANIE BRAKUJĄCEJ TRASY Z V935 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30670,5 +30670,62 @@ html body .tabliczka .trasa-extra-stop.v665-dwuliniowy > .trasa-nazwa {
   line-height:12.5px!important;
 }
 </style>
+
+<!-- WERSJA: 939 — wymuszony podział nazwy, gdy wiersz ma już dwa poziomy -->
+<style id="fwtp-v939-dwuwiersze">
+.tabliczka .trasa-stop.v939-wymuszone-dwa > .trasa-nazwa,
+.tabliczka .trasa-extra-stop.v939-wymuszone-dwa > .trasa-nazwa {
+  white-space:normal!important;
+  line-height:12.5px!important;
+  align-self:center!important;
+}
+.tabliczka .trasa-stop.v939-wymuszone-dwa,
+.tabliczka .trasa-extra-stop.v939-wymuszone-dwa {
+  min-height:33px!important;
+  height:33px!important;
+  align-items:center!important;
+}
+</style>
+<script id="fwtp-v939-wymus-dwie-linie">
+(()=>{
+ const host=document.getElementById('wynik');if(!host)return;
+ let queued=false;
+ function fit(){
+  queued=false;
+  host.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+   const el=row.querySelector(':scope > .trasa-nazwa');if(!el)return;
+   if(row.classList.contains('v939-wymuszone-dwa'))return;
+   const name=(el.textContent||'').replace(/\s+/g,' ').trim();
+   const words=name.split(' ').filter(Boolean);if(words.length<2)return;
+   // Wysokość już przydzielona na dwa wiersze (również przez poprzedni silnik).
+   const h=row.getBoundingClientRect().height;
+   if(h<27)return;
+   // Nie ingeruj w nazwę, która już rzeczywiście zawija się na dwie linie.
+   const range=document.createRange();range.selectNodeContents(el);
+   const rects=[...range.getClientRects()].filter(r=>r.width>0&&r.height>0);
+   const ys=[];for(const r of rects)if(!ys.some(y=>Math.abs(y-r.top)<4))ys.push(r.top);
+   if(ys.length>=2)return;
+   const original=el.querySelector('.trasa-nazwa-aktywna');
+   const active=original?original.cloneNode(false):null;
+   // Podziel możliwie blisko środka długości napisu, wyłącznie między wyrazami.
+   let best=1,score=Infinity;
+   for(let i=1;i<words.length;i++){
+    const a=words.slice(0,i).join(' '),b=words.slice(i).join(' ');
+    const d=Math.abs(a.length-b.length);
+    if(d<score){score=d;best=i;}
+   }
+   const a=words.slice(0,best).join(' '),b=words.slice(best).join(' ');
+   const target=active||el;
+   if(active){active.replaceChildren(document.createTextNode(a),document.createElement('br'),document.createTextNode(b));el.replaceChildren(active)}
+   else el.replaceChildren(document.createTextNode(a),document.createElement('br'),document.createTextNode(b));
+   row.classList.remove('v665-jednoliniowy');
+   row.classList.add('v665-dwuliniowy','v939-wymuszone-dwa');
+  });
+ }
+ function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(fit))}
+ new MutationObserver(schedule).observe(host,{childList:true,subtree:false});
+ window.addEventListener('resize',schedule);window.addEventListener('load',schedule);schedule();
+})();
+</script>
 </body>
 </html>
