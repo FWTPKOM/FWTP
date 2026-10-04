@@ -1,4 +1,4 @@
-<!-- WERSJA: 901 — BAZA V898, TYLKO WYSOKOSC NAZW DWUWIERSZOWYCH -->
+<!-- WERSJA: 906 — CALY PANEL LISTY PRZY PRAWEJ KRAWEDZI -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -7325,6 +7325,16 @@ html body .tabliczka .trasa-head.cols-3{grid-template-columns:repeat(3,minmax(0,
 html body .tabliczka .trasa-separator[class*="miejscowosc"] .trasa-separator-title{
 text-align:center!important;margin-inline:auto!important;max-width:100%!important;white-space:normal!important;overflow-wrap:normal!important;
 }
+</style>
+
+<style id="fwtp-v904-prawy-panel">
+/* Jedna kolumna: cały panel, razem z jego lewą kreską, jest dosunięty do prawej. */
+html body .tabliczka.v861-uklad.v904-jedna-prawo:has(.trasa-columns.cols-1){
+  grid-template-columns:minmax(0,1fr) var(--v904-prawa)!important;
+}
+html body .tabliczka.v904-jedna-prawo .panel-prawy{width:100%!important;min-width:0!important;}
+html body .tabliczka.v904-jedna-prawo .trasa-columns.cols-1,
+html body .tabliczka.v904-jedna-prawo .trasa-head.cols-1{width:100%!important;max-width:100%!important;margin:0!important;}
 </style>
 </head>
 
@@ -30119,6 +30129,19 @@ function update(){
       while(a&&b&&a.children.length>1&&exceeds(cols[i])&&guard++<400)
         b.insertBefore(a.lastElementChild,b.firstChild);
     }
+    // Pusta trzecia kolumna nie jest potrzebna: przywróć dwie
+    // wraz z nagłówkami i klasami całej tabliczki.
+    const thirdList=list(cols[2]);
+    if(thirdList && thirdList.children.length===0){
+      cols[2].remove();
+      root.classList.remove('cols-3');root.classList.add('cols-2');
+      tab.classList.remove('trasa-3-kol','v854-trzy','v856-trzy');
+      const head=right.querySelector('.trasa-head');
+      if(head){
+        head.classList.remove('cols-3');head.classList.add('cols-2');
+        head.innerHTML='<div class="trasa-head-label">czasy, trasa, przystanki</div>'.repeat(2);
+      }
+    }
   }
  }finally{busy=false;}
 }
@@ -30146,7 +30169,7 @@ function update(){
  const number=l.querySelector('.numer-linii-box');
  const need=Math.ceil(Math.max(table.scrollWidth||0,number?.offsetWidth||0)+24);
  const paper=t.clientWidth;
- const width=Math.min(Math.max(need,295),Math.max(295,paper-455));
+ const width=need; // szerokość z rzeczywistego pomiaru, bez rezerwy 455 px i minimum 295 px
  t.style.setProperty('--v869-lewa',width+'px');
  t.style.removeProperty('--v865-szerokosc-rozkladu');
  t.style.removeProperty('--v868-lewa');
@@ -30246,7 +30269,7 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-1,
 html body .tabliczka.v861-uklad .trasa-head.cols-1{
  grid-template-columns:minmax(0,1fr)!important;
  width:fit-content!important;max-width:100%!important;
- min-width:210px!important;margin-left:auto!important;margin-right:0!important;
+ min-width:0!important;margin-left:auto!important;margin-right:0!important;
 }
 html body .tabliczka.v861-uklad .trasa-columns.cols-1 > .trasa-kol{width:100%!important;}
 </style>
@@ -30256,7 +30279,7 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-1 > .trasa-kol{width:100%!im
 /* Jedna kolumna: przesuwamy całą listę wraz z osią i kropkami. */
 html body .tabliczka.v861-uklad .panel-prawy:has(.trasa-columns.cols-1) .trasa-columns.cols-1,
 html body .tabliczka.v861-uklad .panel-prawy:has(.trasa-columns.cols-1) .trasa-head.cols-1{
- width:var(--v882-single-width,260px)!important;max-width:100%!important;
+ width:var(--v882-single-width,auto)!important;max-width:100%!important;
  margin-left:auto!important;margin-right:0!important;
  grid-template-columns:minmax(0,1fr)!important;
 }
@@ -30283,13 +30306,37 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429 > .
  if(root.classList.contains('cols-1')){
    const col=root.querySelector('.trasa-kol');if(!col)return;
    const names=[...col.querySelectorAll('.trasa-stop > .trasa-nazwa')];
-   const needed=Math.max(220,...names.map(n=>Math.ceil(n.scrollWidth+66)));
-   const max=tab.querySelector('.panel-prawy')?.clientWidth||needed;
-   const w=Math.min(max,needed);
+   const canvas=document.createElement('canvas');
+   const ctx=canvas.getContext('2d');
+   const widths=names.map(n=>{
+     const st=getComputedStyle(n);
+     ctx.font=st.font;
+     const raw=(n.textContent||'').trim();
+     const words=raw.split(/\s+/);
+     // Szerokość bez wymuszania pełnej szerokości przez rozciągnięty kontener.
+     const widest=Math.max(ctx.measureText(raw).width,...words.map(w=>ctx.measureText(w).width));
+     return Math.ceil(widest+64);
+   });
+   const needed=Math.max(160,...widths)+24;
+   // Nie ograniczaj pomiaru poprzednia szerokoscia panelu.
+   const table=tab.querySelector('.panel-lewy .rozklady-grid');
+   const number=tab.querySelector('.panel-lewy .numer-linii-box');
+   const minimumLeft=Math.ceil(Math.max(table?.scrollWidth||0,number?.offsetWidth||0)+24);
+   const available=Math.max(0,tab.clientWidth-minimumLeft-4);
+   const w=Math.min(needed,available);
+   // Przesuwamy GRANICE paneli, nie tylko zawartość panelu prawego.
+   tab.style.setProperty('--v904-prawa',w+'px');
+   tab.classList.add('v904-jedna-prawo');
    tab.style.setProperty('--v882-single-width',w+'px');
+   root.style.width=w+'px';root.style.maxWidth='100%';
+   root.style.marginLeft='auto';root.style.marginRight='0';
    // Oś, kropki, numer i tekst pozostają w tym samym przesuniętym kontenerze.
    if(head){head.classList.add('cols-1');head.style.width=w+'px';head.style.marginLeft='auto';}
- }else if(root.classList.contains('cols-3')){
+ }else {
+   tab.classList.remove('v904-jedna-prawo');
+   tab.style.removeProperty('--v904-prawa');
+ }
+ if(root.classList.contains('cols-3')){
    const cols=[...root.children].filter(c=>c.classList.contains('trasa-kol'));
    if(cols.length!==3)return;
    // Preferuj szerszą pierwszą kolumnę, gdy jej miejscowość zbliża się do osi.
@@ -30560,12 +30607,13 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not
 <!-- V896: jedna definicja wysokosci zamiast konfliktujacych regul v665/v895 -->
 <!-- V897: klasy starego silnika nie mogą ściskać rzeczywiście dwuwierszowych nazw -->
 
+<!-- V903: 12.5px oraz prawa krawędź pojedynczej kolumny -->
 <!-- V901: wyłącznie odstęp między liniami rzeczywiście dwuwierszowych nazw.
      Bez observerów, zmian wysokości kontenera i przeliczania kolumn. -->
 <style id="fwtp-v901-tylko-dwuwierszowe">
 html body .tabliczka .trasa-stop.v665-dwuliniowy > .trasa-nazwa,
 html body .tabliczka .trasa-extra-stop.v665-dwuliniowy > .trasa-nazwa {
-  line-height:16.5px!important;
+  line-height:12.5px!important;
 }
 </style>
 </body>
