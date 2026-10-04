@@ -1,4 +1,4 @@
-<!-- WERSJA: 925 — SYNCHRONIZACJA RZECZYWISTEJ WYSOKOSCI I PODZIALU NA DWA WIERSZE -->
+<!-- WERSJA: 926 — SYNCHRONIZACJA RZECZYWISTEJ WYSOKOSCI I PODZIALU NA DWA WIERSZE -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30700,7 +30700,7 @@ html body .tabliczka.v914-compact .trasa-head.cols-2{width:100%!important;max-wi
 /* V918: zastąpione wspólnym algorytmem pomiaru nazw */
 </script>
 
-<!-- V925: dwa wiersze przed trzema, gdy wolna szerokosc pozwala; trzy wiersze tylko gdy potrzebne -->
+<!-- V926: dwa wiersze przed trzema, gdy wolna szerokosc pozwala; trzy wiersze tylko gdy potrzebne -->
 <style id="fwtp-v917-styles">
 html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="2"] > .v917-line,
 html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="3"] > .v917-line{
@@ -30880,7 +30880,43 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
    }
   }finally{busy=false;}
  }
- function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(apply));}
+
+ // V926: ostateczna synchronizacja z pozycjami kropek po wszystkich
+ // przeliczeniach kolumn. Nie opieramy się na wysokości zmierzonej
+ // przed ułożeniem listy.
+ function reconcile(){
+  const tab=host.querySelector('.tabliczka');if(!tab)return;
+  for(const col of tab.querySelectorAll('.trasa-columns > .trasa-kol')){
+   const stops=[...col.querySelectorAll('.trasa-stop,.trasa-extra-stop')];
+   for(let i=0;i<stops.length;i++){
+    const stop=stops[i],name=stop.querySelector(':scope > .trasa-nazwa');
+    if(!name)continue;
+    const raw=(name.dataset.v917Raw||name.dataset.v908Oryginal||name.textContent||'').replace(/\s+/g,' ').trim();
+    if(raw.split(/\s+/).length<2)continue;
+    const opt=options(raw,name).filter(o=>o.lines.length===2);
+    if(!opt.length)continue;
+    const rowHeight=stop.getBoundingClientRect().height;
+    const dot=stop.querySelector('.trasa-kropka');
+    const next=stops[i+1]?.querySelector('.trasa-kropka');
+    const dotDistance=dot&&next?next.getBoundingClientRect().top-dot.getBoundingClientRect().top:0;
+    const allocated=rowHeight>=25.5 || (dotDistance>=25.5 && dotDistance<42 && name.dataset.v917!=='3');
+    if(!allocated || name.dataset.v917==='2' || name.dataset.v917==='3')continue;
+    const available=Math.max(30,stop.getBoundingClientRect().width-56);
+    const fitting=opt.filter(o=>o.width<=available+1);
+    const chosen=(fitting.length?fitting:opt).slice().sort((a,b)=>a.width-b.width)[0];
+    name.replaceChildren(...chosen.lines.map(t=>{
+      const span=document.createElement('span');span.className='v917-line';span.textContent=t;return span;
+    }));
+    name.dataset.v917='2';name.dataset.v917Layout=chosen.lines.join('\u0001');
+    name.dataset.v908Podzial='1';
+    stop.classList.add('v665-dwuliniowy','v612-dwuwierszowy');
+    stop.classList.remove('v665-jednoliniowy');
+    stop.style.setProperty('min-height','33px','important');
+    stop.style.setProperty('height','33px','important');
+   }
+  }
+ }
+ function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{apply();requestAnimationFrame(()=>requestAnimationFrame(reconcile));}));}
  new MutationObserver(schedule).observe(host,{childList:true,subtree:false});
  window.addEventListener('resize',schedule);
  window.addEventListener('load',schedule);
