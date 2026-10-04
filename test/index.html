@@ -1,4 +1,4 @@
-<!-- WERSJA: 921 — PREFERUJ DWA WIERSZE GDY JEST MIEJSCE -->
+<!-- WERSJA: 919 — PERCENTYL 90 WYZNACZA FAKTYCZNY LIMIT LAMANIA -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30700,10 +30700,9 @@ html body .tabliczka.v914-compact .trasa-head.cols-2{width:100%!important;max-wi
 /* V918: zastąpione wspólnym algorytmem pomiaru nazw */
 </script>
 
-<!-- V921: dwa wiersze przed trzema, gdy wolna szerokosc pozwala; trzy wiersze tylko gdy potrzebne -->
+<!-- V919: pomiar 90. percentyla dla KAŻDEJ kolumny, bez zmiany fontów i danych -->
 <style id="fwtp-v917-styles">
-html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="2"] > .v917-line,
-html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="3"] > .v917-line{
+html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="2"] > .v917-line{
  display:block!important;white-space:nowrap!important;overflow-wrap:normal!important;
  line-height:12.5px!important;height:12.5px!important;
 }
@@ -30711,13 +30710,9 @@ html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="1"]{
  white-space:nowrap!important;overflow-wrap:normal!important;word-break:normal!important;
 }
 html body .tabliczka .trasa-columns .trasa-stop:has(> .trasa-nazwa[data-v917="2"]),
-html body .tabliczka .trasa-columns .trasa-stop:has(> .trasa-nazwa[data-v917="3"]),
-html body .tabliczka .trasa-columns .trasa-extra-stop:has(> .trasa-nazwa[data-v917="2"]),
-html body .tabliczka .trasa-columns .trasa-extra-stop:has(> .trasa-nazwa[data-v917="3"]){
+html body .tabliczka .trasa-columns .trasa-extra-stop:has(> .trasa-nazwa[data-v917="2"]){
  min-height:33px!important;
 }
-html body .tabliczka .trasa-columns .trasa-stop:has(> .trasa-nazwa[data-v917="3"]),
-html body .tabliczka .trasa-columns .trasa-extra-stop:has(> .trasa-nazwa[data-v917="3"]){min-height:49.5px!important;height:49.5px!important;}
 html body .tabliczka.v917-dwie .panel-prawy{
  width:var(--v917-total)!important;max-width:100%!important;justify-self:end!important;
 }
@@ -30740,14 +30735,12 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
   const words=raw.split(/\s+/).filter(Boolean),result=[[raw]];
   if(words.length>1){
    for(let i=1;i<words.length;i++)result.push([words.slice(0,i).join(' '),words.slice(i).join(' ')]);
-   // Trzy wiersze: wszystkie naturalne podzialy na kolejne grupy slow.
-   if(words.length>=3)for(let i=1;i<words.length-1;i++)for(let j=i+1;j<words.length;j++)result.push([words.slice(0,i).join(' '),words.slice(i,j).join(' '),words.slice(j).join(' ')]);
   }
   // Dopuszczamy przeniesienie po myślniku (bez dzielenia słowa na litery).
   if(words.length===1&&raw.includes('-')){
    for(let i=0;i<raw.length-1;i++)if(raw[i]==='-')result.push([raw.slice(0,i+1),raw.slice(i+1)]);
   }
-  return result.filter(lines=>lines.length<=3).map(lines=>({lines,width:Math.max(...lines.map(t=>measure(t,el)))}));
+  return result.map(lines=>({lines,width:Math.max(...lines.map(t=>measure(t,el)))}));
  }
  function apply(){queued=false;if(busy)return;busy=true;
   try{
@@ -30795,29 +30788,6 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
      excess=sum()-available;
     }
    }
-   // V921: wykorzystaj dostepne wolne miejsce na unikniecie trzech wierszy.
-   // Nie poszerzaj kolumn bez potrzeby: tylko tam, gdzie przy aktualnym
-   // limicie nazwa wymagalaby trzech wierszy, a dwa wiersze sa mozliwe.
-   const free=Math.max(0,available-sum());
-   if(free>0.5){
-    const requests=records.map((r,i)=>{
-     const usable=Math.max(30,widths[i]-56);
-     const three=r.names.filter(n=>
-      !n.opts.some(o=>o.lines.length<=2&&o.width<=usable+0.5));
-     if(!three.length)return 0;
-     const required=Math.max(...three.map(n=>{
-      const two=n.opts.filter(o=>o.lines.length<=2);
-      return two.length?Math.min(...two.map(o=>o.width))+56:widths[i];
-     }));
-     return Math.max(0,Math.ceil(required-widths[i]));
-    });
-    // Najpierw kolumny wymagajace najmniejszego dodatkowego miejsca.
-    let remaining=free;
-    requests.map((need,i)=>({need,i})).filter(x=>x.need>0)
-     .sort((a,b)=>a.need-b.need).forEach(({need,i})=>{
-      if(need<=remaining+0.5){widths[i]+=need;remaining-=need;}
-     });
-   }
    records.forEach((r,i)=>{
     // Szerokosc 90. percentyla jest rzeczywistym limitem dla tekstu,
     // a nie tylko sugestia. Pozostawiamy miejsce na os, numery i NZ.
@@ -30829,8 +30799,8 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
       ||n.opts.slice().sort((a,b)=>a.width-b.width)[0];
      const lines=candidate.lines;
      if(n.el.dataset.v917Layout===lines.join('\u0001')){
-      n.stop.style.setProperty('min-height',lines.length===3?'49.5px':lines.length===2?'33px':'12.5px','important');
-      n.stop.style.setProperty('height',lines.length===3?'49.5px':lines.length===2?'33px':'12.5px','important');
+      n.stop.style.setProperty('min-height',lines.length===2?'33px':'12.5px','important');
+      n.stop.style.setProperty('height',lines.length===2?'33px':'12.5px','important');
       return;
      }
      n.el.replaceChildren(...lines.map(line=>{
@@ -30838,12 +30808,12 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
      }));
      n.el.dataset.v917Layout=lines.join('\u0001');
      n.el.dataset.v917=String(lines.length);
-     n.el.dataset.v908Podzial=lines.length>=2?'1':'0';
-     n.stop.classList.toggle('v665-dwuliniowy',lines.length>=2);
-     n.stop.classList.toggle('v612-dwuwierszowy',lines.length>=2);
+     n.el.dataset.v908Podzial=lines.length===2?'1':'0';
+     n.stop.classList.toggle('v665-dwuliniowy',lines.length===2);
+     n.stop.classList.toggle('v612-dwuwierszowy',lines.length===2);
      n.stop.classList.toggle('v665-jednoliniowy',lines.length===1);
-     n.stop.style.setProperty('min-height',lines.length===3?'49.5px':lines.length===2?'33px':'12.5px','important');
-     n.stop.style.setProperty('height',lines.length===3?'49.5px':lines.length===2?'33px':'12.5px','important');
+     n.stop.style.setProperty('min-height',lines.length===2?'33px':'12.5px','important');
+     n.stop.style.setProperty('height',lines.length===2?'33px':'12.5px','important');
     });
    });
    if(cols.length===1){
