@@ -1,4 +1,4 @@
-<!-- WERSJA: 928 — SYNCHRONIZACJA RZECZYWISTEJ WYSOKOSCI I PODZIALU NA DWA WIERSZE -->
+<!-- WERSJA: 929 — BAZA V920, ZACHOWANIE AKTYWNEGO PRZYSTANKU I PODZIALU -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30700,7 +30700,7 @@ html body .tabliczka.v914-compact .trasa-head.cols-2{width:100%!important;max-wi
 /* V918: zastąpione wspólnym algorytmem pomiaru nazw */
 </script>
 
-<!-- V927: dwa wiersze przed trzema, gdy wolna szerokosc pozwala; trzy wiersze tylko gdy potrzebne -->
+<!-- V920: 90. percentyl i obsługa trzech wierszy; pomiar 90. percentyla dla KAŻDEJ kolumny, bez zmiany fontów i danych -->
 <style id="fwtp-v917-styles">
 html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="2"] > .v917-line,
 html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="3"] > .v917-line{
@@ -30795,29 +30795,6 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
      excess=sum()-available;
     }
    }
-   // V921: wykorzystaj dostepne wolne miejsce na unikniecie trzech wierszy.
-   // Nie poszerzaj kolumn bez potrzeby: tylko tam, gdzie przy aktualnym
-   // limicie nazwa wymagalaby trzech wierszy, a dwa wiersze sa mozliwe.
-   const free=Math.max(0,available-sum());
-   if(free>0.5){
-    const requests=records.map((r,i)=>{
-     const usable=Math.max(30,widths[i]-56);
-     const three=r.names.filter(n=>
-      !n.opts.some(o=>o.lines.length<=2&&o.width<=usable+0.5));
-     if(!three.length)return 0;
-     const required=Math.max(...three.map(n=>{
-      const two=n.opts.filter(o=>o.lines.length<=2);
-      return two.length?Math.min(...two.map(o=>o.width))+56:widths[i];
-     }));
-     return Math.max(0,Math.ceil(required-widths[i]));
-    });
-    // Najpierw kolumny wymagajace najmniejszego dodatkowego miejsca.
-    let remaining=free;
-    requests.map((need,i)=>({need,i})).filter(x=>x.need>0)
-     .sort((a,b)=>a.need-b.need).forEach(({need,i})=>{
-      if(need<=remaining+0.5){widths[i]+=need;remaining-=need;}
-     });
-   }
    records.forEach((r,i)=>{
     // Szerokosc 90. percentyla jest rzeczywistym limitem dla tekstu,
     // a nie tylko sugestia. Pozostawiamy miejsce na os, numery i NZ.
@@ -30827,24 +30804,32 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
      // Jednowierszowa tylko wtedy, gdy NAPRAWDE miesci sie w limicie.
      const candidate=fitting.sort((a,b)=>a.lines.length-b.lines.length||a.width-b.width)[0]
       ||n.opts.slice().sort((a,b)=>a.width-b.width)[0];
-     let lines=candidate.lines;
-     // V925: dwuwierszowa wysokosc oznacza dwuwierszowy napis.
-     // Sprawdzamy rzeczywista wysokosc ZA KAZDYM razem, bez jednorazowej
-     // flagi initialized, ktora w V924 blokowala ponowne dopasowanie.
-     const actualHeight=n.stop.getBoundingClientRect().height;
-     if(lines.length===1 && actualHeight>=26 && n.opts.some(o=>o.lines.length===2)){
-       const pairs=n.opts.filter(o=>o.lines.length===2);
-       const fittingPairs=pairs.filter(o=>o.width<=usable+0.5);
-       lines=(fittingPairs.length?fittingPairs:pairs)
-         .slice().sort((a,b)=>a.width-b.width)[0].lines;
-     }
+     const lines=candidate.lines;
      if(n.el.dataset.v917Layout===lines.join('\u0001')){
+      if(n.stop.classList.contains('wybrany') && !n.el.querySelector('.trasa-nazwa-aktywna')){
+       n.el.querySelectorAll('.v917-line').forEach(part=>{
+        const active=document.createElement('span');active.className='trasa-nazwa-aktywna';
+        active.textContent=part.textContent;part.replaceChildren(active);
+       });
+      }
       n.stop.style.setProperty('min-height',lines.length===3?'49.5px':lines.length===2?'33px':'12.5px','important');
       n.stop.style.setProperty('height',lines.length===3?'49.5px':lines.length===2?'33px':'12.5px','important');
       return;
      }
+     // V929: zachowaj zaznaczenie aktywnego przystanku przy przebudowie nazwy.
+     // V920 usuwała wewnętrzny .trasa-nazwa-aktywna przez replaceChildren.
+     const isActive=n.stop.classList.contains('wybrany') ||
+         !!n.el.querySelector('.trasa-nazwa-aktywna');
      n.el.replaceChildren(...lines.map(line=>{
-      const span=document.createElement('span');span.className='v917-line';span.textContent=line;return span;
+      const span=document.createElement('span');
+      span.className='v917-line';
+      if(isActive){
+       const active=document.createElement('span');
+       active.className='trasa-nazwa-aktywna';
+       active.textContent=line;
+       span.appendChild(active);
+      }else span.textContent=line;
+      return span;
      }));
      n.el.dataset.v917Layout=lines.join('\u0001');
      n.el.dataset.v917=String(lines.length);
@@ -30880,101 +30865,11 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
    }
   }finally{busy=false;}
  }
-
- // V927: synchronizacja także przy odstępach kropek >= 42 px; poprzedni limit wykluczał te wiersze.
- // Ostateczna synchronizacja z pozycjami kropek po wszystkich
- // przeliczeniach kolumn. Nie opieramy się na wysokości zmierzonej
- // przed ułożeniem listy.
- function reconcile(){
-  const tab=host.querySelector('.tabliczka');if(!tab)return;
-  for(const col of tab.querySelectorAll('.trasa-columns > .trasa-kol')){
-   const stops=[...col.querySelectorAll('.trasa-stop,.trasa-extra-stop')];
-   for(let i=0;i<stops.length;i++){
-    const stop=stops[i],name=stop.querySelector(':scope > .trasa-nazwa');
-    if(!name)continue;
-    const raw=(name.dataset.v917Raw||name.dataset.v908Oryginal||name.textContent||'').replace(/\s+/g,' ').trim();
-    if(raw.split(/\s+/).length<2)continue;
-    const opt=options(raw,name).filter(o=>o.lines.length===2);
-    if(!opt.length)continue;
-    const rowHeight=stop.getBoundingClientRect().height;
-    const dot=stop.querySelector('.trasa-kropka');
-    const next=stops[i+1]?.querySelector('.trasa-kropka');
-    const dotDistance=dot&&next?next.getBoundingClientRect().top-dot.getBoundingClientRect().top:0;
-    const allocated=rowHeight>=25.5 || (dotDistance>=28 && name.dataset.v917!=='3');
-    if(!allocated || name.dataset.v917==='2' || name.dataset.v917==='3')continue;
-    const available=Math.max(30,stop.getBoundingClientRect().width-56);
-    const fitting=opt.filter(o=>o.width<=available+1);
-    const chosen=(fitting.length?fitting:opt).slice().sort((a,b)=>a.width-b.width)[0];
-    name.replaceChildren(...chosen.lines.map(t=>{
-      const span=document.createElement('span');span.className='v917-line';span.textContent=t;return span;
-    }));
-    name.dataset.v917='2';name.dataset.v917Layout=chosen.lines.join('\u0001');
-    name.dataset.v908Podzial='1';
-    stop.classList.add('v665-dwuliniowy','v612-dwuwierszowy');
-    stop.classList.remove('v665-jednoliniowy');
-    stop.style.setProperty('min-height','33px','important');
-    stop.style.setProperty('height','33px','important');
-   }
-  }
- }
- function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{apply();requestAnimationFrame(()=>requestAnimationFrame(reconcile));}));}
+ function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(apply));}
  new MutationObserver(schedule).observe(host,{childList:true,subtree:false});
  window.addEventListener('resize',schedule);
  window.addEventListener('load',schedule);
  schedule();
-})();
-</script>
-
-
-<!-- WERSJA: 928 — OSTATECZNY PODZIAL NA PODSTAWIE GEOMETRII WIERSZA -->
-<style id="fwtp-v928-final-style">
-html body .tabliczka .trasa-columns .trasa-nazwa[data-v928-lines="2"] > .v928-part,
-html body .tabliczka .trasa-columns .trasa-nazwa[data-v928-lines="3"] > .v928-part {
- display:block!important; white-space:nowrap!important; height:12.5px!important;line-height:12.5px!important;
-}
-</style>
-<script id="fwtp-v928-final-js">
-(()=>{
- const host=document.getElementById('wynik');if(!host)return;
- let pending=false,working=false;
- function update(){
-  pending=false;if(working)return;working=true;
-  try{
-   const tab=host.querySelector('.tabliczka');if(!tab)return;
-   for(const stop of tab.querySelectorAll('.trasa-columns .trasa-stop,.trasa-columns .trasa-extra-stop')){
-    const el=stop.querySelector(':scope > .trasa-nazwa');if(!el)continue;
-    const raw=(el.dataset.v917Raw||el.dataset.v908Oryginal||el.dataset.v911Original||el.textContent||'').replace(/\s+/g,' ').trim();
-    const words=raw.split(/\s+/).filter(Boolean);if(words.length<2)continue;
-    const height=stop.getBoundingClientRect().height;
-    // Uklad przydzielil co najmniej dwa wiersze: tekst MUSI miec dwa wiersze.
-    // Trzy zachowujemy tylko, gdy podstawowy algorytm rzeczywiscie je wybral.
-    const three=el.dataset.v917==='3';
-    const desired=three?3:height>=25.5?2:1;
-    if(desired===1){if(el.dataset.v928Lines)delete el.dataset.v928Lines;continue;}
-    const style=getComputedStyle(el),canvas=update.canvas||(update.canvas=document.createElement('canvas'));
-    const ctx=canvas.getContext('2d');ctx.font=style.font;
-    let best=null;
-    const partitions=[];
-    for(let i=1;i<words.length;i++)partitions.push([words.slice(0,i).join(' '),words.slice(i).join(' ')]);
-    if(desired===3&&words.length>=3)for(let i=1;i<words.length-1;i++)for(let j=i+1;j<words.length;j++)partitions.push([words.slice(0,i).join(' '),words.slice(i,j).join(' '),words.slice(j).join(' ')]);
-    const wanted=partitions.filter(a=>a.length===desired);
-    for(const parts of wanted){const width=Math.max(...parts.map(x=>ctx.measureText(x).width));if(!best||width<best.width)best={parts,width};}
-    if(!best)continue;
-    const key=best.parts.join('\u0001');
-    if(el.dataset.v928Key===key && el.children.length===desired)continue;
-    el.replaceChildren(...best.parts.map(part=>{const span=document.createElement('span');span.className='v928-part';span.textContent=part;return span;}));
-    el.dataset.v928Key=key;el.dataset.v928Lines=String(desired);
-    el.dataset.v917=String(desired);el.dataset.v917Layout=key;
-    stop.classList.add('v665-dwuliniowy','v612-dwuwierszowy');stop.classList.remove('v665-jednoliniowy');
-   }
-  }finally{working=false;}
- }
- function schedule(){if(pending)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(update));}
- new MutationObserver(schedule).observe(host,{childList:true,subtree:false});
- window.addEventListener('resize',schedule);window.addEventListener('load',schedule);
- // Kolejne przeliczenia kolumn są asynchroniczne: sprawdź końcowy stan w kilku klatkach.
- let count=0;function settle(){update();if(++count<12)requestAnimationFrame(settle);}
- requestAnimationFrame(settle);
 })();
 </script>
 
