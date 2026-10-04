@@ -1,4 +1,4 @@
-<!-- WERSJA: 906 — CALY PANEL LISTY PRZY PRAWEJ KRAWEDZI -->
+<!-- WERSJA: 936 — DYNAMICZNE KOLUMNY Z V906 + ODTWARZANIE BRAKUJĄCEJ TRASY Z V935 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -47,7 +47,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>FWTP v757 — Tabliczki</title>
-<meta name="fwtp-version" content="888"/>
+<meta name="fwtp-version" content="936"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
 <script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sPxCq7PaSAZgofkQN2x8yF3_xxpxKUlsaQBInBm3F64lBKh4BnCciuKKVcQf3Jz_NBdRQb_bmKwJ4NOVjU6QGqlLysKpL1bRvNsDCRXyuMD2X4c_lCpZSNAYWgDQvitBBQfYeyhxpPHINE616HmVKFWuo-TcjLVvHADEbkr04gZnMPtWXv_tkMdTM6J2H_69zBQEhkqlO36zyzkWI25gzVRr2uyvOAFbSMU_yixTmGFo2pM7GXa-r05eHZmmdxI1cbUXjQHYecTSK-rUlKBl1V72CkahBzM7wZkMpZmAFpeWTk4WDlUXa31H8r2AurzAlliqKbmn46g76HzO5_GPQZQvhtr9dmPKAeMR_rZ02HI" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sDyvQBuoxox17_KRlPp29SKwugaMaVHZH-lXg7Me4XIBEwt15mCv1uqRyqMH-xRp8urkn2GKBjKSinJt--k9NFU3LbrASJ_btilmXWb7duejD4J2XdrB913svyl51nKpYX8-HLLkfvjFTdvXu_5G1u-hJpvzjdEbX-063Y6CXHkBnc7hfu4ApUg1MwuCjTKZxQT5jUnwaqD0FLGBxUUSyKBI_nCyxAxqRHPVNvfevE_Na0ZAtSC3NEn6nVxrNhweDkytC218IoO5Rp6F_cQfQ5yerDkGbJdxZaBr6wEs6RqD_KJpB-gZEM7WGtUm4_iiYKevwPzLdRiNgD4OGJMRDaBXVG6CaQRTnhMujcROCZ8" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=pKlnhzCyCnwX8pmmZaNlxDMrn9H9NEgRSiYuEYZIh0qKYjqZnAWEtDZKpqw9xXvDFYlHzXX39nvATweO787ShH6PDI8b6Lhr9V9_USw04DZ-qSw7C0l3-WOH-r6AuMB4giHrjY0zFNPox_FDweAQXPyRUqBERuyN6-jlB-2h3l3vPuutDA3YvFZ94yMluxl8tbxMUrd3sCHEoit3JAs7ZS9MnIJei0dyT769BMUer3Xy_CTVEMV6GZIAStVJr9q2PAt0op6-vFdUrnpAbMNC6nPCDg4D2RT8jC6j4KbfWhkW-J0Ela4u5mG01FQogNoE3NHAHw96NO2OF__6kk9H1-Oes-PG1TpRDAGM86EzsDnm9qwA6Il2SoO2W1HCRcr5" charset="UTF-8"></script><style>
@@ -20898,6 +20898,53 @@ function v496RenderRoutes(routes){
 function v514ModelListy(){
     const active=v486CurrentStop();
     const model=active?.lista_przystankowa;
+
+    /* V936: zgodność danych z V935; geometria kolumn pozostaje z V906. */
+    if(model && Array.isArray(model.elementy) && !model.elementy.length &&
+       Array.isArray(model.trasy) && model.trasy.length){
+        const rozklady=daneLinii?.rozkłady||daneLinii?.rozklady||[];
+        const mapa=new Map();
+        for(const rozklad of rozklady){
+            const kierunek=rozklad?.kierunki?.[Number(aktualnyKierunek)];
+            for(const p of (kierunek?.przystanki||[])){
+                if(!p?.id || String(p.typ||'').toUpperCase()==='TECH')continue;
+                if(!mapa.has(String(p.id)))mapa.set(String(p.id),p);
+            }
+        }
+        const ids=[];
+        const widziane=new Set();
+        for(const przebieg of model.trasy){
+            for(const id of (przebieg?.trasa||[])){
+                const klucz=String(id);
+                if(!widziane.has(klucz)){
+                    widziane.add(klucz);
+                    ids.push(klucz);
+                }
+            }
+        }
+        /* V916: stan ustalamy po pozycji dokładnego ID na przebiegu.
+           Przystanki przed aktywnym są minięte, nie przyszłe.
+           Nie pobieramy dla nich czasu z innego przystanku (np. 143). */
+        const aktywneId=String(active?.id||'');
+        const indeksAktywnego=ids.indexOf(aktywneId);
+        const wynik=ids.map((id,i)=>{
+            const p=mapa.get(id);
+            if(!p)return null;
+            const przed=indeksAktywnego>=0 && i<indeksAktywnego;
+            const aktualny=id===aktywneId;
+            return {
+                ...p,
+                typ:'przystanek',
+                id,
+                nazwa:p.nazwa_czysta||p.nazwa,
+                stan:przed?'miniety':(aktualny?'aktualny':'przyszly'),
+                czas_przejazdu:przed?null:(aktualny?0:undefined),
+                koncowy:i===ids.length-1,
+                kontynuacja:false
+            };
+        }).filter(Boolean);
+        if(wynik.length)return wynik;
+    }
 
     if(
         model &&
