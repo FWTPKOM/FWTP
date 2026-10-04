@@ -1,4 +1,4 @@
-<!-- WERSJA: 888 — DYNAMICZNE KOLUMNY BEZ ZMIANY TYPOGRAFII -->
+<!-- WERSJA: 889 — JEDNOLITE SEPARATORY I BEZPIECZNA OŚ -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30301,8 +30301,8 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429 > .
    };
    const collision=measure(cols[0]);
    const split='repeat(3,minmax(0,1fr))';
-   root.style.setProperty('grid-template-columns',split,'important');
-   if(head)head.style.setProperty('grid-template-columns',split,'important');
+   root.style.removeProperty('grid-template-columns');
+   if(head)head.style.removeProperty('grid-template-columns');
    // Wielowyrazowe miejscowości mogą zawijać się tylko między wyrazami.
    cols.forEach(col=>col.querySelectorAll('.trasa-miejscowosc-429 > .trasa-separator-title').forEach(el=>{
       el.style.whiteSpace='normal';el.style.wordBreak='normal';el.style.overflowWrap='normal';
@@ -30318,31 +30318,71 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429 > .
 html body .tabliczka.v861-uklad .trasa-columns.cols-3,html body .tabliczka.v861-uklad .trasa-head.cols-3{grid-template-columns:var(--v888-three,1fr 1fr 1fr)!important}
 html body .tabliczka.v861-uklad .trasa-columns.cols-2,html body .tabliczka.v861-uklad .trasa-head.cols-2{grid-template-columns:var(--v888-two,1fr 1fr)!important}
 </style>
-<script id="fwtp-v888-js">
-(()=>{let busy=false,queued=false;
-function update(){if(busy)return;busy=true;try{
- const tab=document.querySelector('#wynik .tabliczka'),grid=tab?.querySelector('.trasa-columns');if(!grid)return;
- const cols=[...grid.children].filter(c=>c.classList.contains('trasa-kol'));if(cols.length<2||cols.length>3)return;
- const width=grid.clientWidth;if(width<100)return;
- const ctx=document.createElement('canvas').getContext('2d');
- const measure=(text,el)=>{const cs=getComputedStyle(el);ctx.font=cs.font;return ctx.measureText(text).width+Math.max(0,text.length-1)*(parseFloat(cs.letterSpacing)||0)};
- const need=cols.map(col=>{let min=100;const r=col.getBoundingClientRect();
- col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(stop=>{const name=stop.querySelector('.trasa-nazwa');if(!name)return;
- const words=name.textContent.trim().split(/\s+/);const longest=Math.max(0,...words.map(w=>measure(w,name)));
- const left=Math.max(31,name.getBoundingClientRect().left-r.left);const nz=stop.querySelector('.trasa-nz');
- min=Math.max(min,left+longest+(nz?Math.max(13,nz.getBoundingClientRect().width+3):8)+5)});
- col.querySelectorAll('.trasa-miejscowosc-429 .trasa-separator-title').forEach(title=>{
- const words=title.textContent.trim().split(/\s+/);const longest=Math.max(0,...words.map(w=>measure(w,title)));
- const axis=col.querySelector('.trasa-stop .trasa-os');const axisRight=axis?axis.getBoundingClientRect().right-r.left:29;
- min=Math.max(min,axisRight+longest+17)});return min});
- const sum=need.reduce((a,b)=>a+b,0);const sizes=sum<=width?need.map(n=>n+(width-sum)/cols.length):need.map(n=>n*width/sum);
- const prop=cols.length===3?'--v888-three':'--v888-two';const value=sizes.map(n=>n.toFixed(2)+'px').join(' ');
+
+
+<style id="fwtp-v889-separatory">
+/* Nie zmieniamy fontu ani wysokości separatorów. Jednolity wzór kresek
+   jak przy RYNIA: ta sama grubość i ta sama przerwa w każdym wierszu. */
+html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd){
+ display:flex!important;align-items:center!important;justify-content:center!important;
+ gap:6px!important;min-width:0!important;
+}
+html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd)::before,
+html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd)::after{
+ content:""!important;display:block!important;flex:1 1 0!important;min-width:0!important;
+ height:1px!important;border:0!important;background:none!important;
+ border-top:1px dashed #858585!important;transform:none!important;
+}
+html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd)>.trasa-separator-title{
+ flex:0 1 auto!important;min-width:0!important;max-width:calc(100% - 16px)!important;
+ margin:0!important;text-align:center!important;position:relative!important;
+ z-index:4!important;background:white!important;
+}
+</style>
+<script id="fwtp-v889-pomiar">
+(()=>{
+ let queued=false,busy=false;
+ const host=document.getElementById('wynik');
+ function run(){if(busy)return;busy=true;try{
+ const tab=host?.querySelector('.tabliczka'),grid=tab?.querySelector('.trasa-columns');
+ if(!tab||!grid)return;
+ const cols=[...grid.children].filter(e=>e.classList.contains('trasa-kol'));
+ if(cols.length<2||cols.length>3)return;
+ const available=grid.clientWidth;if(available<150)return;
+ const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+ const textWidth=(t,el)=>{let st=getComputedStyle(el);ctx.font=st.font;return ctx.measureText(t).width+(parseFloat(st.letterSpacing)||0)*Math.max(0,t.length-1)};
+ const required=cols.map(col=>{
+   const cr=col.getBoundingClientRect();let req=105;
+   const dot=col.querySelector('.trasa-stop .trasa-kropka');
+   const axis=dot?dot.getBoundingClientRect().left-cr.left+dot.getBoundingClientRect().width/2:31;
+   col.querySelectorAll('.trasa-miejscowosc-429>.trasa-separator-title').forEach(el=>{
+     const words=el.textContent.trim().split(/\s+/).filter(Boolean);
+     // Dwa i więcej słów: dopuszczamy podział tylko pomiędzy słowami.
+     const longest=Math.max(0,...words.map(w=>textWidth(w,el)));
+     // Tekst pozostaje WYŚRODKOWANY, a jego lewa krawędź za osią.
+     req=Math.max(req,2*(axis+7+longest/2)+12);
+   });
+   col.querySelectorAll('.trasa-stop .trasa-nazwa').forEach(el=>{
+     const words=el.textContent.trim().split(/\s+/).filter(Boolean);
+     const longest=Math.max(0,...words.map(w=>textWidth(w,el)));
+     const offset=Math.max(32,el.getBoundingClientRect().left-cr.left);
+     req=Math.max(req,offset+longest+19);
+   });
+   return req;
+ });
+ const total=required.reduce((a,b)=>a+b,0);
+ let widths=required.slice();
+ if(total<available){const slack=(available-total)/cols.length;widths=widths.map(x=>x+slack)}
+ else {const floor=cols.length===3?135:170;let left=available;
+   widths=widths.map((x,i)=>{const v=i===widths.length-1?left:Math.max(floor,Math.min(x,left-floor*(widths.length-i-1)));left-=v;return v});
+ }
+ const prop=cols.length===3?'--v888-three':'--v888-two';
+ const value=widths.map(x=>Math.max(0,x).toFixed(2)+'px').join(' ');
  if(tab.style.getPropertyValue(prop)!==value)tab.style.setProperty(prop,value);
- if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(grid);
- if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(grid);
  }finally{busy=false}}
- function queue(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;update()}))}
- const host=document.getElementById('wynik');if(host)new MutationObserver(queue).observe(host,{childList:true,subtree:false});window.addEventListener('resize',queue);window.addEventListener('load',queue);queue();
+ function queue(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;run()}))}
+ if(host)new MutationObserver(queue).observe(host,{childList:true,subtree:false});
+ window.addEventListener('resize',queue);window.addEventListener('load',queue);queue();
 })();
 </script>
 </body>
