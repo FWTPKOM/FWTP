@@ -1,4 +1,4 @@
-<!-- WERSJA: 918 — PERCENTYL 90 I POPRAWNE WYSOKOSCI NAZW -->
+<!-- WERSJA: 919 — PERCENTYL 90 WYZNACZA FAKTYCZNY LIMIT LAMANIA -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30372,13 +30372,20 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429 > .
    const widths=names.map(n=>{
      const st=getComputedStyle(n);
      ctx.font=st.font;
-     const raw=(n.textContent||'').trim();
+     const raw=(n.dataset.v917Raw||n.dataset.v908Oryginal||n.textContent||'').trim();
      const words=raw.split(/\s+/);
      // Szerokość bez wymuszania pełnej szerokości przez rozciągnięty kontener.
      const widest=Math.max(ctx.measureText(raw).width,...words.map(w=>ctx.measureText(w).width));
      return Math.ceil(widest+64);
    });
-   const needed=Math.max(160,...widths)+24;
+   const sorted=widths.slice().sort((a,b)=>a-b);
+   const percentile=sorted[Math.max(0,Math.ceil(sorted.length*.90)-1)]||160;
+   const longestWord=Math.max(0,...names.map(n=>{
+     const raw=n.dataset.v917Raw||n.dataset.v908Oryginal||n.textContent||'';
+     const st=getComputedStyle(n);ctx.font=st.font;
+     return Math.max(0,...raw.trim().split(/\s+/).map(x=>ctx.measureText(x).width));
+   }));
+   const needed=Math.max(160,Math.ceil(percentile),Math.ceil(longestWord+64))+24;
    // Nie ograniczaj pomiaru poprzednia szerokoscia panelu.
    const table=tab.querySelector('.panel-lewy .rozklady-grid');
    const number=tab.querySelector('.panel-lewy .numer-linii-box');
@@ -30693,7 +30700,7 @@ html body .tabliczka.v914-compact .trasa-head.cols-2{width:100%!important;max-wi
 /* V918: zastąpione wspólnym algorytmem pomiaru nazw */
 </script>
 
-<!-- V918: pomiar 90. percentyla dla KAŻDEJ kolumny, bez zmiany fontów i danych -->
+<!-- V919: pomiar 90. percentyla dla KAŻDEJ kolumny, bez zmiany fontów i danych -->
 <style id="fwtp-v917-styles">
 html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="2"] > .v917-line{
  display:block!important;white-space:nowrap!important;overflow-wrap:normal!important;
@@ -30782,10 +30789,13 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
     }
    }
    records.forEach((r,i)=>{
-    const usable=widths[i]-36-20;
+    // Szerokosc 90. percentyla jest rzeczywistym limitem dla tekstu,
+    // a nie tylko sugestia. Pozostawiamy miejsce na os, numery i NZ.
+    const usable=Math.max(30,widths[i]-56);
     r.names.forEach(n=>{
-     const candidate=n.opts.filter(o=>o.width<=usable+0.5)
-      .sort((a,b)=>a.lines.length-b.lines.length||a.width-b.width)[0]
+     const fitting=n.opts.filter(o=>o.width<=usable+0.5);
+     // Jednowierszowa tylko wtedy, gdy NAPRAWDE miesci sie w limicie.
+     const candidate=fitting.sort((a,b)=>a.lines.length-b.lines.length||a.width-b.width)[0]
       ||n.opts.slice().sort((a,b)=>a.width-b.width)[0];
      const lines=candidate.lines;
      if(n.el.dataset.v917Layout===lines.join('\u0001')){
@@ -30806,6 +30816,16 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
      n.stop.style.setProperty('height',lines.length===2?'33px':'12.5px','important');
     });
    });
+   if(cols.length===1){
+    const w=Math.ceil(widths[0]);
+    tab.style.setProperty('--v904-prawa',w+'px');
+    tab.style.setProperty('--v882-single-width',w+'px');
+    tab.classList.add('v904-jedna-prawo');
+    grid.style.setProperty('width',w+'px','important');
+    grid.style.setProperty('max-width','100%','important');
+    const head=tab.querySelector('.trasa-head.cols-1');
+    if(head)head.style.setProperty('width',w+'px','important');
+   }
    if(cols.length===2){
     const value=widths.map(w=>w.toFixed(1)+'px').join(' '),total=sum().toFixed(1)+'px';
     tab.style.setProperty('--v917-cols',value);
