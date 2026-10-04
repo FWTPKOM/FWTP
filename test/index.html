@@ -1,4 +1,4 @@
-<!-- WERSJA: 923 — BAZA 921: WYMUSZENIE PODZIALU PRZY DWUWIERSZOWEJ WYSOKOSCI -->
+<!-- WERSJA: 929 — BAZA V920, ZACHOWANIE AKTYWNEGO PRZYSTANKU I PODZIALU -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30700,7 +30700,7 @@ html body .tabliczka.v914-compact .trasa-head.cols-2{width:100%!important;max-wi
 /* V918: zastąpione wspólnym algorytmem pomiaru nazw */
 </script>
 
-<!-- V921: dwa wiersze przed trzema, gdy wolna szerokosc pozwala; trzy wiersze tylko gdy potrzebne -->
+<!-- V920: 90. percentyl i obsługa trzech wierszy; pomiar 90. percentyla dla KAŻDEJ kolumny, bez zmiany fontów i danych -->
 <style id="fwtp-v917-styles">
 html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="2"] > .v917-line,
 html body .tabliczka .trasa-columns .trasa-nazwa[data-v917="3"] > .v917-line{
@@ -30795,29 +30795,6 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
      excess=sum()-available;
     }
    }
-   // V921: wykorzystaj dostepne wolne miejsce na unikniecie trzech wierszy.
-   // Nie poszerzaj kolumn bez potrzeby: tylko tam, gdzie przy aktualnym
-   // limicie nazwa wymagalaby trzech wierszy, a dwa wiersze sa mozliwe.
-   const free=Math.max(0,available-sum());
-   if(free>0.5){
-    const requests=records.map((r,i)=>{
-     const usable=Math.max(30,widths[i]-56);
-     const three=r.names.filter(n=>
-      !n.opts.some(o=>o.lines.length<=2&&o.width<=usable+0.5));
-     if(!three.length)return 0;
-     const required=Math.max(...three.map(n=>{
-      const two=n.opts.filter(o=>o.lines.length<=2);
-      return two.length?Math.min(...two.map(o=>o.width))+56:widths[i];
-     }));
-     return Math.max(0,Math.ceil(required-widths[i]));
-    });
-    // Najpierw kolumny wymagajace najmniejszego dodatkowego miejsca.
-    let remaining=free;
-    requests.map((need,i)=>({need,i})).filter(x=>x.need>0)
-     .sort((a,b)=>a.need-b.need).forEach(({need,i})=>{
-      if(need<=remaining+0.5){widths[i]+=need;remaining-=need;}
-     });
-   }
    records.forEach((r,i)=>{
     // Szerokosc 90. percentyla jest rzeczywistym limitem dla tekstu,
     // a nie tylko sugestia. Pozostawiamy miejsce na os, numery i NZ.
@@ -30827,26 +30804,32 @@ html body .tabliczka.v917-dwie .trasa-head.cols-2{
      // Jednowierszowa tylko wtedy, gdy NAPRAWDE miesci sie w limicie.
      const candidate=fitting.sort((a,b)=>a.lines.length-b.lines.length||a.width-b.width)[0]
       ||n.opts.slice().sort((a,b)=>a.width-b.width)[0];
-     // V923: jeżeli wiersz ma już wysokość dwóch (lub trzech) linii,
-     // tekst nie może pozostać jednowierszowy z pustym miejscem poniżej.
-     // Pomiar robimy tylko przed naszym pierwszym ustawieniem wysokości.
-     const before=n.stop.getBoundingClientRect().height;
-     const preexistingTwo=!n.stop.dataset.v923Measured && before>=25;
-     n.stop.dataset.v923Measured='1';
-     let lines=candidate.lines;
-     if(preexistingTwo && lines.length===1 && n.opts.some(o=>o.lines.length===2)){
-       const pairs=n.opts.filter(o=>o.lines.length===2);
-       const fittingPairs=pairs.filter(o=>o.width<=usable+0.5);
-       const pool=fittingPairs.length?fittingPairs:pairs;
-       lines=pool.slice().sort((a,b)=>a.width-b.width)[0].lines;
-     }
+     const lines=candidate.lines;
      if(n.el.dataset.v917Layout===lines.join('\u0001')){
+      if(n.stop.classList.contains('wybrany') && !n.el.querySelector('.trasa-nazwa-aktywna')){
+       n.el.querySelectorAll('.v917-line').forEach(part=>{
+        const active=document.createElement('span');active.className='trasa-nazwa-aktywna';
+        active.textContent=part.textContent;part.replaceChildren(active);
+       });
+      }
       n.stop.style.setProperty('min-height',lines.length===3?'49.5px':lines.length===2?'33px':'12.5px','important');
       n.stop.style.setProperty('height',lines.length===3?'49.5px':lines.length===2?'33px':'12.5px','important');
       return;
      }
+     // V929: zachowaj zaznaczenie aktywnego przystanku przy przebudowie nazwy.
+     // V920 usuwała wewnętrzny .trasa-nazwa-aktywna przez replaceChildren.
+     const isActive=n.stop.classList.contains('wybrany') ||
+         !!n.el.querySelector('.trasa-nazwa-aktywna');
      n.el.replaceChildren(...lines.map(line=>{
-      const span=document.createElement('span');span.className='v917-line';span.textContent=line;return span;
+      const span=document.createElement('span');
+      span.className='v917-line';
+      if(isActive){
+       const active=document.createElement('span');
+       active.className='trasa-nazwa-aktywna';
+       active.textContent=line;
+       span.appendChild(active);
+      }else span.textContent=line;
+      return span;
      }));
      n.el.dataset.v917Layout=lines.join('\u0001');
      n.el.dataset.v917=String(lines.length);
