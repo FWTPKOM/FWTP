@@ -1,4 +1,4 @@
-<!-- WERSJA: 914 — STABILNY PODZIAL CZTERECH WYRAZOW 2+2 -->
+<!-- WERSJA: 915 — STABILNY PODZIAL CZTERECH WYRAZOW 2+2 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -20877,6 +20877,49 @@ function v496RenderRoutes(routes){
 function v514ModelListy(){
     const active=v486CurrentStop();
     const model=active?.lista_przystankowa;
+
+    /* V915: Niektóre eksporty (np. 105, kierunek Rondo Daszyńskiego)
+       mają elementy:[], ale pełny przebieg w trasy[]. Odtwórz
+       tylko brakującą listę z dokładnych identyfikatorów przystanków.
+       Nie dotykaj gotowych, niepustych elementów innych linii. */
+    if(model && Array.isArray(model.elementy) && !model.elementy.length &&
+       Array.isArray(model.trasy) && model.trasy.length){
+        const rozklady=daneLinii?.rozkłady||daneLinii?.rozklady||[];
+        const mapa=new Map();
+        for(const rozklad of rozklady){
+            const kierunek=rozklad?.kierunki?.[Number(aktualnyKierunek)];
+            for(const p of (kierunek?.przystanki||[])){
+                if(!p?.id || String(p.typ||'').toUpperCase()==='TECH')continue;
+                if(!mapa.has(String(p.id)))mapa.set(String(p.id),p);
+            }
+        }
+        const ids=[];
+        const widziane=new Set();
+        for(const przebieg of model.trasy){
+            for(const id of (przebieg?.trasa||[])){
+                const klucz=String(id);
+                if(!widziane.has(klucz)){
+                    widziane.add(klucz);
+                    ids.push(klucz);
+                }
+            }
+        }
+        const wynik=ids.map((id,i)=>{
+            const p=mapa.get(id);
+            if(!p)return null;
+            return {
+                ...p,
+                typ:'przystanek',
+                id,
+                nazwa:p.nazwa_czysta||p.nazwa,
+                stan:id===String(active?.id)?'aktualny':'przyszly',
+                koncowy:i===ids.length-1,
+                kontynuacja:false
+            };
+        }).filter(Boolean);
+        if(wynik.length)return wynik;
+    }
+
 
     if(
         model &&
