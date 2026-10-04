@@ -1,4 +1,4 @@
-<!-- WERSJA: 890 — DŁUŻSZE KRESKI I OCHRONA JEDNOWIERSZOWYCH NAZW -->
+<!-- WERSJA: 892 — KOLUMNY WG KOLIZJI Z OSIA, BEZ PRIORYTETOW -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
 <!-- WERSJA: 761 -->
@@ -30425,5 +30425,63 @@ html body .tabliczka .trasa-columns .trasa-stop .trasa-nazwa.v890-jedna-linia{
  window.addEventListener('resize',queue);window.addEventListener('load',queue);queue();
 })();
 </script>
+
+<style id="fwtp-v891-poprawki">
+/* Nie łamiemy nazw jednowyrazowych ani nie dzielimy słów na litery. */
+html body .tabliczka .trasa-stop .trasa-nazwa{word-break:normal!important;overflow-wrap:normal!important;hyphens:none!important}
+/* Nie zmieniamy kroju, wielkości ani odstępów wierszy. */
+</style>
+<script id="fwtp-v892-bez-kolizji">
+(()=>{
+ const host=document.getElementById('wynik');let scheduled=false;
+ function fit(){scheduled=false;
+  const tab=host?.querySelector('.tabliczka'),grid=tab?.querySelector('.trasa-columns');
+  if(!tab||!grid)return;
+  const cols=[...grid.children].filter(x=>x.classList.contains('trasa-kol'));
+  if(cols.length<2||cols.length>3)return;
+  const total=grid.clientWidth;if(total<180)return;
+  const ctx=document.createElement('canvas').getContext('2d');
+  function width(t,el){const st=getComputedStyle(el);ctx.font=st.font;return ctx.measureText(t).width+(parseFloat(st.letterSpacing)||0)*Math.max(0,t.length-1)}
+  const min=cols.map(col=>{
+   const box=col.getBoundingClientRect();let need=95;
+   const dot=col.querySelector('.trasa-stop .trasa-kropka');
+   const axis=dot?dot.getBoundingClientRect().left-box.left+dot.getBoundingClientRect().width/2:30;
+   col.querySelectorAll('.trasa-miejscowosc-429 .trasa-separator-title').forEach(el=>{
+    const words=el.textContent.trim().split(/\s+/).filter(Boolean);
+    if(!words.length)return;
+    // Nazwa wyśrodkowana: lewa krawędź nie może wejść na oś kropek.
+    // Nazwy wielowyrazowe mogą zawijać się wyłącznie pomiędzy słowami.
+    const longest=Math.max(...words.map(w=>width(w,el)));
+    need=Math.max(need,2*(axis+5)+longest+8);
+   });
+   col.querySelectorAll('.trasa-stop .trasa-nazwa').forEach(el=>{
+    const text=el.textContent.trim().replace(/\s+/g,' ');if(!text)return;
+    const words=text.split(' '),longest=Math.max(...words.map(w=>width(w,el)));
+    const full=width(text,el);
+    const offset=Math.max(27,el.getBoundingClientRect().left-box.left);
+    const nz=el.closest('.trasa-stop')?.querySelector('.trasa-nz');
+    const reserve=nz?Math.max(14,nz.getBoundingClientRect().width+5):7;
+    // Nie dzielimy jednego wyrazu. Wielowyrazowe mogą przejść na drugi wiersz.
+    need=Math.max(need,offset+(words.length===1?full:longest)+reserve+3);
+   });
+   return Math.ceil(need);
+  });
+  let sizes=min.slice(),sum=sizes.reduce((a,b)=>a+b,0);
+  if(sum<total){const extra=(total-sum)/sizes.length;sizes=sizes.map(x=>x+extra)}
+  else if(sum>total){
+   // Brak fizycznego miejsca: nie udajemy, że tekst się mieści.
+   // Przydział proporcjonalny do zmierzonych potrzeb, bez faworyzowania kolumn.
+   sizes=sizes.map(x=>x*total/sum);
+  }
+  const prop=cols.length===3?'--v888-three':'--v888-two';
+  const value=sizes.map(x=>x.toFixed(2)+'px').join(' ');
+  if(tab.style.getPropertyValue(prop)!==value)tab.style.setProperty(prop,value);
+ }
+ function schedule(){if(scheduled)return;scheduled=true;requestAnimationFrame(()=>requestAnimationFrame(fit))}
+ if(host)new MutationObserver(schedule).observe(host,{childList:true,subtree:false});
+ window.addEventListener('resize',schedule);window.addEventListener('load',schedule);schedule();
+})();
+</script>
+
 </body>
 </html>
