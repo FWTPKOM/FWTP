@@ -1,4 +1,4 @@
-<!-- WERSJA: 998 -->
+<!-- WERSJA: 999 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31695,103 +31695,81 @@ queue();
 
 
 <!-- =========================================================
- V998 — KAŻDY PRZYSTANEK MA REZERWĘ NA „Ż”
- TYLKO układ jednej kolumny.
- Długa nazwa (np. PL. POWSTAŃCÓW WARSZAWY) nie może wejść
- w miejsce przeznaczone na „Ż”, nawet jeśli sama nie ma oznaczenia.
- Bez tła. Bez zmiany wyglądu Ż. 2/3 kolumny bez zmian.
+ V999 — V997 + REZERWA NA „Ż” BEZ ZWĘŻANIA PANELU
+ - szerokość wyliczona przez V997 jest MINIMUM i nigdy jej nie zmniejszamy,
+ - dokładamy 14 px na stałe miejsce dla „Ż”,
+ - żadnego tła,
+ - żadnej zmiany 2/3 kolumn.
  ========================================================= -->
-<script id="fwtp-v998-reserve-z">
+<script id="fwtp-v999-z-no-shrink">
 (()=>{
 'use strict';
 const host=document.getElementById('wynik');if(!host)return;
 let busy=false,queued=false;
 const frame=()=>new Promise(r=>requestAnimationFrame(r));
-const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
 
-function textOf(el){
- return clean(
-   el.dataset.v990Text||
-   el.dataset.v992Text||
-   el.dataset.v987Text||
-   el.dataset.v946Text||
-   el.dataset.v665Text||
-   el.textContent
- );
-}
-function measure(el,text){
- const st=getComputedStyle(el),m=document.createElement('span');
- m.textContent=text;
- m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
- m.style.fontFamily=st.fontFamily;m.style.fontSize=st.fontSize;m.style.fontWeight=st.fontWeight;
- m.style.fontStyle=st.fontStyle;m.style.fontStretch=st.fontStretch;
- m.style.letterSpacing=st.letterSpacing;m.style.lineHeight=st.lineHeight;
- document.body.appendChild(m);
- const w=m.getBoundingClientRect().width;m.remove();return w;
-}
-function leftMin(tab){
- const g=tab.querySelector('.rozklady-grid'),n=tab.querySelector('.numer-linii-box');
- return Math.max(180,(g?.scrollWidth||0)+38,(n?.offsetWidth||0)+24);
-}
 async function run(){
  if(busy)return;busy=true;
  try{
-   for(let i=0;i<12;i++)await frame();
+   for(let i=0;i<14;i++)await frame();
 
    const tab=host.querySelector('.tabliczka');
    const root=tab?.querySelector('.trasa-columns');
    if(!tab||!root||!root.classList.contains('cols-1'))return;
+
    const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol'));
    if(cols.length!==1)return;
 
-   const col=cols[0];
-   const cr=col.getBoundingClientRect();
-   let needed=130;
+   /* Bierzemy szerokość, którą JUŻ ustawiła V997.
+      Nie wykonujemy nowego pomiaru mogącego ją zwęzić. */
+   const current =
+      parseFloat(tab.style.getPropertyValue('--v904-prawa')) ||
+      tab.querySelector('.panel-prawy')?.getBoundingClientRect().width ||
+      0;
 
-   col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
-      const el=row.querySelector(':scope>.trasa-nazwa');
-      if(!el)return;
-
-      const t=textOf(el);
-      const nameLeft=el.getBoundingClientRect().left-cr.left;
-
-      /* KLUCZ:
-         prawa krawędź PEŁNEJ nazwy + 4 px przerwy
-         + 10 px stałego miejsca na Ż + 3 px do ramki.
-         To liczymy dla KAŻDEGO przystanku, niezależnie czy ma Ż. */
-      needed=Math.max(
-        needed,
-        nameLeft + measure(el,t) + 4 + 10 + 3
-      );
-   });
-
-   const head=tab.querySelector('.trasa-head.cols-1 .trasa-head-label');
-   if(head)needed=Math.max(needed,measure(head,'czasy, trasa, przystanki')+10);
+   if(!current)return;
 
    const total=tab.clientWidth;
-   const maxRight=Math.max(90,total-leftMin(tab)-4);
-   const w=Math.ceil(Math.min(needed,maxRight));
+   const leftPanel=tab.querySelector('.panel-lewy');
+   const leftMin=Math.max(180,leftPanel?.scrollWidth||0);
+
+   /* +14 px = pełna rezerwa na Ż i mały odstęp.
+      Najważniejsze: Math.max(current, ...) — NIGDY nie zwężamy V997. */
+   const wanted=Math.ceil(current+14);
+   const maxRight=Math.max(current,total-leftMin-2);
+   const w=Math.max(current,Math.min(wanted,maxRight));
 
    tab.style.setProperty('--v904-prawa',w+'px');
    tab.style.setProperty('--v882-single-width',w+'px');
    tab.style.setProperty('--prawa',w+'px');
-   tab.classList.add('v904-jedna-prawo');
-   tab.style.setProperty('grid-template-columns','minmax(0,1fr) '+w+'px','important');
+   tab.style.setProperty(
+     'grid-template-columns',
+     'minmax(0,1fr) '+w+'px',
+     'important'
+   );
 
    root.style.setProperty('width','100%','important');
    root.style.setProperty('max-width','100%','important');
-   root.style.setProperty('margin','0','important');
-   const h=tab.querySelector('.trasa-head');
-   if(h){
-     h.style.setProperty('width','100%','important');
-     h.style.setProperty('max-width','100%','important');
-     h.style.setProperty('margin','0','important');
+
+   const head=tab.querySelector('.trasa-head');
+   if(head){
+     head.style.setProperty('width','100%','important');
+     head.style.setProperty('max-width','100%','important');
    }
  }finally{busy=false}
 }
-function queue(){if(queued||busy)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;run()}))}
-new MutationObserver(m=>{if(!busy&&m.some(x=>x.target===host))queue()}).observe(host,{childList:true});
-window.addEventListener('load',queue);window.addEventListener('resize',queue);
+function queue(){
+ if(queued||busy)return;
+ queued=true;
+ requestAnimationFrame(()=>requestAnimationFrame(()=>{
+   queued=false;run();
+ }));
+}
+new MutationObserver(m=>{
+ if(!busy&&m.some(x=>x.target===host))queue();
+}).observe(host,{childList:true});
+window.addEventListener('load',queue);
+window.addEventListener('resize',queue);
 if(document.fonts?.ready)document.fonts.ready.then(queue);
 queue();
 })();
