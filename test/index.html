@@ -1,4 +1,4 @@
-<!-- WERSJA: 1006 -->
+<!-- WERSJA: 1007 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -32092,6 +32092,100 @@ html body .tabliczka.v1002-one .trasa-columns.cols-1 .trasa-nz{
     right:7px!important;
 }
 </style>
+
+
+<!-- =========================================================
+ WERSJA 1007 — WIĘKSZY ODSTĘP NAZWY OD KOLUMNY „Ż”
+ Baza: V1006.
+ - „ż” pozostaje 7 px od prawej ramki,
+ - czcionka i scaleY(1.30) bez zmian,
+ - zwiększony stały odstęp między końcem nazwy a strefą „ż”:
+   z 5 px do 10 px,
+ - dotyczy KAŻDEGO przystanku, także bez oznaczenia „ż”.
+ ========================================================= -->
+<style id="fwtp-v1007-name-z-gap">
+html body .tabliczka.v1002-one .trasa-columns.cols-1 .trasa-nazwa{
+    padding-right:10px!important;
+    box-sizing:border-box!important;
+}
+</style>
+
+<script id="fwtp-v1007-name-z-gap-width">
+(()=>{
+'use strict';
+const host=document.getElementById('wynik'); if(!host)return;
+let busy=false, queued=false;
+const frame=()=>new Promise(r=>requestAnimationFrame(r));
+const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
+
+function txt(el){
+ return clean(
+   el.dataset.v1002Text ||
+   el.dataset.v992Text ||
+   el.dataset.v990Text ||
+   el.dataset.v987Text ||
+   el.dataset.v946Text ||
+   el.dataset.v665Text ||
+   el.textContent
+ );
+}
+function measure(el,text){
+ const st=getComputedStyle(el),m=document.createElement('span');
+ m.textContent=text;
+ m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
+ m.style.fontFamily=st.fontFamily;m.style.fontSize=st.fontSize;m.style.fontWeight=st.fontWeight;
+ m.style.fontStyle=st.fontStyle;m.style.fontStretch=st.fontStretch;
+ m.style.letterSpacing=st.letterSpacing;m.style.lineHeight=st.lineHeight;
+ document.body.appendChild(m);
+ const w=m.getBoundingClientRect().width;m.remove();return w;
+}
+async function run(){
+ if(busy)return; busy=true;
+ try{
+   for(let i=0;i<8;i++)await frame();
+   const tab=host.querySelector('.tabliczka');
+   const root=tab?.querySelector('.trasa-columns');
+   const col=root?.querySelector(':scope > .trasa-kol');
+   if(!tab||!root||!col||!root.classList.contains('cols-1'))return;
+
+   const cr=col.getBoundingClientRect();
+   let need=130;
+
+   col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+     const el=row.querySelector(':scope > .trasa-nazwa');
+     if(!el)return;
+     const left=el.getBoundingClientRect().left-cr.left;
+
+     /* pełna nazwa + 10 px pustego odstępu + 10 px strefy Ż
+        + 7 px odsunięcia Ż od ramki + 3 px zapasu */
+     need=Math.max(need,left+measure(el,txt(el))+10+10+7+3);
+   });
+
+   const current=parseFloat(tab.style.getPropertyValue('--v904-prawa'))||
+                 tab.querySelector('.panel-prawy')?.getBoundingClientRect().width||0;
+   const total=tab.getBoundingClientRect().width;
+   const w=Math.ceil(Math.min(Math.max(current,need),total-180));
+
+   tab.style.setProperty('--v904-prawa',w+'px');
+   tab.style.setProperty('--v882-single-width',w+'px');
+   tab.style.setProperty('--prawa',w+'px');
+   tab.style.setProperty('--lewa',(total-w)+'px');
+   tab.style.setProperty('grid-template-columns',(total-w)+'px '+w+'px','important');
+ }finally{busy=false}
+}
+function queue(){
+ if(queued||busy)return; queued=true;
+ requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;run()}));
+}
+new MutationObserver(m=>{
+ if(!busy&&m.some(x=>x.target===host))queue();
+}).observe(host,{childList:true});
+window.addEventListener('load',queue);
+window.addEventListener('resize',queue);
+if(document.fonts?.ready)document.fonts.ready.then(queue);
+queue();
+})();
+</script>
 
 </body>
 </html>
