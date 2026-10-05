@@ -1,4 +1,4 @@
-<!-- WERSJA: 961 — minimalna szerokość jednej kolumny -->
+<!-- WERSJA: 973 — V961 + AUTOMATYCZNE 2/3 KOLUMNY Z V945 — minimalna szerokość jednej kolumny -->
 <!-- HISTORIA: WERSJA 945 -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -48,7 +48,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>FWTP v757 — Tabliczki</title>
-<meta name="fwtp-version" content="961"/>
+<meta name="fwtp-version" content="973"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
 <script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sPxCq7PaSAZgofkQN2x8yF3_xxpxKUlsaQBInBm3F64lBKh4BnCciuKKVcQf3Jz_NBdRQb_bmKwJ4NOVjU6QGqlLysKpL1bRvNsDCRXyuMD2X4c_lCpZSNAYWgDQvitBBQfYeyhxpPHINE616HmVKFWuo-TcjLVvHADEbkr04gZnMPtWXv_tkMdTM6J2H_69zBQEhkqlO36zyzkWI25gzVRr2uyvOAFbSMU_yixTmGFo2pM7GXa-r05eHZmmdxI1cbUXjQHYecTSK-rUlKBl1V72CkahBzM7wZkMpZmAFpeWTk4WDlUXa31H8r2AurzAlliqKbmn46g76HzO5_GPQZQvhtr9dmPKAeMR_rZ02HI" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sDyvQBuoxox17_KRlPp29SKwugaMaVHZH-lXg7Me4XIBEwt15mCv1uqRyqMH-xRp8urkn2GKBjKSinJt--k9NFU3LbrASJ_btilmXWb7duejD4J2XdrB913svyl51nKpYX8-HLLkfvjFTdvXu_5G1u-hJpvzjdEbX-063Y6CXHkBnc7hfu4ApUg1MwuCjTKZxQT5jUnwaqD0FLGBxUUSyKBI_nCyxAxqRHPVNvfevE_Na0ZAtSC3NEn6nVxrNhweDkytC218IoO5Rp6F_cQfQ5yerDkGbJdxZaBr6wEs6RqD_KJpB-gZEM7WGtUm4_iiYKevwPzLdRiNgD4OGJMRDaBXVG6CaQRTnhMujcROCZ8" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=pKlnhzCyCnwX8pmmZaNlxDMrn9H9NEgRSiYuEYZIh0qKYjqZnAWEtDZKpqw9xXvDFYlHzXX39nvATweO787ShH6PDI8b6Lhr9V9_USw04DZ-qSw7C0l3-WOH-r6AuMB4giHrjY0zFNPox_FDweAQXPyRUqBERuyN6-jlB-2h3l3vPuutDA3YvFZ94yMluxl8tbxMUrd3sCHEoit3JAs7ZS9MnIJei0dyT769BMUer3Xy_CTVEMV6GZIAStVJr9q2PAt0op6-vFdUrnpAbMNC6nPCDg4D2RT8jC6j4KbfWhkW-J0Ela4u5mG01FQogNoE3NHAHw96NO2OF__6kk9H1-Oes-PG1TpRDAGM86EzsDnm9qwA6Il2SoO2W1HCRcr5" charset="UTF-8"></script><style>
@@ -31538,14 +31538,26 @@ async function distribute(tab,root,all,n,maxR){
  let needs=cs.map(c=>{const q=stats(c);return Math.max(q.p90,q.two)});
  let sum=needs.reduce((a,b)=>a+b,0);
  if(sum>maxR)return {ok:false,cs};
- const extra=maxR-sum;
- /* Minimalne szerokości, resztę rozdaj proporcjonalnie; żadnego obcinania. */
- needs=needs.map((w,i)=>w+extra*(w/sum));
- needs.forEach((w,i)=>tab.style.setProperty('--v957-w'+(i+1),w+'px'));
+
+ /* V973: przy 2/3 kolumnach NIE rozdajemy całej wolnej szerokości.
+    Każda kolumna dostaje tylko szerokość wynikającą z jej treści.
+    To zachowuje automat V961, ale nie robi sztucznie szerokiego panelu. */
+ needs.forEach((w,i)=>tab.style.setProperty('--v957-w'+(i+1),Math.ceil(w)+'px'));
+ tab.style.setProperty('grid-template-columns','minmax(0,1fr) '+Math.ceil(sum)+'px','important');
  await frame();await frame();cs.forEach(c=>renderCol(c,false));await frame();
  /* Jeszcze raz podział wysokości po finalnych szerokościach. */
  const ordered=cs.flatMap(c=>[...getList(c).children]);cs.forEach(c=>getList(c).innerHTML='');ci=0;
  for(const x of ordered){getList(cs[ci]).appendChild(x);renderCol(cs[ci],false);if(!fits(tab,cs[ci])&&getList(cs[ci]).children.length>1&&ci<n-1){getList(cs[ci]).removeChild(x);ci++;getList(cs[ci]).appendChild(x);renderCol(cs[ci],false)}}
+ cs.forEach(c=>renderCol(c,false));
+
+ /* V973: po ostatecznym podziale przelicz szerokości jeszcze raz,
+    bo po przeniesieniu przystanków między kolumnami ich minima mogły się zmienić. */
+ needs=cs.map(c=>{const q=stats(c);return Math.max(q.p90,q.two)});
+ sum=needs.reduce((a,b)=>a+b,0);
+ if(sum>maxR)return {ok:false,cs};
+ needs.forEach((w,i)=>tab.style.setProperty('--v957-w'+(i+1),Math.ceil(w)+'px'));
+ tab.style.setProperty('grid-template-columns','minmax(0,1fr) '+Math.ceil(sum)+'px','important');
+ await frame();await frame();
  cs.forEach(c=>renderCol(c,false));
  return {ok:cs.every(c=>fits(tab,c)),cs}
 }
@@ -31677,5 +31689,20 @@ html body .tabliczka.v904-jedna-prawo:has(.trasa-columns.cols-1) .trasa-kol{
   min-width:0!important;max-width:none!important;width:100%!important;margin:0!important;
 }
 </style>
+<!-- =========================================================
+ WERSJA 973
+ BAZA = DOKŁADNA V961.
+ Mechanizm 1 kolumny z V961 pozostawiony BEZ ZMIAN:
+ 90% -> test wysokości -> poszerzenie do q.all -> wymuszenie 1 wiersza
+ -> końcowy rzeczywisty pomiar DOM -> minimalna szerokość panelu.
+
+ Zmieniono wyłącznie etap 2/3 kolumn:
+ - brak rozciągania kolumn na całą wolną szerokość,
+ - szerokości wynikają z p90 / minimum dla maks. 2 wierszy,
+ - po finalnym podziale szerokości są mierzone ponownie,
+ - jeśli 2 kolumny nie mieszczą się pionowo, dopiero wtedy 3.
+ Brak wyjątków dla numerów linii.
+ ========================================================= -->
+
 </body>
 </html>
