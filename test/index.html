@@ -30941,5 +30941,142 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
 })();
 </script>
 
+
+<!-- =========================================================
+ V989 — WYSOKOŚĆ KAŻDEJ KOLUMNY
+ BAZA: V988 / V945
+ Nie zmienia wyboru 1/2/3 kolumn. Dla istniejących 2 kolumn
+ dobieramy punkt podziału tak, aby obie kolumny mieściły się
+ pionowo na kartce, przy zachowaniu maksymalnej liczby przystanków
+ w pierwszej kolumnie. Po każdym podziale szerokość obu kolumn jest
+ liczona ponownie indywidualnie (90% + minimum nagłówka + Ż).
+ ========================================================= -->
+<script id="fwtp-v989-height-two-columns">
+(()=>{
+ 'use strict';
+ const host=document.getElementById('wynik');
+ if(!host)return;
+ let busy=false,queued=false;
+ const frame=()=>new Promise(r=>requestAnimationFrame(r));
+ const colsOf=root=>[...root.children].filter(x=>x.classList.contains('trasa-kol'));
+ const listOf=c=>c?.querySelector('.trasa-lista');
+ const visibleRows=c=>[...listOf(c)?.children||[]].filter(x=>getComputedStyle(x).display!=='none');
+ const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
+ function measure(el,text){
+   const st=getComputedStyle(el),m=document.createElement('span');
+   m.textContent=text;
+   m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
+   m.style.fontFamily=st.fontFamily;m.style.fontSize=st.fontSize;m.style.fontWeight=st.fontWeight;
+   m.style.fontStyle=st.fontStyle;m.style.fontStretch=st.fontStretch;m.style.letterSpacing=st.letterSpacing;m.style.lineHeight=st.lineHeight;
+   document.body.appendChild(m);const w=m.getBoundingClientRect().width;m.remove();return w;
+ }
+ function textOf(el){return clean(el.dataset.v946Text||el.dataset.v987Text||el.textContent)}
+ function headerWidth(label){return label?Math.ceil(measure(label,'czasy, trasa, przystanki')+9):150}
+ function stats(col,label){
+   const cr=col.getBoundingClientRect(),full=[],min=[];
+   const hw=headerWidth(label);
+   visibleRows(col).forEach(row=>{
+     const el=row.querySelector(':scope > .trasa-nazwa');if(!el)return;
+     const t=textOf(el);if(!t)return;
+     const off=Math.max(31,el.getBoundingClientRect().left-cr.left);
+     const nz=row.querySelector(':scope > .trasa-nz');
+     const reserve=nz?Math.max(10,nz.getBoundingClientRect().width+2):12;
+     full.push(Math.ceil(off+measure(el,t)+reserve));
+     const ws=t.split(/\s+/).filter(Boolean);
+     min.push(Math.ceil(off+(ws.length?Math.max(...ws.map(w=>measure(el,w))):0)+reserve));
+   });
+   full.sort((a,b)=>a-b);
+   const p90=full.length?full[Math.max(0,Math.ceil(full.length*.9)-1)]:0;
+   return {target:Math.max(hw,p90,min.length?Math.max(...min):0),min:Math.max(hw,min.length?Math.max(...min):0)};
+ }
+ function fits(tab,col){
+   const rows=visibleRows(col);if(!rows.length)return true;
+   const bottom=Math.max(...rows.map(r=>r.getBoundingClientRect().bottom));
+   return bottom<=tab.getBoundingClientRect().bottom-8;
+ }
+ function apply(tab,root,head,w1,w2){
+   const total=Math.ceil(w1+w2),paper=tab.clientWidth;
+   const left=Math.max(180,paper-total);
+   tab.classList.add('v989-two');
+   tab.style.setProperty('--v988-c1',Math.ceil(w1)+'px');
+   tab.style.setProperty('--v988-c2',Math.ceil(w2)+'px');
+   tab.style.setProperty('--v989-c1',Math.ceil(w1)+'px');
+   tab.style.setProperty('--v989-c2',Math.ceil(w2)+'px');
+   tab.style.setProperty('--v869-lewa',left+'px','important');
+   tab.style.setProperty('--prawa',total+'px','important');
+   tab.style.setProperty('--lewa',left+'px','important');
+   tab.style.setProperty('grid-template-columns',left+'px '+total+'px','important');
+   root.style.setProperty('grid-template-columns',Math.ceil(w1)+'px '+Math.ceil(w2)+'px','important');
+   root.style.setProperty('width',total+'px','important');root.style.setProperty('max-width',total+'px','important');
+   if(head){head.style.setProperty('grid-template-columns',Math.ceil(w1)+'px '+Math.ceil(w2)+'px','important');head.style.setProperty('width',total+'px','important');head.style.setProperty('max-width',total+'px','important');}
+ }
+ async function widthFor(tab,root,head,c1,c2){
+   const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
+   const a=stats(c1,labels[0]),b=stats(c2,labels[1]);
+   const paper=tab.clientWidth;
+   const minLeft=Math.max(250,(tab.querySelector('.rozklady-grid')?.scrollWidth||0),(tab.querySelector('.numer-linii-box')?.offsetWidth||0));
+   const available=Math.max(2,paper-minLeft-4);
+   let w1=a.target,w2=b.target;
+   if(w1+w2>available){
+     const scale=available/(w1+w2);w1=Math.floor(w1*scale);w2=Math.floor(w2*scale);
+     if(w1<a.min)w1=a.min;if(w2<b.min)w2=b.min;
+     if(w1+w2>available){
+       let excess=w1+w2-available,r1=Math.max(0,w1-a.min),r2=Math.max(0,w2-b.min),r=r1+r2;
+       if(r){w1-=Math.ceil(excess*r1/r);w2-=Math.floor(excess*r2/r)}
+     }
+   }
+   apply(tab,root,head,w1,w2);
+   await frame();await frame();
+   if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(root);
+   if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(root);
+   await frame();
+ }
+ async function run(){
+   if(busy)return;busy=true;
+   try{
+     await frame();await frame();await frame();
+     const tab=host.querySelector('.tabliczka'),root=tab?.querySelector('.trasa-columns'),head=tab?.querySelector('.trasa-head');
+     if(!tab||!root)return;
+     const cols=colsOf(root);
+     if(cols.length!==2||!root.classList.contains('cols-2'))return;
+     const c1=cols[0],c2=cols[1],l1=listOf(c1),l2=listOf(c2);
+     if(!l1||!l2)return;
+     const all=[...l1.children,...l2.children];
+     if(all.length<2)return;
+
+     /* Zapamiętujemy dokładną kolejność V945. Szukamy najlepszego punktu
+        podziału: jak najwięcej elementów w pierwszej kolumnie, ale obie
+        kolumny muszą zmieścić się pionowo. */
+     let best=-1;
+     for(let cut=all.length-1;cut>=1;cut--){
+       l1.replaceChildren(...all.slice(0,cut));
+       l2.replaceChildren(...all.slice(cut));
+       await widthFor(tab,root,head,c1,c2);
+       if(fits(tab,c1)&&fits(tab,c2)){best=cut;break;}
+     }
+
+     if(best<0){
+       /* V945 już wybrało 2 kolumny, ale przy aktualnych szerokościach
+          nie ma podziału spełniającego wysokość. Zostawiamy najbardziej
+          równomierny wariant zamiast wypuszczać przystanki poza kartkę. */
+       const cut=Math.max(1,Math.ceil(all.length/2));
+       l1.replaceChildren(...all.slice(0,cut));l2.replaceChildren(...all.slice(cut));
+       await widthFor(tab,root,head,c1,c2);
+     }else{
+       /* Po znalezieniu punktu wykonujemy jeszcze jedno końcowe przeliczenie
+          szerokości i wysokości na finalnym DOM. */
+       l1.replaceChildren(...all.slice(0,best));l2.replaceChildren(...all.slice(best));
+       await widthFor(tab,root,head,c1,c2);
+     }
+   }finally{busy=false;}
+ }
+ function queue(){if(queued||busy)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;run()}));}
+ new MutationObserver(ch=>{if(!busy&&ch.some(x=>x.target===host))queue()}).observe(host,{childList:true,subtree:false});
+ window.addEventListener('load',queue);window.addEventListener('resize',queue);
+ if(document.fonts?.ready)document.fonts.ready.then(queue);
+ queue();
+})();
+</script>
+
 </body>
 </html>
