@@ -1,4 +1,4 @@
-<!-- WERSJA: 996 -->
+<!-- WERSJA: 997 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31221,10 +31221,10 @@ function requiredWidth(tab,col){
         );
     }
 
-    /* V996: zachowujemy oryginalny układ „Ż” bez tła.
-       Poszerzamy WYŁĄCZNIE panel tak, aby pełna nazwa + istniejąca
-       kolumna „Ż” mieściły się przed prawą ramką. */
-    return Math.ceil(Math.max(90,need + 26));
+    /* V994: V992 działała poprawnie szerokościowo.
+       Dodajemy WYŁĄCZNIE 14 px stałej rezerwy na kolumnę „Ż”
+       i odstęp od prawej ramki. Nie zmieniamy reszty algorytmu. */
+    return Math.ceil(Math.max(90,need + 14));
 }
 
 function leftMinimum(tab){
@@ -31349,7 +31349,7 @@ queue();
 
 
 <!-- =========================================================
- V996 — V992 + SZERSZY PANEL DLA „Ż”, BEZ TŁA
+ V994 — V992 + DODATKOWA REZERWA NA „Ż”
  TYLKO cols-1. 2 i 3 kolumny pozostają bez zmian.
 
  Minimalna szerokość = większa z:
@@ -31577,6 +31577,119 @@ window.addEventListener('resize',queue);
 if(document.fonts?.ready)document.fonts.ready.then(queue);
 queue();
 
+})();
+</script>
+
+
+<!-- =========================================================
+ V997 — SZEROKOŚĆ JEDNEJ KOLUMNY: WARTOŚĆ Z V945
+ V945 liczyła szerokość jako:
+     szerokość_nazwy + 43 px
+ 43 px = miejsce na czas/oś/kropkę + kolumnę „Ż” + luz.
+ Tutaj stosujemy tę samą wartość do PEŁNEJ nazwy, ponieważ
+ w jednej kolumnie nazwy mają pozostać jednowierszowe.
+ Bez tła, bez zmiany wyglądu „Ż”, bez zmian 2/3 kolumn.
+ ========================================================= -->
+<script id="fwtp-v997-v945-43px">
+(()=>{
+'use strict';
+const host=document.getElementById('wynik');if(!host)return;
+let busy=false,queued=false;
+const frame=()=>new Promise(r=>requestAnimationFrame(r));
+const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
+
+function textOf(el){
+ return clean(
+   el.dataset.v990Text||
+   el.dataset.v992Text||
+   el.dataset.v987Text||
+   el.dataset.v946Text||
+   el.dataset.v665Text||
+   el.textContent
+ );
+}
+function measure(el,text){
+ const st=getComputedStyle(el),m=document.createElement('span');
+ m.textContent=text;
+ m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
+ m.style.fontFamily=st.fontFamily;m.style.fontSize=st.fontSize;m.style.fontWeight=st.fontWeight;
+ m.style.fontStyle=st.fontStyle;m.style.fontStretch=st.fontStretch;
+ m.style.letterSpacing=st.letterSpacing;m.style.lineHeight=st.lineHeight;
+ document.body.appendChild(m);
+ const w=m.getBoundingClientRect().width;
+ m.remove();
+ return w;
+}
+function leftMin(tab){
+ const table=tab.querySelector('.panel-lewy .rozklady-grid');
+ const number=tab.querySelector('.panel-lewy .numer-linii-box');
+ return Math.ceil(Math.max(table?.scrollWidth||0,number?.offsetWidth||0)+24);
+}
+async function run(){
+ if(busy)return;busy=true;
+ try{
+   for(let i=0;i<10;i++)await frame();
+
+   const tab=host.querySelector('.tabliczka');
+   const root=tab?.querySelector('.trasa-columns');
+   if(!tab||!root||!root.classList.contains('cols-1'))return;
+
+   const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol'));
+   if(cols.length!==1)return;
+
+   const names=[...cols[0].querySelectorAll('.trasa-stop>.trasa-nazwa,.trasa-extra-stop>.trasa-nazwa')];
+   if(!names.length)return;
+
+   /* DOKŁADNIE stała z V945: +43 px. */
+   let needed=130;
+   for(const el of names){
+      needed=Math.max(needed,measure(el,textOf(el))+43);
+   }
+
+   const head=tab.querySelector('.trasa-head.cols-1 .trasa-head-label');
+   if(head)needed=Math.max(needed,measure(head,'czasy, trasa, przystanki')+10);
+
+   const total=tab.clientWidth;
+   const available=Math.max(0,total-leftMin(tab)-4);
+   const w=Math.ceil(Math.min(needed,available));
+
+   tab.style.setProperty('--v904-prawa',w+'px');
+   tab.style.setProperty('--v882-single-width',w+'px');
+   tab.style.setProperty('--prawa',w+'px');
+   tab.classList.add('v904-jedna-prawo');
+
+   /* Tak jak w V945: przesuwamy granicę paneli. */
+   tab.style.setProperty('grid-template-columns','minmax(0,1fr) '+w+'px','important');
+
+   root.style.setProperty('width','100%','important');
+   root.style.setProperty('max-width','100%','important');
+   root.style.setProperty('margin','0','important');
+
+   const h=tab.querySelector('.trasa-head');
+   if(h){
+      h.style.setProperty('width','100%','important');
+      h.style.setProperty('max-width','100%','important');
+      h.style.setProperty('margin','0','important');
+   }
+
+   const panel=tab.querySelector('.panel-prawy');
+   if(panel){
+      panel.style.setProperty('width','100%','important');
+      panel.style.setProperty('min-width','0','important');
+      panel.style.removeProperty('max-width');
+   }
+ }finally{busy=false}
+}
+function queue(){
+ if(queued||busy)return;
+ queued=true;
+ requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;run()}));
+}
+new MutationObserver(m=>{if(!busy&&m.some(x=>x.target===host))queue()}).observe(host,{childList:true});
+window.addEventListener('load',queue);
+window.addEventListener('resize',queue);
+if(document.fonts?.ready)document.fonts.ready.then(queue);
+queue();
 })();
 </script>
 
