@@ -1,4 +1,4 @@
-<!-- WERSJA: 1016 -->
+<!-- WERSJA: 1017 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -32478,17 +32478,22 @@ queue();
 
 
 <!-- =========================================================
- WERSJA 1016 — BAZA V1014
- MINIMUM 10 PX MIĘDZY NAJDŁUŻSZĄ NAZWĄ A „Ż”.
- Jeżeli brakuje miejsca, przesuwa się W LEWO CAŁY BLOK LISTY:
- - czas przejazdu,
- - kropki i linie,
- - nazwy przystanków,
- - separatory / linie oddzielające,
- - pozostałe elementy należące do listy.
- Samo „ż” zostaje w swoim miejscu.
+ WERSJA 1017 — PRZESUNIĘCIE CAŁEGO ELEMENTU LISTY
+ Baza: działająca V1014.
+
+ V1016 przesuwała .trasa-columns, czyli tylko zawartość wewnętrzną.
+ Teraz przesuwamy CAŁY blok listy:
+   - nagłówek "czasy, trasa, przystanki",
+   - czas przejazdu,
+   - kropki i linie,
+   - nazwy przystanków,
+   - separatory,
+   - pionową linię oddzielającą / krawędź listy.
+
+ „Ż” zostaje w swoim miejscu przy prawej stronie.
+ Wymagany odstęp od najdłuższej nazwy do „Ż”: 10 px.
  ========================================================= -->
-<script id="fwtp-v1016-whole-list-gap-10">
+<script id="fwtp-v1017-whole-right-list">
 (()=>{
 'use strict';
 
@@ -32498,31 +32503,29 @@ if(!host)return;
 let busy=false, queued=false;
 const frame=()=>new Promise(r=>requestAnimationFrame(r));
 
-function reset(root){
-    root.style.removeProperty('transform');
-}
-
 async function run(){
     if(busy)return;
     busy=true;
+
     try{
         for(let i=0;i<10;i++)await frame();
 
         const tab=host.querySelector('.tabliczka');
-        const root=tab?.querySelector('.trasa-columns');
-        if(!tab||!root||!root.classList.contains('cols-1'))return;
+        const panel=tab?.querySelector('.panel-prawy');
+        const root=panel?.querySelector('.trasa-columns');
 
-        /* Najpierw mierzymy bez naszego przesunięcia. */
-        reset(root);
+        if(!tab||!panel||!root||!root.classList.contains('cols-1'))return;
+
+        /* Usuwamy ewentualne wcześniejsze przesunięcie przed pomiarem. */
+        panel.style.removeProperty('transform');
         await frame();
 
         const rows=[...root.querySelectorAll('.trasa-stop,.trasa-extra-stop')];
-        if(!rows.length)return;
 
         let maxNameRight=-Infinity;
         let zLeft=Infinity;
 
-        for(const row of rows){
+        rows.forEach(row=>{
             const name=row.querySelector(':scope > .trasa-nazwa');
             if(name){
                 maxNameRight=Math.max(
@@ -32538,39 +32541,37 @@ async function run(){
                     z.getBoundingClientRect().left
                 );
             }
-        }
+        });
 
-        if(!Number.isFinite(maxNameRight) || !Number.isFinite(zLeft))return;
+        if(!Number.isFinite(maxNameRight)||!Number.isFinite(zLeft))return;
 
-        /* Wymagane jest minimum 10 px realnej przerwy. */
-        const currentGap=zLeft-maxNameRight;
-        const shift=Math.max(0,Math.ceil(10-currentGap));
+        const gap=zLeft-maxNameRight;
+        const shift=Math.max(0,Math.ceil(10-gap));
 
-        if(shift>0){
-            /*
-              Przesuwamy CAŁE .trasa-columns, a więc cały element listy:
-              czas, oś, kropki, nazwy, separatory i linie oddzielające.
-              Ż ma position:absolute względem wiersza, więc żeby zostało
-              w miejscu, kompensujemy mu przesunięcie przez right:-shift.
-            */
-            root.style.setProperty(
-                'transform',
-                'translateX(-'+shift+'px)',
+        if(!shift)return;
+
+        /*
+          Przesuwamy PANEL-PRAWY, a nie jego wewnętrzną listę.
+          Dzięki temu razem jadą także jego lewa pionowa krawędź
+          oraz nagłówek.
+
+          Ż jest absolutne względem wierszy, więc kompensujemy jego
+          położenie o dokładnie shift, aby wizualnie zostało tam,
+          gdzie było przed przesunięciem całego panelu.
+        */
+        panel.style.setProperty(
+            'transform',
+            'translateX(-'+shift+'px)',
+            'important'
+        );
+
+        root.querySelectorAll('.trasa-nz').forEach(z=>{
+            z.style.setProperty(
+                'right',
+                (7-shift)+'px',
                 'important'
             );
-
-            root.querySelectorAll('.trasa-nz').forEach(z=>{
-                z.style.setProperty(
-                    'right',
-                    (7-shift)+'px',
-                    'important'
-                );
-            });
-        }else{
-            root.querySelectorAll('.trasa-nz').forEach(z=>{
-                z.style.setProperty('right','7px','important');
-            });
-        }
+        });
 
     }finally{
         busy=false;
@@ -32593,6 +32594,7 @@ new MutationObserver(m=>{
 window.addEventListener('load',queue);
 window.addEventListener('resize',queue);
 if(document.fonts?.ready)document.fonts.ready.then(queue);
+
 queue();
 })();
 </script>
