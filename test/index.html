@@ -1,4 +1,4 @@
-<!-- WERSJA: 1017 -->
+<!-- WERSJA: 1018 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -32590,6 +32590,124 @@ function queue(){
 new MutationObserver(m=>{
     if(!busy && m.some(x=>x.target===host))queue();
 }).observe(host,{childList:true});
+
+window.addEventListener('load',queue);
+window.addEventListener('resize',queue);
+if(document.fonts?.ready)document.fonts.ready.then(queue);
+
+queue();
+})();
+</script>
+
+
+<!-- =========================================================
+ WERSJA 1018 — 1 KOLUMNA = ZAWSZE 1 WIERSZ NA NAZWĘ
+ Baza: V1017.
+
+ Przy cols-1 żadna nazwa przystanku nie może być dwuwierszowa.
+ Dotyczy również aktywnego przystanku i nazw typu:
+ "PKP OLSZYNKA GROCHOWSKA".
+
+ Po wyrenderowaniu jednej kolumny usuwamy <br> / wcześniejsze
+ podziały i odtwarzamy pełną nazwę w jednym wierszu.
+ ========================================================= -->
+<style id="fwtp-v1018-one-column-one-line">
+html body .tabliczka .trasa-columns.cols-1
+.trasa-stop > .trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-1
+.trasa-extra-stop > .trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-1
+.trasa-nazwa > .trasa-nazwa-aktywna{
+    white-space:nowrap!important;
+    word-break:keep-all!important;
+    overflow-wrap:normal!important;
+    hyphens:none!important;
+    max-width:none!important;
+}
+</style>
+
+<script id="fwtp-v1018-restore-one-line">
+(()=>{
+'use strict';
+
+const host=document.getElementById('wynik');
+if(!host)return;
+
+let busy=false, queued=false;
+const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
+
+function originalText(el){
+    return clean(
+        el.dataset.v1002Text ||
+        el.dataset.v992Text ||
+        el.dataset.v990Text ||
+        el.dataset.v987Text ||
+        el.dataset.v946Text ||
+        el.dataset.v665Text ||
+        el.dataset.v957Text ||
+        el.textContent
+    );
+}
+
+function run(){
+    if(busy)return;
+    busy=true;
+
+    try{
+        const root=host.querySelector('.trasa-columns');
+        if(!root || !root.classList.contains('cols-1'))return;
+
+        root.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+            const el=row.querySelector(':scope > .trasa-nazwa');
+            if(!el)return;
+
+            const text=originalText(el);
+            if(!text)return;
+
+            const active=
+                row.classList.contains('wybrany') ||
+                !!el.querySelector('.trasa-nazwa-aktywna');
+
+            /* Usuwamy podział na 2 wiersze utworzony przez starszy silnik. */
+            el.replaceChildren();
+
+            if(active){
+                const span=document.createElement('span');
+                span.className='trasa-nazwa-aktywna';
+                span.textContent=text;
+                el.appendChild(span);
+            }else{
+                el.textContent=text;
+            }
+
+            row.classList.remove(
+                'v665-dwuliniowy',
+                'v957-two'
+            );
+            row.classList.add(
+                'v665-jednoliniowy',
+                'v957-one'
+            );
+        });
+
+    }finally{
+        busy=false;
+    }
+}
+
+function queue(){
+    if(queued||busy)return;
+    queued=true;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        queued=false;
+        run();
+    }));
+}
+
+new MutationObserver(()=>queue()).observe(
+    host,
+    {childList:true,subtree:true}
+);
 
 window.addEventListener('load',queue);
 window.addEventListener('resize',queue);
