@@ -1,4 +1,4 @@
-<!-- WERSJA: 1013 -->
+<!-- WERSJA: 1014 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -32374,6 +32374,107 @@ html body .tabliczka.v1002-one .trasa-columns.cols-1 .trasa-extra-stop > .trasa-
     left:-4px!important;
 }
 </style>
+
+
+<!-- =========================================================
+ WERSJA 1014 — MIN. 4 PX MIĘDZY NAJDŁUŻSZĄ NAZWĄ A „Ż”
+ Baza: V1013 POPRAWKA Z.
+ Nie przesuwamy sztucznie całej listy.
+ Szerokość prawego panelu jest powiększana tak, aby prawa krawędź
+ najdłuższej nazwy była co najmniej 4 px przed lewą krawędzią „ż”.
+ ========================================================= -->
+<script id="fwtp-v1014-min-gap-name-z">
+(()=>{
+'use strict';
+
+const host=document.getElementById('wynik');
+if(!host)return;
+
+let busy=false, queued=false;
+const frame=()=>new Promise(r=>requestAnimationFrame(r));
+
+async function run(){
+    if(busy)return;
+    busy=true;
+    try{
+        for(let i=0;i<10;i++)await frame();
+
+        const tab=host.querySelector('.tabliczka');
+        const root=tab?.querySelector('.trasa-columns');
+        const panel=tab?.querySelector('.panel-prawy');
+        if(!tab||!root||!panel||!root.classList.contains('cols-1'))return;
+
+        const rows=[...root.querySelectorAll('.trasa-stop,.trasa-extra-stop')];
+        if(!rows.length)return;
+
+        let maxNameRight=-Infinity;
+        let zLeft=Infinity;
+
+        for(const row of rows){
+            const name=row.querySelector(':scope > .trasa-nazwa');
+            if(name){
+                const r=name.getBoundingClientRect();
+                maxNameRight=Math.max(maxNameRight,r.right);
+            }
+
+            const z=row.querySelector(':scope > .trasa-nz');
+            if(z && (z.textContent||'').trim()){
+                const r=z.getBoundingClientRect();
+                zLeft=Math.min(zLeft,r.left);
+            }
+        }
+
+        if(!Number.isFinite(maxNameRight) || !Number.isFinite(zLeft))return;
+
+        /* Chcemy FAKTYCZNIE 4 px pustego miejsca:
+             najdłuższa nazwa | 4 px | ż
+           Jeśli jest mniej, poszerzamy prawy panel dokładnie o brakującą wartość.
+        */
+        const gap=zLeft-maxNameRight;
+        const missing=Math.max(0,4-gap);
+
+        if(missing<=0.25)return;
+
+        const current=panel.getBoundingClientRect().width;
+        const total=tab.getBoundingClientRect().width;
+        const wanted=Math.ceil(current+missing);
+        const w=Math.min(wanted,total-180);
+
+        tab.style.setProperty('--v904-prawa',w+'px');
+        tab.style.setProperty('--v882-single-width',w+'px');
+        tab.style.setProperty('--prawa',w+'px');
+        tab.style.setProperty('--lewa',(total-w)+'px');
+        tab.style.setProperty(
+            'grid-template-columns',
+            (total-w)+'px '+w+'px',
+            'important'
+        );
+
+    }finally{
+        busy=false;
+    }
+}
+
+function queue(){
+    if(queued||busy)return;
+    queued=true;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        queued=false;
+        run();
+    }));
+}
+
+new MutationObserver(m=>{
+    if(!busy && m.some(x=>x.target===host))queue();
+}).observe(host,{childList:true});
+
+window.addEventListener('load',queue);
+window.addEventListener('resize',queue);
+if(document.fonts?.ready)document.fonts.ready.then(queue);
+
+queue();
+})();
+</script>
 
 </body>
 </html>
