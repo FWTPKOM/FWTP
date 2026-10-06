@@ -1,4 +1,4 @@
-<!-- WERSJA: 1021 -->
+<!-- WERSJA: 1022 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -32690,15 +32690,29 @@ function restoreOneLine(){
             row.classList.contains('wybrany') ||
             !!el.querySelector('.trasa-nazwa-aktywna');
 
-        el.replaceChildren();
+        // Nie zmieniaj DOM, jeżeli nazwa już jest poprawna.
+        // Inaczej MutationObserver wywołuje niekończącą się pętlę.
+        const activeNode=el.querySelector(':scope > .trasa-nazwa-aktywna');
+        const alreadyCorrect=active
+            ? !!activeNode && el.childNodes.length===1 &&
+              activeNode.childNodes.length===1 &&
+              activeNode.firstChild.nodeType===Node.TEXT_NODE &&
+              activeNode.textContent===text
+            : el.childNodes.length===1 &&
+              el.firstChild.nodeType===Node.TEXT_NODE &&
+              el.textContent===text;
 
-        if(active){
+        if(!alreadyCorrect){
+          el.replaceChildren();
+
+          if(active){
             const a=document.createElement('span');
             a.className='trasa-nazwa-aktywna';
             a.textContent=text;
             el.appendChild(a);
-        }else{
-            el.textContent=text;
+          }else{
+              el.textContent=text;
+          }
         }
 
         row.classList.remove(
@@ -32736,10 +32750,11 @@ function queue(){
     }));
 }
 
-new MutationObserver(()=>queue()).observe(
-    host,
-    {childList:true,subtree:true}
-);
+// Obserwujemy WYŁĄCZNIE podmianę gotowej tabliczki w #wynik,
+ // nie zmiany tekstu wewnątrz wierszy dokonywane przez sam skrypt.
+new MutationObserver(changes=>{
+    if(changes.some(change=>change.target===host))queue();
+}).observe(host,{childList:true,subtree:false});
 
 window.addEventListener('load',queue);
 window.addEventListener('resize',queue);
