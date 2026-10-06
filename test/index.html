@@ -1,4 +1,4 @@
-<!-- WERSJA: 1023 -->
+<!-- WERSJA: 1024 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -30591,19 +30591,18 @@ html body .tabliczka .trasa-stop .trasa-nazwa{word-break:normal!important;overfl
    const extra=(total-sum)/sizes.length;
    sizes=sizes.map(x=>x+extra);
 
-   // V1023: podobne szerokości są tylko PREFERENCJĄ.
-   // Różnica między najszerszą a najwęższą: najwyżej 8 punktów
-   // procentowych, ale WYŁĄCZNIE jeżeli da się to uzyskać bez
-   // naruszenia minimalnych szerokości (np. 705 zachowuje wyjątek).
-   const maxSpread=total*0.08;
-   const spread=Math.max(...sizes)-Math.min(...sizes);
-   if(spread>maxSpread){
-    const equal=total/sizes.length;
-    const ratio=Math.max(0,1-maxSpread/spread);
-    const balanced=sizes.map(x=>x+(equal-x)*ratio);
-    if(balanced.every((x,i)=>x+0.01>=min[i]))sizes=balanced;
-    // Jeżeli choć jedna kolumna byłaby za wąska, pozostaw
-    // oryginalny rozkład z rzeczywistych pomiarów.
+   // V1024: wyrównanie tylko z zapasu, bez zwężania nazw/separatorów.
+   // V988 osobno obsługuje układ 2-kolumnowy.
+   if(cols.length===3){
+     const maxSpread=total*.08;
+     let low=Math.min(...sizes), high=Math.max(...sizes);
+     if(high-low>maxSpread){
+       const floor=high-maxSpread;
+       const delta=sizes.map(w=>Math.max(0,floor-w));
+       const extraNeeded=delta.reduce((a,b)=>a+b,0);
+       const spare=Math.max(0,total-sizes.reduce((a,b)=>a+b,0));
+       if(extraNeeded<=spare+0.01)sizes=sizes.map((w,i)=>w+delta[i]);
+     }
    }
   }
   else if(sum>total){
@@ -30945,6 +30944,17 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
            w1-=Math.ceil(excess*r1/r);
            w2-=Math.floor(excess*r2/r);
          }
+       }
+     }
+     /* V1024: wyrównujemy szerokości tylko, jeśli istnieje realny
+        zapas w tabliczce. Nie zwężamy żadnej kolumny i nie zmieniamy
+        rozdziału przystanków ani separatorów (ważne m.in. dla 705). */
+     if(w1+w2<=available){
+       const gap=Math.abs(w1-w2), sum=w1+w2;
+       const missing=Math.max(0,(gap-0.08*sum)/1.08);
+       if(missing>0 && sum+missing<=available){
+         if(w1<w2)w1+=Math.ceil(missing);
+         else w2+=Math.ceil(missing);
        }
      }
      apply(tab,root,head,w1,w2);
@@ -32781,6 +32791,32 @@ if(document.fonts?.ready)document.fonts.ready.then(queue);
 queue();
 })();
 </script>
+
+
+<!-- WERSJA 1024 — DWUWIERSZOWE PRZYSTANKI POCZĄTKOWE I KOŃCOWE -->
+<style id="fwtp-v1024-terminal-two-lines">
+/* Cały wiersz ma 33px również przy początku/końcu, nie 16.5px.
+   Nazwa ma dwa wiersze po 12px; oś ma wysokość całego wiersza. */
+html body .tabliczka .trasa-columns.cols-2 li.trasa-stop:is(.kraniec-poczatek,.kraniec-koniec,.v612-koncowy,.v612-koncowy-przelotowy):is(.v612-dwuwierszowy,.v665-dwuliniowy,.v939-wymuszone-dwa),
+html body .tabliczka .trasa-columns.cols-3 li.trasa-stop:is(.kraniec-poczatek,.kraniec-koniec,.v612-koncowy,.v612-koncowy-przelotowy):is(.v612-dwuwierszowy,.v665-dwuliniowy,.v939-wymuszone-dwa){
+ height:33px!important;min-height:33px!important;
+}
+html body .tabliczka .trasa-columns:is(.cols-2,.cols-3) li.trasa-stop:is(.kraniec-poczatek,.kraniec-koniec,.v612-koncowy,.v612-koncowy-przelotowy):is(.v612-dwuwierszowy,.v665-dwuliniowy,.v939-wymuszone-dwa) > .trasa-nazwa{
+ line-height:12px!important;
+}
+/* Pierwszy przystanek: od kropki do dołu całego dwuwierszowego wiersza. */
+html body .tabliczka .trasa-columns:is(.cols-2,.cols-3) li.trasa-stop.kraniec-poczatek:is(.v612-dwuwierszowy,.v665-dwuliniowy,.v939-wymuszone-dwa) > .trasa-os::before{
+ top:7.25px!important;bottom:0!important;height:auto!important;
+}
+/* Końcowy z kontynuacją: oś na całej wysokości wiersza. */
+html body .tabliczka .trasa-columns:is(.cols-2,.cols-3) li.trasa-stop.v612-koncowy-przelotowy:is(.v612-dwuwierszowy,.v665-dwuliniowy,.v939-wymuszone-dwa) > .trasa-os::before{
+ top:0!important;bottom:0!important;height:auto!important;
+}
+/* Końcowy bez kontynuacji: kreska kończy się na kropce. */
+html body .tabliczka .trasa-columns:is(.cols-2,.cols-3) li.trasa-stop.v612-koncowy:not(.kraniec-poczatek):is(.v612-dwuwierszowy,.v665-dwuliniowy,.v939-wymuszone-dwa) > .trasa-os::before{
+ top:0!important;bottom:auto!important;height:7.25px!important;
+}
+</style>
 
 </body>
 </html>
