@@ -1,4 +1,4 @@
-<!-- WERSJA: 1031 -->
+<!-- WERSJA: 1032 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -33002,100 +33002,184 @@ html body .tabliczka
 
 
 <!-- =========================================================
- WERSJA 1031 — BAZA V1029
- Dwuwiersze bez przebudowywania nazw i bez dodawania <br>.
+ WERSJA 1032 — OSTATECZNA SYNCHRONIZACJA 1/2 WIERSZY
+ BAZA: V1029
 
- - line-height nazwy: 12px
- - faktyczny dwuwiersz dostaje 33px
- - wykrycie po rzeczywistej wysokości tekstu po końcowym layoucie
- - NIE używamy replaceChildren()
- - NIE dodajemy <br>
- - NIE zmieniamy treści nazwy
+ Zasady:
+ - cols-1: zawsze 1 wiersz;
+ - cols-2: 1 albo dokładnie 2 wiersze, NIGDY 3;
+ - cols-3: pozostawiamy dotychczasową logikę (może być 3);
+ - po ostatecznym ustaleniu szerokości kasujemy STARE klasy wysokości
+   i nadajemy je ponownie z aktualnej szerokości;
+ - nazwa mieszcząca się w 1 linii dostaje 16.5 px;
+ - nazwa wymagająca 2 linii dostaje 33 px;
+ - line-height dwuwiersza = 12 px;
+ - nie sklejamy słów i nie dzielimy wyrazu.
  ========================================================= -->
-<style id="fwtp-v1031-real-two-line-height">
+<style id="fwtp-v1032-final-row-state">
 
-html body .tabliczka .trasa-stop > .trasa-nazwa,
-html body .tabliczka .trasa-extra-stop > .trasa-nazwa{
-    line-height:12px!important;
-}
-
-/* Jednoliniowy */
-html body .tabliczka .trasa-stop.v1031-one,
-html body .tabliczka .trasa-extra-stop.v1031-one{
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1032-one,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1032-one{
     height:16.5px!important;
     min-height:16.5px!important;
+    max-height:16.5px!important;
 }
 
-/* Faktyczny dwuwiersz */
-html body .tabliczka .trasa-stop.v1031-two,
-html body .tabliczka .trasa-extra-stop.v1031-two{
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1032-two,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1032-two{
     height:33px!important;
     min-height:33px!important;
     max-height:33px!important;
 }
 
-/* Oś ma dokładnie wysokość dwuwierszowego wiersza. */
-html body .tabliczka .trasa-stop.v1031-two > .trasa-os,
-html body .tabliczka .trasa-extra-stop.v1031-two > .trasa-os{
-    align-self:stretch!important;
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1032-two > .trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1032-two > .trasa-nazwa{
+    line-height:12px!important;
+    white-space:normal!important;
+    word-break:normal!important;
+    overflow-wrap:normal!important;
+    hyphens:none!important;
+}
+
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1032-one > .trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1032-one > .trasa-nazwa{
+    white-space:nowrap!important;
+    word-break:normal!important;
+    overflow-wrap:normal!important;
+    hyphens:none!important;
+}
+
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1032-two > .trasa-os,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1032-two > .trasa-os{
     height:33px!important;
     min-height:33px!important;
+    align-self:stretch!important;
 }
 
-/* Czas pozostaje przy pierwszym wierszu. */
-html body .tabliczka .trasa-stop.v1031-two > .trasa-czas,
-html body .tabliczka .trasa-extra-stop.v1031-two > .trasa-czas{
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1032-two > .trasa-czas,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1032-two > .trasa-czas{
     align-self:start!important;
-}
-
-/* Początkowy dwuwierszowy — istniejąca linia jest wydłużona do dołu. */
-html body .tabliczka
-.trasa-stop.kraniec-poczatek.v1031-two > .trasa-os::before,
-html body .tabliczka
-.trasa-extra-stop.kraniec-poczatek.v1031-two > .trasa-os::before{
-    bottom:0!important;
-}
-
-/* Końcowy z kontynuacją — linia przez całą wysokość. */
-html body .tabliczka
-.trasa-stop.v612-koncowy-przelotowy.v1031-two > .trasa-os::before{
-    bottom:0!important;
 }
 </style>
 
-<script id="fwtp-v1031-detect-real-two-lines">
+<script id="fwtp-v1032-final-two-column-layout">
 (()=>{
 'use strict';
 
 const host=document.getElementById('wynik');
 if(!host)return;
 
-let busy=false;
-let queued=false;
-let ro=null;
-
+let busy=false, queued=false, resizeObserver=null;
 const frame=()=>new Promise(r=>requestAnimationFrame(r));
+const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
 
-function lineCount(el){
-    /*
-      Nie patrzymy na litery ą/ę/g/j/p/y.
-      Mierzymy liczbę faktycznych linii przez Range.getClientRects().
-      Dzięki temu dolne części glifów nie zmieniają decyzji o wysokości.
-    */
-    const range=document.createRange();
-    range.selectNodeContents(el);
+function sourceText(el){
+    if(!el.dataset.v1032Text){
+        el.dataset.v1032Text=clean(
+            el.dataset.v946Text ||
+            el.dataset.v987Text ||
+            el.dataset.v665Text ||
+            el.dataset.v1002Text ||
+            el.dataset.v1019FullText ||
+            el.textContent
+        );
+    }
+    return el.dataset.v1032Text;
+}
 
-    const rects=[...range.getClientRects()]
-        .filter(r=>r.width>0 && r.height>0);
+function measure(el,text){
+    const st=getComputedStyle(el);
+    const m=document.createElement('span');
+    m.textContent=text;
+    m.style.cssText=
+      'position:fixed;left:-10000px;top:-10000px;visibility:hidden;'+
+      'pointer-events:none;white-space:nowrap;width:max-content;'+
+      'max-width:none;min-width:0;transform:none;';
+    m.style.fontFamily=st.fontFamily;
+    m.style.fontSize=st.fontSize;
+    m.style.fontWeight=st.fontWeight;
+    m.style.fontStyle=st.fontStyle;
+    m.style.fontStretch=st.fontStretch;
+    m.style.letterSpacing=st.letterSpacing;
+    document.body.appendChild(m);
+    const w=m.getBoundingClientRect().width;
+    m.remove();
+    return w;
+}
 
-    const tops=[];
-    for(const r of rects){
-        if(!tops.some(y=>Math.abs(y-r.top)<2)){
-            tops.push(r.top);
-        }
+function bestTwo(el,text){
+    const words=text.split(/\s+/).filter(Boolean);
+    if(words.length<2)return null;
+
+    let best=null;
+    for(let i=1;i<words.length;i++){
+        const a=words.slice(0,i).join(' ');
+        const b=words.slice(i).join(' ');
+        const need=Math.max(measure(el,a),measure(el,b));
+        if(!best || need<best.need)best={a,b,need};
+    }
+    return best;
+}
+
+function nameAvailable(el,row){
+    const col=row.closest('.trasa-kol');
+    if(!col)return el.clientWidth;
+
+    const cr=col.getBoundingClientRect();
+    const er=el.getBoundingClientRect();
+
+    /* Rezerwa po prawej obejmuje kolumnę Ż + 10 px ustalonego odstępu. */
+    const nz=row.querySelector(':scope > .trasa-nz');
+    const nzW=nz ? Math.max(10,nz.getBoundingClientRect().width) : 10;
+    return Math.max(1,cr.right-er.left-nzW-10);
+}
+
+function writeLines(el,row,lines){
+    const active=row.classList.contains('wybrany') ||
+                 !!el.querySelector(':scope > .trasa-nazwa-aktywna');
+
+    const wanted=clean(lines.join(' '));
+    const current=clean(el.textContent);
+    const brCount=el.querySelectorAll('br').length;
+
+    if(current===wanted && brCount===lines.length-1)return;
+
+    el.replaceChildren();
+    let target=el;
+
+    if(active){
+        const a=document.createElement('span');
+        a.className='trasa-nazwa-aktywna';
+        el.appendChild(a);
+        target=a;
     }
 
-    return Math.max(1,tops.length);
+    lines.forEach((line,i)=>{
+        if(i)target.appendChild(document.createElement('br'));
+        target.appendChild(document.createTextNode(line));
+    });
+}
+
+function clearOldState(row){
+    row.classList.remove(
+        'v1032-one','v1032-two',
+        'v665-jednoliniowy','v665-dwuliniowy',
+        'v939-wymuszone-dwa',
+        'v957-one','v957-two',
+        'v983-two','v984-two','v986-two'
+    );
 }
 
 async function run(){
@@ -33103,39 +33187,100 @@ async function run(){
     busy=true;
 
     try{
-        /* Najpierw kończą się starsze obliczenia szerokości V988/V989. */
-        for(let i=0;i<8;i++)await frame();
+        /* Czekamy aż starsze mechanizmy zakończą szerokości kolumn. */
+        for(let i=0;i<10;i++)await frame();
 
         const root=host.querySelector('.trasa-columns');
         if(!root)return;
 
-        const cols=root.classList.contains('cols-3') ? 3 :
-                   root.classList.contains('cols-2') ? 2 : 1;
+        /* Jedna kolumna ma własną działającą logikę.
+           Trzech kolumn tutaj NIE ruszamy. */
+        if(!root.classList.contains('cols-2'))return;
 
-        root.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
-            const name=row.querySelector(':scope > .trasa-nazwa');
-            if(!name)return;
+        const rows=[...root.querySelectorAll('.trasa-stop,.trasa-extra-stop')];
 
-            row.classList.remove('v1031-one','v1031-two');
+        /* PASS 1: odtwarzamy czysty tekst i usuwamy stary stan wysokości.
+           Dzięki temu np. DOLINA SŁUŻEWIECKA nie zostaje 33 px tylko
+           dlatego, że kiedyś była dwuwierszowa. */
+        for(const row of rows){
+            const el=row.querySelector(':scope > .trasa-nazwa');
+            if(!el)continue;
+            const text=sourceText(el);
+            clearOldState(row);
+            writeLines(el,row,[text]);
+            row.classList.add('v1032-one','v665-jednoliniowy');
+        }
 
-            /* Jedna kolumna pozostaje zgodnie z istniejącą zasadą jednoliniowa. */
-            if(cols===1){
-                row.classList.add('v1031-one');
-                return;
+        await frame();
+
+        /* PASS 2: decyzja z AKTUALNEJ, ostatecznej szerokości. */
+        for(const row of rows){
+            const el=row.querySelector(':scope > .trasa-nazwa');
+            if(!el)continue;
+
+            const text=sourceText(el);
+            const available=nameAvailable(el,row);
+            const full=measure(el,text);
+
+            if(full<=available+0.5){
+                /* Naprawdę mieści się: 1 linia, 16.5 px. */
+                clearOldState(row);
+                writeLines(el,row,[text]);
+                row.classList.add('v1032-one','v665-jednoliniowy');
+                continue;
             }
 
-            const lines=lineCount(name);
+            const split=bestTwo(el,text);
 
-            if(lines>=2){
-                row.classList.add('v1031-two');
-                row.classList.add('v665-dwuliniowy');
-                row.classList.remove('v665-jednoliniowy');
+            if(split){
+                /*
+                  W 2 kolumnach zawsze dokładnie 2 linie.
+                  Nigdy nie pozwalamy przeglądarce samoczynnie zrobić 3.
+                */
+                clearOldState(row);
+                writeLines(el,row,[split.a,split.b]);
+                row.classList.add('v1032-two','v665-dwuliniowy');
             }else{
-                row.classList.add('v1031-one');
-                row.classList.add('v665-jednoliniowy');
-                row.classList.remove('v665-dwuliniowy');
+                /* Jednowyrazowych nazw nie dzielimy. */
+                clearOldState(row);
+                writeLines(el,row,[text]);
+                row.classList.add('v1032-one','v665-jednoliniowy');
             }
-        });
+        }
+
+        await frame();
+
+        /* PASS 3: zabezpieczenie — żaden dwuwiersz nie może mieć
+           drugiej linii szerszej niż dostępne miejsce.
+           Jeśli tak jest, poszerzamy odpowiednią kolumnę tylko o brak. */
+        const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol'));
+        let changed=false;
+
+        for(const col of cols){
+            let extra=0;
+
+            for(const row of col.querySelectorAll('.trasa-stop.v1032-two,.trasa-extra-stop.v1032-two')){
+                const el=row.querySelector(':scope > .trasa-nazwa');
+                if(!el)continue;
+
+                const text=sourceText(el);
+                const split=bestTwo(el,text);
+                if(!split)continue;
+
+                const av=nameAvailable(el,row);
+                extra=Math.max(extra,Math.ceil(split.need-av));
+            }
+
+            if(extra>0){
+                const current=col.getBoundingClientRect().width;
+                col.style.width=Math.ceil(current+extra)+'px';
+                col.style.minWidth=Math.ceil(current+extra)+'px';
+                changed=true;
+            }
+        }
+
+        if(changed)await frame();
+
     }finally{
         busy=false;
     }
@@ -33151,15 +33296,14 @@ function queue(){
 }
 
 function bindResize(){
-    if(ro)ro.disconnect();
+    if(resizeObserver)resizeObserver.disconnect();
     const root=host.querySelector('.trasa-columns');
     if(!root)return;
-    ro=new ResizeObserver(queue);
-    ro.observe(root);
+    resizeObserver=new ResizeObserver(queue);
+    resizeObserver.observe(root);
 }
 
-/* Tylko podmiana całej tabliczki — bez obserwowania zmian tekstu,
-   więc nie powstaje pętla MutationObserver. */
+/* Nie obserwujemy zmian tekstu wewnątrz listy — brak pętli. */
 new MutationObserver(()=>{
     bindResize();
     queue();
@@ -33169,7 +33313,6 @@ window.addEventListener('load',()=>{
     bindResize();
     queue();
 });
-
 window.addEventListener('resize',queue);
 
 if(document.fonts?.ready){
