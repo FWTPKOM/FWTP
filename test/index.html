@@ -1,4 +1,4 @@
-<!-- WERSJA: 1042 -->
+<!-- WERSJA: 1043 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31236,37 +31236,96 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
      }
 
      /*
-       Jeżeli żadna konfiguracja 2-kolumnowa nie mieści się w pionie,
-       wybieramy najmniejszy overflow. To pozwala dalszej, istniejącej
-       logice przejść do 3 kolumn bez fałszywego "pasuje".
+       V1043:
+       Jeżeli ŻADEN podział na 2 kolumny nie mieści się w pionie,
+       nie zostawiamy już przepełnionych 2 kolumn.
+
+       Od razu przechodzimy do 3 kolumn — dokładnie z tego samego
+       powodu, dla którego stary V861 robił trzecią kolumnę.
      */
-     let best=null;
-     const limit=tab.getBoundingClientRect().bottom-8;
+     l1.replaceChildren(...all);
+     l2.replaceChildren();
 
-     for(let cut=1;cut<all.length;cut++){
-       l1.replaceChildren(...all.slice(0,cut));
-       l2.replaceChildren(...all.slice(cut));
-       const widths=await setFinalWidths(tab,root,head,c1,c2);
+     let c3=getCols(root)[2];
+     if(!c3){
+       c3=c2.cloneNode(false);
+       c3.innerHTML='<ul class="trasa-lista"></ul>';
+       root.appendChild(c3);
+     }
+     const l3=listOf(c3);
 
-       const overflow=
-         Math.max(0,actualBottom(c1)-limit)+
-         Math.max(0,actualBottom(c2)-limit);
+     tab.classList.add('trasa-3-kol','v854-trzy','v856-trzy');
+     root.classList.remove('cols-1','cols-2');
+     root.classList.add('cols-3');
 
-       if(!best||overflow<best.overflow)
-         best={cut,w1:widths.w1,w2:widths.w2,overflow};
+     if(head){
+       head.classList.remove('cols-1','cols-2');
+       head.classList.add('cols-3');
+       head.innerHTML=
+         '<div class="trasa-head-label">czasy, trasa, przystanki</div>'.repeat(3);
      }
 
-     if(best){
-       l1.replaceChildren(...all.slice(0,best.cut));
-       l2.replaceChildren(...all.slice(best.cut));
-       apply(tab,root,head,best.w1,best.w2);
-       await frame();await frame();
+     /* Oddajemy sterowanie istniejącej logice szerokości 3 kolumn.
+        Nie przenosimy do niej 95/100 przeznaczonego wyłącznie dla 2 kolumn. */
+     root.style.removeProperty('grid-template-columns');
+     if(head)head.style.removeProperty('grid-template-columns');
+     tab.style.removeProperty('--v989-two');
+     tab.style.removeProperty('--v989-right');
+     tab.style.removeProperty('--v989-left');
 
+     await frame();await frame();
+
+     /*
+       Najpierw maksymalnie zapełniamy C1.
+       Gdy C1 wychodzi poza kartkę, jej ostatni element przechodzi
+       na POCZĄTEK C2. Potem identycznie C2 -> C3.
+     */
+     const limit=tab.getBoundingClientRect().bottom-8;
+     const overflow=col=>actualBottom(col)>limit+0.5;
+
+     let guard=0;
+     while(overflow(c1)&&l1.children.length>1&&guard++<500){
+       l2.insertBefore(l1.lastElementChild,l2.firstElementChild);
+       await frame();
        if(typeof ustawZawijanieNazwTrasy==='function')
          ustawZawijanieNazwTrasy(root);
        if(typeof v665SynchronizujWysokosci==='function')
          v665SynchronizujWysokosci(root);
      }
+
+     guard=0;
+     while(overflow(c2)&&l2.children.length>1&&guard++<500){
+       l3.insertBefore(l2.lastElementChild,l3.firstElementChild);
+       await frame();
+       if(typeof ustawZawijanieNazwTrasy==='function')
+         ustawZawijanieNazwTrasy(root);
+       if(typeof v665SynchronizujWysokosci==='function')
+         v665SynchronizujWysokosci(root);
+     }
+
+     await frame();await frame();
+
+     /*
+       Po zmianie na 3 kolumny sprawdzamy jeszcze raz C1 i C2,
+       bo ich szerokości są już inne niż w układzie 2-kolumnowym.
+     */
+     guard=0;
+     while(overflow(c1)&&l1.children.length>1&&guard++<500){
+       l2.insertBefore(l1.lastElementChild,l2.firstElementChild);
+       await frame();
+     }
+     guard=0;
+     while(overflow(c2)&&l2.children.length>1&&guard++<500){
+       l3.insertBefore(l2.lastElementChild,l3.firstElementChild);
+       await frame();
+     }
+
+     if(typeof ustawZawijanieNazwTrasy==='function')
+       ustawZawijanieNazwTrasy(root);
+     if(typeof v665SynchronizujWysokosci==='function')
+       v665SynchronizujWysokosci(root);
+
+     await frame();await frame();
    }finally{
      busy=false;
    }
@@ -33246,6 +33305,23 @@ html body .tabliczka .trasa-columns.cols-2
  6. wynik poprzedniego kandydata nie jest używany w następnym.
 
  Po znalezieniu najlepszego podziału szerokości są zamrożone.
+ ========================================================= -->
+
+
+<!-- =========================================================
+ WERSJA 1043 — 2 KOLUMNY: 95% + WYSOKOŚĆ + AUTOMATYCZNE 3 KOLUMNY
+
+ V1042 poprawnie szukała podziału 2-kolumnowego, ale gdy żaden
+ podział nie mieścił się w pionie, zostawiała "najmniejszy overflow".
+ To powodowało dokładnie błąd widoczny na linii 108: lista wychodziła
+ pod dolną krawędź zamiast przejść do 3 kolumn.
+
+ V1043:
+ - jeśli 2 kolumny się mieszczą: zachowuje solver V1042 i 100/95,
+ - jeśli żaden podział 2 kolumn nie mieści się: tworzy 3. kolumnę,
+ - C1 jest maksymalnie zapełniana, nadmiar idzie C1 -> C2 -> C3,
+ - po przejściu na 3 kolumny wysokość jest mierzona ponownie przy
+   rzeczywistych szerokościach układu 3-kolumnowego.
  ========================================================= -->
 
 </body>
