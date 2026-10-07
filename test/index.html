@@ -1,4 +1,4 @@
-<!-- WERSJA: 1035 -->
+<!-- WERSJA: 1040 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31019,7 +31019,7 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
      const t=textOf(el);if(!t)return;
      const off=Math.max(31,el.getBoundingClientRect().left-cr.left);
      const nz=row.querySelector(':scope > .trasa-nz');
-     const reserve=nz?Math.max(10,nz.getBoundingClientRect().width+2):12;
+     const reserve=Math.max(20,(nz?.getBoundingClientRect().width||10)+10);
      full.push(Math.ceil(off+measure(el,t)+reserve));
      const ws=t.split(/\s+/).filter(Boolean);
 
@@ -31067,9 +31067,30 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    return {target:hardMin,min:hardMin,p90};
  }
  function fits(tab,col){
-   const rows=visibleRows(col);if(!rows.length)return true;
-   const bottom=Math.max(...rows.map(r=>r.getBoundingClientRect().bottom));
-   return bottom<=tab.getBoundingClientRect().bottom-8;
+   const list=listOf(col);
+   const rows=visibleRows(col);
+   if(!list||!rows.length)return true;
+
+   /* V1039: nie ufamy wysokości samego kontenera/listy, bo część starych
+      reguł ma overflow/stałe wysokości. Liczymy rzeczywisty dół KAŻDEGO
+      elementu po finalnym zawinięciu nazw. */
+   const limit=tab.getBoundingClientRect().bottom-8;
+   let bottom=list.getBoundingClientRect().top;
+
+   for(const r of rows){
+     const rr=r.getBoundingClientRect();
+     bottom=Math.max(bottom,rr.bottom);
+
+     /* pseudo-elementów nie ma w rect, ale wysokość wiersza już je obejmuje;
+        margin dolny/górny separatorów uwzględniamy jawnie. */
+     const st=getComputedStyle(r);
+     bottom=Math.max(
+       bottom,
+       rr.bottom+(parseFloat(st.marginBottom)||0)
+     );
+   }
+
+   return bottom<=limit+0.5;
  }
  function apply(tab,root,head,w1,w2){
    const total=Math.ceil(w1+w2),paper=tab.clientWidth;
@@ -31091,63 +31112,84 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
    const a=stats(c1,labels[0]),b=stats(c2,labels[1]);
    const paper=tab.clientWidth;
-   /* V1035: poprzednie sztywne 250 px blokowało regułę 5%.
-      Liczymy faktyczne minimum lewej części z realnej zawartości. */
-   const leftPanel=tab.querySelector('.panel-lewy');
-   let minLeft=180;
-   if(leftPanel){
-     const pr=leftPanel.getBoundingClientRect();
-     let rightNeed=0;
-     const candidates=[
-       ...leftPanel.querySelectorAll(
-         '.numer-linii-box,.rozklady-grid,.kierunek,.nazwa-kierunku,.typ-linii,.wazny-od,.legenda,.legenda-wariantow'
-       )
-     ];
-     for(const el of candidates){
-       if(getComputedStyle(el).display==='none')continue;
-       const r=el.getBoundingClientRect();
-       if(r.width>0&&r.height>0)rightNeed=Math.max(rightNeed,r.right-pr.left);
-     }
-     /* Jeżeli selektory nie złapią któregoś elementu, scrollWidth jest
-        tylko zabezpieczeniem; nie narzucamy już sztucznego 250 px. */
-     minLeft=Math.max(180,Math.ceil(rightNeed+12));
-   }
-   const available=Math.max(2,paper-minLeft-4);
-   let w1=a.target,w2=b.target;
-   if(w1+w2>available){
-     const scale=available/(w1+w2);w1=Math.floor(w1*scale);w2=Math.floor(w2*scale);
-     if(w1<a.min)w1=a.min;if(w2<b.min)w2=b.min;
-     if(w1+w2>available){
-       let excess=w1+w2-available,r1=Math.max(0,w1-a.min),r2=Math.max(0,w2-b.min),r=r1+r2;
-       if(r){w1-=Math.ceil(excess*r1/r);w2-=Math.floor(excess*r2/r)}
-     }
-   }
-   /* V1034 — OSTATNI WRITER SZEROKOŚCI:
-      najpierw oba minima, potem maks. 5 p.p. różnicy.
-      Wyrównujemy wyłącznie przez POSZERZENIE węższej kolumny.
-      Jeśli nie ma miejsca, 5% jest odpuszczane. */
-   {
-     const sum=w1+w2;
-     const big=Math.max(w1,w2);
-     const small=Math.min(w1,w2);
 
-     /* Maksymalnie 5 p.p. różnicy udziałów:
-        większa <= 52.5% całości, mniejsza >= 47.5%.
-        Poszerzamy tylko mniejszą kolumnę. */
-     const wantedSmall=Math.ceil(big*(47.5/52.5));
-     const add=Math.max(0,wantedSmall-small);
+   /*
+      V1040 — połączenie działającej idei V1021 z poprawnym
+      pomiarem wysokości V1039.
 
-     if(add>0 && sum+add<=available){
-       if(w1<w2) w1+=add;
-       else w2+=add;
+      V1021 ograniczała udział pierwszej kolumny do 47.5–52.5%.
+      To właśnie daje maks. 5 PUNKTÓW PROCENTOWYCH różnicy
+      szerokości kolumn w całej parze.
+   */
+   const grid=tab.querySelector('.panel-lewy .rozklady-grid');
+   const number=tab.querySelector('.panel-lewy .numer-linii-box');
+
+   const minLeft=Math.max(
+     180,
+     Math.ceil((grid?.scrollWidth||0)+38),
+     Math.ceil((number?.offsetWidth||0)+24)
+   );
+   const maxRight=Math.max(2,paper-minLeft-4);
+
+   const m1=a.min;
+   const m2=b.min;
+
+   /*
+      Proporcja wynika z potrzeb obu kolumn, ale jest ograniczona
+      dokładnie tak jak w V1021: 47.5%–52.5%.
+   */
+   let p=m1/Math.max(1,m1+m2);
+   p=Math.max(0.475,Math.min(0.525,p));
+
+   /*
+      Najmniejsza CAŁKOWITA szerokość pary, przy której:
+      C1 >= minimum C1
+      C2 >= minimum C2
+      i jednocześnie zachowane jest 47.5–52.5%.
+   */
+   let total=Math.ceil(Math.max(
+     m1/p,
+     m2/(1-p)
+   ));
+
+   let w1,w2;
+
+   if(total<=maxRight){
+     w1=Math.ceil(total*p);
+     w2=total-w1;
+
+     /* Ochrona przed zaokrągleniem o 1 px. */
+     if(w1<m1){
+       w1=m1;
+       total=Math.ceil(w1/p);
+       w2=total-w1;
      }
+     if(w2<m2){
+       w2=m2;
+       total=Math.ceil(w2/(1-p));
+       w1=total-w2;
+     }
+   }else{
+     /*
+        Jak ustaliliśmy dla np. 705:
+        jeśli zachowanie 5 p.p. fizycznie się nie mieści,
+        nie wymuszamy go kosztem zawartości.
+     */
+     w1=m1;
+     w2=m2;
+     total=w1+w2;
    }
 
    apply(tab,root,head,w1,w2);
+
    await frame();await frame();
-   if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(root);
-   if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(root);
-   await frame();
+
+   if(typeof ustawZawijanieNazwTrasy==='function')
+     ustawZawijanieNazwTrasy(root);
+   if(typeof v665SynchronizujWysokosci==='function')
+     v665SynchronizujWysokosci(root);
+
+   await frame();await frame();
  }
  async function run(){
    if(busy)return;busy=true;
@@ -31162,28 +31204,90 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
      const all=[...l1.children,...l2.children];
      if(all.length<2)return;
 
-     /* Zapamiętujemy dokładną kolejność V945. Szukamy najlepszego punktu
-        podziału: jak najwięcej elementów w pierwszej kolumnie, ale obie
-        kolumny muszą zmieścić się pionowo. */
+     /* V1039 — punkt podziału liczymy z FAKTYCZNEJ wysokości po
+        finalnym ustaleniu szerokości i po synchronizacji zawijania.
+        Maksymalnie zapełniamy pierwszą kolumnę, ale ani jeden element
+        nie może wyjść poza dolną krawędź kartki. */
      let best=-1;
+
      for(let cut=all.length-1;cut>=1;cut--){
        l1.replaceChildren(...all.slice(0,cut));
        l2.replaceChildren(...all.slice(cut));
+
        await widthFor(tab,root,head,c1,c2);
-       if(fits(tab,c1)&&fits(tab,c2)){best=cut;break;}
+       await frame();await frame();
+
+       if(typeof ustawZawijanieNazwTrasy==='function')
+         ustawZawijanieNazwTrasy(root);
+       if(typeof v665SynchronizujWysokosci==='function')
+         v665SynchronizujWysokosci(root);
+
+       await frame();await frame();
+
+       if(fits(tab,c1)&&fits(tab,c2)){
+         best=cut;
+         break;
+       }
      }
 
-     if(best<0){
-       /* V945 już wybrało 2 kolumny, ale przy aktualnych szerokościach
-          nie ma podziału spełniającego wysokość. Zostawiamy najbardziej
-          równomierny wariant zamiast wypuszczać przystanki poza kartkę. */
-       const cut=Math.max(1,Math.ceil(all.length/2));
-       l1.replaceChildren(...all.slice(0,cut));l2.replaceChildren(...all.slice(cut));
+     if(best>=1){
+       l1.replaceChildren(...all.slice(0,best));
+       l2.replaceChildren(...all.slice(best));
        await widthFor(tab,root,head,c1,c2);
+       await frame();await frame();
+
+       if(typeof ustawZawijanieNazwTrasy==='function')
+         ustawZawijanieNazwTrasy(root);
+       if(typeof v665SynchronizujWysokosci==='function')
+         v665SynchronizujWysokosci(root);
+
+       await frame();await frame();
+
+       /* Zabezpieczenie końcowe: jeżeli po ostatniej synchronizacji
+          pierwsza kolumna jednak urosła, przenosimy jej ostatni element
+          na początek drugiej aż obie faktycznie się mieszczą. */
+       while(!fits(tab,c1) && l1.children.length>1){
+         l2.insertBefore(l1.lastElementChild,l2.firstElementChild);
+         await widthFor(tab,root,head,c1,c2);
+         await frame();await frame();
+
+         if(typeof ustawZawijanieNazwTrasy==='function')
+           ustawZawijanieNazwTrasy(root);
+         if(typeof v665SynchronizujWysokosci==='function')
+           v665SynchronizujWysokosci(root);
+
+         await frame();
+       }
      }else{
-       /* Po znalezieniu punktu wykonujemy jeszcze jedno końcowe przeliczenie
-          szerokości i wysokości na finalnym DOM. */
-       l1.replaceChildren(...all.slice(0,best));l2.replaceChildren(...all.slice(best));
+       /* Jeżeli żadnego podziału 2-kolumnowego nie da się zmieścić,
+          NIE udajemy że połowa/połowa pasuje. Zostawiamy podział,
+          który minimalizuje maksymalną wysokość obu kolumn. */
+       let bestCut=Math.max(1,Math.ceil(all.length/2));
+       let bestOverflow=Infinity;
+
+       for(let cut=1;cut<all.length;cut++){
+         l1.replaceChildren(...all.slice(0,cut));
+         l2.replaceChildren(...all.slice(cut));
+         await widthFor(tab,root,head,c1,c2);
+         await frame();
+
+         const limit=tab.getBoundingClientRect().bottom-8;
+         const b1=visibleRows(c1).length
+           ? Math.max(...visibleRows(c1).map(r=>r.getBoundingClientRect().bottom))
+           : 0;
+         const b2=visibleRows(c2).length
+           ? Math.max(...visibleRows(c2).map(r=>r.getBoundingClientRect().bottom))
+           : 0;
+         const overflow=Math.max(0,b1-limit)+Math.max(0,b2-limit);
+
+         if(overflow<bestOverflow){
+           bestOverflow=overflow;
+           bestCut=cut;
+         }
+       }
+
+       l1.replaceChildren(...all.slice(0,bestCut));
+       l2.replaceChildren(...all.slice(bestCut));
        await widthFor(tab,root,head,c1,c2);
      }
    }finally{busy=false;}
@@ -33059,10 +33163,74 @@ html body .tabliczka .trasa-columns.cols-2
 </style>
 
 
-<!-- WERSJA 1035:
-     poprawka 5% — dostępna szerokość dla 2 kolumn jest liczona
-     z FAKTYCZNEGO minimum lewej części, bez sztywnego limitu 250 px.
-     Minimalne szerokości kolumn z V1034 pozostają bez zmian. -->
+<!-- WERSJA 1036 — dynamiczne minimum + Ż 10px + 5 p.p. w obie strony w V989. -->
+
+<!-- =========================================================
+ WERSJA 1037
+ Poprawka interpretacji 5%:
+ mniejsza z dwóch kolumn = minimum 95% szerokości większej.
+ Przykład: 200 px i 190 px.
+ Nie 47,5% / 52,5%, bo taki podział daje ok. 9,5% różnicy
+ szerokości samych kolumn.
+ ========================================================= -->
+
+
+<!-- =========================================================
+ WERSJA 1038 — DWIE KOLUMNY 100% / 95%
+
+ Inspiracja V945:
+ V945 po wyliczeniu potrzeb rozdzielała dostępne miejsce pomiędzy
+ kolumny jako całość. Poprzednie V1034–V1037 próbowały korygować
+ już istniejące szerokości, przez co późniejsze ograniczenia
+ potrafiły zachować dużą różnicę.
+
+ V1038:
+ 1. V989 liczy dynamiczne minimum C1 i C2.
+ 2. Ustalamy, która kolumna z minimów jest większa.
+ 3. Większa = 100%, mniejsza = 95%.
+ 4. Obie wartości są liczone OD NOWA, nie jako korekta starego układu.
+ 5. Żadna kolumna nie może zejść poniżej swojego minimum.
+ 6. Jeśli 100/95 nie mieści się fizycznie, zostają minima.
+ ========================================================= -->
+
+
+<!-- =========================================================
+ WERSJA 1039 — POPRAWKA WYSOKOŚCI 2 KOLUMN
+
+ Błąd:
+ punkt podziału był akceptowany zanim wszystkie nazwy i wiersze
+ miały ostateczną wysokość. Po późniejszym zawinięciu pierwsza
+ kolumna mogła wyjść poza kartkę.
+
+ V1039:
+ - szerokość jest ustawiana przed pomiarem wysokości,
+ - wykonywana jest synchronizacja zawijania i wysokości,
+ - dopiero potem sprawdzany jest rzeczywisty dół każdego elementu,
+ - pierwsza kolumna nadal jest maksymalnie zapełniona,
+ - końcowe zabezpieczenie przenosi ostatnie elementy do C2,
+   jeśli po finalnej synchronizacji C1 jeszcze urośnie.
+ ========================================================= -->
+
+
+<!-- =========================================================
+ WERSJA 1040 — POŁĄCZENIE 5% + WYSOKOŚĆ
+
+ Baza: V1039.
+
+ Szerokość:
+ - przywrócona zasada z V1021: udział C1 jest ograniczony
+   do 47.5%–52.5% całej szerokości dwóch kolumn;
+ - szerokość całej pary jest najmniejsza możliwa, która jednocześnie
+   mieści dynamiczne minimum C1 i C2;
+ - jeżeli 47.5/52.5 fizycznie się nie mieści (np. rozbudowana 705),
+   reguła 5 p.p. jest odpuszczana.
+
+ Wysokość:
+ - pozostaje mechanizm V1039;
+ - dla każdego możliwego punktu podziału najpierw ustalane są FINALNE
+   szerokości 47.5–52.5, potem zawijanie i wysokości;
+ - dopiero na końcu sprawdzamy, czy obie kolumny mieszczą się na kartce.
+ ========================================================= -->
 
 </body>
 </html>
