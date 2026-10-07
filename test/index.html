@@ -1,4 +1,4 @@
-<!-- WERSJA: 1032 -->
+<!-- WERSJA: 1033 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -33074,7 +33074,7 @@ html body .tabliczka .trasa-columns.cols-2
 }
 </style>
 
-<script id="fwtp-v1032-final-two-column-layout">
+<script id="fwtp-v1032-final-two-column-layout" type="text/plain">
 (()=>{
 'use strict';
 
@@ -33304,6 +33304,427 @@ function bindResize(){
 }
 
 /* Nie obserwujemy zmian tekstu wewnątrz listy — brak pętli. */
+new MutationObserver(()=>{
+    bindResize();
+    queue();
+}).observe(host,{childList:true,subtree:false});
+
+window.addEventListener('load',()=>{
+    bindResize();
+    queue();
+});
+window.addEventListener('resize',queue);
+
+if(document.fonts?.ready){
+    document.fonts.ready.then(()=>{
+        bindResize();
+        queue();
+    });
+}
+
+bindResize();
+queue();
+
+})();
+</script>
+
+
+<!-- =========================================================
+ WERSJA 1033 — 2 KOLUMNY: MINIMUM -> 5% -> FINALNY RENDER
+
+ Kolejność:
+ 1. dla każdej kolumny oblicz własne minimalne minimum,
+    pozwalające każdej nazwie zmieścić się w maks. 2 wierszach;
+ 2. minimum uwzględnia czas/oś/nazwę oraz rezerwę Ż + 10 px;
+ 3. dopiero potem próbuj wyrównać kolumny do maks. 5 p.p.;
+ 4. wyrównanie TYLKO poszerza węższą kolumnę;
+ 5. jeśli brak miejsca — 5% odpuszczamy;
+ 6. po ustawieniu szerokości NIE zmieniamy ich ponownie;
+ 7. na końcu renderujemy 1 albo dokładnie 2 wiersze.
+ ========================================================= -->
+<style id="fwtp-v1033-two-column-final">
+html body .tabliczka .trasa-columns.cols-2{
+    display:grid!important;
+    width:max-content!important;
+    max-width:100%!important;
+    margin-left:auto!important;
+    margin-right:0!important;
+}
+
+html body .tabliczka .trasa-columns.cols-2 .trasa-kol{
+    min-width:0!important;
+    max-width:none!important;
+}
+
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1033-one,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1033-one{
+    height:16.5px!important;
+    min-height:16.5px!important;
+    max-height:16.5px!important;
+}
+
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1033-two,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1033-two{
+    height:33px!important;
+    min-height:33px!important;
+    max-height:33px!important;
+}
+
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1033-one > .trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1033-one > .trasa-nazwa{
+    white-space:nowrap!important;
+    word-break:normal!important;
+    overflow-wrap:normal!important;
+    hyphens:none!important;
+}
+
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1033-two > .trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1033-two > .trasa-nazwa{
+    line-height:12px!important;
+    white-space:normal!important;
+    word-break:normal!important;
+    overflow-wrap:normal!important;
+    hyphens:none!important;
+}
+
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1033-two > .trasa-os,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1033-two > .trasa-os{
+    height:33px!important;
+    min-height:33px!important;
+    align-self:stretch!important;
+}
+
+html body .tabliczka .trasa-columns.cols-2
+.trasa-stop.v1033-two > .trasa-czas,
+html body .tabliczka .trasa-columns.cols-2
+.trasa-extra-stop.v1033-two > .trasa-czas{
+    align-self:start!important;
+}
+</style>
+
+<script id="fwtp-v1033-two-column-engine">
+(()=>{
+'use strict';
+
+const host=document.getElementById('wynik');
+if(!host)return;
+
+let busy=false, queued=false, ro=null;
+const frame=()=>new Promise(r=>requestAnimationFrame(r));
+const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
+
+function textOf(el){
+    if(!el.dataset.v1033Text){
+        el.dataset.v1033Text=clean(
+            el.dataset.v946Text ||
+            el.dataset.v987Text ||
+            el.dataset.v665Text ||
+            el.dataset.v1002Text ||
+            el.dataset.v1019FullText ||
+            el.textContent
+        );
+    }
+    return el.dataset.v1033Text;
+}
+
+function measure(el,text){
+    const st=getComputedStyle(el);
+    const m=document.createElement('span');
+    m.textContent=text;
+    m.style.cssText=
+      'position:fixed;left:-10000px;top:-10000px;visibility:hidden;'+
+      'pointer-events:none;white-space:nowrap;width:max-content;'+
+      'max-width:none;min-width:0;transform:none;';
+    m.style.fontFamily=st.fontFamily;
+    m.style.fontSize=st.fontSize;
+    m.style.fontWeight=st.fontWeight;
+    m.style.fontStyle=st.fontStyle;
+    m.style.fontStretch=st.fontStretch;
+    m.style.letterSpacing=st.letterSpacing;
+    document.body.appendChild(m);
+    const w=m.getBoundingClientRect().width;
+    m.remove();
+    return w;
+}
+
+function best2(el,text){
+    const words=text.split(/\s+/).filter(Boolean);
+    if(words.length<2)return null;
+
+    let best=null;
+    for(let i=1;i<words.length;i++){
+        const a=words.slice(0,i).join(' ');
+        const b=words.slice(i).join(' ');
+        const need=Math.max(measure(el,a),measure(el,b));
+        if(!best || need<best.need)best={a,b,need};
+    }
+    return best;
+}
+
+function geometry(row,el,col){
+    const cr=col.getBoundingClientRect();
+    const er=el.getBoundingClientRect();
+
+    /* lewa część wiersza: czas + oś + odstępy do początku nazwy */
+    const left=Math.max(38,er.left-cr.left);
+
+    /*
+      Stała rezerwa po prawej:
+      - miejsce na Ż także gdy w konkretnym wierszu go nie ma,
+      - 10 px odstępu nazwa -> Ż.
+    */
+    let marker=10;
+    const nz=row.querySelector(':scope > .trasa-nz');
+    if(nz)marker=Math.max(marker,nz.getBoundingClientRect().width);
+
+    return {left,right:marker+10};
+}
+
+function columnMinimum(col){
+    let need=130;
+
+    for(const row of col.querySelectorAll('.trasa-stop,.trasa-extra-stop')){
+        const el=row.querySelector(':scope > .trasa-nazwa');
+        if(!el)continue;
+
+        const text=textOf(el);
+        if(!text)continue;
+
+        const g=geometry(row,el,col);
+        const split=best2(el,text);
+
+        /*
+          Minimum dla 2 kolumn:
+          - jedno słowo musi zmieścić się całe;
+          - wiele słów może zostać rozłożone na najlepsze 2 linie;
+          - nigdy nie liczymy minimum pozwalającego na 3 linie.
+        */
+        const nameNeed=split ? split.need : measure(el,text);
+        need=Math.max(need,Math.ceil(g.left+nameNeed+g.right));
+    }
+
+    /* Nagłówek "czasy, trasa, przystanki" również musi się zmieścić. */
+    const head=host.querySelector('.trasa-head');
+    if(head){
+        const hs=[...head.children];
+        const idx=[...col.parentElement.children]
+            .filter(x=>x.classList.contains('trasa-kol')).indexOf(col);
+        const h=hs[idx];
+        if(h)need=Math.max(need,Math.ceil(h.scrollWidth+8));
+    }
+
+    return Math.ceil(need);
+}
+
+function write(el,row,lines){
+    const active=row.classList.contains('wybrany') ||
+                 !!el.querySelector(':scope > .trasa-nazwa-aktywna');
+
+    const wanted=clean(lines.join(' '));
+    const current=clean(el.textContent);
+    const brs=el.querySelectorAll('br').length;
+
+    if(current===wanted && brs===lines.length-1)return;
+
+    el.replaceChildren();
+    let target=el;
+
+    if(active){
+        const a=document.createElement('span');
+        a.className='trasa-nazwa-aktywna';
+        el.appendChild(a);
+        target=a;
+    }
+
+    lines.forEach((line,i)=>{
+        if(i)target.appendChild(document.createElement('br'));
+        target.appendChild(document.createTextNode(line));
+    });
+}
+
+function clear(row){
+    row.classList.remove(
+        'v1033-one','v1033-two',
+        'v1032-one','v1032-two',
+        'v665-jednoliniowy','v665-dwuliniowy',
+        'v939-wymuszone-dwa',
+        'v957-one','v957-two',
+        'v983-two','v984-two','v986-two'
+    );
+}
+
+function availableForName(row,el,col){
+    const g=geometry(row,el,col);
+    return Math.max(1,col.getBoundingClientRect().width-g.left-g.right);
+}
+
+function renderColumn(col){
+    for(const row of col.querySelectorAll('.trasa-stop,.trasa-extra-stop')){
+        const el=row.querySelector(':scope > .trasa-nazwa');
+        if(!el)continue;
+
+        const text=textOf(el);
+        const av=availableForName(row,el,col);
+        const full=measure(el,text);
+
+        clear(row);
+
+        if(full<=av+0.5){
+            write(el,row,[text]);
+            row.classList.add('v1033-one','v665-jednoliniowy');
+            continue;
+        }
+
+        const split=best2(el,text);
+        if(split){
+            write(el,row,[split.a,split.b]);
+            row.classList.add('v1033-two','v665-dwuliniowy');
+        }else{
+            /* Jednowyrazowy nigdy nie jest łamany. */
+            write(el,row,[text]);
+            row.classList.add('v1033-one','v665-jednoliniowy');
+        }
+    }
+}
+
+async function run(){
+    if(busy)return;
+    busy=true;
+
+    try{
+        /* Najpierw kończą się stare mechanizmy układu. */
+        for(let i=0;i<10;i++)await frame();
+
+        const tab=host.querySelector('.tabliczka');
+        const root=tab?.querySelector('.trasa-columns');
+        if(!tab||!root||!root.classList.contains('cols-2'))return;
+
+        const cols=[...root.children]
+            .filter(x=>x.classList.contains('trasa-kol'));
+        if(cols.length!==2)return;
+
+        /*
+          Do pomiaru przywracamy pełne nazwy jako 1 wiersz.
+          Nie ustalamy jeszcze wysokości.
+        */
+        for(const col of cols){
+            for(const row of col.querySelectorAll('.trasa-stop,.trasa-extra-stop')){
+                const el=row.querySelector(':scope > .trasa-nazwa');
+                if(!el)continue;
+                write(el,row,[textOf(el)]);
+            }
+        }
+
+        await frame();
+
+        let w1=columnMinimum(cols[0]);
+        let w2=columnMinimum(cols[1]);
+
+        /*
+          Maksymalna dostępna szerokość prawego panelu.
+          Nie zabieramy lewej części poniżej jej realnego minimum.
+        */
+        const grid=tab.querySelector('.panel-lewy .rozklady-grid');
+        const number=tab.querySelector('.panel-lewy .numer-linii-box');
+        const minLeft=Math.ceil(Math.max(
+            180,
+            grid?.scrollWidth||0,
+            number?.offsetWidth||0
+        )+24);
+
+        const available=Math.max(0,tab.clientWidth-minLeft-4);
+
+        /*
+          REGUŁA 5 p.p.
+          Dla dwóch kolumn udział każdej ma być w zakresie 47.5%-52.5%.
+          Wyrównujemy WYŁĄCZNIE przez poszerzenie węższej.
+        */
+        const sum=w1+w2;
+        const gap=Math.abs(w1-w2);
+        const extra=Math.max(0,(gap-0.05*sum)/1.05);
+        const add=Math.ceil(extra);
+
+        if(add>0 && sum+add<=available){
+            if(w1<w2)w1+=add;
+            else w2+=add;
+        }
+
+        /*
+          Jeżeli minima same są szersze niż dostępne miejsce,
+          NIE ściskamy ich poniżej minimum. Wtedy wcześniejszy silnik
+          może zdecydować o układzie 3-kolumnowym przy następnym renderze.
+        */
+        const total=w1+w2;
+
+        root.style.setProperty(
+            'grid-template-columns',
+            `${w1}px ${w2}px`,
+            'important'
+        );
+        root.style.setProperty('width',`${total}px`,'important');
+        root.style.setProperty('max-width','100%','important');
+
+        cols[0].style.setProperty('width',`${w1}px`,'important');
+        cols[0].style.setProperty('min-width',`${w1}px`,'important');
+        cols[1].style.setProperty('width',`${w2}px`,'important');
+        cols[1].style.setProperty('min-width',`${w2}px`,'important');
+
+        /*
+          Prawy panel również dostaje dokładnie minimalną potrzebną
+          szerokość — bez zbędnego pustego miejsca.
+        */
+        if(total<=available){
+            tab.style.setProperty('--prawa',`${total}px`);
+            tab.style.setProperty('--v904-prawa',`${total}px`);
+            tab.style.setProperty(
+                'grid-template-columns',
+                `minmax(0,1fr) ${total}px`,
+                'important'
+            );
+        }
+
+        await frame();
+        await frame();
+
+        /*
+          FINALNY RENDER. Od tego miejsca NIE wolno już zmieniać
+          szerokości kolumn. Dlatego 5% nie zostanie później zepsute.
+        */
+        renderColumn(cols[0]);
+        renderColumn(cols[1]);
+
+    }finally{
+        busy=false;
+    }
+}
+
+function queue(){
+    if(queued||busy)return;
+    queued=true;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        queued=false;
+        run();
+    }));
+}
+
+function bindResize(){
+    if(ro)ro.disconnect();
+    const root=host.querySelector('.trasa-columns');
+    if(!root)return;
+    ro=new ResizeObserver(queue);
+    ro.observe(root);
+}
+
 new MutationObserver(()=>{
     bindResize();
     queue();
