@@ -1,4 +1,4 @@
-<!-- WERSJA: 1034 -->
+<!-- WERSJA: 1035 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31091,7 +31091,27 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
    const a=stats(c1,labels[0]),b=stats(c2,labels[1]);
    const paper=tab.clientWidth;
-   const minLeft=Math.max(250,(tab.querySelector('.rozklady-grid')?.scrollWidth||0),(tab.querySelector('.numer-linii-box')?.offsetWidth||0));
+   /* V1035: poprzednie sztywne 250 px blokowało regułę 5%.
+      Liczymy faktyczne minimum lewej części z realnej zawartości. */
+   const leftPanel=tab.querySelector('.panel-lewy');
+   let minLeft=180;
+   if(leftPanel){
+     const pr=leftPanel.getBoundingClientRect();
+     let rightNeed=0;
+     const candidates=[
+       ...leftPanel.querySelectorAll(
+         '.numer-linii-box,.rozklady-grid,.kierunek,.nazwa-kierunku,.typ-linii,.wazny-od,.legenda,.legenda-wariantow'
+       )
+     ];
+     for(const el of candidates){
+       if(getComputedStyle(el).display==='none')continue;
+       const r=el.getBoundingClientRect();
+       if(r.width>0&&r.height>0)rightNeed=Math.max(rightNeed,r.right-pr.left);
+     }
+     /* Jeżeli selektory nie złapią któregoś elementu, scrollWidth jest
+        tylko zabezpieczeniem; nie narzucamy już sztucznego 250 px. */
+     minLeft=Math.max(180,Math.ceil(rightNeed+12));
+   }
    const available=Math.max(2,paper-minLeft-4);
    let w1=a.target,w2=b.target;
    if(w1+w2>available){
@@ -31108,8 +31128,14 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
       Jeśli nie ma miejsca, 5% jest odpuszczane. */
    {
      const sum=w1+w2;
-     const gap=Math.abs(w1-w2);
-     const add=Math.ceil(Math.max(0,(gap-0.05*sum)/1.05));
+     const big=Math.max(w1,w2);
+     const small=Math.min(w1,w2);
+
+     /* Maksymalnie 5 p.p. różnicy udziałów:
+        większa <= 52.5% całości, mniejsza >= 47.5%.
+        Poszerzamy tylko mniejszą kolumnę. */
+     const wantedSmall=Math.ceil(big*(47.5/52.5));
+     const add=Math.max(0,wantedSmall-small);
 
      if(add>0 && sum+add<=available){
        if(w1<w2) w1+=add;
@@ -33031,6 +33057,12 @@ html body .tabliczka .trasa-columns.cols-2
     line-height:12px!important;
 }
 </style>
+
+
+<!-- WERSJA 1035:
+     poprawka 5% — dostępna szerokość dla 2 kolumn jest liczona
+     z FAKTYCZNEGO minimum lewej części, bez sztywnego limitu 250 px.
+     Minimalne szerokości kolumn z V1034 pozostają bez zmian. -->
 
 </body>
 </html>
