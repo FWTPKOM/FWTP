@@ -1,4 +1,4 @@
-<!-- WERSJA: 1029 -->
+<!-- WERSJA: 1030 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -32936,69 +32936,248 @@ li.trasa-stop.v612-koncowy:not(.kraniec-poczatek):has(> .trasa-nazwa br)
 
 
 <!-- =========================================================
- WERSJA 1029 — POPRAWKA WYSOKOŚCI BEZ ZMIANY TYPOGRAFII
- BAZA: V1027 (V1028 odrzucona)
+ WERSJA 1030 — FAKTYCZNE DWUWIERSZE PO OSTATECZNYM LAYOUTCIE
+ BAZA: V1027 (V1028/V1029 odrzucone)
 
- Nie zmieniamy line-height nazw ani pozycji kropek.
- Dzięki temu dwuwierszowe nazwy zachowują wcześniejszy wygląd.
+ Problem:
+ starsze v665 ustalało klasę jedno/dwuwierszową PRZED końcowymi
+ zmianami szerokości. Nazwa mogła potem naprawdę zawinąć się na
+ 2 linie, ale wiersz nadal miał wysokość 16.5 px.
 
- Stabilizujemy wyłącznie wysokość kontenera:
- - 1 wiersz: 16.5 px
- - 2 wiersze: 33 px
- Znaki z dolnymi elementami (ą, ę, g, j, p, y) nie mogą zmieniać
- wysokości całego wiersza.
+ Rozwiązanie:
+ po zakończeniu layoutu sprawdzamy faktyczną liczbę linii nazwy.
+ cols-2: maks. 2 linie i 33 px
+ cols-3: maks. 3 linie
+ cols-1: bez zmian — zawsze 1 linia wg istniejącej logiki.
  ========================================================= -->
-<style id="fwtp-v1029-row-height-only">
+<style id="fwtp-v1030-real-lines">
 
-html body .tabliczka
-.trasa-stop.v665-jednoliniowy,
-html body .tabliczka
-.trasa-extra-stop.v665-jednoliniowy{
-    height:16.5px!important;
-    min-height:16.5px!important;
-}
-
-/* Tylko wysokość kontenera — line-height nazwy pozostaje taki jak w V1027. */
-html body .tabliczka
-.trasa-stop.v665-dwuliniowy,
-html body .tabliczka
-.trasa-extra-stop.v665-dwuliniowy,
-html body .tabliczka
-.trasa-stop.v939-wymuszone-dwa,
-html body .tabliczka
-.trasa-extra-stop.v939-wymuszone-dwa{
+/* Faktyczne 2 linie = pełne 33 px. Typografia jak w działającej V943. */
+html body .tabliczka .trasa-stop.v1030-two,
+html body .tabliczka .trasa-extra-stop.v1030-two{
     height:33px!important;
     min-height:33px!important;
+    max-height:33px!important;
+    align-items:center!important;
 }
-
-/* Oś wykorzystuje wysokość wiersza, ale nie zmieniamy pozycji kropki. */
-html body .tabliczka
-.trasa-stop.v665-dwuliniowy > .trasa-os,
-html body .tabliczka
-.trasa-extra-stop.v665-dwuliniowy > .trasa-os,
-html body .tabliczka
-.trasa-stop.v939-wymuszone-dwa > .trasa-os,
-html body .tabliczka
-.trasa-extra-stop.v939-wymuszone-dwa > .trasa-os{
+html body .tabliczka .trasa-stop.v1030-two > .trasa-nazwa,
+html body .tabliczka .trasa-extra-stop.v1030-two > .trasa-nazwa{
+    line-height:12px!important;
+    white-space:normal!important;
+    overflow-wrap:normal!important;
+    word-break:normal!important;
+}
+html body .tabliczka .trasa-stop.v1030-two > .trasa-czas,
+html body .tabliczka .trasa-extra-stop.v1030-two > .trasa-czas{
+    align-self:start!important;
+    padding-top:0!important;
+    margin-top:0!important;
+}
+html body .tabliczka .trasa-stop.v1030-two > .trasa-os,
+html body .tabliczka .trasa-extra-stop.v1030-two > .trasa-os{
     align-self:stretch!important;
     height:33px!important;
 }
 
-/* Początkowy dwuwierszowy: istniejąca linia od kropki w dół.
-   Bez zmiany pozycji samej kropki. */
-html body .tabliczka
-.trasa-stop.kraniec-poczatek:is(.v665-dwuliniowy,.v939-wymuszone-dwa)
-> .trasa-os::before{
-    bottom:0!important;
+/* 3 linie są dozwolone WYŁĄCZNIE przy 3 kolumnach. */
+html body .tabliczka .trasa-columns.cols-3 .trasa-stop.v1030-three,
+html body .tabliczka .trasa-columns.cols-3 .trasa-extra-stop.v1030-three{
+    height:49.5px!important;
+    min-height:49.5px!important;
+    max-height:49.5px!important;
+    align-items:center!important;
 }
-
-/* Końcowy z kontynuacją: istniejąca oś przez pełne 33 px. */
-html body .tabliczka
-.trasa-stop.v612-koncowy-przelotowy:is(.v665-dwuliniowy,.v939-wymuszone-dwa)
-> .trasa-os::before{
-    bottom:0!important;
+html body .tabliczka .trasa-columns.cols-3 .trasa-stop.v1030-three > .trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-3 .trasa-extra-stop.v1030-three > .trasa-nazwa{
+    line-height:12px!important;
 }
 </style>
+
+<script id="fwtp-v1030-sync-real-lines">
+(()=>{
+'use strict';
+const host=document.getElementById('wynik');
+if(!host)return;
+
+let running=false, queued=false;
+const frame=()=>new Promise(r=>requestAnimationFrame(r));
+const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
+
+function original(el){
+    return clean(
+        el.dataset.v946Text ||
+        el.dataset.v987Text ||
+        el.dataset.v665Text ||
+        el.dataset.v1002Text ||
+        el.dataset.v1019FullText ||
+        el.textContent
+    );
+}
+
+function measure(el,text){
+    const st=getComputedStyle(el);
+    const m=document.createElement('span');
+    m.textContent=text;
+    m.style.cssText=
+      'position:fixed;left:-10000px;top:-10000px;visibility:hidden;'+
+      'pointer-events:none;white-space:nowrap;width:max-content;'+
+      'max-width:none;min-width:0;transform:none;';
+    m.style.fontFamily=st.fontFamily;
+    m.style.fontSize=st.fontSize;
+    m.style.fontWeight=st.fontWeight;
+    m.style.fontStyle=st.fontStyle;
+    m.style.fontStretch=st.fontStretch;
+    m.style.letterSpacing=st.letterSpacing;
+    document.body.appendChild(m);
+    const w=m.getBoundingClientRect().width;
+    m.remove();
+    return w;
+}
+
+function best2(el,text){
+    const words=text.split(/\s+/).filter(Boolean);
+    if(words.length<2)return [text];
+    let best=null;
+    for(let i=1;i<words.length;i++){
+        const a=words.slice(0,i).join(' ');
+        const b=words.slice(i).join(' ');
+        const w=Math.max(measure(el,a),measure(el,b));
+        if(!best || w<best.w)best={a,b,w};
+    }
+    return best?[best.a,best.b]:[text];
+}
+
+function setText(el,row,lines){
+    const active=row.classList.contains('wybrany') ||
+                 !!el.querySelector(':scope > .trasa-nazwa-aktywna');
+    const current=clean(el.textContent);
+    const wanted=clean(lines.join(' '));
+
+    /* Nie przebudowujemy DOM, jeśli treść i liczba BR już są prawidłowe. */
+    const brs=el.querySelectorAll('br').length;
+    if(current===wanted && brs===Math.max(0,lines.length-1))return;
+
+    el.replaceChildren();
+    let target=el;
+    if(active){
+        const a=document.createElement('span');
+        a.className='trasa-nazwa-aktywna';
+        el.appendChild(a);
+        target=a;
+    }
+    lines.forEach((line,i)=>{
+        if(i)target.appendChild(document.createElement('br'));
+        target.appendChild(document.createTextNode(line));
+    });
+}
+
+async function sync(){
+    if(running)return;
+    running=true;
+    try{
+        /* Czekamy aż V988/V989 i pozostałe stare silniki skończą szerokości. */
+        for(let i=0;i<8;i++)await frame();
+
+        const root=host.querySelector('.trasa-columns');
+        if(!root)return;
+        const cols=root.classList.contains('cols-3')?3:
+                   root.classList.contains('cols-2')?2:1;
+
+        if(cols===1)return; // istniejąca reguła: 1 kolumna = 1 linia.
+
+        root.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+            const el=row.querySelector(':scope > .trasa-nazwa');
+            if(!el)return;
+
+            row.classList.remove('v1030-two','v1030-three');
+
+            const text=original(el);
+            if(!text)return;
+
+            if(cols===2){
+                /*
+                  Jeżeli pełna nazwa nie mieści się w jednym wierszu,
+                  dzielimy ją JAWNIE na najlepsze 2 linie.
+                  Dzięki temu przeglądarka nie może zrobić 3 linii.
+                */
+                const available=el.getBoundingClientRect().width;
+                if(measure(el,text)>available+0.5){
+                    const lines=best2(el,text);
+                    setText(el,row,lines);
+                    row.classList.add('v1030-two','v665-dwuliniowy');
+                    row.classList.remove('v665-jednoliniowy');
+                }else{
+                    setText(el,row,[text]);
+                    row.classList.add('v665-jednoliniowy');
+                    row.classList.remove('v665-dwuliniowy','v939-wymuszone-dwa');
+                }
+            }else{
+                /*
+                  W 3 kolumnach pozostawiamy istniejące zawijanie.
+                  Faktyczną liczbę linii mierzymy po renderze niżej.
+                */
+            }
+        });
+
+        await frame();
+
+        if(cols===3){
+            root.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+                const el=row.querySelector(':scope > .trasa-nazwa');
+                if(!el)return;
+                const range=document.createRange();
+                range.selectNodeContents(el);
+                const rects=[...range.getClientRects()]
+                    .filter(r=>r.width>0&&r.height>0);
+                const ys=[];
+                rects.forEach(r=>{
+                    if(!ys.some(y=>Math.abs(y-r.top)<3))ys.push(r.top);
+                });
+                if(ys.length>=3)row.classList.add('v1030-three');
+                else if(ys.length===2)row.classList.add('v1030-two');
+            });
+        }
+    }finally{
+        running=false;
+    }
+}
+
+function queue(){
+    if(queued||running)return;
+    queued=true;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        queued=false;
+        sync();
+    }));
+}
+
+/* Tylko podmiana tabliczki + zmiana jej szerokości.
+   Nie obserwujemy zmian tekstu, więc nie tworzymy pętli. */
+new MutationObserver(changes=>{
+    if(changes.some(c=>c.target===host))queue();
+}).observe(host,{childList:true,subtree:false});
+
+let ro=null;
+function bindResize(){
+    const root=host.querySelector('.trasa-columns');
+    if(!root)return;
+    if(ro)ro.disconnect();
+    ro=new ResizeObserver(queue);
+    ro.observe(root);
+}
+new MutationObserver(()=>{
+    bindResize();
+    queue();
+}).observe(host,{childList:true,subtree:false});
+
+window.addEventListener('load',()=>{bindResize();queue()});
+window.addEventListener('resize',queue);
+if(document.fonts?.ready)document.fonts.ready.then(()=>{bindResize();queue()});
+
+bindResize();
+queue();
+})();
+</script>
 
 </body>
 </html>
