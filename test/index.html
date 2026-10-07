@@ -1,4 +1,4 @@
-<!-- WERSJA: 1070 -->
+<!-- WERSJA: 1071 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31114,16 +31114,24 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    const paper=tab.clientWidth;
 
    /*
-      V1040 — połączenie działającej idei V1021 z poprawnym
-      pomiarem wysokości V1039.
+      V1071 — PRAWDZIWE 100% / 95% WEWNĄTRZ SOLVERA V1040.
 
-      V1021 ograniczała udział pierwszej kolumny do 47.5–52.5%.
-      To właśnie daje maks. 5 PUNKTÓW PROCENTOWYCH różnicy
-      szerokości kolumn w całej parze.
+      To jest wykonywane PRZED:
+      - ustawZawijanieNazwTrasy(root),
+      - v665SynchronizujWysokosci(root),
+      - pomiarem wysokości,
+      - wyborem punktu podziału C1/C2.
+
+      Dzięki temu szerokość 100/95 i zasada maks. 2 wierszy
+      nie mogą się już wzajemnie nadpisywać.
    */
    const grid=tab.querySelector('.panel-lewy .rozklady-grid');
    const number=tab.querySelector('.panel-lewy .numer-linii-box');
 
+   /*
+      Lewa część może zostać zwężona do rzeczywistego minimum
+      rozkładu/numeru. Legenda nie blokuje szerokości — może się zawijać.
+   */
    const minLeft=Math.max(
      180,
      Math.ceil((grid?.scrollWidth||0)+38),
@@ -31131,50 +31139,40 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    );
    const maxRight=Math.max(2,paper-minLeft-4);
 
-   const m1=a.min;
-   const m2=b.min;
+   const m1=Math.ceil(a.min);
+   const m2=Math.ceil(b.min);
 
    /*
-      Proporcja wynika z potrzeb obu kolumn, ale jest ograniczona
-      dokładnie tak jak w V1021: 47.5%–52.5%.
+      stats().min już zawiera:
+      - nagłówek „czasy, trasa, przystanki”,
+      - miejsce na „ż”,
+      - minimalną szerokość pozwalającą KAŻDEJ nazwie
+        zmieścić się w maksymalnie 2 wierszach.
+
+      Ustalamy więc szerszą kolumnę i od razu liczymy drugą jako 95%.
+      Nie korygujemy gotowego układu później.
    */
-   let p=m1/Math.max(1,m1+m2);
-   p=Math.max(0.475,Math.min(0.525,p));
+   let w1,w2,total;
 
-   /*
-      Najmniejsza CAŁKOWITA szerokość pary, przy której:
-      C1 >= minimum C1
-      C2 >= minimum C2
-      i jednocześnie zachowane jest 47.5–52.5%.
-   */
-   let total=Math.ceil(Math.max(
-     m1/p,
-     m2/(1-p)
-   ));
-
-   let w1,w2;
-
-   if(total<=maxRight){
-     w1=Math.ceil(total*p);
-     w2=total-w1;
-
-     /* Ochrona przed zaokrągleniem o 1 px. */
-     if(w1<m1){
-       w1=m1;
-       total=Math.ceil(w1/p);
-       w2=total-w1;
-     }
-     if(w2<m2){
-       w2=m2;
-       total=Math.ceil(w2/(1-p));
-       w1=total-w2;
-     }
+   if(m1>=m2){
+     const wide=Math.ceil(Math.max(m1,m2/0.95));
+     w1=wide;
+     w2=Math.ceil(wide*0.95);
    }else{
-     /*
-        Jak ustaliliśmy dla np. 705:
-        jeśli zachowanie 5 p.p. fizycznie się nie mieści,
-        nie wymuszamy go kosztem zawartości.
-     */
+     const wide=Math.ceil(Math.max(m2,m1/0.95));
+     w2=wide;
+     w1=Math.ceil(wide*0.95);
+   }
+
+   total=w1+w2;
+
+   /*
+      Jeżeli 100/95 naprawdę nie mieści się obok rozkładu,
+      NIE ściskamy kolumn poniżej m1/m2, bo to utworzyłoby 3 wiersze.
+      Zostają bezpieczne minima — wyjątek przeznaczony dla układów
+      typu 705, gdzie fizycznie nie ma miejsca na 95%.
+   */
+   if(total>maxRight){
      w1=m1;
      w2=m2;
      total=w1+w2;
@@ -33270,135 +33268,22 @@ html body .tabliczka .trasa-nazwa > .trasa-nazwa-aktywna > .v1052-line{
 
 
 <!-- =========================================================
- WERSJA 1070 — V1040 + AKTYWNY Z V1053 + 5% TYLKO DLA 2 KOLUMN
+ WERSJA 1071 — V1040 + V1053, 100/95 W SAMYM SOLVERZE V1040
 
- ZASADA:
- - V1040 pozostaje bazą całej geometrii listy i „ż”.
- - Nie ruszamy jednej kolumny.
- - Nie ruszamy położenia „ż”.
- - Nie ruszamy wysokości wierszy.
- - Nie ruszamy mechanizmu wyboru 1/2/3 kolumn.
- - Nie ruszamy szerokości całego panelu prawego.
- - Nie ruszamy rozkładu ani nagłówka.
- - Z V1053 zostaje wyłącznie poprawka aktywnego przystanku.
- - Dla JUŻ UTWORZONYCH 2 kolumn zmieniamy tylko podział ich
-   istniejącej łącznej szerokości:
-       większa = 100%
-       mniejsza = 95%
-   czyli 51.282051% / 48.717949%.
+ Nie ma dodatkowego skryptu zmieniającego kolumny po renderowaniu.
 
- Jeżeli układ ma 1 albo 3 kolumny, ten kod niczego nie zmienia.
+ Kolejność dla każdego możliwego podziału:
+ 1. wyliczenie minimum C1/C2 dla maks. 2 wierszy + miejsca na „ż”,
+ 2. wyliczenie rzeczywistego 100% / 95%,
+ 3. ustawienie tych szerokości,
+ 4. zawinięcie nazw,
+ 5. synchronizacja wysokości,
+ 6. pomiar rzeczywistego dołu kolumn,
+ 7. wybór maksymalnie zapełnionej C1.
+
+ Dzięki temu 5%, max 2 wiersze i wysokość są częścią JEDNEGO
+ obliczenia, a nie trzema późniejszymi poprawkami.
  ========================================================= -->
-
-<style id="fwtp-v1070-two-cols-only">
-html body .tabliczka .trasa-columns.cols-2{
-    gap:0!important;
-    column-gap:0!important;
-}
-</style>
-
-<script id="fwtp-v1070-two-cols-only">
-(()=>{
-    const host=document.getElementById('wynik');
-    if(!host)return;
-
-    let busy=false;
-    let raf=0;
-
-    function apply(){
-        if(busy)return;
-
-        const tab=host.querySelector('.tabliczka');
-        const root=tab?.querySelector('.trasa-columns');
-
-        /* TYLKO istniejący układ dokładnie 2-kolumnowy. */
-        if(!tab || !root || !root.classList.contains('cols-2'))return;
-
-        const cols=[...root.children]
-            .filter(el=>el.classList.contains('trasa-kol'));
-
-        if(cols.length!==2)return;
-
-        /*
-          Zachowujemy DOKŁADNIE obecną szerokość całego root z V1040.
-          Nie poszerzamy i nie zwężamy panelu.
-        */
-        const total=root.getBoundingClientRect().width;
-        if(total<=0)return;
-
-        /*
-          Ustalamy, która kolumna naturalnie potrzebuje więcej miejsca,
-          ale NIE zmieniamy niczego poza samą proporcją tracków.
-        */
-        const need = col => {
-            let n=0;
-            col.querySelectorAll('.trasa-stop,.trasa-extra-stop,.trasa-separator')
-               .forEach(row=>{
-                   n=Math.max(n,row.scrollWidth||0);
-               });
-            return n;
-        };
-
-        const firstIsWide = need(cols[0]) >= need(cols[1]);
-
-        const wide = total / 1.95;
-        const narrow = wide * 0.95;
-
-        const w1 = firstIsWide ? wide : narrow;
-        const w2 = firstIsWide ? narrow : wide;
-
-        busy=true;
-        try{
-            /*
-              Tylko grid-template-columns.
-              NIE ustawiamy width/min-width/max-width na .trasa-kol,
-              bo właśnie to wcześniej psuło „ż”, zawijanie i wysokość.
-            */
-            root.style.setProperty(
-                'grid-template-columns',
-                `${w1}px ${w2}px`,
-                'important'
-            );
-
-            /*
-              Nagłówek dostaje identyczny podział, ale również bez
-              ingerencji w szerokość całego panelu.
-            */
-            const head=tab.querySelector('.trasa-head');
-            if(head && head.classList.contains('cols-2')){
-                head.style.setProperty(
-                    'grid-template-columns',
-                    `${w1}px ${w2}px`,
-                    'important'
-                );
-            }
-
-            tab.dataset.v1070Widths =
-                `${w1.toFixed(1)} / ${w2.toFixed(1)}`;
-        }finally{
-            busy=false;
-        }
-    }
-
-    function schedule(){
-        cancelAnimationFrame(raf);
-        raf=requestAnimationFrame(()=>requestAnimationFrame(apply));
-    }
-
-    /*
-      Obserwujemy wyłącznie przebudowę elementów.
-      Nie obserwujemy style/class, więc własna zmiana nie uruchamia
-      kolejnej pętli przeliczania.
-    */
-    new MutationObserver(schedule).observe(
-        host,
-        {childList:true,subtree:true}
-    );
-
-    window.addEventListener('resize',schedule,{passive:true});
-    schedule();
-})();
-</script>
 
 </body>
 </html>
