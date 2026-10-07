@@ -1,4 +1,4 @@
-<!-- WERSJA: 1066 -->
+<!-- WERSJA: 1067 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -33499,5 +33499,114 @@ if(document.fonts?.ready)document.fonts.ready.then(()=>{attach();schedule(0)});
 setTimeout(attach,0);
 })();
 </script>
+
+<!-- =========================================================
+ WERSJA 1067 — REALNE 100% / 95% SZEROKOŚCI DWÓCH KOLUMN
+
+ Naprawa:
+ V1050/V1066 wyliczały 100/95 poprawnie, ale .trasa-kol mogły zachować
+ wcześniejsze width/min-width. W efekcie grid miał 100/95, lecz widoczne
+ kolumny rozszerzały się według własnych minimów.
+
+ Teraz:
+ - szerokość każdej .trasa-kol pochodzi WYŁĄCZNIE z grid-template-columns,
+ - szersza kolumna = 100%,
+ - węższa = dokładnie 95% szerszej,
+ - width/min-width/max-width starych solverów nie mogą zmienić proporcji,
+ - wyjątek zostaje tylko wtedy, gdy minima treści naprawdę uniemożliwiają
+   układ bez 3. wiersza.
+ ========================================================= -->
+<style id="fwtp-v1067-real-95">
+html body .tabliczka .trasa-columns.cols-2{
+  column-gap:0!important;
+  gap:0!important;
+}
+html body .tabliczka .trasa-columns.cols-2 > .trasa-kol{
+  width:auto!important;
+  min-width:0!important;
+  max-width:none!important;
+  box-sizing:border-box!important;
+}
+html body .tabliczka .trasa-head.cols-2{
+  column-gap:0!important;
+  gap:0!important;
+}
+html body .tabliczka .trasa-head.cols-2 > .trasa-head-label{
+  width:auto!important;
+  min-width:0!important;
+  max-width:none!important;
+  box-sizing:border-box!important;
+}
+</style>
+<script id="fwtp-v1067-force-real-95">
+(()=>{
+ const host=document.getElementById('wynik'); if(!host)return;
+ let busy=false, raf=0;
+
+ function apply(){
+   if(busy)return;
+   const tab=host.querySelector('.tabliczka');
+   const root=tab?.querySelector('.trasa-columns.cols-2');
+   const head=tab?.querySelector('.trasa-head.cols-2');
+   if(!tab||!root)return;
+
+   const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol'));
+   if(cols.length!==2)return;
+
+   /*
+      Bierzemy szerokości już policzone przez solver V1050.
+      Następnie normalizujemy je do PRAWDZIWEGO 100/95,
+      zachowując tę samą łączną szerokość prawego panelu.
+   */
+   const rr=root.getBoundingClientRect();
+   const total=Math.floor(rr.width);
+   if(total<10)return;
+
+   const c1=cols[0].getBoundingClientRect().width;
+   const c2=cols[1].getBoundingClientRect().width;
+   const firstWider=c1>=c2;
+
+   const wide=Math.floor(total/1.95);
+   const narrow=total-wide;
+
+   const w1=firstWider?wide:narrow;
+   const w2=firstWider?narrow:wide;
+
+   busy=true;
+   try{
+     root.style.setProperty('grid-template-columns',w1+'px '+w2+'px','important');
+     root.style.setProperty('width',(w1+w2)+'px','important');
+     root.style.setProperty('max-width',(w1+w2)+'px','important');
+
+     cols.forEach(c=>{
+       c.style.setProperty('width','auto','important');
+       c.style.setProperty('min-width','0','important');
+       c.style.setProperty('max-width','none','important');
+     });
+
+     if(head){
+       head.style.setProperty('grid-template-columns',w1+'px '+w2+'px','important');
+       head.style.setProperty('width',(w1+w2)+'px','important');
+       head.style.setProperty('max-width',(w1+w2)+'px','important');
+     }
+
+     tab.dataset.v1067Widths=w1+'x'+w2;
+   }finally{
+     busy=false;
+   }
+ }
+
+ function schedule(){
+   cancelAnimationFrame(raf);
+   raf=requestAnimationFrame(()=>requestAnimationFrame(apply));
+ }
+
+ const mo=new MutationObserver(schedule);
+ mo.observe(host,{childList:true,subtree:true});
+ window.addEventListener('resize',schedule,{passive:true});
+ schedule();
+})();
+</script>
+
 </body>
 </html>
