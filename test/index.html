@@ -1,4 +1,4 @@
-<!-- WERSJA: 1039 -->
+<!-- WERSJA: 1040 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31112,61 +31112,84 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
    const a=stats(c1,labels[0]),b=stats(c2,labels[1]);
    const paper=tab.clientWidth;
+
+   /*
+      V1040 — połączenie działającej idei V1021 z poprawnym
+      pomiarem wysokości V1039.
+
+      V1021 ograniczała udział pierwszej kolumny do 47.5–52.5%.
+      To właśnie daje maks. 5 PUNKTÓW PROCENTOWYCH różnicy
+      szerokości kolumn w całej parze.
+   */
    const grid=tab.querySelector('.panel-lewy .rozklady-grid');
    const number=tab.querySelector('.panel-lewy .numer-linii-box');
-   const leftHeader=tab.querySelector('.panel-lewy .naglowek-linii, .panel-lewy .linia-head, .panel-lewy .kierunek-wrap');
-   /* V1036: realna szerokość zawartości, nie stara szerokość panelu. */
-   const minLeft=Math.max(180,Math.ceil((grid?.scrollWidth||0)+38),Math.ceil((number?.offsetWidth||0)+24),Math.ceil((leftHeader?.scrollWidth||0)+24));
-   const available=Math.max(2,paper-minLeft-4);
-   let w1=a.target,w2=b.target;
-   if(w1+w2>available){
-     const scale=available/(w1+w2);w1=Math.floor(w1*scale);w2=Math.floor(w2*scale);
-     if(w1<a.min)w1=a.min;if(w2<b.min)w2=b.min;
-     if(w1+w2>available){
-       let excess=w1+w2-available,r1=Math.max(0,w1-a.min),r2=Math.max(0,w2-b.min),r=r1+r2;
-       if(r){w1-=Math.ceil(excess*r1/r);w2-=Math.floor(excess*r2/r)}
+
+   const minLeft=Math.max(
+     180,
+     Math.ceil((grid?.scrollWidth||0)+38),
+     Math.ceil((number?.offsetWidth||0)+24)
+   );
+   const maxRight=Math.max(2,paper-minLeft-4);
+
+   const m1=a.min;
+   const m2=b.min;
+
+   /*
+      Proporcja wynika z potrzeb obu kolumn, ale jest ograniczona
+      dokładnie tak jak w V1021: 47.5%–52.5%.
+   */
+   let p=m1/Math.max(1,m1+m2);
+   p=Math.max(0.475,Math.min(0.525,p));
+
+   /*
+      Najmniejsza CAŁKOWITA szerokość pary, przy której:
+      C1 >= minimum C1
+      C2 >= minimum C2
+      i jednocześnie zachowane jest 47.5–52.5%.
+   */
+   let total=Math.ceil(Math.max(
+     m1/p,
+     m2/(1-p)
+   ));
+
+   let w1,w2;
+
+   if(total<=maxRight){
+     w1=Math.ceil(total*p);
+     w2=total-w1;
+
+     /* Ochrona przed zaokrągleniem o 1 px. */
+     if(w1<m1){
+       w1=m1;
+       total=Math.ceil(w1/p);
+       w2=total-w1;
      }
-   }
-   /* V1038 — rozwiązanie na wzór działającej idei z V945:
-      najpierw liczymy minima obu kolumn, a POTEM budujemy parę
-      szerokości w proporcji 100% : 95%.
-
-      Nie próbujemy "dodać trochę" do aktualnego układu.
-      Wyliczamy obie szerokości od nowa z minimów.
-
-      Przykład:
-      min1=230, min2=130 -> 230 / 218.5
-      min1=150, min2=210 -> 199.5 / 210
-
-      Jeżeli taki układ fizycznie nie mieści się na kartce,
-      pozostają same minima (np. rozbudowana 705). */
-   {
-     const m1=w1, m2=w2;
-
-     if(m1>=m2){
-       const big=Math.max(m1,m2/0.95);
-       const c1=Math.ceil(big);
-       const c2=Math.ceil(big*0.95);
-       if(c1+c2<=available){
-         w1=c1;
-         w2=c2;
-       }
-     }else{
-       const big=Math.max(m2,m1/0.95);
-       const c2=Math.ceil(big);
-       const c1=Math.ceil(big*0.95);
-       if(c1+c2<=available){
-         w1=c1;
-         w2=c2;
-       }
+     if(w2<m2){
+       w2=m2;
+       total=Math.ceil(w2/(1-p));
+       w1=total-w2;
      }
+   }else{
+     /*
+        Jak ustaliliśmy dla np. 705:
+        jeśli zachowanie 5 p.p. fizycznie się nie mieści,
+        nie wymuszamy go kosztem zawartości.
+     */
+     w1=m1;
+     w2=m2;
+     total=w1+w2;
    }
 
    apply(tab,root,head,w1,w2);
+
    await frame();await frame();
-   if(typeof ustawZawijanieNazwTrasy==='function')ustawZawijanieNazwTrasy(root);
-   if(typeof v665SynchronizujWysokosci==='function')v665SynchronizujWysokosci(root);
-   await frame();
+
+   if(typeof ustawZawijanieNazwTrasy==='function')
+     ustawZawijanieNazwTrasy(root);
+   if(typeof v665SynchronizujWysokosci==='function')
+     v665SynchronizujWysokosci(root);
+
+   await frame();await frame();
  }
  async function run(){
    if(busy)return;busy=true;
@@ -33186,6 +33209,27 @@ html body .tabliczka .trasa-columns.cols-2
  - pierwsza kolumna nadal jest maksymalnie zapełniona,
  - końcowe zabezpieczenie przenosi ostatnie elementy do C2,
    jeśli po finalnej synchronizacji C1 jeszcze urośnie.
+ ========================================================= -->
+
+
+<!-- =========================================================
+ WERSJA 1040 — POŁĄCZENIE 5% + WYSOKOŚĆ
+
+ Baza: V1039.
+
+ Szerokość:
+ - przywrócona zasada z V1021: udział C1 jest ograniczony
+   do 47.5%–52.5% całej szerokości dwóch kolumn;
+ - szerokość całej pary jest najmniejsza możliwa, która jednocześnie
+   mieści dynamiczne minimum C1 i C2;
+ - jeżeli 47.5/52.5 fizycznie się nie mieści (np. rozbudowana 705),
+   reguła 5 p.p. jest odpuszczana.
+
+ Wysokość:
+ - pozostaje mechanizm V1039;
+ - dla każdego możliwego punktu podziału najpierw ustalane są FINALNE
+   szerokości 47.5–52.5, potem zawijanie i wysokości;
+ - dopiero na końcu sprawdzamy, czy obie kolumny mieszczą się na kartce.
  ========================================================= -->
 
 </body>
