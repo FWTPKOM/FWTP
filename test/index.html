@@ -1,4 +1,4 @@
-<!-- WERSJA: 1047 -->
+<!-- WERSJA: 1048 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -33025,27 +33025,36 @@ html body .tabliczka .trasa-columns.cols-2
 
 
 
+
+
+
 <!-- =========================================================
- WERSJA 1047 — V945: POMIAR DOPIERO PO FINALNEJ SZEROKOŚCI
+ WERSJA 1048 — MAKSYMALNE DOPEŁNIENIE C1
 
- Przyczyna V1046:
- sam algorytm V748/V945 był poprawny, ale wykonywał się zanim późniejsze
- skrypty ustaliły finalną szerokość 2 kolumn. Po zmianie szerokości nazwy
- zawijały się inaczej, wysokość rosła, lecz podział C1/C2 nie był już
- ponownie liczony.
+ V1047 poprawnie pilnowała dolnej krawędzi, ale przy próbie dołożenia
+ kolejnego elementu sprawdzała tylko lastElementChild. Przy separatorach,
+ opisach i elementach z marginesami mogło to zatrzymać C1 o jeden wiersz
+ za wcześnie.
 
- V1047:
- - nie zmienia szerokości,
- - czeka aż wszystkie późniejsze skrypty szerokości skończą,
- - obserwuje zmianę rozmiaru .trasa-columns,
- - po KAŻDEJ zmianie szerokości ponownie wykonuje dokładny algorytm V748,
- - limit jak w V861/V945: top kartki + clientHeight - 12 px.
+ V1048:
+ - szerokości pozostają bez zmian,
+ - wysokość liczona po finalnej szerokości,
+ - C1 jest najpierw odciążana, jeśli wychodzi poza kartkę,
+ - następnie pierwszy LOGICZNY BLOK z C2 jest próbnie przenoszony do C1,
+ - po pełnym renderze liczony jest rzeczywisty najniższy punkt całej C1,
+ - blok zostaje w C1 zawsze, gdy faktycznie się mieści,
+ - cofamy go dopiero po rzeczywistym przekroczeniu dolnej granicy.
  ========================================================= -->
-<script id="fwtp-v1047-v945-final-height">
+<script id="fwtp-v1048-max-fill-c1">
 (function(){
 'use strict';
 
-let timer=0, working=false, ro=null, lastSignature='';
+let timer=0, working=false, ro=null;
+
+function schedule(delay=90){
+  clearTimeout(timer);
+  timer=setTimeout(run,delay);
+}
 
 function sync(cols){
   if(typeof ustawZawijanieNazwTrasy==='function')
@@ -33055,17 +33064,76 @@ function sync(cols){
   void cols.offsetHeight;
 }
 
-function isLabel(el){
+function visible(el){
+  const st=getComputedStyle(el);
+  return st.display!=='none' && st.visibility!=='hidden';
+}
+
+function isSeparator(el){
   return !!el && el.classList.contains('trasa-separator');
 }
 
-function bottom(el){
-  return el ? el.getBoundingClientRect().bottom : 0;
+function elementBottom(el){
+  if(!el || !visible(el)) return -Infinity;
+  const r=el.getBoundingClientRect();
+  const st=getComputedStyle(el);
+  return r.bottom + (parseFloat(st.marginBottom)||0);
 }
 
-function schedule(delay=80){
-  clearTimeout(timer);
-  timer=setTimeout(run,delay);
+function listBottom(list){
+  let b=-Infinity;
+  for(const el of list.children){
+    b=Math.max(b,elementBottom(el));
+  }
+  return b;
+}
+
+function limit(tab,cols){
+  /* Fizyczny dół kartki/listy jak w rodzinie V945, z małym 6 px luzem. */
+  return Math.min(
+    tab.getBoundingClientRect().bottom-6,
+    cols.getBoundingClientRect().bottom-2
+  );
+}
+
+function takeLastLogicalGroup(first){
+  const last=first.lastElementChild;
+  if(!last)return [];
+
+  const group=[last];
+  let p=last.previousElementSibling;
+
+  /* Separator/opis bez przystanku nie może zostać samotnie na końcu C1. */
+  while(p && isSeparator(p)){
+    group.unshift(p);
+    p=p.previousElementSibling;
+  }
+  return group;
+}
+
+function takeFirstLogicalGroup(second){
+  const first=second.firstElementChild;
+  if(!first)return [];
+
+  const group=[first];
+
+  /* Jeśli C2 zaczyna się separatorem/opisem, przenosimy go razem z
+     pierwszym właściwym elementem po nim. */
+  let n=first.nextElementSibling;
+  while(isSeparator(group[group.length-1]) && n){
+    group.push(n);
+    n=n.nextElementSibling;
+  }
+  return group;
+}
+
+function moveToSecond(first,second,group){
+  for(let i=group.length-1;i>=0;i--)
+    second.insertBefore(group[i],second.firstElementChild);
+}
+
+function moveToFirst(first,group){
+  for(const el of group)first.appendChild(el);
 }
 
 function run(){
@@ -33076,73 +33144,55 @@ function run(){
   if(!tab||!cols)return;
 
   const pair=[...cols.children].filter(el=>
-    el.classList.contains('trasa-kol') &&
-    getComputedStyle(el).display!=='none'
+    el.classList.contains('trasa-kol') && visible(el)
   );
   if(pair.length!==2)return;
 
   const first=pair[0].querySelector(':scope > .trasa-lista');
   const second=pair[1].querySelector(':scope > .trasa-lista');
-  if(!first||!second||!first.children.length)return;
+  if(!first||!second)return;
 
   working=true;
   try{
     sync(cols);
+    let lim=limit(tab,cols);
 
-    /* DOKŁADNIE zasada V861 z V945.
-       clientHeight kartki jest stałym fizycznym limitem 160 mm. */
-    const limit=tab.getBoundingClientRect().top + tab.clientHeight - 12;
-
-    /* Najpierw C1 nie może wyjść ani o piksel poza limit. */
+    /* A. Najpierw gwarantujemy, że C1 faktycznie mieści się w pionie. */
     let guard=0;
-    while(first.lastElementChild &&
-          bottom(first.lastElementChild)>limit+0.5 &&
+    while(first.children.length>1 &&
+          listBottom(first)>lim+0.5 &&
           guard++<500){
-
-      const last=first.lastElementChild;
-      const group=[last];
-
-      const prev=last.previousElementSibling;
-      if(prev&&isLabel(prev))group.unshift(prev);
-
-      const before=group[0].previousElementSibling;
-      if(before&&isLabel(before)&&!isLabel(group[0]))
-        group.unshift(before);
-
-      for(let i=group.length-1;i>=0;i--)
-        second.insertBefore(group[i],second.firstElementChild);
-
+      const group=takeLastLogicalGroup(first);
+      if(!group.length)break;
+      moveToSecond(first,second,group);
       sync(cols);
+      lim=limit(tab,cols);
     }
 
-    /* Potem maksymalnie dopełniamy C1, ale tylko jeśli cały następny
-       blok nadal mieści się nad dolną granicą kartki. */
+    /* B. Maksymalne dopełnienie C1.
+       Każdy kolejny blok z C2 jest REALNIE renderowany w C1.
+       Nie używamy szacowanej wysokości. */
     guard=0;
     while(second.firstElementChild && guard++<500){
-      const item=second.firstElementChild;
-      const group=[item];
+      const group=takeFirstLogicalGroup(second);
+      if(!group.length)break;
 
-      if(isLabel(item)&&item.nextElementSibling)
-        group.push(item.nextElementSibling);
-
-      for(const el of group)first.appendChild(el);
+      moveToFirst(first,group);
       sync(cols);
+      lim=limit(tab,cols);
 
-      if(bottom(first.lastElementChild)>limit+0.5){
-        for(let i=group.length-1;i>=0;i--)
-          second.insertBefore(group[i],second.firstElementChild);
-        sync(cols);
-        break;
+      const realBottom=listBottom(first);
+
+      if(realBottom<=lim+0.5){
+        /* Mieści się — zostaje. Próbujemy następny. */
+        continue;
       }
-    }
 
-    lastSignature=[
-      Math.round(cols.getBoundingClientRect().width*10)/10,
-      Math.round(pair[0].getBoundingClientRect().width*10)/10,
-      Math.round(pair[1].getBoundingClientRect().width*10)/10,
-      first.children.length,
-      second.children.length
-    ].join('|');
+      /* Dopiero rzeczywiste przekroczenie = cofnięcie. */
+      moveToSecond(first,second,group);
+      sync(cols);
+      break;
+    }
 
   }finally{
     working=false;
@@ -33154,29 +33204,18 @@ function attach(){
   if(!cols)return;
 
   if(ro)ro.disconnect();
-
   ro=new ResizeObserver(()=>{
-    if(working)return;
-    const pair=[...cols.children].filter(x=>x.classList.contains('trasa-kol'));
-    const sig=[
-      Math.round(cols.getBoundingClientRect().width*10)/10,
-      ...pair.slice(0,2).map(x=>Math.round(x.getBoundingClientRect().width*10)/10)
-    ].join('|');
-
-    if(!lastSignature.startsWith(sig))
-      schedule(100);
+    if(!working)schedule(100);
   });
   ro.observe(cols);
   [...cols.children].forEach(c=>{
     if(c.classList.contains('trasa-kol'))ro.observe(c);
   });
 
-  /* Kilka końcowych przebiegów: szerokość w tym pliku jest ustawiana
-     przez kilka requestAnimationFrame, więc jeden pomiar był za wczesny. */
-  schedule(50);
-  setTimeout(()=>schedule(0),180);
-  setTimeout(()=>schedule(0),400);
-  setTimeout(()=>schedule(0),800);
+  schedule(30);
+  setTimeout(()=>schedule(0),160);
+  setTimeout(()=>schedule(0),350);
+  setTimeout(()=>schedule(0),700);
 }
 
 const wynik=document.getElementById('wynik');
@@ -33192,7 +33231,14 @@ if(wynik){
 }
 
 window.addEventListener('resize',()=>schedule(120));
-if(document.fonts?.ready)document.fonts.ready.then(()=>{attach();schedule(0);});
+
+if(document.fonts?.ready){
+  document.fonts.ready.then(()=>{
+    attach();
+    schedule(0);
+  });
+}
+
 setTimeout(attach,0);
 })();
 </script>
