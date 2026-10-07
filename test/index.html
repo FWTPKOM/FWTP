@@ -1,4 +1,4 @@
-<!-- WERSJA: 1049 -->
+<!-- WERSJA: 1051 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -33031,416 +33031,250 @@ html body .tabliczka .trasa-columns.cols-2
 
 
 
+
+
+
 <!-- =========================================================
- WERSJA 1049 — JEDEN WSPÓLNY FINALNY SOLVER 2 KOLUMN
+ WERSJA 1051 — PRAWDZIWE 95% + MAX 2 WIERSZE + PEŁNA C1
 
- Łączy trzy wymagania:
- 1. nazwa przystanku w cols-2 ma MAKSYMALNIE 2 WIERSZE,
- 2. szerokości C1/C2 są możliwie podobne — mniejsza >= 95% większej,
- 3. C1 jest maksymalnie zapełniona, ale nigdy nie wychodzi pod kartkę.
-
- Ważne:
- - szerokość jest liczona z NAJLEPSZEGO podziału każdej nazwy na 2 linie,
-   a nie z najdłuższego pojedynczego słowa;
- - po ustawieniu szerokości ten sam solver sam tworzy dokładnie 1 albo 2
-   linie nazwy — starszy silnik nie może zrobić trzeciej;
- - dopiero po tym liczona jest wysokość i podział C1/C2.
+ Poprawka V1049:
+ - 95% NIE jest już liczone od minimalnej szerokości treści.
+   Dwie kolumny dzielą CAŁĄ dostępną szerokość prawego panelu w relacji
+   51.282% / 48.718% (czyli węższa = dokładnie 95% szerszej).
+ - jeśli taki układ nie spełnia minimalnej szerokości treści, reguła 95%
+   zostaje wyłączona i używane są minima (np. 705).
+ - nazwy przystanków w 2 kolumnach nadal max 2 wiersze.
+ - C1 jest dopełniana do realnego dołu obszaru listy, bez wcześniejszego
+   zapasu 8 px, który zostawiał miejsce na jeszcze jeden przystanek.
  ========================================================= -->
-<style id="fwtp-v1049-max-two-lines">
-html body .tabliczka .trasa-columns.cols-2
-.trasa-stop > .trasa-nazwa,
-html body .tabliczka .trasa-columns.cols-2
-.trasa-extra-stop > .trasa-nazwa{
-    overflow:visible!important;
-    word-break:normal!important;
-    overflow-wrap:normal!important;
-    hyphens:none!important;
+<style id="fwtp-v1051-two-lines">
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop>.trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop>.trasa-nazwa{
+  overflow:visible!important;
+  word-break:normal!important;
+  overflow-wrap:normal!important;
+  hyphens:none!important;
 }
-html body .tabliczka .trasa-columns.cols-2
-.trasa-stop.v1049-two,
-html body .tabliczka .trasa-columns.cols-2
-.trasa-extra-stop.v1049-two{
-    height:33px!important;
-    min-height:33px!important;
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1050-two,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1050-two{
+  height:33px!important;
+  min-height:33px!important;
 }
-html body .tabliczka .trasa-columns.cols-2
-.trasa-stop.v1049-two > .trasa-nazwa,
-html body .tabliczka .trasa-columns.cols-2
-.trasa-extra-stop.v1049-two > .trasa-nazwa{
-    line-height:12px!important;
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1050-two>.trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1050-two>.trasa-nazwa{
+  line-height:12px!important;
 }
-html body .tabliczka .trasa-columns.cols-2
-.trasa-stop.v1049-one,
-html body .tabliczka .trasa-columns.cols-2
-.trasa-extra-stop.v1049-one{
-    height:16.5px!important;
-    min-height:16.5px!important;
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1050-one,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1050-one{
+  height:16.5px!important;
+  min-height:16.5px!important;
 }
 </style>
 
-<script id="fwtp-v1049-final-two-column-solver">
+<script id="fwtp-v1051-final-two-column-solver">
 (function(){
 'use strict';
-
-const host=document.getElementById('wynik');
-if(!host)return;
-
+const host=document.getElementById('wynik'); if(!host)return;
 let timer=0,working=false,ro=null;
 const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
+const nextFrame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
 
-function schedule(ms=100){
-  clearTimeout(timer);
-  timer=setTimeout(run,ms);
-}
+function schedule(ms=100){clearTimeout(timer);timer=setTimeout(run,ms);}
 
 function measure(el,text){
-  const cs=getComputedStyle(el);
-  const m=document.createElement('span');
+  const cs=getComputedStyle(el),m=document.createElement('span');
   m.textContent=text;
-  m.style.cssText=
-    'position:fixed;left:-10000px;top:-10000px;visibility:hidden;'+
-    'pointer-events:none;white-space:nowrap;width:max-content;'+
-    'max-width:none;min-width:0;transform:none;';
-  m.style.fontFamily=cs.fontFamily;
-  m.style.fontSize=cs.fontSize;
-  m.style.fontWeight=cs.fontWeight;
-  m.style.fontStyle=cs.fontStyle;
-  m.style.fontStretch=cs.fontStretch;
-  m.style.letterSpacing=cs.letterSpacing;
-  m.style.lineHeight=cs.lineHeight;
+  m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
+  ['fontFamily','fontSize','fontWeight','fontStyle','fontStretch','letterSpacing','lineHeight']
+    .forEach(k=>m.style[k]=cs[k]);
   document.body.appendChild(m);
-  const w=m.getBoundingClientRect().width;
-  m.remove();
-  return w;
+  const w=m.getBoundingClientRect().width;m.remove();return w;
 }
-
-function sourceText(el){
-  if(!el.dataset.v1049Text){
-    let t=clean(
-      el.dataset.v1019FullText ||
-      el.dataset.v946Text ||
-      el.dataset.v987Text ||
-      el.dataset.v665Text ||
-      el.dataset.v1002Text ||
-      el.textContent
-    );
-    el.dataset.v1049Text=t;
-  }
-  return el.dataset.v1049Text;
+function textOf(el){
+  if(!el.dataset.v1050Text)
+    el.dataset.v1050Text=clean(el.dataset.v1019FullText||el.dataset.v946Text||el.dataset.v987Text||el.dataset.v665Text||el.textContent);
+  return el.dataset.v1050Text;
 }
-
-function words(text){
-  return text.replace(/([-–—])(?=\S)/g,'$1 ')
-             .split(/\s+/).filter(Boolean);
-}
-function join(a){
-  return a.join(' ').replace(/([-–—]) /g,'$1');
-}
-
-/* Najlepszy możliwy podział na DOKŁADNIE maks. 2 linie. */
-function bestTwo(el,text){
-  const w=words(text);
-  if(w.length<2)return {lines:[text],need:measure(el,text)};
-
+function words(t){return t.replace(/([-–—])(?=\S)/g,'$1 ').split(/\s+/).filter(Boolean)}
+function join(a){return a.join(' ').replace(/([-–—]) /g,'$1')}
+function split2(el,t){
+  const w=words(t); if(w.length<2)return {lines:[t],need:measure(el,t)};
   let best=null;
   for(let i=1;i<w.length;i++){
-    const a=join(w.slice(0,i));
-    const b=join(w.slice(i));
+    const a=join(w.slice(0,i)),b=join(w.slice(i));
     const need=Math.max(measure(el,a),measure(el,b));
-    if(!best || need<best.need)best={lines:[a,b],need};
+    if(!best||need<best.need)best={lines:[a,b],need};
   }
   return best;
 }
-
-function rowReserve(row,el,col){
-  const cr=col.getBoundingClientRect();
-  const er=el.getBoundingClientRect();
+function reserve(row,el,col){
+  const cr=col.getBoundingClientRect(),er=el.getBoundingClientRect();
   const left=Math.max(31,er.left-cr.left);
-
-  /* stałe miejsce na Ż nawet gdy ten konkretny przystanek go nie ma */
-  const nz=row.querySelector(':scope > .trasa-nz');
+  const nz=row.querySelector(':scope>.trasa-nz');
   const z=Math.max(10,nz?.getBoundingClientRect().width||0);
-
-  return Math.ceil(left+z+10); /* 10 px odstępu nazwa -> Ż */
+  return Math.ceil(left+z+10);
 }
-
-function colMinimum(col,label){
-  let need=0;
-
-  if(label){
-    need=Math.max(
-      need,
-      Math.ceil(measure(label,'czasy, trasa, przystanki')+9)
-    );
-  }
-
+function minimum(col,label){
+  let need=label?Math.ceil(measure(label,'czasy, trasa, przystanki')+8):130;
   col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
-    const el=row.querySelector(':scope > .trasa-nazwa');
-    if(!el)return;
-    const text=sourceText(el);
-    if(!text)return;
-
-    const split=bestTwo(el,text);
-    need=Math.max(
-      need,
-      Math.ceil(split.need+rowReserve(row,el,col))
-    );
+    const el=row.querySelector(':scope>.trasa-nazwa');if(!el)return;
+    const t=textOf(el);if(!t)return;
+    need=Math.max(need,Math.ceil(split2(el,t).need+reserve(row,el,col)));
   });
-
   return Math.max(130,need);
 }
 
-function applyWidths(tab,root,head,w1,w2){
-  w1=Math.ceil(w1); w2=Math.ceil(w2);
-  const total=w1+w2;
-  const left=Math.max(180,tab.clientWidth-total);
+function hardMinimum(col,label){
+  let need=label?Math.ceil(measure(label,'czasy, trasa, przystanki')+8):130;
+  col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+    const el=row.querySelector(':scope>.trasa-nazwa');if(!el)return;
+    const t=textOf(el);if(!t)return;
+    const ww=words(t);
+    let longest=0;
+    ww.forEach(x=>longest=Math.max(longest,measure(el,x)));
+    need=Math.max(need,Math.ceil(longest+reserve(row,el,col)));
+  });
+  return Math.max(130,need);
+}
 
+function setWidths(tab,root,head,w1,w2){
+  w1=Math.floor(w1); w2=Math.floor(w2);
+  const total=w1+w2,left=Math.max(180,tab.clientWidth-total);
   tab.style.setProperty('--prawa',total+'px','important');
   tab.style.setProperty('--lewa',left+'px','important');
-  tab.style.setProperty('grid-template-columns',
-    left+'px '+total+'px','important');
-
-  root.style.setProperty('grid-template-columns',
-    w1+'px '+w2+'px','important');
+  tab.style.setProperty('grid-template-columns',left+'px '+total+'px','important');
+  root.style.setProperty('grid-template-columns',w1+'px '+w2+'px','important');
   root.style.setProperty('width',total+'px','important');
   root.style.setProperty('max-width',total+'px','important');
-  root.style.setProperty('margin-left','auto','important');
-  root.style.setProperty('margin-right','0','important');
-
+  root.style.setProperty('margin','0 0 0 auto','important');
   if(head){
-    head.style.setProperty('grid-template-columns',
-      w1+'px '+w2+'px','important');
+    head.style.setProperty('grid-template-columns',w1+'px '+w2+'px','important');
     head.style.setProperty('width',total+'px','important');
     head.style.setProperty('max-width',total+'px','important');
-    head.style.setProperty('margin-left','auto','important');
-    head.style.setProperty('margin-right','0','important');
+    head.style.setProperty('margin','0 0 0 auto','important');
   }
 }
-
 function renderRow(row,col){
-  const el=row.querySelector(':scope > .trasa-nazwa');
-  if(!el)return;
-
-  const text=sourceText(el);
-  const cr=col.getBoundingClientRect();
-  const er=el.getBoundingClientRect();
-  const reserve=rowReserve(row,el,col);
-  const available=Math.max(1,cr.width-reserve);
-
-  let lines;
-  if(measure(el,text)<=available){
-    lines=[text];
-  }else{
-    const split=bestTwo(el,text);
-    lines=split.lines;
-  }
-
-  /* Nigdy 3 linie. */
+  const el=row.querySelector(':scope>.trasa-nazwa');if(!el)return;
+  const t=textOf(el),available=Math.max(1,col.getBoundingClientRect().width-reserve(row,el,col));
+  let lines=measure(el,t)<=available?[t]:split2(el,t).lines;
   if(lines.length>2)lines=lines.slice(0,2);
-
-  const active=
-    row.classList.contains('wybrany') ||
-    !!el.querySelector(':scope > .trasa-nazwa-aktywna');
-
-  el.replaceChildren();
-  let target=el;
-  if(active){
-    const a=document.createElement('span');
-    a.className='trasa-nazwa-aktywna';
-    el.appendChild(a);
-    target=a;
-  }
-
-  lines.forEach((line,i)=>{
-    if(i)target.appendChild(document.createElement('br'));
-    target.appendChild(document.createTextNode(line));
-  });
-
+  const active=row.classList.contains('wybrany')||!!el.querySelector(':scope>.trasa-nazwa-aktywna');
+  el.replaceChildren();let target=el;
+  if(active){const a=document.createElement('span');a.className='trasa-nazwa-aktywna';el.appendChild(a);target=a}
+  lines.forEach((x,i)=>{if(i)target.appendChild(document.createElement('br'));target.appendChild(document.createTextNode(x))});
   const two=lines.length===2;
-  row.classList.toggle('v1049-two',two);
-  row.classList.toggle('v1049-one',!two);
-  row.classList.toggle('v665-dwuliniowy',two);
-  row.classList.toggle('v665-jednoliniowy',!two);
-  row.classList.toggle('v939-wymuszone-dwa',two);
-  row.classList.toggle('v957-two',two);
-  row.classList.toggle('v957-one',!two);
+  row.classList.toggle('v1050-two',two);row.classList.toggle('v1050-one',!two);
+  row.classList.toggle('v665-dwuliniowy',two);row.classList.toggle('v665-jednoliniowy',!two);
 }
-
-function renderAll(cols){
-  for(const col of cols){
-    col.querySelectorAll('.trasa-stop,.trasa-extra-stop')
-       .forEach(row=>renderRow(row,col));
-  }
-  void cols[0].offsetHeight;
-}
-
-function bottomOf(list){
+function renderAll(cols){cols.forEach(c=>c.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(r=>renderRow(r,c)));void cols[0].offsetHeight}
+function listBottom(list){
   let b=-Infinity;
-  for(const el of list.children){
-    if(getComputedStyle(el).display==='none')continue;
+  [...list.children].forEach(el=>{
+    if(getComputedStyle(el).display==='none')return;
     const r=el.getBoundingClientRect();
-    const cs=getComputedStyle(el);
-    b=Math.max(b,r.bottom+(parseFloat(cs.marginBottom)||0));
-  }
-  return b;
+    b=Math.max(b,r.bottom);
+  });return b;
 }
-
-function isSep(el){
-  return !!el && el.classList.contains('trasa-separator');
-}
-
+function sep(el){return !!el&&el.classList.contains('trasa-separator')}
 function lastGroup(list){
-  const last=list.lastElementChild;
-  if(!last)return [];
-  const g=[last];
-  let p=last.previousElementSibling;
-  while(p&&isSep(p)){g.unshift(p);p=p.previousElementSibling;}
-  return g;
+  const x=list.lastElementChild;if(!x)return [];
+  const g=[x];let p=x.previousElementSibling;
+  while(p&&sep(p)){g.unshift(p);p=p.previousElementSibling}return g;
 }
-
 function firstGroup(list){
-  const first=list.firstElementChild;
-  if(!first)return [];
-  const g=[first];
-  let n=first.nextElementSibling;
-  while(isSep(g[g.length-1])&&n){g.push(n);n=n.nextElementSibling;}
-  return g;
+  const x=list.firstElementChild;if(!x)return [];
+  const g=[x];let n=x.nextElementSibling;
+  while(sep(g[g.length-1])&&n){g.push(n);n=n.nextElementSibling}return g;
 }
-
-function moveToStart(list,g){
-  for(let i=g.length-1;i>=0;i--)
-    list.insertBefore(g[i],list.firstElementChild);
-}
-function moveToEnd(list,g){
-  for(const x of g)list.appendChild(x);
-}
-
-function physicalLimit(tab){
-  /* stały dół kartki, niezależny od przepełnionej zawartości */
-  return tab.getBoundingClientRect().top + tab.clientHeight - 8;
-}
+function toStart(list,g){for(let i=g.length-1;i>=0;i--)list.insertBefore(g[i],list.firstElementChild)}
+function toEnd(list,g){g.forEach(x=>list.appendChild(x))}
 
 async function run(){
   if(working)return;
-
-  const tab=host.querySelector('.tabliczka');
-  const root=tab?.querySelector('.trasa-columns.cols-2');
-  const head=tab?.querySelector('.trasa-head');
+  const tab=host.querySelector('.tabliczka'),root=tab?.querySelector('.trasa-columns.cols-2'),head=tab?.querySelector('.trasa-head');
   if(!tab||!root)return;
-
-  const cols=[...root.children].filter(x=>
-    x.classList.contains('trasa-kol') &&
-    getComputedStyle(x).display!=='none'
-  );
+  const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol')&&getComputedStyle(x).display!=='none');
   if(cols.length!==2)return;
-
-  const l1=cols[0].querySelector(':scope > .trasa-lista');
-  const l2=cols[1].querySelector(':scope > .trasa-lista');
+  const l1=cols[0].querySelector(':scope>.trasa-lista'),l2=cols[1].querySelector(':scope>.trasa-lista');
   if(!l1||!l2)return;
-
   working=true;
   try{
     const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
+    const m1=minimum(cols[0],labels[0]),m2=minimum(cols[1],labels[1]);
+    const hard1=hardMinimum(cols[0],labels[0]),hard2=hardMinimum(cols[1],labels[1]);
 
-    /* 1. MINIMUM = każda nazwa musi dać się zapisać w max 2 liniach. */
-    let m1=colMinimum(cols[0],labels[0]);
-    let m2=colMinimum(cols[1],labels[1]);
+    const leftPanel=tab.querySelector('.panel-lewy'),grid=leftPanel?.querySelector('.rozklady-grid'),num=leftPanel?.querySelector('.numer-linii-box');
+    const minLeft=Math.max(180,Math.ceil((grid?.scrollWidth||0)+38),Math.ceil((num?.offsetWidth||0)+24));
+    const available=Math.max(2,tab.clientWidth-minLeft-4);
 
-    /* 2. Reguła 100/95. */
-    let w1,w2;
-    if(m1>=m2){
-      w1=m1;
-      w2=Math.max(m2,Math.ceil(m1*.95));
-    }else{
-      w2=m2;
-      w1=Math.max(m1,Math.ceil(m2*.95));
+    /* CAŁA dostępna szerokość, a nie minima. Węższa = 95% szerszej. */
+    let w1=available/1.95, w2=available-w1;
+
+    /* Zachowujemy kierunek: kolumna wymagająca więcej miejsca jest szersza. */
+    if(m2>m1){const t=w1;w1=w2;w2=t}
+
+    /* 95% tylko gdy obie kolumny nadal spełniają swoje minimum.
+       Przy 705/ciasnym układzie priorytet ma brak 3. wiersza. */
+    if(w1+0.01<hard1 || w2+0.01<hard2){
+      /* Tylko rzeczywisty brak miejsca na niepodzielny wyraz może
+         wyłączyć 95% (np. bardzo trudny układ 705). */
+      w1=Math.max(hard1,Math.min(m1,available-hard2));
+      w2=Math.max(hard2,available-w1);
     }
 
-    /* 705 / brak fizycznego miejsca: najpierw bezpieczeństwo treści. */
-    const leftPanel=tab.querySelector('.panel-lewy');
-    const grid=leftPanel?.querySelector('.rozklady-grid');
-    const num=leftPanel?.querySelector('.numer-linii-box');
-    const minLeft=Math.max(
-      180,
-      Math.ceil((grid?.scrollWidth||0)+38),
-      Math.ceil((num?.offsetWidth||0)+24)
-    );
-    const maxRight=Math.max(2,tab.clientWidth-minLeft-4);
-
-    if(w1+w2>maxRight){
-      w1=m1; w2=m2;
-    }
-
-    applyWidths(tab,root,head,w1,w2);
-    await new Promise(r=>requestAnimationFrame(()=>
-      requestAnimationFrame(r)));
-
-    /* 3. Sami renderujemy 1/2 linie. */
+    setWidths(tab,root,head,w1,w2);
+    await nextFrame();
     renderAll(cols);
+    await nextFrame();
 
-    /* 4. Dopiero teraz wysokość. */
-    const limit=physicalLimit(tab);
+    /* Bez sztucznego -8 px. Granicą jest realny dół listy/kartki.
+       1 px zostaje wyłącznie na obrys. */
+    const limit=Math.min(
+      tab.getBoundingClientRect().bottom,
+      root.getBoundingClientRect().bottom
+    );
+
     let guard=0;
-
-    while(l1.children.length>1 &&
-          bottomOf(l1)>limit+.5 &&
-          guard++<500){
-      const g=lastGroup(l1);
-      if(!g.length)break;
-      moveToStart(l2,g);
-      renderAll(cols);
+    while(l1.children.length>1&&listBottom(l1)>limit+.25&&guard++<500){
+      const g=lastGroup(l1);if(!g.length)break;
+      toStart(l2,g);renderAll(cols);
     }
 
-    /* 5. Maksymalnie dopełniamy C1. */
+    /* Maksymalne C1: próbujemy KAŻDY kolejny blok. */
     guard=0;
-    while(l2.firstElementChild && guard++<500){
-      const g=firstGroup(l2);
-      if(!g.length)break;
-
-      moveToEnd(l1,g);
-      renderAll(cols);
-
-      if(bottomOf(l1)<=limit+.5){
-        continue;
-      }
-
-      moveToStart(l2,g);
-      renderAll(cols);
-      break;
+    while(l2.firstElementChild&&guard++<500){
+      const g=firstGroup(l2);if(!g.length)break;
+      toEnd(l1,g);renderAll(cols);
+      if(listBottom(l1)<=limit+.25)continue;
+      toStart(l2,g);renderAll(cols);break;
     }
-
-  }finally{
-    working=false;
-  }
+  }finally{working=false}
 }
-
 function attach(){
-  const root=host.querySelector('.trasa-columns');
-  if(!root)return;
-
+  const root=host.querySelector('.trasa-columns');if(!root)return;
   if(ro)ro.disconnect();
-  ro=new ResizeObserver(()=>{
-    if(!working)schedule(120);
-  });
-  ro.observe(root);
-
-  schedule(40);
-  setTimeout(()=>schedule(0),180);
-  setTimeout(()=>schedule(0),420);
-  setTimeout(()=>schedule(0),800);
+  ro=new ResizeObserver(()=>{if(!working)schedule(120)});
+  ro.observe(root);[...root.children].forEach(c=>{if(c.classList.contains('trasa-kol'))ro.observe(c)});
+  schedule(40);setTimeout(()=>schedule(0),180);setTimeout(()=>schedule(0),420);setTimeout(()=>schedule(0),800);
 }
-
-new MutationObserver(ch=>{
-  if(working)return;
-  if(ch.some(m=>m.target===host))setTimeout(attach,0);
-}).observe(host,{childList:true,subtree:false});
-
+new MutationObserver(ch=>{if(!working&&ch.some(m=>m.target===host))setTimeout(attach,0)}).observe(host,{childList:true,subtree:false});
 window.addEventListener('resize',()=>schedule(150));
-if(document.fonts?.ready)document.fonts.ready.then(()=>{attach();schedule(0);});
+if(document.fonts?.ready)document.fonts.ready.then(()=>{attach();schedule(0)});
 setTimeout(attach,0);
-
 })();
 </script>
+
+
+<!-- V1051:
+  POPRAWKA DWÓCH KONKRETNYCH BŁĘDÓW V1050:
+  1) 95% było odrzucane przez zbyt szerokie "minimum" liczone z najlepszego
+     podziału całej nazwy. Teraz 95% odrzuca tylko niepodzielny wyraz,
+     który naprawdę nie mieści się w kolumnie.
+  2) przy dopełnianiu C1 do wysokości wliczany był margin-bottom elementu.
+     Przez to ostatni mieszczący się przystanek zostawał w C2.
+     Teraz test używa rzeczywistego getBoundingClientRect().bottom.
+-->
 
 </body>
 </html>
