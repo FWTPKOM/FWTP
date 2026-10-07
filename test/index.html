@@ -1,4 +1,4 @@
-<!-- WERSJA: 1038 -->
+<!-- WERSJA: 1039 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31067,9 +31067,30 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    return {target:hardMin,min:hardMin,p90};
  }
  function fits(tab,col){
-   const rows=visibleRows(col);if(!rows.length)return true;
-   const bottom=Math.max(...rows.map(r=>r.getBoundingClientRect().bottom));
-   return bottom<=tab.getBoundingClientRect().bottom-8;
+   const list=listOf(col);
+   const rows=visibleRows(col);
+   if(!list||!rows.length)return true;
+
+   /* V1039: nie ufamy wysokości samego kontenera/listy, bo część starych
+      reguł ma overflow/stałe wysokości. Liczymy rzeczywisty dół KAŻDEGO
+      elementu po finalnym zawinięciu nazw. */
+   const limit=tab.getBoundingClientRect().bottom-8;
+   let bottom=list.getBoundingClientRect().top;
+
+   for(const r of rows){
+     const rr=r.getBoundingClientRect();
+     bottom=Math.max(bottom,rr.bottom);
+
+     /* pseudo-elementów nie ma w rect, ale wysokość wiersza już je obejmuje;
+        margin dolny/górny separatorów uwzględniamy jawnie. */
+     const st=getComputedStyle(r);
+     bottom=Math.max(
+       bottom,
+       rr.bottom+(parseFloat(st.marginBottom)||0)
+     );
+   }
+
+   return bottom<=limit+0.5;
  }
  function apply(tab,root,head,w1,w2){
    const total=Math.ceil(w1+w2),paper=tab.clientWidth;
@@ -31140,17 +31161,6 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
        }
      }
    }
-         }
-
-         const realMinLeft=Math.max(180,Math.ceil(contentRight-tr.left+12));
-
-         if(leftWanted>=realMinLeft){
-           if(w1<w2)w1+=add;
-           else w2+=add;
-         }
-       }
-     }
-   }
 
    apply(tab,root,head,w1,w2);
    await frame();await frame();
@@ -31171,28 +31181,90 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
      const all=[...l1.children,...l2.children];
      if(all.length<2)return;
 
-     /* Zapamiętujemy dokładną kolejność V945. Szukamy najlepszego punktu
-        podziału: jak najwięcej elementów w pierwszej kolumnie, ale obie
-        kolumny muszą zmieścić się pionowo. */
+     /* V1039 — punkt podziału liczymy z FAKTYCZNEJ wysokości po
+        finalnym ustaleniu szerokości i po synchronizacji zawijania.
+        Maksymalnie zapełniamy pierwszą kolumnę, ale ani jeden element
+        nie może wyjść poza dolną krawędź kartki. */
      let best=-1;
+
      for(let cut=all.length-1;cut>=1;cut--){
        l1.replaceChildren(...all.slice(0,cut));
        l2.replaceChildren(...all.slice(cut));
+
        await widthFor(tab,root,head,c1,c2);
-       if(fits(tab,c1)&&fits(tab,c2)){best=cut;break;}
+       await frame();await frame();
+
+       if(typeof ustawZawijanieNazwTrasy==='function')
+         ustawZawijanieNazwTrasy(root);
+       if(typeof v665SynchronizujWysokosci==='function')
+         v665SynchronizujWysokosci(root);
+
+       await frame();await frame();
+
+       if(fits(tab,c1)&&fits(tab,c2)){
+         best=cut;
+         break;
+       }
      }
 
-     if(best<0){
-       /* V945 już wybrało 2 kolumny, ale przy aktualnych szerokościach
-          nie ma podziału spełniającego wysokość. Zostawiamy najbardziej
-          równomierny wariant zamiast wypuszczać przystanki poza kartkę. */
-       const cut=Math.max(1,Math.ceil(all.length/2));
-       l1.replaceChildren(...all.slice(0,cut));l2.replaceChildren(...all.slice(cut));
+     if(best>=1){
+       l1.replaceChildren(...all.slice(0,best));
+       l2.replaceChildren(...all.slice(best));
        await widthFor(tab,root,head,c1,c2);
+       await frame();await frame();
+
+       if(typeof ustawZawijanieNazwTrasy==='function')
+         ustawZawijanieNazwTrasy(root);
+       if(typeof v665SynchronizujWysokosci==='function')
+         v665SynchronizujWysokosci(root);
+
+       await frame();await frame();
+
+       /* Zabezpieczenie końcowe: jeżeli po ostatniej synchronizacji
+          pierwsza kolumna jednak urosła, przenosimy jej ostatni element
+          na początek drugiej aż obie faktycznie się mieszczą. */
+       while(!fits(tab,c1) && l1.children.length>1){
+         l2.insertBefore(l1.lastElementChild,l2.firstElementChild);
+         await widthFor(tab,root,head,c1,c2);
+         await frame();await frame();
+
+         if(typeof ustawZawijanieNazwTrasy==='function')
+           ustawZawijanieNazwTrasy(root);
+         if(typeof v665SynchronizujWysokosci==='function')
+           v665SynchronizujWysokosci(root);
+
+         await frame();
+       }
      }else{
-       /* Po znalezieniu punktu wykonujemy jeszcze jedno końcowe przeliczenie
-          szerokości i wysokości na finalnym DOM. */
-       l1.replaceChildren(...all.slice(0,best));l2.replaceChildren(...all.slice(best));
+       /* Jeżeli żadnego podziału 2-kolumnowego nie da się zmieścić,
+          NIE udajemy że połowa/połowa pasuje. Zostawiamy podział,
+          który minimalizuje maksymalną wysokość obu kolumn. */
+       let bestCut=Math.max(1,Math.ceil(all.length/2));
+       let bestOverflow=Infinity;
+
+       for(let cut=1;cut<all.length;cut++){
+         l1.replaceChildren(...all.slice(0,cut));
+         l2.replaceChildren(...all.slice(cut));
+         await widthFor(tab,root,head,c1,c2);
+         await frame();
+
+         const limit=tab.getBoundingClientRect().bottom-8;
+         const b1=visibleRows(c1).length
+           ? Math.max(...visibleRows(c1).map(r=>r.getBoundingClientRect().bottom))
+           : 0;
+         const b2=visibleRows(c2).length
+           ? Math.max(...visibleRows(c2).map(r=>r.getBoundingClientRect().bottom))
+           : 0;
+         const overflow=Math.max(0,b1-limit)+Math.max(0,b2-limit);
+
+         if(overflow<bestOverflow){
+           bestOverflow=overflow;
+           bestCut=cut;
+         }
+       }
+
+       l1.replaceChildren(...all.slice(0,bestCut));
+       l2.replaceChildren(...all.slice(bestCut));
        await widthFor(tab,root,head,c1,c2);
      }
    }finally{busy=false;}
@@ -33096,6 +33168,24 @@ html body .tabliczka .trasa-columns.cols-2
  4. Obie wartości są liczone OD NOWA, nie jako korekta starego układu.
  5. Żadna kolumna nie może zejść poniżej swojego minimum.
  6. Jeśli 100/95 nie mieści się fizycznie, zostają minima.
+ ========================================================= -->
+
+
+<!-- =========================================================
+ WERSJA 1039 — POPRAWKA WYSOKOŚCI 2 KOLUMN
+
+ Błąd:
+ punkt podziału był akceptowany zanim wszystkie nazwy i wiersze
+ miały ostateczną wysokość. Po późniejszym zawinięciu pierwsza
+ kolumna mogła wyjść poza kartkę.
+
+ V1039:
+ - szerokość jest ustawiana przed pomiarem wysokości,
+ - wykonywana jest synchronizacja zawijania i wysokości,
+ - dopiero potem sprawdzany jest rzeczywisty dół każdego elementu,
+ - pierwsza kolumna nadal jest maksymalnie zapełniona,
+ - końcowe zabezpieczenie przenosi ostatnie elementy do C2,
+   jeśli po finalnej synchronizacji C1 jeszcze urośnie.
  ========================================================= -->
 
 </body>
