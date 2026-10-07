@@ -1,4 +1,4 @@
-<!-- WERSJA: 1051 -->
+<!-- WERSJA: 1052 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -33047,7 +33047,22 @@ html body .tabliczka .trasa-columns.cols-2
  - C1 jest dopełniana do realnego dołu obszaru listy, bez wcześniejszego
    zapasu 8 px, który zostawiał miejsce na jeszcze jeden przystanek.
  ========================================================= -->
-<style id="fwtp-v1051-two-lines">
+<!-- =========================================================
+ WERSJA 1052 — 3 WARUNKI NARAZ, BEZ FALLBACKU ROZBIJAJĄCEGO 5%
+
+ Naprawiony błąd V1051:
+ V1051 miała fallback, który po wyliczeniu 100/95 ponownie ustawiał
+ szerokości z minimów treści. To właśnie dawało widoczne np. 216/174 px.
+
+ V1052:
+ 1. przy cols-2 szerokości ZAWSZE mają relację 100 : 95,
+ 2. jeżeli potrzeba więcej miejsca na max 2 linie, poszerzany jest CAŁY
+    prawy panel, a nie jedna z kolumn,
+ 3. każda z maks. dwóch linii ma nowrap — nie może sama złamać się trzeci raz,
+ 4. po finalnej szerokości ponownie liczona jest wysokość,
+ 5. C1 jest dopełniana do samej dolnej granicy.
+ ========================================================= -->
+<style id="fwtp-v1052-two-lines">
 html body .tabliczka .trasa-columns.cols-2 .trasa-stop>.trasa-nazwa,
 html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop>.trasa-nazwa{
   overflow:visible!important;
@@ -33055,211 +33070,201 @@ html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop>.trasa-nazwa{
   overflow-wrap:normal!important;
   hyphens:none!important;
 }
-html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1050-two,
-html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1050-two{
-  height:33px!important;
-  min-height:33px!important;
+html body .tabliczka .trasa-columns.cols-2 .trasa-nazwa>.v1052-line,
+html body .tabliczka .trasa-columns.cols-2 .trasa-nazwa>.trasa-nazwa-aktywna>.v1052-line{
+  display:block!important;
+  white-space:nowrap!important;
 }
-html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1050-two>.trasa-nazwa,
-html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1050-two>.trasa-nazwa{
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1052-two,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1052-two{
+  height:33px!important;min-height:33px!important;
+}
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1052-two>.trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1052-two>.trasa-nazwa{
   line-height:12px!important;
 }
-html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1050-one,
-html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1050-one{
-  height:16.5px!important;
-  min-height:16.5px!important;
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1052-one,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1052-one{
+  height:16.5px!important;min-height:16.5px!important;
 }
 </style>
 
-<script id="fwtp-v1051-final-two-column-solver">
+<script id="fwtp-v1052-final-two-column-solver">
 (function(){
 'use strict';
-const host=document.getElementById('wynik'); if(!host)return;
+const host=document.getElementById('wynik');if(!host)return;
 let timer=0,working=false,ro=null;
 const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
-const nextFrame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-
-function schedule(ms=100){clearTimeout(timer);timer=setTimeout(run,ms);}
-
+const frames=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+function schedule(ms=100){clearTimeout(timer);timer=setTimeout(run,ms)}
 function measure(el,text){
-  const cs=getComputedStyle(el),m=document.createElement('span');
-  m.textContent=text;
-  m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
-  ['fontFamily','fontSize','fontWeight','fontStyle','fontStretch','letterSpacing','lineHeight']
-    .forEach(k=>m.style[k]=cs[k]);
-  document.body.appendChild(m);
-  const w=m.getBoundingClientRect().width;m.remove();return w;
+ const cs=getComputedStyle(el),m=document.createElement('span');
+ m.textContent=text;
+ m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
+ ['fontFamily','fontSize','fontWeight','fontStyle','fontStretch','letterSpacing','lineHeight'].forEach(k=>m.style[k]=cs[k]);
+ document.body.appendChild(m);const w=m.getBoundingClientRect().width;m.remove();return w;
 }
 function textOf(el){
-  if(!el.dataset.v1050Text)
-    el.dataset.v1050Text=clean(el.dataset.v1019FullText||el.dataset.v946Text||el.dataset.v987Text||el.dataset.v665Text||el.textContent);
-  return el.dataset.v1050Text;
+ if(!el.dataset.v1052Text)el.dataset.v1052Text=clean(el.dataset.v1019FullText||el.dataset.v946Text||el.dataset.v987Text||el.dataset.v665Text||el.dataset.v1050Text||el.textContent);
+ return el.dataset.v1052Text;
 }
 function words(t){return t.replace(/([-–—])(?=\S)/g,'$1 ').split(/\s+/).filter(Boolean)}
 function join(a){return a.join(' ').replace(/([-–—]) /g,'$1')}
 function split2(el,t){
-  const w=words(t); if(w.length<2)return {lines:[t],need:measure(el,t)};
-  let best=null;
-  for(let i=1;i<w.length;i++){
-    const a=join(w.slice(0,i)),b=join(w.slice(i));
-    const need=Math.max(measure(el,a),measure(el,b));
-    if(!best||need<best.need)best={lines:[a,b],need};
-  }
-  return best;
+ const w=words(t);if(w.length<2)return {lines:[t],need:measure(el,t)};
+ let best=null;
+ for(let i=1;i<w.length;i++){
+   const a=join(w.slice(0,i)),b=join(w.slice(i));
+   const need=Math.max(measure(el,a),measure(el,b));
+   if(!best||need<best.need)best={lines:[a,b],need};
+ }
+ return best;
 }
-function reserve(row,el,col){
-  const cr=col.getBoundingClientRect(),er=el.getBoundingClientRect();
-  const left=Math.max(31,er.left-cr.left);
-  const nz=row.querySelector(':scope>.trasa-nz');
-  const z=Math.max(10,nz?.getBoundingClientRect().width||0);
-  return Math.ceil(left+z+10);
+function offsetAndReserve(row,el,col){
+ const cr=col.getBoundingClientRect(),er=el.getBoundingClientRect();
+ const left=Math.max(31,er.left-cr.left);
+ const nz=row.querySelector(':scope>.trasa-nz');
+ const z=Math.max(10,nz?.getBoundingClientRect().width||0);
+ return Math.ceil(left+z+10);
 }
-function minimum(col,label){
-  let need=label?Math.ceil(measure(label,'czasy, trasa, przystanki')+8):130;
-  col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
-    const el=row.querySelector(':scope>.trasa-nazwa');if(!el)return;
-    const t=textOf(el);if(!t)return;
-    need=Math.max(need,Math.ceil(split2(el,t).need+reserve(row,el,col)));
-  });
-  return Math.max(130,need);
+function minForTwoLines(col,label){
+ let need=label?Math.ceil(measure(label,'czasy, trasa, przystanki')+8):130;
+ col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+   const el=row.querySelector(':scope>.trasa-nazwa');if(!el)return;
+   const t=textOf(el);if(!t)return;
+   need=Math.max(need,Math.ceil(split2(el,t).need+offsetAndReserve(row,el,col)));
+ });
+ return Math.max(130,need);
 }
-
-function hardMinimum(col,label){
-  let need=label?Math.ceil(measure(label,'czasy, trasa, przystanki')+8):130;
-  col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
-    const el=row.querySelector(':scope>.trasa-nazwa');if(!el)return;
-    const t=textOf(el);if(!t)return;
-    const ww=words(t);
-    let longest=0;
-    ww.forEach(x=>longest=Math.max(longest,measure(el,x)));
-    need=Math.max(need,Math.ceil(longest+reserve(row,el,col)));
-  });
-  return Math.max(130,need);
-}
-
 function setWidths(tab,root,head,w1,w2){
-  w1=Math.floor(w1); w2=Math.floor(w2);
-  const total=w1+w2,left=Math.max(180,tab.clientWidth-total);
-  tab.style.setProperty('--prawa',total+'px','important');
-  tab.style.setProperty('--lewa',left+'px','important');
-  tab.style.setProperty('grid-template-columns',left+'px '+total+'px','important');
-  root.style.setProperty('grid-template-columns',w1+'px '+w2+'px','important');
-  root.style.setProperty('width',total+'px','important');
-  root.style.setProperty('max-width',total+'px','important');
-  root.style.setProperty('margin','0 0 0 auto','important');
-  if(head){
-    head.style.setProperty('grid-template-columns',w1+'px '+w2+'px','important');
-    head.style.setProperty('width',total+'px','important');
-    head.style.setProperty('max-width',total+'px','important');
-    head.style.setProperty('margin','0 0 0 auto','important');
-  }
+ w1=Math.floor(w1);w2=Math.floor(w2);
+ const total=w1+w2,left=tab.clientWidth-total;
+ tab.classList.add('v1052-two');
+ tab.style.setProperty('--v988-c1',w1+'px','important');
+ tab.style.setProperty('--v988-c2',w2+'px','important');
+ tab.style.setProperty('--v888-two',w1+'px '+w2+'px','important');
+ tab.style.setProperty('--prawa',total+'px','important');
+ tab.style.setProperty('--lewa',left+'px','important');
+ tab.style.setProperty('--v869-lewa',left+'px','important');
+ tab.style.setProperty('grid-template-columns',left+'px '+total+'px','important');
+ root.style.setProperty('grid-template-columns',w1+'px '+w2+'px','important');
+ root.style.setProperty('width',total+'px','important');
+ root.style.setProperty('max-width',total+'px','important');
+ root.style.setProperty('margin','0 0 0 auto','important');
+ if(head){
+   head.style.setProperty('grid-template-columns',w1+'px '+w2+'px','important');
+   head.style.setProperty('width',total+'px','important');
+   head.style.setProperty('max-width',total+'px','important');
+   head.style.setProperty('margin','0 0 0 auto','important');
+ }
 }
 function renderRow(row,col){
-  const el=row.querySelector(':scope>.trasa-nazwa');if(!el)return;
-  const t=textOf(el),available=Math.max(1,col.getBoundingClientRect().width-reserve(row,el,col));
-  let lines=measure(el,t)<=available?[t]:split2(el,t).lines;
-  if(lines.length>2)lines=lines.slice(0,2);
-  const active=row.classList.contains('wybrany')||!!el.querySelector(':scope>.trasa-nazwa-aktywna');
-  el.replaceChildren();let target=el;
-  if(active){const a=document.createElement('span');a.className='trasa-nazwa-aktywna';el.appendChild(a);target=a}
-  lines.forEach((x,i)=>{if(i)target.appendChild(document.createElement('br'));target.appendChild(document.createTextNode(x))});
-  const two=lines.length===2;
-  row.classList.toggle('v1050-two',two);row.classList.toggle('v1050-one',!two);
-  row.classList.toggle('v665-dwuliniowy',two);row.classList.toggle('v665-jednoliniowy',!two);
+ const el=row.querySelector(':scope>.trasa-nazwa');if(!el)return;
+ const t=textOf(el);
+ const available=Math.max(1,col.getBoundingClientRect().width-offsetAndReserve(row,el,col));
+ let lines=measure(el,t)<=available?[t]:split2(el,t).lines;
+ if(lines.length>2)lines=lines.slice(0,2);
+ const active=row.classList.contains('wybrany')||!!el.querySelector(':scope>.trasa-nazwa-aktywna');
+ el.replaceChildren();let target=el;
+ if(active){const a=document.createElement('span');a.className='trasa-nazwa-aktywna';el.appendChild(a);target=a}
+ lines.forEach(x=>{const q=document.createElement('span');q.className='v1052-line';q.textContent=x;target.appendChild(q)});
+ const two=lines.length===2;
+ row.classList.toggle('v1052-two',two);row.classList.toggle('v1052-one',!two);
+ row.classList.toggle('v665-dwuliniowy',two);row.classList.toggle('v665-jednoliniowy',!two);
+ row.classList.toggle('v939-wymuszone-dwa',two);
 }
 function renderAll(cols){cols.forEach(c=>c.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(r=>renderRow(r,c)));void cols[0].offsetHeight}
 function listBottom(list){
-  let b=-Infinity;
-  [...list.children].forEach(el=>{
-    if(getComputedStyle(el).display==='none')return;
-    const r=el.getBoundingClientRect();
-    b=Math.max(b,r.bottom);
-  });return b;
+ let b=-Infinity;
+ [...list.children].forEach(el=>{if(getComputedStyle(el).display!=='none')b=Math.max(b,el.getBoundingClientRect().bottom)});
+ return b;
 }
-function sep(el){return !!el&&el.classList.contains('trasa-separator')}
+function sep(x){return !!x&&x.classList.contains('trasa-separator')}
 function lastGroup(list){
-  const x=list.lastElementChild;if(!x)return [];
-  const g=[x];let p=x.previousElementSibling;
-  while(p&&sep(p)){g.unshift(p);p=p.previousElementSibling}return g;
+ const x=list.lastElementChild;if(!x)return[];const g=[x];let p=x.previousElementSibling;
+ while(p&&sep(p)){g.unshift(p);p=p.previousElementSibling}return g;
 }
 function firstGroup(list){
-  const x=list.firstElementChild;if(!x)return [];
-  const g=[x];let n=x.nextElementSibling;
-  while(sep(g[g.length-1])&&n){g.push(n);n=n.nextElementSibling}return g;
+ const x=list.firstElementChild;if(!x)return[];const g=[x];let n=x.nextElementSibling;
+ while(sep(g[g.length-1])&&n){g.push(n);n=n.nextElementSibling}return g;
 }
 function toStart(list,g){for(let i=g.length-1;i>=0;i--)list.insertBefore(g[i],list.firstElementChild)}
 function toEnd(list,g){g.forEach(x=>list.appendChild(x))}
-
 async function run(){
-  if(working)return;
-  const tab=host.querySelector('.tabliczka'),root=tab?.querySelector('.trasa-columns.cols-2'),head=tab?.querySelector('.trasa-head');
-  if(!tab||!root)return;
-  const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol')&&getComputedStyle(x).display!=='none');
-  if(cols.length!==2)return;
-  const l1=cols[0].querySelector(':scope>.trasa-lista'),l2=cols[1].querySelector(':scope>.trasa-lista');
-  if(!l1||!l2)return;
-  working=true;
-  try{
-    const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
-    const m1=minimum(cols[0],labels[0]),m2=minimum(cols[1],labels[1]);
-    const hard1=hardMinimum(cols[0],labels[0]),hard2=hardMinimum(cols[1],labels[1]);
+ if(working)return;
+ const tab=host.querySelector('.tabliczka'),root=tab?.querySelector('.trasa-columns.cols-2'),head=tab?.querySelector('.trasa-head');
+ if(!tab||!root)return;
+ const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol')&&getComputedStyle(x).display!=='none');
+ if(cols.length!==2)return;
+ const l1=cols[0].querySelector(':scope>.trasa-lista'),l2=cols[1].querySelector(':scope>.trasa-lista');if(!l1||!l2)return;
+ working=true;
+ try{
+   const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
+   const m1=minForTwoLines(cols[0],labels[0]),m2=minForTwoLines(cols[1],labels[1]);
 
-    const leftPanel=tab.querySelector('.panel-lewy'),grid=leftPanel?.querySelector('.rozklady-grid'),num=leftPanel?.querySelector('.numer-linii-box');
-    const minLeft=Math.max(180,Math.ceil((grid?.scrollWidth||0)+38),Math.ceil((num?.offsetWidth||0)+24));
-    const available=Math.max(2,tab.clientWidth-minLeft-4);
+   /* 100 : 95. Szersza jest ta kolumna, która potrzebuje więcej miejsca. */
+   let wideFirst=m1>=m2;
 
-    /* CAŁA dostępna szerokość, a nie minima. Węższa = 95% szerszej. */
-    let w1=available/1.95, w2=available-w1;
+   /* Minimalna CAŁKOWITA szerokość panelu, przy której 100:95
+      nadal pozwala obu kolumnom mieć max 2 wiersze. */
+   let needTotal;
+   if(wideFirst){
+     needTotal=Math.max(m1*1.95, (m2/0.95)*1.95);
+   }else{
+     needTotal=Math.max(m2*1.95, (m1/0.95)*1.95);
+   }
 
-    /* Zachowujemy kierunek: kolumna wymagająca więcej miejsca jest szersza. */
-    if(m2>m1){const t=w1;w1=w2;w2=t}
+   /* Nie ma już wartości typu 250 px ograniczającej prawy panel.
+      Lewa strona zostawia tylko swoje RZECZYWISTE minimum. */
+   const left=tab.querySelector('.panel-lewy');
+   const grid=left?.querySelector('.rozklady-grid');
+   const num=left?.querySelector('.numer-linii-box');
+   const realLeftMin=Math.max(
+     180,
+     Math.ceil(grid?.scrollWidth||0)+24,
+     Math.ceil(num?.offsetWidth||0)+18
+   );
+   const maxRight=Math.max(2,tab.clientWidth-realLeftMin);
 
-    /* 95% tylko gdy obie kolumny nadal spełniają swoje minimum.
-       Przy 705/ciasnym układzie priorytet ma brak 3. wiersza. */
-    if(w1+0.01<hard1 || w2+0.01<hard2){
-      /* Tylko rzeczywisty brak miejsca na niepodzielny wyraz może
-         wyłączyć 95% (np. bardzo trudny układ 705). */
-      w1=Math.max(hard1,Math.min(m1,available-hard2));
-      w2=Math.max(hard2,available-w1);
-    }
+   const total=Math.min(maxRight,Math.max(needTotal,root.getBoundingClientRect().width));
+   const wide=total/1.95,narrow=total-wide;
+   const w1=wideFirst?wide:narrow,w2=wideFirst?narrow:wide;
 
-    setWidths(tab,root,head,w1,w2);
-    await nextFrame();
-    renderAll(cols);
-    await nextFrame();
+   setWidths(tab,root,head,w1,w2);
+   await frames();
+   renderAll(cols);
+   await frames();
 
-    /* Bez sztucznego -8 px. Granicą jest realny dół listy/kartki.
-       1 px zostaje wyłącznie na obrys. */
-    const limit=Math.min(
-      tab.getBoundingClientRect().bottom,
-      root.getBoundingClientRect().bottom
-    );
+   /* Dół faktycznej przestrzeni listy. Bez zapasu 8/6 px. */
+   const panel=tab.querySelector('.panel-prawy');
+   const limit=Math.min(
+     tab.getBoundingClientRect().bottom,
+     panel?.getBoundingClientRect().bottom||Infinity,
+     root.getBoundingClientRect().bottom
+   )-.25;
 
-    let guard=0;
-    while(l1.children.length>1&&listBottom(l1)>limit+.25&&guard++<500){
-      const g=lastGroup(l1);if(!g.length)break;
-      toStart(l2,g);renderAll(cols);
-    }
-
-    /* Maksymalne C1: próbujemy KAŻDY kolejny blok. */
-    guard=0;
-    while(l2.firstElementChild&&guard++<500){
-      const g=firstGroup(l2);if(!g.length)break;
-      toEnd(l1,g);renderAll(cols);
-      if(listBottom(l1)<=limit+.25)continue;
-      toStart(l2,g);renderAll(cols);break;
-    }
-  }finally{working=false}
+   let guard=0;
+   while(l1.children.length>1&&listBottom(l1)>limit&&guard++<500){
+     const g=lastGroup(l1);if(!g.length)break;toStart(l2,g);renderAll(cols);
+   }
+   guard=0;
+   while(l2.firstElementChild&&guard++<500){
+     const g=firstGroup(l2);if(!g.length)break;
+     toEnd(l1,g);renderAll(cols);
+     if(listBottom(l1)<=limit)continue;
+     toStart(l2,g);renderAll(cols);break;
+   }
+ }finally{working=false}
 }
 function attach(){
-  const root=host.querySelector('.trasa-columns');if(!root)return;
-  if(ro)ro.disconnect();
-  ro=new ResizeObserver(()=>{if(!working)schedule(120)});
-  ro.observe(root);[...root.children].forEach(c=>{if(c.classList.contains('trasa-kol'))ro.observe(c)});
-  schedule(40);setTimeout(()=>schedule(0),180);setTimeout(()=>schedule(0),420);setTimeout(()=>schedule(0),800);
+ const root=host.querySelector('.trasa-columns');if(!root)return;
+ if(ro)ro.disconnect();
+ ro=new ResizeObserver(()=>{if(!working)schedule(140)});
+ ro.observe(root);
+ schedule(40);setTimeout(()=>schedule(0),200);setTimeout(()=>schedule(0),500);setTimeout(()=>schedule(0),1000);
 }
 new MutationObserver(ch=>{if(!working&&ch.some(m=>m.target===host))setTimeout(attach,0)}).observe(host,{childList:true,subtree:false});
-window.addEventListener('resize',()=>schedule(150));
+window.addEventListener('resize',()=>schedule(160));
 if(document.fonts?.ready)document.fonts.ready.then(()=>{attach();schedule(0)});
 setTimeout(attach,0);
 })();
