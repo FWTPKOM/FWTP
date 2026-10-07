@@ -1,4 +1,4 @@
-<!-- WERSJA: 1041 -->
+<!-- WERSJA: 1042 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31108,135 +31108,120 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    root.style.setProperty('width',total+'px','important');root.style.setProperty('max-width',total+'px','important');
    if(head){head.style.setProperty('grid-template-columns',Math.ceil(w1)+'px '+Math.ceil(w2)+'px','important');head.style.setProperty('width',total+'px','important');head.style.setProperty('max-width',total+'px','important');}
  }
- async function widthFor(tab,root,head,c1,c2){
+ async function setFinalWidths(tab,root,head,c1,c2){
    const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
-   const A=stats(c1,labels[0]),B=stats(c2,labels[1]);
+   const A=stats(c1,labels[0]), B=stats(c2,labels[1]);
 
-   /*
-      V1041:
-      NIE zgadujemy już wcześniej, ile miejsca zostało po lewej.
-      To właśnie powodowało, że reguła 5% była ciągle odrzucana,
-      mimo widocznego pustego miejsca.
+   const m1=Math.ceil(A.min), m2=Math.ceil(B.min);
 
-      Najpierw wyliczamy żądane szerokości 95/100 z minimów,
-      NAKŁADAMY je, a dopiero potem sprawdzamy na gotowym DOM-ie,
-      czy prawa część rzeczywiście weszła na lewą zawartość.
-   */
-   const m1=Math.ceil(A.min);
-   const m2=Math.ceil(B.min);
-
-   let w1=m1,w2=m2;
-
+   /* V1042:
+      finalna para szerokości jest wyliczana JEDEN RAZ dla aktualnego
+      podziału. Mniejsza kolumna ma co najmniej 95% większej. */
+   let w1,w2;
    if(m1>=m2){
      w1=m1;
-     w2=Math.max(m2,Math.ceil(m1*0.95));
+     w2=Math.max(m2,Math.ceil(w1*0.95));
    }else{
      w2=m2;
-     w1=Math.max(m1,Math.ceil(m2*0.95));
+     w1=Math.max(m1,Math.ceil(w2*0.95));
    }
 
-   /* Nakładamy 95/100 BEZ wcześniejszego blokowania przez stare
-      minLeft/available. */
+   /* Sprawdzamy fizyczny limit prawego panelu z rzeczywistym minimum
+      lewej części. Bez zależności od poprzedniej szerokości panelu. */
+   const paper=tab.clientWidth;
+   const grid=tab.querySelector('.panel-lewy .rozklady-grid');
+   const number=tab.querySelector('.panel-lewy .numer-linii-box');
+   const minLeft=Math.max(
+     180,
+     Math.ceil((grid?.scrollWidth||0)+38),
+     Math.ceil((number?.offsetWidth||0)+24)
+   );
+   const maxRight=Math.max(2,paper-minLeft-4);
+
+   if(w1+w2>maxRight){
+     /* przypadek typu 705: 95/100 nie mieści się — zostają minima */
+     w1=m1; w2=m2;
+   }
+
    apply(tab,root,head,w1,w2);
-   await frame();await frame();
+   await frame(); await frame();
 
    if(typeof ustawZawijanieNazwTrasy==='function')
      ustawZawijanieNazwTrasy(root);
    if(typeof v665SynchronizujWysokosci==='function')
      v665SynchronizujWysokosci(root);
 
-   await frame();await frame();
+   await frame(); await frame();
 
-   /*
-      Dopiero teraz realny test kolizji.
-      Bierzemy prawą krawędź rzeczywistej zawartości lewej części,
-      a nie szerokość elementów rozciągniętych CSS-em.
-   */
-   const rightPanel=tab.querySelector('.panel-prawy');
-   const leftPanel=tab.querySelector('.panel-lewy');
-   let collision=false;
-
-   if(rightPanel&&leftPanel){
-     const boundary=rightPanel.getBoundingClientRect().left;
-     let contentRight=leftPanel.getBoundingClientRect().left;
-
-     const els=[...leftPanel.querySelectorAll(
-       '.numer-linii-box,.rozklady-grid,.legenda,.legenda-wariantow,'+
-       '.kierunek,.nazwa-kierunku,.typ-linii,.wazny-od'
-     )];
-
-     for(const el of els){
-       const st=getComputedStyle(el);
-       if(st.display==='none'||st.visibility==='hidden')continue;
-       const r=el.getBoundingClientRect();
-       if(r.width>0&&r.height>0)contentRight=Math.max(contentRight,r.right);
-     }
-
-     /* 4 px bezpieczeństwa między lewą zawartością a listą. */
-     collision=contentRight>boundary-4;
-   }
-
-   if(collision){
-     /*
-        Wyjątek typu 705: jeżeli 95/100 naprawdę się nie mieści,
-        wracamy dokładnie do dynamicznych minimów.
-     */
-     w1=m1;
-     w2=m2;
-     apply(tab,root,head,w1,w2);
-     await frame();await frame();
-
-     if(typeof ustawZawijanieNazwTrasy==='function')
-       ustawZawijanieNazwTrasy(root);
-     if(typeof v665SynchronizujWysokosci==='function')
-       v665SynchronizujWysokosci(root);
-
-     await frame();await frame();
-   }
+   return {w1,w2};
  }
+
+ function actualBottom(col){
+   const rows=visibleRows(col);
+   if(!rows.length)return -Infinity;
+   let bottom=-Infinity;
+   for(const r of rows){
+     const rr=r.getBoundingClientRect();
+     const st=getComputedStyle(r);
+     bottom=Math.max(bottom,rr.bottom+(parseFloat(st.marginBottom)||0));
+   }
+   return bottom;
+ }
+
+ function fitsFinal(tab,col){
+   return actualBottom(col)<=tab.getBoundingClientRect().bottom-8+0.5;
+ }
+
  async function run(){
-   if(busy)return;busy=true;
+   if(busy)return;
+   busy=true;
    try{
-     await frame();await frame();await frame();
-     const tab=host.querySelector('.tabliczka'),root=tab?.querySelector('.trasa-columns'),head=tab?.querySelector('.trasa-head');
-     if(!tab||!root)return;
-     const cols=colsOf(root);
-     if(cols.length!==2||!root.classList.contains('cols-2'))return;
-     const c1=cols[0],c2=cols[1],l1=listOf(c1),l2=listOf(c2);
+     const tab=host.querySelector('.tabliczka');
+     const root=tab?.querySelector('.trasa-columns');
+     if(!tab||!root||!root.classList.contains('cols-2'))return;
+
+     const cols=getCols(root);
+     if(cols.length!==2)return;
+     const [c1,c2]=cols;
+     const l1=listOf(c1),l2=listOf(c2);
      if(!l1||!l2)return;
+
+     /* Zapamiętujemy logiczną kolejność dokładnie raz. */
      const all=[...l1.children,...l2.children];
      if(all.length<2)return;
 
-     /* V1039 — punkt podziału liczymy z FAKTYCZNEJ wysokości po
-        finalnym ustaleniu szerokości i po synchronizacji zawijania.
-        Maksymalnie zapełniamy pierwszą kolumnę, ale ani jeden element
-        nie może wyjść poza dolną krawędź kartki. */
-     let best=-1;
+     let winner=null;
 
+     /*
+       Każdy kandydat jest liczony OD ZERA:
+       1. wkładamy elementy wg cut,
+       2. liczymy minima tylko dla tego podziału,
+       3. ustalamy FINALNE 100/95,
+       4. zawijamy przy tych szerokościach,
+       5. mierzymy wysokość,
+       6. nie przenosimy szerokości do następnej próby.
+
+       Idziemy od największego cut, więc pierwszy pasujący kandydat
+       daje maksymalnie zapełnioną pierwszą kolumnę.
+     */
      for(let cut=all.length-1;cut>=1;cut--){
        l1.replaceChildren(...all.slice(0,cut));
        l2.replaceChildren(...all.slice(cut));
 
-       await widthFor(tab,root,head,c1,c2);
-       await frame();await frame();
+       const widths=await setFinalWidths(tab,root,head,c1,c2);
 
-       if(typeof ustawZawijanieNazwTrasy==='function')
-         ustawZawijanieNazwTrasy(root);
-       if(typeof v665SynchronizujWysokosci==='function')
-         v665SynchronizujWysokosci(root);
-
-       await frame();await frame();
-
-       if(fits(tab,c1)&&fits(tab,c2)){
-         best=cut;
+       if(fitsFinal(tab,c1)&&fitsFinal(tab,c2)){
+         winner={cut,w1:widths.w1,w2:widths.w2};
          break;
        }
      }
 
-     if(best>=1){
-       l1.replaceChildren(...all.slice(0,best));
-       l2.replaceChildren(...all.slice(best));
-       await widthFor(tab,root,head,c1,c2);
+     if(winner){
+       /* Odtwarzamy zwycięzcę i zamrażamy jego finalne szerokości. */
+       l1.replaceChildren(...all.slice(0,winner.cut));
+       l2.replaceChildren(...all.slice(winner.cut));
+
+       apply(tab,root,head,winner.w1,winner.w2);
        await frame();await frame();
 
        if(typeof ustawZawijanieNazwTrasy==='function')
@@ -31246,54 +31231,45 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
 
        await frame();await frame();
 
-       /* Zabezpieczenie końcowe: jeżeli po ostatniej synchronizacji
-          pierwsza kolumna jednak urosła, przenosimy jej ostatni element
-          na początek drugiej aż obie faktycznie się mieszczą. */
-       while(!fits(tab,c1) && l1.children.length>1){
-         l2.insertBefore(l1.lastElementChild,l2.firstElementChild);
-         await widthFor(tab,root,head,c1,c2);
-         await frame();await frame();
-
-         if(typeof ustawZawijanieNazwTrasy==='function')
-           ustawZawijanieNazwTrasy(root);
-         if(typeof v665SynchronizujWysokosci==='function')
-           v665SynchronizujWysokosci(root);
-
-         await frame();
-       }
-     }else{
-       /* Jeżeli żadnego podziału 2-kolumnowego nie da się zmieścić,
-          NIE udajemy że połowa/połowa pasuje. Zostawiamy podział,
-          który minimalizuje maksymalną wysokość obu kolumn. */
-       let bestCut=Math.max(1,Math.ceil(all.length/2));
-       let bestOverflow=Infinity;
-
-       for(let cut=1;cut<all.length;cut++){
-         l1.replaceChildren(...all.slice(0,cut));
-         l2.replaceChildren(...all.slice(cut));
-         await widthFor(tab,root,head,c1,c2);
-         await frame();
-
-         const limit=tab.getBoundingClientRect().bottom-8;
-         const b1=visibleRows(c1).length
-           ? Math.max(...visibleRows(c1).map(r=>r.getBoundingClientRect().bottom))
-           : 0;
-         const b2=visibleRows(c2).length
-           ? Math.max(...visibleRows(c2).map(r=>r.getBoundingClientRect().bottom))
-           : 0;
-         const overflow=Math.max(0,b1-limit)+Math.max(0,b2-limit);
-
-         if(overflow<bestOverflow){
-           bestOverflow=overflow;
-           bestCut=cut;
-         }
-       }
-
-       l1.replaceChildren(...all.slice(0,bestCut));
-       l2.replaceChildren(...all.slice(bestCut));
-       await widthFor(tab,root,head,c1,c2);
+       /* Po tym miejscu NIE przeliczamy już szerokości. */
+       return;
      }
-   }finally{busy=false;}
+
+     /*
+       Jeżeli żadna konfiguracja 2-kolumnowa nie mieści się w pionie,
+       wybieramy najmniejszy overflow. To pozwala dalszej, istniejącej
+       logice przejść do 3 kolumn bez fałszywego "pasuje".
+     */
+     let best=null;
+     const limit=tab.getBoundingClientRect().bottom-8;
+
+     for(let cut=1;cut<all.length;cut++){
+       l1.replaceChildren(...all.slice(0,cut));
+       l2.replaceChildren(...all.slice(cut));
+       const widths=await setFinalWidths(tab,root,head,c1,c2);
+
+       const overflow=
+         Math.max(0,actualBottom(c1)-limit)+
+         Math.max(0,actualBottom(c2)-limit);
+
+       if(!best||overflow<best.overflow)
+         best={cut,w1:widths.w1,w2:widths.w2,overflow};
+     }
+
+     if(best){
+       l1.replaceChildren(...all.slice(0,best.cut));
+       l2.replaceChildren(...all.slice(best.cut));
+       apply(tab,root,head,best.w1,best.w2);
+       await frame();await frame();
+
+       if(typeof ustawZawijanieNazwTrasy==='function')
+         ustawZawijanieNazwTrasy(root);
+       if(typeof v665SynchronizujWysokosci==='function')
+         v665SynchronizujWysokosci(root);
+     }
+   }finally{
+     busy=false;
+   }
  }
  function queue(){if(queued||busy)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;run()}));}
  new MutationObserver(ch=>{if(!busy&&ch.some(x=>x.target===host))queue()}).observe(host,{childList:true,subtree:false});
@@ -33252,6 +33228,24 @@ html body .tabliczka .trasa-columns.cols-2
     z zawartością lewej części,
  5. tylko przy PRAWDZIWEJ kolizji wracamy do minimów (np. 705),
  6. V1039 nadal liczy wysokość dopiero po finalnej szerokości.
+ ========================================================= -->
+
+
+<!-- =========================================================
+ WERSJA 1042 — STABILNY SOLVER 2 KOLUMN
+
+ Naprawa sprzężenia:
+ szerokość -> zawijanie -> wysokość -> podział -> nowa szerokość.
+
+ Dla KAŻDEGO punktu podziału:
+ 1. elementy są ustawiane od zera,
+ 2. liczone są minima C1/C2,
+ 3. finalna para szerokości = 100/95 (jeśli mieści się fizycznie),
+ 4. wykonywane jest finalne zawijanie,
+ 5. dopiero wtedy mierzona jest wysokość,
+ 6. wynik poprzedniego kandydata nie jest używany w następnym.
+
+ Po znalezieniu najlepszego podziału szerokości są zamrożone.
  ========================================================= -->
 
 </body>
