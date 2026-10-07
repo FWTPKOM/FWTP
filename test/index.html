@@ -1,4 +1,4 @@
-<!-- WERSJA: 1063 -->
+<!-- WERSJA: 1064 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31171,18 +31171,61 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
         Dopiero gdy nawet absolutne minimum lewej części tabliczki
         nie pozwala na 100/95, odpuszczamy tę regułę (np. 705).
      */
-     const absoluteLeftMin=Math.max(
-       180,
-       Math.ceil(number?.offsetWidth||0)+18,
-       Math.ceil(grid?.scrollWidth||0)+18
-     );
-     const absoluteMaxRight=Math.max(2,paper-absoluteLeftMin-2);
+     /*
+      V1064 — rzeczywista granica lewej zawartości.
 
-     if(total>absoluteMaxRight){
-       w1=m1;
-       w2=m2;
-       total=w1+w2;
+      Nie rezerwujemy całej szerokości .panel-lewy.
+      Szukamy najdalej wysuniętego w prawo elementu, który naprawdę
+      zawiera rozkład/nagłówek/legendę. Prawy panel może wejść w pustą
+      przestrzeń aż do tej granicy + 8 px marginesu.
+   */
+   const tabRect=tab.getBoundingClientRect();
+   const leftPanel=tab.querySelector('.panel-lewy');
+
+   let occupiedRight=tabRect.left+180;
+
+   if(leftPanel){
+     const candidates=[
+       leftPanel.querySelector('.numer-linii-box'),
+       leftPanel.querySelector('.rozklady-grid'),
+       leftPanel.querySelector('.legenda'),
+       leftPanel.querySelector('.warianty'),
+       leftPanel.querySelector('.naglowek-linii'),
+       leftPanel.querySelector('.kierunek-linii')
+     ].filter(Boolean);
+
+     for(const el of candidates){
+       const r=el.getBoundingClientRect();
+       if(r.width>0 && r.height>0){
+         occupiedRight=Math.max(occupiedRight,r.right);
+       }
      }
+
+     /*
+       Jeżeli konkretne klasy nie obejmują któregoś elementu lewej
+       zawartości, bierzemy widoczne bezpośrednie dzieci, ale pomijamy
+       elementy rozciągnięte sztucznie na całą szerokość panelu.
+     */
+     for(const el of leftPanel.querySelectorAll(':scope > *')){
+       const r=el.getBoundingClientRect();
+       if(r.width<=0 || r.height<=0)continue;
+       if(r.width>leftPanel.getBoundingClientRect().width*0.92)continue;
+       occupiedRight=Math.max(occupiedRight,r.right);
+     }
+   }
+
+   const realLeftBoundary=Math.ceil(occupiedRight-tabRect.left)+8;
+   const realMaxRight=Math.max(2,paper-realLeftBoundary-2);
+
+   if(total>realMaxRight){
+     /*
+       Dopiero tutaj naprawdę brakuje miejsca między zawartością
+       rozkładu a prawą ścianą kartki. Tylko wtedy wolno odpuścić 5%.
+     */
+     w1=m1;
+     w2=m2;
+     total=w1+w2;
+   }
    }
 
    apply(tab,root,head,w1,w2);
@@ -33306,6 +33349,22 @@ html body .tabliczka .trasa-nazwa > .trasa-nazwa-aktywna > .v1052-line{
  - wysokość/podział przystanków pozostają z V1040,
  - dopiero przy rzeczywistym braku miejsca na kartce (np. 705)
    wolno zrezygnować z 5%.
+ ========================================================= -->
+
+
+<!-- =========================================================
+ WERSJA 1064 — 5% WYKORZYSTUJE RZECZYWIŚCIE WOLNE MIEJSCE
+
+ Dla 2 kolumn:
+ - szersza = 100%, węższa = 95%;
+ - prawa część może rozszerzać się W LEWO przez pusty obszar;
+ - granicą nie jest szerokość całego panel-lewy;
+ - granicą jest prawa krawędź FAKTYCZNIE zajętej zawartości
+   rozkładu/nagłówka/legendy + 8 px;
+ - dopiero rzeczywiste zderzenie z lewą zawartością pozwala
+   zrezygnować z 5% (np. skrajnie rozbudowana 705);
+ - położenie „ż” pozostaje z V1040/V1061;
+ - logika wysokości i podziału przystanków pozostaje bez zmian.
  ========================================================= -->
 
 </body>
