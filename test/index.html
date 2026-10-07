@@ -1,4 +1,4 @@
-<!-- WERSJA: 1065 -->
+<!-- WERSJA: 1066 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31114,20 +31114,12 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    const paper=tab.clientWidth;
 
    /*
-      V1062 — PRAWDZIWE 5% RÓŻNICY SZEROKOŚCI.
+      V1040 — połączenie działającej idei V1021 z poprawnym
+      pomiarem wysokości V1039.
 
-      Nie używamy już 47.5% / 52.5%.
-      Zasada jest dokładnie taka:
-          szersza kolumna = 100%
-          węższa kolumna = 95%
-
-      Czyli np. 200 px / 190 px.
-
-      Nadal zachowujemy:
-      - dynamiczne minimum każdej kolumny,
-      - pomiar wysokości z V1039/V1040,
-      - wyjątek dla układów typu 705: jeśli 100/95 fizycznie
-        nie mieści się na kartce, nie zwężamy zawartości poniżej minimum.
+      V1021 ograniczała udział pierwszej kolumny do 47.5–52.5%.
+      To właśnie daje maks. 5 PUNKTÓW PROCENTOWYCH różnicy
+      szerokości kolumn w całej parze.
    */
    const grid=tab.querySelector('.panel-lewy .rozklady-grid');
    const number=tab.querySelector('.panel-lewy .numer-linii-box');
@@ -31139,88 +31131,53 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    );
    const maxRight=Math.max(2,paper-minLeft-4);
 
-   const m1=Math.ceil(a.min);
-   const m2=Math.ceil(b.min);
+   const m1=a.min;
+   const m2=b.min;
 
-   let w1,w2,total;
-
-   if(m1>=m2){
-     /* Pierwsza potrzebuje co najmniej tyle samo miejsca:
-        C1 = 100%, C2 = 95%. */
-     const wide=Math.ceil(Math.max(m1,m2/0.95));
-     w1=wide;
-     w2=Math.ceil(wide*0.95);
-   }else{
-     /* Druga potrzebuje więcej miejsca:
-        C2 = 100%, C1 = 95%. */
-     const wide=Math.ceil(Math.max(m2,m1/0.95));
-     w2=wide;
-     w1=Math.ceil(wide*0.95);
-   }
-
-   total=w1+w2;
-
-   if(total>maxRight){
-     /*
-        V1063:
-        NIE wolno wracać do m1/m2 tylko dlatego, że stary limit
-        prawego panelu jest za mały. Najpierw wykorzystujemy wolne
-        miejsce po lewej stronie tabliczki i poszerzamy cały panel
-        prawy W LEWO, zachowując parę 100% / 95%.
-
-        Dopiero gdy nawet absolutne minimum lewej części tabliczki
-        nie pozwala na 100/95, odpuszczamy tę regułę (np. 705).
-     */
-     /*
-      V1064 — rzeczywista granica lewej zawartości.
-
-      Nie rezerwujemy całej szerokości .panel-lewy.
-      Szukamy najdalej wysuniętego w prawo elementu, który naprawdę
-      zawiera rozkład/nagłówek/legendę. Prawy panel może wejść w pustą
-      przestrzeń aż do tej granicy + 8 px marginesu.
+   /*
+      Proporcja wynika z potrzeb obu kolumn, ale jest ograniczona
+      dokładnie tak jak w V1021: 47.5%–52.5%.
    */
-   const tabRect=tab.getBoundingClientRect();
-   const leftPanel=tab.querySelector('.panel-lewy');
+   let p=m1/Math.max(1,m1+m2);
+   p=Math.max(0.475,Math.min(0.525,p));
 
-   let occupiedRight=tabRect.left+180;
+   /*
+      Najmniejsza CAŁKOWITA szerokość pary, przy której:
+      C1 >= minimum C1
+      C2 >= minimum C2
+      i jednocześnie zachowane jest 47.5–52.5%.
+   */
+   let total=Math.ceil(Math.max(
+     m1/p,
+     m2/(1-p)
+   ));
 
-   if(leftPanel){
-     /*
-       V1065:
-       Granicę dla poszerzania listy wyznaczają WYŁĄCZNIE:
-       1) rozkład jazdy,
-       2) nagłówek linii.
+   let w1,w2;
 
-       Legenda i opisy wariantów NIE ograniczają szerokości listy,
-       ponieważ mogą się zawijać po zwężeniu lewej części.
-     */
-     const candidates=[
-       leftPanel.querySelector('.numer-linii-box'),
-       leftPanel.querySelector('.rozklady-grid'),
-       leftPanel.querySelector('.naglowek-linii'),
-       leftPanel.querySelector('.kierunek-linii')
-     ].filter(Boolean);
+   if(total<=maxRight){
+     w1=Math.ceil(total*p);
+     w2=total-w1;
 
-     for(const el of candidates){
-       const r=el.getBoundingClientRect();
-       if(r.width>0 && r.height>0){
-         occupiedRight=Math.max(occupiedRight,r.right);
-       }
+     /* Ochrona przed zaokrągleniem o 1 px. */
+     if(w1<m1){
+       w1=m1;
+       total=Math.ceil(w1/p);
+       w2=total-w1;
      }
-   }
-
-   const realLeftBoundary=Math.ceil(occupiedRight-tabRect.left)+8;
-   const realMaxRight=Math.max(2,paper-realLeftBoundary-2);
-
-   if(total>realMaxRight){
+     if(w2<m2){
+       w2=m2;
+       total=Math.ceil(w2/(1-p));
+       w1=total-w2;
+     }
+   }else{
      /*
-       Dopiero tutaj naprawdę brakuje miejsca między zawartością
-       rozkładu a prawą ścianą kartki. Tylko wtedy wolno odpuścić 5%.
+        Jak ustaliliśmy dla np. 705:
+        jeśli zachowanie 5 p.p. fizycznie się nie mieści,
+        nie wymuszamy go kosztem zawartości.
      */
      w1=m1;
      w2=m2;
      total=w1+w2;
-   }
    }
 
    apply(tab,root,head,w1,w2);
@@ -33313,68 +33270,234 @@ html body .tabliczka .trasa-nazwa > .trasa-nazwa-aktywna > .v1052-line{
 
 
 <!-- =========================================================
- WERSJA 1062 — V1061 + PRAWDZIWE 5% DLA 2 KOLUMN
+ WERSJA 1066 — V1061 + DOKŁADNY SOLVER 2 KOLUMN Z V1050
 
- „Ż” i geometria bazowa pozostają z V1040/V1061.
+ Baza:
+ - V1040 dla poprawnego „ż”,
+ - poprawka aktywnego przystanku z V1053.
 
- Dla dwóch kolumn:
- - szersza = 100%,
- - węższa = 95%,
- - każda zachowuje własne dynamiczne minimum,
- - szerokość całej prawej części jest nadal możliwie najmniejsza,
- - punkt podziału nadal wybiera mechanizm wysokości V1039/V1040,
- - jeżeli 100/95 nie mieści się fizycznie (np. rozbudowana 705),
-   reguła 5% jest odpuszczana zamiast ściskać zawartość.
+ Dwie kolumny:
+ - kod szerokości/wysokości przeniesiony bezpośrednio z V1050,
+ - 95% liczone z CAŁEJ dostępnej szerokości prawego panelu:
+   51.282% / 48.718%,
+ - max 2 wiersze nazwy,
+ - C1 dopełniana do rzeczywistego dołu,
+ - jeśli 95% narusza minima treści, zostają minima (np. 705).
+
+ Nie używamy mechanizmów V1062–V1065.
  ========================================================= -->
-
 
 <!-- =========================================================
- WERSJA 1063 — 5% MA PIERWSZEŃSTWO PRZED STARYM LIMITEM PANELU
+ WERSJA 1050 — 2 KOLUMNY: 95% + MAX 2 WIERSZE + PEŁNA C1
 
- Poprawka względem V1062:
- V1062 poprawnie liczyła 100/95, ale następnie przy przekroczeniu
- starego maxRight wracała do minimalnych szerokości m1/m2.
- Na liniach takich jak 108 dawało to wizualnie np. ~60/40 zamiast 100/95.
-
- V1063:
- - najpierw wylicza rzeczywiste 100% / 95%,
- - poszerza CAŁY prawy panel w lewo, aby te szerokości zachować,
- - „ż” pozostaje z mechanizmu V1040,
- - minima nazw nadal obowiązują,
- - wysokość/podział przystanków pozostają z V1040,
- - dopiero przy rzeczywistym braku miejsca na kartce (np. 705)
-   wolno zrezygnować z 5%.
+ Poprawka V1049:
+ - 95% NIE jest już liczone od minimalnej szerokości treści.
+   Dwie kolumny dzielą CAŁĄ dostępną szerokość prawego panelu w relacji
+   51.282% / 48.718% (czyli węższa = dokładnie 95% szerszej).
+ - jeśli taki układ nie spełnia minimalnej szerokości treści, reguła 95%
+   zostaje wyłączona i używane są minima (np. 705).
+ - nazwy przystanków w 2 kolumnach nadal max 2 wiersze.
+ - C1 jest dopełniana do realnego dołu obszaru listy, bez wcześniejszego
+   zapasu 8 px, który zostawiał miejsce na jeszcze jeden przystanek.
  ========================================================= -->
+<style id="fwtp-v1050-two-lines">
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop>.trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop>.trasa-nazwa{
+  overflow:visible!important;
+  word-break:normal!important;
+  overflow-wrap:normal!important;
+  hyphens:none!important;
+}
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1050-two,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1050-two{
+  height:33px!important;
+  min-height:33px!important;
+}
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1050-two>.trasa-nazwa,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1050-two>.trasa-nazwa{
+  line-height:12px!important;
+}
+html body .tabliczka .trasa-columns.cols-2 .trasa-stop.v1050-one,
+html body .tabliczka .trasa-columns.cols-2 .trasa-extra-stop.v1050-one{
+  height:16.5px!important;
+  min-height:16.5px!important;
+}
+</style>
 
+<script id="fwtp-v1050-final-two-column-solver">
+(function(){
+'use strict';
+const host=document.getElementById('wynik'); if(!host)return;
+let timer=0,working=false,ro=null;
+const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
+const nextFrame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
 
-<!-- =========================================================
- WERSJA 1064 — 5% WYKORZYSTUJE RZECZYWIŚCIE WOLNE MIEJSCE
+function schedule(ms=100){clearTimeout(timer);timer=setTimeout(run,ms);}
 
- Dla 2 kolumn:
- - szersza = 100%, węższa = 95%;
- - prawa część może rozszerzać się W LEWO przez pusty obszar;
- - granicą nie jest szerokość całego panel-lewy;
- - granicą jest prawa krawędź FAKTYCZNIE zajętej zawartości
-   rozkładu/nagłówka/legendy + 8 px;
- - dopiero rzeczywiste zderzenie z lewą zawartością pozwala
-   zrezygnować z 5% (np. skrajnie rozbudowana 705);
- - położenie „ż” pozostaje z V1040/V1061;
- - logika wysokości i podziału przystanków pozostaje bez zmian.
- ========================================================= -->
+function measure(el,text){
+  const cs=getComputedStyle(el),m=document.createElement('span');
+  m.textContent=text;
+  m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
+  ['fontFamily','fontSize','fontWeight','fontStyle','fontStretch','letterSpacing','lineHeight']
+    .forEach(k=>m.style[k]=cs[k]);
+  document.body.appendChild(m);
+  const w=m.getBoundingClientRect().width;m.remove();return w;
+}
+function textOf(el){
+  if(!el.dataset.v1050Text)
+    el.dataset.v1050Text=clean(el.dataset.v1019FullText||el.dataset.v946Text||el.dataset.v987Text||el.dataset.v665Text||el.textContent);
+  return el.dataset.v1050Text;
+}
+function words(t){return t.replace(/([-–—])(?=\S)/g,'$1 ').split(/\s+/).filter(Boolean)}
+function join(a){return a.join(' ').replace(/([-–—]) /g,'$1')}
+function split2(el,t){
+  const w=words(t); if(w.length<2)return {lines:[t],need:measure(el,t)};
+  let best=null;
+  for(let i=1;i<w.length;i++){
+    const a=join(w.slice(0,i)),b=join(w.slice(i));
+    const need=Math.max(measure(el,a),measure(el,b));
+    if(!best||need<best.need)best={lines:[a,b],need};
+  }
+  return best;
+}
+function reserve(row,el,col){
+  const cr=col.getBoundingClientRect(),er=el.getBoundingClientRect();
+  const left=Math.max(31,er.left-cr.left);
+  const nz=row.querySelector(':scope>.trasa-nz');
+  const z=Math.max(10,nz?.getBoundingClientRect().width||0);
+  return Math.ceil(left+z+10);
+}
+function minimum(col,label){
+  let need=label?Math.ceil(measure(label,'czasy, trasa, przystanki')+8):130;
+  col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+    const el=row.querySelector(':scope>.trasa-nazwa');if(!el)return;
+    const t=textOf(el);if(!t)return;
+    need=Math.max(need,Math.ceil(split2(el,t).need+reserve(row,el,col)));
+  });
+  return Math.max(130,need);
+}
+function setWidths(tab,root,head,w1,w2){
+  w1=Math.floor(w1); w2=Math.floor(w2);
+  const total=w1+w2,left=Math.max(180,tab.clientWidth-total);
+  tab.style.setProperty('--prawa',total+'px','important');
+  tab.style.setProperty('--lewa',left+'px','important');
+  tab.style.setProperty('grid-template-columns',left+'px '+total+'px','important');
+  root.style.setProperty('grid-template-columns',w1+'px '+w2+'px','important');
+  root.style.setProperty('width',total+'px','important');
+  root.style.setProperty('max-width',total+'px','important');
+  root.style.setProperty('margin','0 0 0 auto','important');
+  if(head){
+    head.style.setProperty('grid-template-columns',w1+'px '+w2+'px','important');
+    head.style.setProperty('width',total+'px','important');
+    head.style.setProperty('max-width',total+'px','important');
+    head.style.setProperty('margin','0 0 0 auto','important');
+  }
+}
+function renderRow(row,col){
+  const el=row.querySelector(':scope>.trasa-nazwa');if(!el)return;
+  const t=textOf(el),available=Math.max(1,col.getBoundingClientRect().width-reserve(row,el,col));
+  let lines=measure(el,t)<=available?[t]:split2(el,t).lines;
+  if(lines.length>2)lines=lines.slice(0,2);
+  const active=row.classList.contains('wybrany')||!!el.querySelector(':scope>.trasa-nazwa-aktywna');
+  el.replaceChildren();let target=el;
+  if(active){const a=document.createElement('span');a.className='trasa-nazwa-aktywna';el.appendChild(a);target=a}
+  lines.forEach((x,i)=>{if(i)target.appendChild(document.createElement('br'));target.appendChild(document.createTextNode(x))});
+  const two=lines.length===2;
+  row.classList.toggle('v1050-two',two);row.classList.toggle('v1050-one',!two);
+  row.classList.toggle('v665-dwuliniowy',two);row.classList.toggle('v665-jednoliniowy',!two);
+}
+function renderAll(cols){cols.forEach(c=>c.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(r=>renderRow(r,c)));void cols[0].offsetHeight}
+function listBottom(list){
+  let b=-Infinity;
+  [...list.children].forEach(el=>{
+    if(getComputedStyle(el).display==='none')return;
+    const r=el.getBoundingClientRect(),cs=getComputedStyle(el);
+    b=Math.max(b,r.bottom+(parseFloat(cs.marginBottom)||0));
+  });return b;
+}
+function sep(el){return !!el&&el.classList.contains('trasa-separator')}
+function lastGroup(list){
+  const x=list.lastElementChild;if(!x)return [];
+  const g=[x];let p=x.previousElementSibling;
+  while(p&&sep(p)){g.unshift(p);p=p.previousElementSibling}return g;
+}
+function firstGroup(list){
+  const x=list.firstElementChild;if(!x)return [];
+  const g=[x];let n=x.nextElementSibling;
+  while(sep(g[g.length-1])&&n){g.push(n);n=n.nextElementSibling}return g;
+}
+function toStart(list,g){for(let i=g.length-1;i>=0;i--)list.insertBefore(g[i],list.firstElementChild)}
+function toEnd(list,g){g.forEach(x=>list.appendChild(x))}
 
+async function run(){
+  if(working)return;
+  const tab=host.querySelector('.tabliczka'),root=tab?.querySelector('.trasa-columns.cols-2'),head=tab?.querySelector('.trasa-head');
+  if(!tab||!root)return;
+  const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol')&&getComputedStyle(x).display!=='none');
+  if(cols.length!==2)return;
+  const l1=cols[0].querySelector(':scope>.trasa-lista'),l2=cols[1].querySelector(':scope>.trasa-lista');
+  if(!l1||!l2)return;
+  working=true;
+  try{
+    const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
+    const m1=minimum(cols[0],labels[0]),m2=minimum(cols[1],labels[1]);
 
-<!-- =========================================================
- WERSJA 1065 — GRANICA 5%: TYLKO ROZKŁAD + NAGŁÓWEK
+    const leftPanel=tab.querySelector('.panel-lewy'),grid=leftPanel?.querySelector('.rozklady-grid'),num=leftPanel?.querySelector('.numer-linii-box');
+    const minLeft=Math.max(180,Math.ceil((grid?.scrollWidth||0)+38),Math.ceil((num?.offsetWidth||0)+24));
+    const available=Math.max(2,tab.clientWidth-minLeft-4);
 
- Przy poszerzaniu prawej części dla układu 100% / 95%:
- - patrzymy na rzeczywistą prawą krawędź ROZKŁADU JAZDY,
- - patrzymy na rzeczywistą prawą krawędź NAGŁÓWKA,
- - NIE uwzględniamy legendy,
- - NIE uwzględniamy opisów wariantów,
- - legenda może się zawijać po zwężeniu lewej części,
- - „ż” pozostaje z V1040/V1061,
- - wysokość i podział przystanków pozostają bez zmian.
- ========================================================= -->
+    /* CAŁA dostępna szerokość, a nie minima. Węższa = 95% szerszej. */
+    let w1=available/1.95, w2=available-w1;
 
+    /* Zachowujemy kierunek: kolumna wymagająca więcej miejsca jest szersza. */
+    if(m2>m1){const t=w1;w1=w2;w2=t}
+
+    /* 95% tylko gdy obie kolumny nadal spełniają swoje minimum.
+       Przy 705/ciasnym układzie priorytet ma brak 3. wiersza. */
+    if(w1+0.01<m1 || w2+0.01<m2){
+      w1=m1;w2=m2;
+    }
+
+    setWidths(tab,root,head,w1,w2);
+    await nextFrame();
+    renderAll(cols);
+    await nextFrame();
+
+    /* Bez sztucznego -8 px. Granicą jest realny dół listy/kartki.
+       1 px zostaje wyłącznie na obrys. */
+    const limit=Math.min(
+      tab.getBoundingClientRect().bottom-1,
+      root.getBoundingClientRect().bottom-1
+    );
+
+    let guard=0;
+    while(l1.children.length>1&&listBottom(l1)>limit+.25&&guard++<500){
+      const g=lastGroup(l1);if(!g.length)break;
+      toStart(l2,g);renderAll(cols);
+    }
+
+    /* Maksymalne C1: próbujemy KAŻDY kolejny blok. */
+    guard=0;
+    while(l2.firstElementChild&&guard++<500){
+      const g=firstGroup(l2);if(!g.length)break;
+      toEnd(l1,g);renderAll(cols);
+      if(listBottom(l1)<=limit+.25)continue;
+      toStart(l2,g);renderAll(cols);break;
+    }
+  }finally{working=false}
+}
+function attach(){
+  const root=host.querySelector('.trasa-columns');if(!root)return;
+  if(ro)ro.disconnect();
+  ro=new ResizeObserver(()=>{if(!working)schedule(120)});
+  ro.observe(root);[...root.children].forEach(c=>{if(c.classList.contains('trasa-kol'))ro.observe(c)});
+  schedule(40);setTimeout(()=>schedule(0),180);setTimeout(()=>schedule(0),420);setTimeout(()=>schedule(0),800);
+}
+new MutationObserver(ch=>{if(!working&&ch.some(m=>m.target===host))setTimeout(attach,0)}).observe(host,{childList:true,subtree:false});
+window.addEventListener('resize',()=>schedule(150));
+if(document.fonts?.ready)document.fonts.ready.then(()=>{attach();schedule(0)});
+setTimeout(attach,0);
+})();
+</script>
 </body>
 </html>
