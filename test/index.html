@@ -1,4 +1,4 @@
-<!-- WERSJA: 1056 -->
+<!-- WERSJA: 1057 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -32411,109 +32411,10 @@ queue();
  Wymagany odstęp od najdłuższej nazwy do „Ż”: 10 px.
  ========================================================= -->
 <script id="fwtp-v1017-whole-right-list">
-(()=>{
-'use strict';
-
-const host=document.getElementById('wynik');
-if(!host)return;
-
-let busy=false, queued=false;
-const frame=()=>new Promise(r=>requestAnimationFrame(r));
-
-async function run(){
-    if(busy)return;
-    busy=true;
-
-    try{
-        for(let i=0;i<10;i++)await frame();
-
-        const tab=host.querySelector('.tabliczka');
-        const panel=tab?.querySelector('.panel-prawy');
-        const root=panel?.querySelector('.trasa-columns');
-
-        if(!tab||!panel||!root||!root.classList.contains('cols-1'))return;
-
-        /* Usuwamy ewentualne wcześniejsze przesunięcie przed pomiarem. */
-        panel.style.removeProperty('transform');
-        await frame();
-
-        const rows=[...root.querySelectorAll('.trasa-stop,.trasa-extra-stop')];
-
-        let maxNameRight=-Infinity;
-        let zLeft=Infinity;
-
-        rows.forEach(row=>{
-            const name=row.querySelector(':scope > .trasa-nazwa');
-            if(name){
-                maxNameRight=Math.max(
-                    maxNameRight,
-                    name.getBoundingClientRect().right
-                );
-            }
-
-            const z=row.querySelector(':scope > .trasa-nz');
-            if(z && (z.textContent||'').trim()){
-                zLeft=Math.min(
-                    zLeft,
-                    z.getBoundingClientRect().left
-                );
-            }
-        });
-
-        if(!Number.isFinite(maxNameRight)||!Number.isFinite(zLeft))return;
-
-        const gap=zLeft-maxNameRight;
-        const shift=Math.max(0,Math.ceil(10-gap));
-
-        if(!shift)return;
-
-        /*
-          Przesuwamy PANEL-PRAWY, a nie jego wewnętrzną listę.
-          Dzięki temu razem jadą także jego lewa pionowa krawędź
-          oraz nagłówek.
-
-          Ż jest absolutne względem wierszy, więc kompensujemy jego
-          położenie o dokładnie shift, aby wizualnie zostało tam,
-          gdzie było przed przesunięciem całego panelu.
-        */
-        panel.style.setProperty(
-            'transform',
-            'translateX(-'+shift+'px)',
-            'important'
-        );
-
-        root.querySelectorAll('.trasa-nz').forEach(z=>{
-            z.style.setProperty(
-                'right',
-                '1px',
-                'important'
-            );
-        });
-
-    }finally{
-        busy=false;
-    }
-}
-
-function queue(){
-    if(queued||busy)return;
-    queued=true;
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{
-        queued=false;
-        run();
-    }));
-}
-
-new MutationObserver(m=>{
-    if(!busy && m.some(x=>x.target===host))queue();
-}).observe(host,{childList:true});
-
-window.addEventListener('load',queue);
-window.addEventListener('resize',queue);
-if(document.fonts?.ready)document.fonts.ready.then(queue);
-
-queue();
-})();
+/* V1057: WYŁĄCZONE.
+   Ten stary mechanizm przesuwał cały panel translateX(), gdy brakowało
+   odstępu nazwa–Ż. To powodowało, że położenie Ż zależało od długości nazw.
+   Od V1057 brak miejsca rozwiązuje się POSZERZENIEM jednej kolumny. */
 </script>
 
 
@@ -33299,144 +33200,125 @@ zostaje nowrap i maksymalnie 2 wiersze. Logika 100:95 i wysokości bez zmian.
 
 
 <!-- =========================================================
- WERSJA 1054 — Ż ZAWSZE PRZY PRAWEJ ŚCIANIE KOLUMNY
- Nie zmienia szerokości listy ani położenia nazw/kropek.
- Rezerwuje miejsce na Ż i przykleja znacznik do prawej krawędzi
- każdej kolumny również w układzie jednokolumnowym.
+ WERSJA 1057 — 1 KOLUMNA: POSZERZANIE ZAMIAST PRZESUWANIA + Ż PRZY ŚCIANIE
+
+ Zasada:
+ - lista/panel NIE są przesuwane translateX,
+ - szerokość jednej kolumny = szerokość potrzebna dla najdłuższej nazwy
+   + stałe miejsce osi/czasu + 10 px odstępu + kolumna Ż,
+ - Ż pozostaje w istniejącej 4. kolumnie gridu i dlatego zawsze jest
+   w tym samym miejscu przy prawej ścianie,
+ - linia 102 i linie z dłuższymi nazwami używają dokładnie tej samej logiki.
  ========================================================= -->
-<style id="fwtp-v1054-z-przy-scianie">
-html body .tabliczka .trasa-stop,
-html body .tabliczka .trasa-extra-stop{
-    position:relative!important;
+<style id="fwtp-v1057-one-z-wall">
+html body .tabliczka:has(.trasa-columns.cols-1) .panel-prawy{
+    transform:none!important;
 }
-
-/* Ż nie uczestniczy w szerokości nazwy — ma stałą pozycję przy ścianie. */
-html body .tabliczka .trasa-stop>.trasa-nz,
-html body .tabliczka .trasa-extra-stop>.trasa-nz{
-    position:absolute!important;
-    right:1px!important;
-    left:auto!important;
-    margin-left:0!important;
-    margin-right:0!important;
-    padding-left:0!important;
-    padding-right:0!important;
-    justify-self:auto!important;
-    width:auto!important;
-    min-width:0!important;
-    max-width:none!important;
-    bottom:1px!important;
-    transform:scaleY(1.45)!important;
-    transform-origin:right center!important;
-    z-index:4!important;
-}
-
-/* Stała rezerwa przed prawą ścianą, żeby nazwa nigdy nie weszła pod Ż. */
-html body .tabliczka .trasa-stop>.trasa-nazwa,
-html body .tabliczka .trasa-extra-stop>.trasa-nazwa{
-    padding-right:10px!important;
-    box-sizing:border-box!important;
-}
-</style>
-
-
-<!-- =========================================================
- WERSJA 1055 — NAPRAWA ŹRÓDŁA POŁOŻENIA „Ż” W 1 KOLUMNIE
-
- Przyczyna:
- V1017 po przesunięciu całego panelu wykonywała dla każdego „ż”:
-     right: (7 - shift)px !important
- jako STYL INLINE.
- Dla szerokiej listy shift był duży, więc powstawało np. right:-40px.
- Ten inline !important miał pierwszeństwo nawet nad regułą V1054
- right:1px!important. Dlatego na jednych liniach (np. 102) wyglądało
- poprawnie, a na innych „ż” odsuwało się od prawej ściany.
-
- Od V1055 V1017 może nadal przesuwać cały element listy, ale NIE
- kompensuje osobno położenia „ż”. „Ż” zawsze dostaje:
-     right:1px !important
- względem swojego wiersza/kolumny.
- Szerokość jednej kolumny nadal jest dynamiczna i nie wpływa na
- położenie kolumny „ż”.
- ========================================================= -->
-
-
-<!-- =========================================================
- WERSJA 1056 — Ż LICZONE OD KOLUMNY, NIE OD WIERSZA
-
- Przyczyna V1054/V1055:
- right:1px było poprawne, ale .trasa-nz było position:absolute
- względem .trasa-stop. W układzie jednokolumnowym sam .trasa-stop
- bywa węższy od .trasa-kol, więc "prawa krawędź wiersza" nie była
- prawą ścianą kolumny.
-
- Naprawa:
- - wiersz rozciągamy dokładnie do pełnej szerokości .trasa-kol,
- - zachowujemy istniejące 4 pola siatki: czas | oś | nazwa | Ż,
- - Ż wraca do dedykowanej ostatniej kolumny siatki,
- - ostatnia kolumna ma 10 px i kończy się 1 px przed prawą ścianą.
- ========================================================= -->
-<style id="fwtp-v1056-z-kolumna">
-html body .tabliczka .trasa-columns .trasa-kol > .trasa-lista{
-    width:100%!important;
-    max-width:100%!important;
-    min-width:0!important;
-}
-html body .tabliczka .trasa-columns .trasa-stop,
-html body .tabliczka .trasa-columns .trasa-extra-stop{
-    width:100%!important;
-    max-width:100%!important;
-    min-width:0!important;
-    box-sizing:border-box!important;
+html body .tabliczka .trasa-columns.cols-1 .trasa-stop,
+html body .tabliczka .trasa-columns.cols-1 .trasa-extra-stop{
     grid-template-columns:19px 12px minmax(0,1fr) 10px!important;
-    padding-right:1px!important;
 }
-
-/* Ż znowu jest prawdziwą czwartą kolumną siatki. */
-html body .tabliczka .trasa-columns .trasa-stop > .trasa-nz,
-html body .tabliczka .trasa-columns .trasa-extra-stop > .trasa-nz{
-    position:relative!important;
+html body .tabliczka .trasa-columns.cols-1 .trasa-nz{
     grid-column:4!important;
     justify-self:end!important;
-    align-self:start!important;
-    right:0!important;
-    left:auto!important;
+    right:1px!important;
+    margin:0!important;
+    padding:0!important;
     width:10px!important;
     min-width:10px!important;
     max-width:10px!important;
-    margin:0!important;
-    padding:0!important;
     text-align:right!important;
     bottom:1px!important;
     transform:scaleY(1.45)!important;
     transform-origin:right center!important;
 }
-
-/* Nazwa kończy się przed stałą kolumną Ż; nie potrzebuje już
-   sztucznego paddingu z V1054. */
-html body .tabliczka .trasa-columns .trasa-stop > .trasa-nazwa,
-html body .tabliczka .trasa-columns .trasa-extra-stop > .trasa-nazwa{
-    grid-column:3!important;
-    padding-right:0!important;
-    min-width:0!important;
-    box-sizing:border-box!important;
-}
 </style>
 
-<script id="fwtp-v1056-remove-inline-z-position">
+<script id="fwtp-v1057-one-column-width">
 (()=>{
- const host=document.getElementById('wynik');if(!host)return;
- function fix(){
-   host.querySelectorAll('.trasa-nz').forEach(z=>{
-     /* V1017/V1055 mogły zostawić inline right!important.
-        Od tej wersji pozycję ustala wyłącznie 4. kolumna gridu. */
-     z.style.removeProperty('right');
-     z.style.removeProperty('left');
-     z.style.removeProperty('position');
-     z.style.removeProperty('width');
+'use strict';
+const host=document.getElementById('wynik');if(!host)return;
+let busy=false,timer=0;
+const frames=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+
+function measure(el,text){
+ const cs=getComputedStyle(el),m=document.createElement('span');
+ m.textContent=(text||'').replace(/\s+/g,' ').trim();
+ m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
+ ['fontFamily','fontSize','fontWeight','fontStyle','fontStretch','letterSpacing','lineHeight'].forEach(k=>m.style[k]=cs[k]);
+ document.body.appendChild(m);const w=m.getBoundingClientRect().width;m.remove();return w;
+}
+function originalText(el){
+ return (el.dataset.v1019FullText||el.dataset.v946Text||el.dataset.v987Text||
+         el.dataset.v665Text||el.dataset.v957Text||el.textContent||'')
+         .replace(/\s+/g,' ').trim();
+}
+async function run(){
+ if(busy)return;
+ busy=true;
+ try{
+   await frames();
+   const tab=host.querySelector('.tabliczka');
+   const panel=tab?.querySelector('.panel-prawy');
+   const root=panel?.querySelector('.trasa-columns.cols-1');
+   const col=root?.querySelector(':scope>.trasa-kol');
+   const head=tab?.querySelector('.trasa-head.cols-1');
+   if(!tab||!panel||!root||!col)return;
+
+   /* Nigdy nie przesuwamy całego panelu. */
+   panel.style.setProperty('transform','none','important');
+
+   let need=130;
+   root.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+      const name=row.querySelector(':scope>.trasa-nazwa');if(!name)return;
+      const text=originalText(name);if(!text)return;
+
+      /* 19 czas + 12 oś + tekst + 10 px odstępu + 10 px Ż + 2 px luzu.
+         offset mierzymy z istniejącego układu, żeby zachować dokładnie
+         obecne położenie czasu/kropki/nazwy. */
+      const cr=col.getBoundingClientRect();
+      const nr=name.getBoundingClientRect();
+      const offset=Math.max(31,nr.left-cr.left);
+      need=Math.max(need,Math.ceil(offset+measure(name,text)+10+10+2));
    });
- }
- new MutationObserver(()=>requestAnimationFrame(fix)).observe(host,{childList:true,subtree:true});
- requestAnimationFrame(()=>requestAnimationFrame(fix));
+
+   const label=head?.querySelector('.trasa-head-label');
+   if(label)need=Math.max(need,Math.ceil(measure(label,'czasy, trasa, przystanki')+8));
+
+   const left=tab.querySelector('.panel-lewy');
+   const grid=left?.querySelector('.rozklady-grid');
+   const number=left?.querySelector('.numer-linii-box');
+   const minLeft=Math.max(180,(grid?.scrollWidth||0)+24,(number?.offsetWidth||0)+18);
+   const maxRight=Math.max(70,tab.clientWidth-minLeft-2);
+   const w=Math.min(Math.ceil(need),Math.floor(maxRight));
+
+   tab.style.setProperty('--prawa',w+'px','important');
+   tab.style.setProperty('--v904-prawa',w+'px','important');
+   tab.style.setProperty('--v882-single-width',w+'px','important');
+   tab.style.setProperty('--lewa',(tab.clientWidth-w)+'px','important');
+   tab.style.setProperty('grid-template-columns','minmax(0,1fr) '+w+'px','important');
+
+   panel.style.setProperty('width','100%','important');
+   panel.style.setProperty('min-width','0','important');
+   root.style.setProperty('width','100%','important');
+   root.style.setProperty('max-width','100%','important');
+   root.style.setProperty('margin','0','important');
+   if(head){
+      head.style.setProperty('width','100%','important');
+      head.style.setProperty('max-width','100%','important');
+      head.style.setProperty('margin','0','important');
+   }
+
+   /* Kasujemy inline right pozostawione przez stare wersje.
+      Pozycję Ż określa wyłącznie jego stała kolumna gridu. */
+   root.querySelectorAll('.trasa-nz').forEach(z=>z.style.removeProperty('right'));
+ }finally{busy=false}
+}
+function queue(ms=80){clearTimeout(timer);timer=setTimeout(run,ms)}
+new MutationObserver(()=>queue(100)).observe(host,{childList:true,subtree:false});
+window.addEventListener('resize',()=>queue(150));
+if(document.fonts?.ready)document.fonts.ready.then(()=>queue(0));
+setTimeout(()=>queue(0),50);setTimeout(()=>queue(0),300);setTimeout(()=>queue(0),700);
 })();
 </script>
 
