@@ -1,4 +1,4 @@
-<!-- WERSJA: 1061 -->
+<!-- WERSJA: 1062 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31114,12 +31114,20 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    const paper=tab.clientWidth;
 
    /*
-      V1040 — połączenie działającej idei V1021 z poprawnym
-      pomiarem wysokości V1039.
+      V1062 — PRAWDZIWE 5% RÓŻNICY SZEROKOŚCI.
 
-      V1021 ograniczała udział pierwszej kolumny do 47.5–52.5%.
-      To właśnie daje maks. 5 PUNKTÓW PROCENTOWYCH różnicy
-      szerokości kolumn w całej parze.
+      Nie używamy już 47.5% / 52.5%.
+      Zasada jest dokładnie taka:
+          szersza kolumna = 100%
+          węższa kolumna = 95%
+
+      Czyli np. 200 px / 190 px.
+
+      Nadal zachowujemy:
+      - dynamiczne minimum każdej kolumny,
+      - pomiar wysokości z V1039/V1040,
+      - wyjątek dla układów typu 705: jeśli 100/95 fizycznie
+        nie mieści się na kartce, nie zwężamy zawartości poniżej minimum.
    */
    const grid=tab.querySelector('.panel-lewy .rozklady-grid');
    const number=tab.querySelector('.panel-lewy .numer-linii-box');
@@ -31131,49 +31139,32 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    );
    const maxRight=Math.max(2,paper-minLeft-4);
 
-   const m1=a.min;
-   const m2=b.min;
+   const m1=Math.ceil(a.min);
+   const m2=Math.ceil(b.min);
 
-   /*
-      Proporcja wynika z potrzeb obu kolumn, ale jest ograniczona
-      dokładnie tak jak w V1021: 47.5%–52.5%.
-   */
-   let p=m1/Math.max(1,m1+m2);
-   p=Math.max(0.475,Math.min(0.525,p));
+   let w1,w2,total;
 
-   /*
-      Najmniejsza CAŁKOWITA szerokość pary, przy której:
-      C1 >= minimum C1
-      C2 >= minimum C2
-      i jednocześnie zachowane jest 47.5–52.5%.
-   */
-   let total=Math.ceil(Math.max(
-     m1/p,
-     m2/(1-p)
-   ));
-
-   let w1,w2;
-
-   if(total<=maxRight){
-     w1=Math.ceil(total*p);
-     w2=total-w1;
-
-     /* Ochrona przed zaokrągleniem o 1 px. */
-     if(w1<m1){
-       w1=m1;
-       total=Math.ceil(w1/p);
-       w2=total-w1;
-     }
-     if(w2<m2){
-       w2=m2;
-       total=Math.ceil(w2/(1-p));
-       w1=total-w2;
-     }
+   if(m1>=m2){
+     /* Pierwsza potrzebuje co najmniej tyle samo miejsca:
+        C1 = 100%, C2 = 95%. */
+     const wide=Math.ceil(Math.max(m1,m2/0.95));
+     w1=wide;
+     w2=Math.ceil(wide*0.95);
    }else{
+     /* Druga potrzebuje więcej miejsca:
+        C2 = 100%, C1 = 95%. */
+     const wide=Math.ceil(Math.max(m2,m1/0.95));
+     w2=wide;
+     w1=Math.ceil(wide*0.95);
+   }
+
+   total=w1+w2;
+
+   if(total>maxRight){
      /*
-        Jak ustaliliśmy dla np. 705:
-        jeśli zachowanie 5 p.p. fizycznie się nie mieści,
-        nie wymuszamy go kosztem zawartości.
+        Brak fizycznego miejsca na prawdziwe 100/95.
+        Nie psujemy nazw ani układu 705 — wracamy wyłącznie
+        do rzeczywistych minimów obu kolumn.
      */
      w1=m1;
      w2=m2;
@@ -33267,6 +33258,22 @@ html body .tabliczka .trasa-nazwa > .trasa-nazwa-aktywna > .v1052-line{
  requestAnimationFrame(fix);
 })();
 </script>
+
+
+<!-- =========================================================
+ WERSJA 1062 — V1061 + PRAWDZIWE 5% DLA 2 KOLUMN
+
+ „Ż” i geometria bazowa pozostają z V1040/V1061.
+
+ Dla dwóch kolumn:
+ - szersza = 100%,
+ - węższa = 95%,
+ - każda zachowuje własne dynamiczne minimum,
+ - szerokość całej prawej części jest nadal możliwie najmniejsza,
+ - punkt podziału nadal wybiera mechanizm wysokości V1039/V1040,
+ - jeżeli 100/95 nie mieści się fizycznie (np. rozbudowana 705),
+   reguła 5% jest odpuszczana zamiast ściskać zawartość.
+ ========================================================= -->
 
 </body>
 </html>
