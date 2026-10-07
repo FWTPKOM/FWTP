@@ -1,4 +1,4 @@
-<!-- WERSJA: 1045 -->
+<!-- WERSJA: 1046 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -30991,363 +30991,9 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
  liczona ponownie indywidualnie (90% + minimum nagłówka + Ż).
  ========================================================= -->
 <script id="fwtp-v989-height-two-columns">
-(()=>{
- 'use strict';
- const host=document.getElementById('wynik');
- if(!host)return;
- let busy=false,queued=false;
- const frame=()=>new Promise(r=>requestAnimationFrame(r));
- const colsOf=root=>[...root.children].filter(x=>x.classList.contains('trasa-kol'));
- const listOf=c=>c?.querySelector('.trasa-lista');
- const visibleRows=c=>[...listOf(c)?.children||[]].filter(x=>getComputedStyle(x).display!=='none');
- const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
- function measure(el,text){
-   const st=getComputedStyle(el),m=document.createElement('span');
-   m.textContent=text;
-   m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
-   m.style.fontFamily=st.fontFamily;m.style.fontSize=st.fontSize;m.style.fontWeight=st.fontWeight;
-   m.style.fontStyle=st.fontStyle;m.style.fontStretch=st.fontStretch;m.style.letterSpacing=st.letterSpacing;m.style.lineHeight=st.lineHeight;
-   document.body.appendChild(m);const w=m.getBoundingClientRect().width;m.remove();return w;
- }
- function textOf(el){return clean(el.dataset.v946Text||el.dataset.v987Text||el.textContent)}
- function headerWidth(label){return label?Math.ceil(measure(label,'czasy, trasa, przystanki')+9):150}
- function stats(col,label){
-   const cr=col.getBoundingClientRect(),full=[],min=[];
-   const hw=headerWidth(label);
-   visibleRows(col).forEach(row=>{
-     const el=row.querySelector(':scope > .trasa-nazwa');if(!el)return;
-     const t=textOf(el);if(!t)return;
-     const off=Math.max(31,el.getBoundingClientRect().left-cr.left);
-     const nz=row.querySelector(':scope > .trasa-nz');
-     const reserve=Math.max(20,(nz?.getBoundingClientRect().width||10)+10);
-     full.push(Math.ceil(off+measure(el,t)+reserve));
-     const ws=t.split(/\s+/).filter(Boolean);
-
-     /*
-        V1027 — minimalna szerokość NIE jest już liczona z
-        najdłuższego pojedynczego słowa, bo to pozwalało nazwie
-        rozpaść się nawet na 3 wiersze.
-
-        Szukamy najlepszego podziału całej nazwy na MAKS. 2 wiersze
-        i właśnie szerokość szerszego z tych dwóch wierszy traktujemy
-        jako bezwzględne minimum kolumny.
-     */
-     let twoLineMin=0;
-
-     if(ws.length===1){
-       twoLineMin=measure(el,t);
-     }else{
-       twoLineMin=Infinity;
-
-       for(let i=1;i<ws.length;i++){
-         const line1=ws.slice(0,i).join(' ');
-         const line2=ws.slice(i).join(' ');
-         const need=Math.max(
-           measure(el,line1),
-           measure(el,line2)
-         );
-
-         if(need<twoLineMin)twoLineMin=need;
-       }
-     }
-
-     min.push(
-       Math.ceil(
-         off +
-         (Number.isFinite(twoLineMin)?twoLineMin:measure(el,t)) +
-         reserve
-       )
-     );
-   });
-   full.sort((a,b)=>a-b);
-   const p90=full.length?full[Math.max(0,Math.ceil(full.length*.9)-1)]:0;
-   const hardMin=Math.max(hw,min.length?Math.max(...min):0);
-   /* V1034: szerokość bazowa = PRAWDZIWE minimum.
-      p90 nie może już sztucznie poszerzać kolumny. */
-   return {target:hardMin,min:hardMin,p90};
- }
- function fits(tab,col){
-   const list=listOf(col);
-   const rows=visibleRows(col);
-   if(!list||!rows.length)return true;
-
-   /* V1039: nie ufamy wysokości samego kontenera/listy, bo część starych
-      reguł ma overflow/stałe wysokości. Liczymy rzeczywisty dół KAŻDEGO
-      elementu po finalnym zawinięciu nazw. */
-   const limit=verticalLimit(tab);
-   let bottom=list.getBoundingClientRect().top;
-
-   for(const r of rows){
-     const rr=r.getBoundingClientRect();
-     bottom=Math.max(bottom,rr.bottom);
-
-     /* pseudo-elementów nie ma w rect, ale wysokość wiersza już je obejmuje;
-        margin dolny/górny separatorów uwzględniamy jawnie. */
-     const st=getComputedStyle(r);
-     bottom=Math.max(
-       bottom,
-       rr.bottom+(parseFloat(st.marginBottom)||0)
-     );
-   }
-
-   return bottom<=limit+0.5;
- }
- function apply(tab,root,head,w1,w2){
-   const total=Math.ceil(w1+w2),paper=tab.clientWidth;
-   const left=Math.max(180,paper-total);
-   tab.classList.add('v989-two');
-   tab.style.setProperty('--v988-c1',Math.ceil(w1)+'px');
-   tab.style.setProperty('--v988-c2',Math.ceil(w2)+'px');
-   tab.style.setProperty('--v989-c1',Math.ceil(w1)+'px');
-   tab.style.setProperty('--v989-c2',Math.ceil(w2)+'px');
-   tab.style.setProperty('--v869-lewa',left+'px','important');
-   tab.style.setProperty('--prawa',total+'px','important');
-   tab.style.setProperty('--lewa',left+'px','important');
-   tab.style.setProperty('grid-template-columns',left+'px '+total+'px','important');
-   root.style.setProperty('grid-template-columns',Math.ceil(w1)+'px '+Math.ceil(w2)+'px','important');
-   root.style.setProperty('width',total+'px','important');root.style.setProperty('max-width',total+'px','important');
-   if(head){head.style.setProperty('grid-template-columns',Math.ceil(w1)+'px '+Math.ceil(w2)+'px','important');head.style.setProperty('width',total+'px','important');head.style.setProperty('max-width',total+'px','important');}
- }
- async function setFinalWidths(tab,root,head,c1,c2){
-   const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
-   const A=stats(c1,labels[0]), B=stats(c2,labels[1]);
-
-   const m1=Math.ceil(A.min), m2=Math.ceil(B.min);
-
-   /* V1042:
-      finalna para szerokości jest wyliczana JEDEN RAZ dla aktualnego
-      podziału. Mniejsza kolumna ma co najmniej 95% większej. */
-   let w1,w2;
-   if(m1>=m2){
-     w1=m1;
-     w2=Math.max(m2,Math.ceil(w1*0.95));
-   }else{
-     w2=m2;
-     w1=Math.max(m1,Math.ceil(w2*0.95));
-   }
-
-   /* Sprawdzamy fizyczny limit prawego panelu z rzeczywistym minimum
-      lewej części. Bez zależności od poprzedniej szerokości panelu. */
-   const paper=tab.clientWidth;
-   const grid=tab.querySelector('.panel-lewy .rozklady-grid');
-   const number=tab.querySelector('.panel-lewy .numer-linii-box');
-   const minLeft=Math.max(
-     180,
-     Math.ceil((grid?.scrollWidth||0)+38),
-     Math.ceil((number?.offsetWidth||0)+24)
-   );
-   const maxRight=Math.max(2,paper-minLeft-4);
-
-   if(w1+w2>maxRight){
-     /* przypadek typu 705: 95/100 nie mieści się — zostają minima */
-     w1=m1; w2=m2;
-   }
-
-   apply(tab,root,head,w1,w2);
-   await frame(); await frame();
-
-   if(typeof ustawZawijanieNazwTrasy==='function')
-     ustawZawijanieNazwTrasy(root);
-   if(typeof v665SynchronizujWysokosci==='function')
-     v665SynchronizujWysokosci(root);
-
-   await frame(); await frame();
-
-   return {w1,w2};
- }
-
- function verticalLimit(tab){
-   const panel=tab.querySelector('.panel-prawy');
-   if(panel){
-     const r=panel.getBoundingClientRect();
-     if(r.height>0)return r.bottom-8;
-   }
-
-   /* awaryjnie: 160 mm z CSS kartki, liczone od jej górnej krawędzi */
-   const px160mm=160*(96/25.4);
-   return tab.getBoundingClientRect().top+px160mm-8;
- }
-
- function actualBottom(col){
-   const rows=visibleRows(col);
-   if(!rows.length)return -Infinity;
-   let bottom=-Infinity;
-   for(const r of rows){
-     const rr=r.getBoundingClientRect();
-     const st=getComputedStyle(r);
-     bottom=Math.max(bottom,rr.bottom+(parseFloat(st.marginBottom)||0));
-   }
-   return bottom;
- }
-
- function fitsFinal(tab,col){
-   return actualBottom(col)<=verticalLimit(tab)+0.5;
- }
-
- async function run(){
-   if(busy)return;
-   busy=true;
-   try{
-     const tab=host.querySelector('.tabliczka');
-     const root=tab?.querySelector('.trasa-columns');
-     if(!tab||!root||!root.classList.contains('cols-2'))return;
-
-     const cols=colsOf(root);
-     if(cols.length!==2)return;
-     const [c1,c2]=cols;
-     const l1=listOf(c1),l2=listOf(c2);
-     if(!l1||!l2)return;
-
-     /* Zapamiętujemy logiczną kolejność dokładnie raz. */
-     const all=[...l1.children,...l2.children];
-     if(all.length<2)return;
-
-     let winner=null;
-
-     /*
-       Każdy kandydat jest liczony OD ZERA:
-       1. wkładamy elementy wg cut,
-       2. liczymy minima tylko dla tego podziału,
-       3. ustalamy FINALNE 100/95,
-       4. zawijamy przy tych szerokościach,
-       5. mierzymy wysokość,
-       6. nie przenosimy szerokości do następnej próby.
-
-       Idziemy od największego cut, więc pierwszy pasujący kandydat
-       daje maksymalnie zapełnioną pierwszą kolumnę.
-     */
-     for(let cut=all.length-1;cut>=1;cut--){
-       l1.replaceChildren(...all.slice(0,cut));
-       l2.replaceChildren(...all.slice(cut));
-
-       const widths=await setFinalWidths(tab,root,head,c1,c2);
-
-       if(fitsFinal(tab,c1)&&fitsFinal(tab,c2)){
-         winner={cut,w1:widths.w1,w2:widths.w2};
-         break;
-       }
-     }
-
-     if(winner){
-       /* Odtwarzamy zwycięzcę i zamrażamy jego finalne szerokości. */
-       l1.replaceChildren(...all.slice(0,winner.cut));
-       l2.replaceChildren(...all.slice(winner.cut));
-
-       apply(tab,root,head,winner.w1,winner.w2);
-       await frame();await frame();
-
-       if(typeof ustawZawijanieNazwTrasy==='function')
-         ustawZawijanieNazwTrasy(root);
-       if(typeof v665SynchronizujWysokosci==='function')
-         v665SynchronizujWysokosci(root);
-
-       await frame();await frame();
-
-       /* Po tym miejscu NIE przeliczamy już szerokości. */
-       return;
-     }
-
-     /*
-       V1043:
-       Jeżeli ŻADEN podział na 2 kolumny nie mieści się w pionie,
-       nie zostawiamy już przepełnionych 2 kolumn.
-
-       Od razu przechodzimy do 3 kolumn — dokładnie z tego samego
-       powodu, dla którego stary V861 robił trzecią kolumnę.
-     */
-     l1.replaceChildren(...all);
-     l2.replaceChildren();
-
-     let c3=colsOf(root)[2];
-     if(!c3){
-       c3=c2.cloneNode(false);
-       c3.innerHTML='<ul class="trasa-lista"></ul>';
-       root.appendChild(c3);
-     }
-     const l3=listOf(c3);
-
-     tab.classList.add('trasa-3-kol','v854-trzy','v856-trzy');
-     root.classList.remove('cols-1','cols-2');
-     root.classList.add('cols-3');
-
-     if(head){
-       head.classList.remove('cols-1','cols-2');
-       head.classList.add('cols-3');
-       head.innerHTML=
-         '<div class="trasa-head-label">czasy, trasa, przystanki</div>'.repeat(3);
-     }
-
-     /* Oddajemy sterowanie istniejącej logice szerokości 3 kolumn.
-        Nie przenosimy do niej 95/100 przeznaczonego wyłącznie dla 2 kolumn. */
-     root.style.removeProperty('grid-template-columns');
-     if(head)head.style.removeProperty('grid-template-columns');
-     tab.style.removeProperty('--v989-two');
-     tab.style.removeProperty('--v989-right');
-     tab.style.removeProperty('--v989-left');
-
-     await frame();await frame();
-
-     /*
-       Najpierw maksymalnie zapełniamy C1.
-       Gdy C1 wychodzi poza kartkę, jej ostatni element przechodzi
-       na POCZĄTEK C2. Potem identycznie C2 -> C3.
-     */
-     const limit=verticalLimit(tab);
-     const overflow=col=>actualBottom(col)>limit+0.5;
-
-     let guard=0;
-     while(overflow(c1)&&l1.children.length>1&&guard++<500){
-       l2.insertBefore(l1.lastElementChild,l2.firstElementChild);
-       await frame();
-       if(typeof ustawZawijanieNazwTrasy==='function')
-         ustawZawijanieNazwTrasy(root);
-       if(typeof v665SynchronizujWysokosci==='function')
-         v665SynchronizujWysokosci(root);
-     }
-
-     guard=0;
-     while(overflow(c2)&&l2.children.length>1&&guard++<500){
-       l3.insertBefore(l2.lastElementChild,l3.firstElementChild);
-       await frame();
-       if(typeof ustawZawijanieNazwTrasy==='function')
-         ustawZawijanieNazwTrasy(root);
-       if(typeof v665SynchronizujWysokosci==='function')
-         v665SynchronizujWysokosci(root);
-     }
-
-     await frame();await frame();
-
-     /*
-       Po zmianie na 3 kolumny sprawdzamy jeszcze raz C1 i C2,
-       bo ich szerokości są już inne niż w układzie 2-kolumnowym.
-     */
-     guard=0;
-     while(overflow(c1)&&l1.children.length>1&&guard++<500){
-       l2.insertBefore(l1.lastElementChild,l2.firstElementChild);
-       await frame();
-     }
-     guard=0;
-     while(overflow(c2)&&l2.children.length>1&&guard++<500){
-       l3.insertBefore(l2.lastElementChild,l3.firstElementChild);
-       await frame();
-     }
-
-     if(typeof ustawZawijanieNazwTrasy==='function')
-       ustawZawijanieNazwTrasy(root);
-     if(typeof v665SynchronizujWysokosci==='function')
-       v665SynchronizujWysokosci(root);
-
-     await frame();await frame();
-   }finally{
-     busy=false;
-   }
- }
- function queue(){if(queued||busy)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;run()}));}
- new MutationObserver(ch=>{if(!busy&&ch.some(x=>x.target===host))queue()}).observe(host,{childList:true,subtree:false});
- window.addEventListener('load',queue);window.addEventListener('resize',queue);
- if(document.fonts?.ready)document.fonts.ready.then(queue);
- queue();
-})();
+/* V1046: WYŁĄCZONE.
+   Wysokość 2 kolumn ponownie obsługuje stabilny mechanizm V945:
+   realny dół tabliczki + realny dół .trasa-columns. */
 </script>
 
 
@@ -33373,15 +33019,172 @@ html body .tabliczka .trasa-columns.cols-2
  - ten sam limit obowiązuje test 2 kolumn i rozdział 3 kolumn,
  - awaryjny limit to fizyczne 160 mm kartki.
  ========================================================= -->
-<style id="fwtp-v1045-fixed-right-height">
-html body .tabliczka > .panel-prawy{
-  height:100%!important;
-  min-height:0!important;
-  max-height:100%!important;
-  box-sizing:border-box!important;
-  overflow:hidden!important;
+
+
+
+<!-- =========================================================
+ WERSJA 1046 — POWRÓT POMIARU WYSOKOŚCI Z V945
+
+ Klucz z V945:
+   limit = min(
+     tabliczka.bottom - 6px,
+     trasa-columns.bottom - 2px
+   )
+
+ Nie mierzymy .panel-prawy, clientHeight ani wysokości rosnącego grida.
+ Po KAŻDYM przeniesieniu:
+   ustawZawijanieNazwTrasy()
+   v665SynchronizujWysokosci()
+   wymuszenie layoutu
+ i dopiero wtedy kolejny pomiar.
+
+ Szerokości pozostają takie, jakie wyliczył aktualny mechanizm.
+ Ten skrypt poprawia WYŁĄCZNIE pionowy podział C1/C2.
+ ========================================================= -->
+<script id="fwtp-v1046-v945-wysokosc">
+(function(){
+'use strict';
+let queued=false,working=false;
+
+const raf3=fn=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(fn)));
+
+function sync(cols){
+  if(typeof ustawZawijanieNazwTrasy==='function')
+    ustawZawijanieNazwTrasy(cols);
+  if(typeof v665SynchronizujWysokosci==='function')
+    v665SynchronizujWysokosci(cols);
+  void cols.offsetHeight;
 }
-</style>
+
+function visibleCols(cols){
+  return [...cols.children].filter(el=>
+    el.classList.contains('trasa-kol') &&
+    getComputedStyle(el).display!=='none'
+  );
+}
+
+function list(col){
+  return col?.querySelector(':scope > .trasa-lista');
+}
+
+function limit(tab,cols){
+  return Math.min(
+    tab.getBoundingClientRect().bottom-6,
+    cols.getBoundingClientRect().bottom-2
+  );
+}
+
+function isSeparator(el){
+  return !!el && el.classList.contains('trasa-separator');
+}
+
+/* Element, który musi przejść razem z ostatnim przystankiem C1. */
+function lastGroup(first){
+  const last=first.lastElementChild;
+  if(!last)return [];
+  const group=[last];
+
+  let prev=last.previousElementSibling;
+  if(prev && isSeparator(prev)){
+    group.unshift(prev);
+    prev=prev.previousElementSibling;
+  }
+
+  /* Nie zostawiamy samotnego opisu wariantu/separatora na końcu C1. */
+  if(prev && isSeparator(prev) && !isSeparator(group[0]))
+    group.unshift(prev);
+
+  return group;
+}
+
+/* Pierwszy blok C2, który można spróbować dołożyć do C1. */
+function firstGroup(second){
+  const first=second.firstElementChild;
+  if(!first)return [];
+  const group=[first];
+  if(isSeparator(first) && first.nextElementSibling)
+    group.push(first.nextElementSibling);
+  return group;
+}
+
+function run(){
+  queued=false;
+  if(working)return;
+
+  const tab=document.querySelector('#wynik .tabliczka');
+  const cols=tab?.querySelector('.trasa-columns.cols-2');
+  if(!tab||!cols)return;
+
+  const pair=visibleCols(cols);
+  if(pair.length!==2)return;
+
+  const first=list(pair[0]), second=list(pair[1]);
+  if(!first||!second)return;
+
+  working=true;
+  try{
+    sync(cols);
+    let lim=limit(tab,cols);
+
+    /* 1. Najpierw BEZWZGLĘDNIE usuwamy przepełnienie C1. */
+    let guard=0;
+    while(first.lastElementChild &&
+          first.lastElementChild.getBoundingClientRect().bottom>lim+0.5 &&
+          guard++<500){
+      const group=lastGroup(first);
+      if(!group.length)break;
+
+      for(let i=group.length-1;i>=0;i--)
+        second.insertBefore(group[i],second.firstElementChild);
+
+      sync(cols);
+      lim=limit(tab,cols);
+    }
+
+    /* 2. Dopiero teraz maksymalnie dopełniamy C1 z C2. */
+    guard=0;
+    while(second.firstElementChild && guard++<500){
+      const group=firstGroup(second);
+      if(!group.length)break;
+
+      for(const el of group)first.appendChild(el);
+      sync(cols);
+      lim=limit(tab,cols);
+
+      if(first.lastElementChild.getBoundingClientRect().bottom>lim+0.5){
+        for(let i=group.length-1;i>=0;i--)
+          second.insertBefore(group[i],second.firstElementChild);
+        sync(cols);
+        break;
+      }
+    }
+  }finally{
+    working=false;
+  }
+}
+
+function schedule(){
+  if(queued||working)return;
+  queued=true;
+  raf3(run);
+}
+
+const wynik=document.getElementById('wynik');
+if(wynik){
+  new MutationObserver(ch=>{
+    if(working)return;
+    if(ch.some(m=>m.type==='childList' &&
+      [...m.addedNodes].some(n=>n.nodeType===1 &&
+        (n.matches?.('.tabliczka')||n.querySelector?.('.tabliczka')))))
+      schedule();
+  }).observe(wynik,{childList:true,subtree:false});
+}
+
+window.addEventListener('resize',schedule);
+if(document.fonts?.ready)document.fonts.ready.then(schedule);
+schedule();
+})();
+</script>
 
 </body>
 </html>
