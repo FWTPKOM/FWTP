@@ -1,4 +1,4 @@
-<!-- WERSJA: 1046 -->
+<!-- WERSJA: 1047 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -33022,31 +33022,30 @@ html body .tabliczka .trasa-columns.cols-2
 
 
 
+
+
+
 <!-- =========================================================
- WERSJA 1046 — POWRÓT POMIARU WYSOKOŚCI Z V945
+ WERSJA 1047 — V945: POMIAR DOPIERO PO FINALNEJ SZEROKOŚCI
 
- Klucz z V945:
-   limit = min(
-     tabliczka.bottom - 6px,
-     trasa-columns.bottom - 2px
-   )
+ Przyczyna V1046:
+ sam algorytm V748/V945 był poprawny, ale wykonywał się zanim późniejsze
+ skrypty ustaliły finalną szerokość 2 kolumn. Po zmianie szerokości nazwy
+ zawijały się inaczej, wysokość rosła, lecz podział C1/C2 nie był już
+ ponownie liczony.
 
- Nie mierzymy .panel-prawy, clientHeight ani wysokości rosnącego grida.
- Po KAŻDYM przeniesieniu:
-   ustawZawijanieNazwTrasy()
-   v665SynchronizujWysokosci()
-   wymuszenie layoutu
- i dopiero wtedy kolejny pomiar.
-
- Szerokości pozostają takie, jakie wyliczył aktualny mechanizm.
- Ten skrypt poprawia WYŁĄCZNIE pionowy podział C1/C2.
+ V1047:
+ - nie zmienia szerokości,
+ - czeka aż wszystkie późniejsze skrypty szerokości skończą,
+ - obserwuje zmianę rozmiaru .trasa-columns,
+ - po KAŻDEJ zmianie szerokości ponownie wykonuje dokładny algorytm V748,
+ - limit jak w V861/V945: top kartki + clientHeight - 12 px.
  ========================================================= -->
-<script id="fwtp-v1046-v945-wysokosc">
+<script id="fwtp-v1047-v945-final-height">
 (function(){
 'use strict';
-let queued=false,working=false;
 
-const raf3=fn=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(fn)));
+let timer=0, working=false, ro=null, lastSignature='';
 
 function sync(cols){
   if(typeof ustawZawijanieNazwTrasy==='function')
@@ -33056,117 +33055,128 @@ function sync(cols){
   void cols.offsetHeight;
 }
 
-function visibleCols(cols){
-  return [...cols.children].filter(el=>
-    el.classList.contains('trasa-kol') &&
-    getComputedStyle(el).display!=='none'
-  );
-}
-
-function list(col){
-  return col?.querySelector(':scope > .trasa-lista');
-}
-
-function limit(tab,cols){
-  return Math.min(
-    tab.getBoundingClientRect().bottom-6,
-    cols.getBoundingClientRect().bottom-2
-  );
-}
-
-function isSeparator(el){
+function isLabel(el){
   return !!el && el.classList.contains('trasa-separator');
 }
 
-/* Element, który musi przejść razem z ostatnim przystankiem C1. */
-function lastGroup(first){
-  const last=first.lastElementChild;
-  if(!last)return [];
-  const group=[last];
-
-  let prev=last.previousElementSibling;
-  if(prev && isSeparator(prev)){
-    group.unshift(prev);
-    prev=prev.previousElementSibling;
-  }
-
-  /* Nie zostawiamy samotnego opisu wariantu/separatora na końcu C1. */
-  if(prev && isSeparator(prev) && !isSeparator(group[0]))
-    group.unshift(prev);
-
-  return group;
+function bottom(el){
+  return el ? el.getBoundingClientRect().bottom : 0;
 }
 
-/* Pierwszy blok C2, który można spróbować dołożyć do C1. */
-function firstGroup(second){
-  const first=second.firstElementChild;
-  if(!first)return [];
-  const group=[first];
-  if(isSeparator(first) && first.nextElementSibling)
-    group.push(first.nextElementSibling);
-  return group;
+function schedule(delay=80){
+  clearTimeout(timer);
+  timer=setTimeout(run,delay);
 }
 
 function run(){
-  queued=false;
   if(working)return;
 
   const tab=document.querySelector('#wynik .tabliczka');
   const cols=tab?.querySelector('.trasa-columns.cols-2');
   if(!tab||!cols)return;
 
-  const pair=visibleCols(cols);
+  const pair=[...cols.children].filter(el=>
+    el.classList.contains('trasa-kol') &&
+    getComputedStyle(el).display!=='none'
+  );
   if(pair.length!==2)return;
 
-  const first=list(pair[0]), second=list(pair[1]);
-  if(!first||!second)return;
+  const first=pair[0].querySelector(':scope > .trasa-lista');
+  const second=pair[1].querySelector(':scope > .trasa-lista');
+  if(!first||!second||!first.children.length)return;
 
   working=true;
   try{
     sync(cols);
-    let lim=limit(tab,cols);
 
-    /* 1. Najpierw BEZWZGLĘDNIE usuwamy przepełnienie C1. */
+    /* DOKŁADNIE zasada V861 z V945.
+       clientHeight kartki jest stałym fizycznym limitem 160 mm. */
+    const limit=tab.getBoundingClientRect().top + tab.clientHeight - 12;
+
+    /* Najpierw C1 nie może wyjść ani o piksel poza limit. */
     let guard=0;
     while(first.lastElementChild &&
-          first.lastElementChild.getBoundingClientRect().bottom>lim+0.5 &&
+          bottom(first.lastElementChild)>limit+0.5 &&
           guard++<500){
-      const group=lastGroup(first);
-      if(!group.length)break;
+
+      const last=first.lastElementChild;
+      const group=[last];
+
+      const prev=last.previousElementSibling;
+      if(prev&&isLabel(prev))group.unshift(prev);
+
+      const before=group[0].previousElementSibling;
+      if(before&&isLabel(before)&&!isLabel(group[0]))
+        group.unshift(before);
 
       for(let i=group.length-1;i>=0;i--)
         second.insertBefore(group[i],second.firstElementChild);
 
       sync(cols);
-      lim=limit(tab,cols);
     }
 
-    /* 2. Dopiero teraz maksymalnie dopełniamy C1 z C2. */
+    /* Potem maksymalnie dopełniamy C1, ale tylko jeśli cały następny
+       blok nadal mieści się nad dolną granicą kartki. */
     guard=0;
     while(second.firstElementChild && guard++<500){
-      const group=firstGroup(second);
-      if(!group.length)break;
+      const item=second.firstElementChild;
+      const group=[item];
+
+      if(isLabel(item)&&item.nextElementSibling)
+        group.push(item.nextElementSibling);
 
       for(const el of group)first.appendChild(el);
       sync(cols);
-      lim=limit(tab,cols);
 
-      if(first.lastElementChild.getBoundingClientRect().bottom>lim+0.5){
+      if(bottom(first.lastElementChild)>limit+0.5){
         for(let i=group.length-1;i>=0;i--)
           second.insertBefore(group[i],second.firstElementChild);
         sync(cols);
         break;
       }
     }
+
+    lastSignature=[
+      Math.round(cols.getBoundingClientRect().width*10)/10,
+      Math.round(pair[0].getBoundingClientRect().width*10)/10,
+      Math.round(pair[1].getBoundingClientRect().width*10)/10,
+      first.children.length,
+      second.children.length
+    ].join('|');
+
   }finally{
     working=false;
   }
 }
 
-function schedule(){
-  if(queued||working)return;
-  queued=true;
-  raf3(run);
+function attach(){
+  const cols=document.querySelector('#wynik .trasa-columns');
+  if(!cols)return;
+
+  if(ro)ro.disconnect();
+
+  ro=new ResizeObserver(()=>{
+    if(working)return;
+    const pair=[...cols.children].filter(x=>x.classList.contains('trasa-kol'));
+    const sig=[
+      Math.round(cols.getBoundingClientRect().width*10)/10,
+      ...pair.slice(0,2).map(x=>Math.round(x.getBoundingClientRect().width*10)/10)
+    ].join('|');
+
+    if(!lastSignature.startsWith(sig))
+      schedule(100);
+  });
+  ro.observe(cols);
+  [...cols.children].forEach(c=>{
+    if(c.classList.contains('trasa-kol'))ro.observe(c);
+  });
+
+  /* Kilka końcowych przebiegów: szerokość w tym pliku jest ustawiana
+     przez kilka requestAnimationFrame, więc jeden pomiar był za wczesny. */
+  schedule(50);
+  setTimeout(()=>schedule(0),180);
+  setTimeout(()=>schedule(0),400);
+  setTimeout(()=>schedule(0),800);
 }
 
 const wynik=document.getElementById('wynik');
@@ -33175,14 +33185,15 @@ if(wynik){
     if(working)return;
     if(ch.some(m=>m.type==='childList' &&
       [...m.addedNodes].some(n=>n.nodeType===1 &&
-        (n.matches?.('.tabliczka')||n.querySelector?.('.tabliczka')))))
-      schedule();
+      (n.matches?.('.tabliczka')||n.querySelector?.('.tabliczka'))))){
+      setTimeout(attach,0);
+    }
   }).observe(wynik,{childList:true,subtree:false});
 }
 
-window.addEventListener('resize',schedule);
-if(document.fonts?.ready)document.fonts.ready.then(schedule);
-schedule();
+window.addEventListener('resize',()=>schedule(120));
+if(document.fonts?.ready)document.fonts.ready.then(()=>{attach();schedule(0);});
+setTimeout(attach,0);
 })();
 </script>
 
