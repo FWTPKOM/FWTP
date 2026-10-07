@@ -1,4 +1,4 @@
-<!-- WERSJA: 1059 -->
+<!-- WERSJA: 1060 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -22897,9 +22897,70 @@ function v498DopasujKolumnyTrasy(){
 
     const jedna=columns.querySelector(".trasa-kol");
 
+    /*
+       V1060:
+       Jedna kolumna zostaje TYLKO wtedy, gdy:
+       - mieści się na wysokość,
+       - KAŻDA nazwa mieści się w jednym wierszu przed stałą strefą „ż”.
+
+       Nie poszerzamy już jednej kolumny z powodu długiej nazwy.
+       Jeżeli nazwa weszłaby w miejsce przeznaczone na „ż” albo musiałaby
+       się zawinąć, od razu przechodzimy do istniejącego podziału na
+       DWIE KOLUMNY poniżej.
+    */
+    function v1060JednaKolumnaMiesciNazwy(kolumna){
+        if(!kolumna)return false;
+
+        const kr=kolumna.getBoundingClientRect();
+        const prawaGranicaZ=kr.right-17; // 7 px do ściany + ok. 10 px strefy „ż”
+        const minGap=10;
+
+        const nazwy=[...kolumna.querySelectorAll(
+            '.trasa-stop>.trasa-nazwa,.trasa-extra-stop>.trasa-nazwa'
+        )];
+
+        for(const el of nazwy){
+            const tekst=(
+                el.dataset.v1019FullText ||
+                el.dataset.v946Text ||
+                el.dataset.v665Text ||
+                el.textContent ||
+                ''
+            ).replace(/\s+/g,' ').trim();
+
+            if(!tekst)continue;
+
+            const cs=getComputedStyle(el);
+            const m=document.createElement('span');
+            m.textContent=tekst;
+            m.style.cssText=
+                'position:fixed;left:-10000px;top:-10000px;'+
+                'visibility:hidden;pointer-events:none;white-space:nowrap;'+
+                'width:max-content;max-width:none;min-width:0;transform:none;';
+            m.style.fontFamily=cs.fontFamily;
+            m.style.fontSize=cs.fontSize;
+            m.style.fontWeight=cs.fontWeight;
+            m.style.fontStyle=cs.fontStyle;
+            m.style.fontStretch=cs.fontStretch;
+            m.style.letterSpacing=cs.letterSpacing;
+            m.style.lineHeight=cs.lineHeight;
+            document.body.appendChild(m);
+            const szer=m.getBoundingClientRect().width;
+            m.remove();
+
+            const lewa=el.getBoundingClientRect().left;
+
+            if(lewa+szer+minGap>prawaGranicaZ){
+                return false;
+            }
+        }
+        return true;
+    }
+
     if(
         jedna &&
-        jedna.scrollHeight<=dostepnaWysokosc+1
+        jedna.scrollHeight<=dostepnaWysokosc+1 &&
+        v1060JednaKolumnaMiesciNazwy(jedna)
     ){
         return;
     }
@@ -33299,260 +33360,27 @@ zostaje nowrap i maksymalnie 2 wiersze. Logika 100:95 i wysokości bez zmian.
 
 
 <!-- =========================================================
- WERSJA 1059 — JEDEN DETERMINISTYCZNY SILNIK DLA 1 KOLUMNY
+ WERSJA 1060 — DŁUGA NAZWA = 2 KOLUMNY
 
- Wyłączone zostały równoległe skrypty V1002/V1007/V1014/V1017/V1019,
- które po odświeżeniu wykonywały się w różnej kolejności.
+ Jedna kolumna NIE jest już poszerzana, żeby ratować długą nazwę.
+ Jeżeli przy stałym miejscu „ż” dowolna pełna nazwa nie mieści się
+ jednowierszowo z min. 10 px odstępu, uruchamiany jest istniejący
+ splitter V498/V687 i lista przechodzi do 2 kolumn.
 
- Dla cols-1 obowiązuje tylko:
- 1) wszystkie nazwy są 1-wierszowe,
- 2) prawa ściana panelu jest stała,
- 3) „ż” jest zawsze 7 px od tej prawej ściany,
- 4) między końcem najdłuższej nazwy a strefą „ż” jest min. 10 px,
- 5) jeśli brakuje miejsca, panel poszerza się WYŁĄCZNIE W LEWO,
- 6) brak timerów 80/350/800/1400 i brak ResizeObservera.
+ Dzięki temu:
+ - „ż” nie musi zmieniać położenia,
+ - jedna kolumna nie jest sztucznie poszerzana,
+ - nie ma 2/3 wierszy w układzie jednokolumnowym,
+ - wysokość i wypełnianie 2 kolumn pozostają z dotychczasowego silnika.
  ========================================================= -->
-<style id="fwtp-v1059-one-final">
-html body .tabliczka.v1059-one .panel-prawy{
-  transform:none!important;
-  min-width:0!important;
-  max-width:none!important;
-}
-html body .tabliczka.v1059-one .trasa-columns.cols-1,
-html body .tabliczka.v1059-one .trasa-head.cols-1,
-html body .tabliczka.v1059-one .trasa-columns.cols-1>.trasa-kol,
-html body .tabliczka.v1059-one .trasa-columns.cols-1>.trasa-kol>.trasa-lista{
-  width:100%!important;
-  min-width:0!important;
-  max-width:100%!important;
-  margin-left:0!important;
-  margin-right:0!important;
-  transform:none!important;
-}
-html body .tabliczka.v1059-one .trasa-columns.cols-1 .trasa-stop,
-html body .tabliczka.v1059-one .trasa-columns.cols-1 .trasa-extra-stop{
-  position:relative!important;
-  width:100%!important;
-  min-width:0!important;
-  max-width:100%!important;
-  box-sizing:border-box!important;
-  grid-template-columns:19px 12px minmax(0,1fr) 10px!important;
-  padding-right:0!important;
-}
-html body .tabliczka.v1059-one .trasa-columns.cols-1 .trasa-czas,
-html body .tabliczka.v1059-one .trasa-columns.cols-1 .trasa-os,
-html body .tabliczka.v1059-one .trasa-columns.cols-1 .trasa-nazwa{
-  left:0!important;
-}
-html body .tabliczka.v1059-one .trasa-columns.cols-1 .trasa-nazwa{
-  grid-column:3!important;
-  min-width:0!important;
-  width:auto!important;
-  max-width:none!important;
-  padding-right:0!important;
+<style id="fwtp-v1060-one-rule">
+html body .tabliczka .trasa-columns.cols-1 .trasa-nazwa{
   white-space:nowrap!important;
-  overflow:visible!important;
   word-break:normal!important;
   overflow-wrap:normal!important;
   hyphens:none!important;
 }
-html body .tabliczka.v1059-one .trasa-columns.cols-1 .trasa-nz{
-  position:absolute!important;
-  display:block!important;
-  left:auto!important;
-  right:7px!important;
-  top:auto!important;
-  bottom:1px!important;
-  width:auto!important;
-  min-width:0!important;
-  max-width:none!important;
-  margin:0!important;
-  padding:0!important;
-  font-family:"Arial Narrow",Arial,sans-serif!important;
-  font-size:15.5px!important;
-  font-weight:400!important;
-  letter-spacing:.75px!important;
-  line-height:1!important;
-  text-align:right!important;
-  white-space:nowrap!important;
-  color:#111!important;
-  background:transparent!important;
-  visibility:visible!important;
-  opacity:1!important;
-  transform:scaleY(1.45)!important;
-  transform-origin:right bottom!important;
-  z-index:50!important;
-}
-html body .tabliczka.v1059-one .trasa-columns.cols-1 .trasa-stop.v1059-one-row,
-html body .tabliczka.v1059-one .trasa-columns.cols-1 .trasa-extra-stop.v1059-one-row{
-  height:16.5px!important;
-  min-height:16.5px!important;
-}
 </style>
-
-<script id="fwtp-v1059-one-final">
-(()=>{
-'use strict';
-const host=document.getElementById('wynik');
-if(!host)return;
-let busy=false, queued=false;
-
-const clean=t=>String(t||'').replace(/\s+/g,' ').trim();
-const frame=()=>new Promise(r=>requestAnimationFrame(r));
-
-function originalText(el){
-  if(!el.dataset.v1059Text){
-    el.dataset.v1059Text=clean(
-      el.dataset.v1019FullText ||
-      el.dataset.v1002Text ||
-      el.dataset.v992Text ||
-      el.dataset.v990Text ||
-      el.dataset.v987Text ||
-      el.dataset.v946Text ||
-      el.dataset.v665Text ||
-      el.textContent
-    );
-  }
-  return el.dataset.v1059Text;
-}
-function measure(el,text){
-  const cs=getComputedStyle(el),m=document.createElement('span');
-  m.textContent=text;
-  m.style.cssText='position:fixed;left:-10000px;top:-10000px;visibility:hidden;pointer-events:none;white-space:nowrap;width:max-content;max-width:none;min-width:0;transform:none;';
-  ['fontFamily','fontSize','fontWeight','fontStyle','fontStretch','letterSpacing','lineHeight']
-    .forEach(k=>m.style[k]=cs[k]);
-  document.body.appendChild(m);
-  const w=m.getBoundingClientRect().width;
-  m.remove();
-  return w;
-}
-function restoreOneLine(col){
-  col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
-    const el=row.querySelector(':scope>.trasa-nazwa');
-    if(!el)return;
-    const text=originalText(el);
-    const active=row.classList.contains('wybrany') || !!el.querySelector(':scope>.trasa-nazwa-aktywna');
-    el.replaceChildren();
-    if(active){
-      const a=document.createElement('span');
-      a.className='trasa-nazwa-aktywna';
-      a.textContent=text;
-      el.appendChild(a);
-    }else el.textContent=text;
-
-    row.classList.remove('v665-dwuliniowy','v957-two','v939-wymuszone-dwa');
-    row.classList.add('v665-jednoliniowy','v957-one','v1059-one-row');
-  });
-}
-function requiredWidth(tab,col){
-  const cr=col.getBoundingClientRect();
-  let need=130;
-
-  col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
-    const name=row.querySelector(':scope>.trasa-nazwa');
-    if(!name)return;
-    const offset=name.getBoundingClientRect().left-cr.left;
-
-    /* nazwa + 10 px pustego odstępu + ok. 10 px znaku Ż
-       + 7 px od Ż do prawej ściany + 2 px luzu */
-    need=Math.max(
-      need,
-      offset + measure(name,originalText(name)) + 10 + 10 + 7 + 2
-    );
-  });
-
-  const label=tab.querySelector('.trasa-head.cols-1 .trasa-head-label');
-  if(label)need=Math.max(need,measure(label,'czasy, trasa, przystanki')+10);
-
-  return Math.ceil(need);
-}
-function apply(tab,w){
-  const total=Math.floor(tab.getBoundingClientRect().width);
-  const leftPanel=tab.querySelector('.panel-lewy');
-  const grid=leftPanel?.querySelector('.rozklady-grid');
-  const number=leftPanel?.querySelector('.numer-linii-box');
-  const minLeft=Math.max(
-    180,
-    Math.ceil(grid?.scrollWidth||0)+24,
-    Math.ceil(number?.offsetWidth||0)+18
-  );
-
-  w=Math.max(130,Math.min(Math.ceil(w),total-minLeft));
-  const left=total-w;
-
-  tab.classList.add('v1059-one','v904-jedna-prawo');
-  tab.style.setProperty('--prawa',w+'px','important');
-  tab.style.setProperty('--lewa',left+'px','important');
-  tab.style.setProperty('--v904-prawa',w+'px','important');
-  tab.style.setProperty('--v882-single-width',w+'px','important');
-  tab.style.setProperty('grid-template-columns',left+'px '+w+'px','important');
-
-  const panel=tab.querySelector('.panel-prawy');
-  if(panel){
-    panel.style.setProperty('width',w+'px','important');
-    panel.style.setProperty('min-width',w+'px','important');
-    panel.style.setProperty('max-width',w+'px','important');
-    panel.style.setProperty('transform','none','important');
-  }
-}
-async function run(){
-  if(busy)return;
-  busy=true;
-  try{
-    /* dokładnie dwa RAF-y: render DOM -> geometria */
-    await frame(); await frame();
-
-    const tab=host.querySelector('.tabliczka');
-    const root=tab?.querySelector('.trasa-columns');
-    if(!tab||!root)return;
-
-    if(!root.classList.contains('cols-1')){
-      tab.classList.remove('v1059-one');
-      return;
-    }
-    const cols=[...root.children].filter(x=>x.classList.contains('trasa-kol'));
-    if(cols.length!==1)return;
-    const col=cols[0];
-
-    restoreOneLine(col);
-    await frame();
-
-    apply(tab,requiredWidth(tab,col));
-    await frame();
-
-    /* jeden kontrolny pomiar po zmianie szerokości */
-    restoreOneLine(col);
-    const exact=requiredWidth(tab,col);
-    const current=tab.querySelector('.panel-prawy')?.getBoundingClientRect().width||0;
-    if(Math.abs(exact-current)>1){
-      apply(tab,exact);
-      await frame();
-      restoreOneLine(col);
-    }
-  }finally{
-    busy=false;
-  }
-}
-function queue(){
-  if(queued||busy)return;
-  queued=true;
-  requestAnimationFrame(()=>{
-    queued=false;
-    run();
-  });
-}
-
-/* Tylko nowa tabliczka, resize i zakończenie ładowania fontów.
-   Bez obserwowania własnych zmian wewnątrz listy. */
-new MutationObserver(ch=>{
-  if(ch.some(m=>m.target===host))queue();
-}).observe(host,{childList:true,subtree:false});
-
-window.addEventListener('resize',queue);
-if(document.fonts?.ready)document.fonts.ready.then(queue);
-queue();
-})();
-</script>
 
 </body>
 </html>
