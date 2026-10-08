@@ -1,4 +1,4 @@
-<!-- WERSJA: 1077 -->
+<!-- WERSJA: 1078 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -8628,7 +8628,46 @@ async function czekajNaPelneRenderowanieTabliczki(){
 }
 
 
+/* V1078: czekamy na uspokojenie faktycznych zmian geometrii tabliczki.
+   Obserwujemy tylko wynik; animacja autobusu loadera nie wpływa na pomiar.
+   Czas maksymalny zabezpiecza przed skryptami, które bez końca aktualizują DOM. */
+async function v1078PoczekajNaStabilnyUklad(){
+    const host=document.getElementById('wynik');
+    if(!host)return;
+    try{ if(document.fonts?.ready) await document.fonts.ready; }catch(e){}
+    let lastChange=performance.now();
+    let lastGeometry='';
+    const observer=new MutationObserver(()=>{lastChange=performance.now();});
+    observer.observe(host,{subtree:true,childList:true,attributes:true,characterData:true,
+      attributeFilter:['class','style']});
+    const start=performance.now();
+    try{
+      while(performance.now()-start<3500){
+        await new Promise(resolve=>requestAnimationFrame(resolve));
+        const tab=host.querySelector('.tabliczka');
+        const root=tab?.querySelector('.trasa-columns');
+        const columns=root?[...root.children].filter(e=>e.classList.contains('trasa-kol')):[];
+        const geometry=tab&&root?[
+          Math.round(tab.getBoundingClientRect().width*10),
+          Math.round(root.getBoundingClientRect().width*10),
+          ...columns.flatMap(c=>{
+            const r=c.getBoundingClientRect();
+            const items=[...c.querySelectorAll('.trasa-stop,.trasa-extra-stop,.trasa-separator')];
+            const last=items.at(-1)?.getBoundingClientRect();
+            return [Math.round(r.width*10),Math.round(r.height*10),Math.round((last?.bottom||0)*10),items.length];
+          })
+        ].join('|'):'';
+        if(geometry!==lastGeometry){lastGeometry=geometry;lastChange=performance.now();}
+        if(geometry&&performance.now()-lastChange>=280)break;
+      }
+    }finally{observer.disconnect();}
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+}
+
 async function zakonczLoaderTabliczki(){
+
+    // V1078: tabliczka pozostaje ukryta, dopóki solver nie skończy przeliczeń.
+    await v1078PoczekajNaStabilnyUklad();
 
     ustawLoaderTabliczki(
         100,
