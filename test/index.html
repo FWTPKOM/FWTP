@@ -1,4 +1,4 @@
-<!-- WERSJA: 1089 -->
+<!-- WERSJA: 1091 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -33551,5 +33551,95 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not
   background-repeat: repeat-x !important;
 }
 </style>
+
+<!-- V1090: kreski 1,5px; nazwy wielowyrazowe w jednej linii, jeśli mieszczą się w kolumnie -->
+<style id="fwtp-v1090-miejscowosci">
+html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd)::before,
+html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd)::after {
+  height: 1.5px !important;
+}
+html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd) {
+  grid-template-columns: minmax(0,1fr) minmax(0,max-content) minmax(0,1fr) !important;
+}
+html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd) > .trasa-separator-title {
+  width: max-content !important;
+  max-width: calc(100% - 6px) !important;
+  white-space: normal !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+}
+</style>
+
+<!-- V1091: nazwy miejscowosci nie przecinaja pionowej osi przystankow. -->
+<style id="fwtp-v1091-os-miejscowosci">
+html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd) {
+  grid-template-columns: minmax(0,1fr) minmax(0,var(--v1091-nazwa-szerokosc, max-content)) minmax(0,1fr) !important;
+}
+html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd) > .trasa-separator-title {
+  width: var(--v1091-nazwa-szerokosc, max-content) !important;
+  max-width: 100% !important;
+  white-space: normal !important;
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+  text-align: center !important;
+}
+</style>
+<script id="fwtp-v1091-os-miejscowosci">
+(()=>{
+  const host=document.getElementById('wynik');
+  if(!host)return;
+  let queued=false;
+  const canvas=document.createElement('canvas');
+  const ctx=canvas.getContext('2d');
+  function measure(el,text){
+    const st=getComputedStyle(el);
+    ctx.font=st.font;
+    const spacing=parseFloat(st.letterSpacing)||0;
+    return ctx.measureText(text).width + spacing*Math.max(0,[...text].length-1);
+  }
+  function update(){
+    queued=false;
+    const tab=host.querySelector('.tabliczka');
+    if(!tab)return;
+    tab.querySelectorAll('.trasa-columns .trasa-kol').forEach(col=>{
+      const colRect=col.getBoundingClientRect();
+      if(colRect.width<30)return;
+      const dot=col.querySelector('.trasa-stop .trasa-kropka, .trasa-extra-stop .trasa-kropka');
+      const dotRect=dot?.getBoundingClientRect();
+      // Oś pionowa przebiega przez środek kropek. Od tekstu wymagamy 4 px luzu.
+      const axis=dotRect ? dotRect.left+dotRect.width/2-colRect.left : 31;
+      const center=colRect.width/2;
+      const available=Math.max(0,2*(center-axis-4));
+      col.querySelectorAll('li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd)').forEach(sep=>{
+        const el=sep.querySelector(':scope > .trasa-separator-title');
+        if(!el)return;
+        const text=(el.textContent||'').replace(/\s+/g,' ').trim();
+        if(!text)return;
+        const words=text.split(' ');
+        const full=measure(el,text)+2;
+        const longest=Math.max(...words.map(w=>measure(el,w)+2));
+        // Jedna linia, gdy tekst miesci sie po prawej od osi kropek.
+        // W przeciwnym razie dwie lub wiecej linii tylko w miejscach spacji.
+        const target=full<=available ? full : Math.min(available,Math.max(longest,available));
+        const width=Math.max(1,Math.min(colRect.width-6,target));
+        const px=width.toFixed(2)+'px';
+        if(sep.style.getPropertyValue('--v1091-nazwa-szerokosc')!==px)
+          sep.style.setProperty('--v1091-nazwa-szerokosc',px);
+      });
+    });
+  }
+  function queue(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(update));}
+  new MutationObserver(records=>{
+    if(records.some(r=>r.type==='childList'))queue();
+  }).observe(host,{childList:true,subtree:true});
+  window.addEventListener('resize',queue);
+  window.addEventListener('load',queue);
+  if(typeof ResizeObserver!=='undefined'){
+    const ro=new ResizeObserver(queue);
+    ro.observe(host);
+  }
+  queue();
+})();
+</script>
 </body>
 </html>
