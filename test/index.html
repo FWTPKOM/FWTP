@@ -1,4 +1,4 @@
-<!-- WERSJA: 1094 -->
+<!-- WERSJA: 1095 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -21658,6 +21658,22 @@ function v514RenderSeparator(element){
     }
 
     if(typ==="trasa_w_kursach"){
+        // V1095: nie twórz separatora dla litery nieobecnej przy minutach.
+        // Wykonujemy to PRZED układem kolumn, więc separator nie zajmuje
+        // wysokości i nie wraca po ponownym przeliczeniu listy.
+        const literyMinut=window.__fwtp1095LiteryMinut;
+        if(literyMinut instanceof Set){
+            const surowy=String(tekst||'');
+            const bezOznaczen=/bez oznacze[nń]/i.test(surowy);
+            const oznaczenia=[...surowy.matchAll(/[„"“]([a-ząćęłńóśźż])[”"“]/gi)]
+                .map(m=>m[1].toLocaleLowerCase('pl-PL'));
+            const dozwolone=[...new Set(oznaczenia.filter(x=>literyMinut.has(x)))];
+            if(!dozwolone.length&&!bezOznaczen)return '';
+            tekst='TRASA W KURSACH '+[
+                ...dozwolone.map(x=>'„'+x+'”'),
+                ...(bezOznaczen?['BEZ OZNACZEŃ']:[])
+            ].join(', ');
+        }
         const tekstTrasyMale=
             tekst.toLocaleLowerCase("pl-PL");
 
@@ -23335,31 +23351,25 @@ function v498UruchomDopasowanie(){
 function v825FiltrujOpisyWariantow(){
     const root=document.querySelector('#wynik .tabliczka');
     if(!root)return;
-    // Wyłącznie litery przy faktycznie wyświetlonych minutach,
-    // nigdy kurs.wariant ani kierunek.warianty z JSON.
-    const litery=new Set([...root.querySelectorAll('.rozklady-grid .minuta > .symbol')]
-        .filter(el=>el.getClientRects().length && getComputedStyle(el).display!=='none')
-        .map(el=>String(el.textContent||'').trim().toLocaleLowerCase('pl-PL'))
+    const litery=new Set(Array.from(root.querySelectorAll('.rozklady-grid .minuty-cell .symbol'))
+        .map(e=>String(e.textContent||'').trim().toLocaleLowerCase('pl-PL'))
         .filter(Boolean));
-    root.querySelectorAll('.trasa-separator').forEach(sep=>{
-        const el=sep.querySelector('.trasa-separator-title');
-        if(!el)return;
+    root.querySelectorAll('.trasa-separator .trasa-separator-title').forEach(el=>{
         const tekst=String(el.textContent||'').trim();
         if(!/^trasa w kursach\b/i.test(tekst))return;
-        const bez=/bez oznacze[nń]/i.test(tekst);
-        // Obsługa także tekstów bez polskich cudzysłowów.
-        const oznaczenia=[...tekst.matchAll(/[„"“]([a-ząćęłńóśźż])[”"“]/gi)]
-            .map(m=>m[1].toLocaleLowerCase('pl-PL'));
-        const dozwolone=[...new Set(oznaczenia.filter(x=>litery.has(x)))];
-        if(!dozwolone.length&&!bez){
-            sep.remove();
-            return;
+        let wynik=tekst.replace(/„([^”]+)”/g,(_,wewnatrz)=>{
+            const zachowane=wewnatrz.split(/[,\s]+/).map(x=>x.trim())
+                .filter(x=>x&&litery.has(x.toLocaleLowerCase('pl-PL')));
+            return zachowane.map(x=>'„'+x+'”').join(', ');
+        });
+        wynik=wynik.replace(/,\s*,/g,',').replace(/\s+,/g,',')
+            .replace(/,\s*$/,'').replace(/\s{2,}/g,' ').trim();
+        const opis=wynik.replace(/^trasa w kursach\s*/i,'').trim();
+        if(!opis||/^[,;]+$/.test(opis)){
+            el.closest('.trasa-separator')?.remove();
+        }else if(el.textContent!==wynik){
+            el.textContent=wynik;
         }
-        const wynik='Trasa w kursach '+[
-            ...dozwolone.map(x=>'„'+x+'”'),
-            ...(bez?['bez oznaczeń']:[])
-        ].join(', ');
-        if(el.textContent!==wynik)el.textContent=wynik;
     });
 }
 
@@ -23451,6 +23461,14 @@ function renderuj(){
                     )
             )
             .join("");
+
+    // V1095: litery pobieramy z GOTOWEGO HTML minut, zanim powstanie
+    // lista przystanków. Pole kurs.wariant w JSON nie jest oznaczeniem minuty.
+    window.__fwtp1095LiteryMinut = new Set(
+        [...rozklady.matchAll(/<span class="symbol(?:\s+[^"]*)?">([^<]+)<\/span>/g)]
+            .map(m => m[1].trim().toLocaleLowerCase('pl-PL'))
+            .filter(Boolean)
+    );
 
     // V721: legenda powstaje po tabelach, z liter faktycznie
     // wyrenderowanych przy minutach (a nie z drugiego odczytu kursow).
@@ -33644,26 +33662,6 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not
     const ro=new ResizeObserver(queue);
     ro.observe(host);
   }
-  queue();
-})();
-</script>
-<!-- V1092: ponowne filtrowanie opisów wariantów po asynchronicznym renderowaniu. -->
-<script id="fwtp-v1092-warianty-z-minut">
-(()=>{
-  const host=document.getElementById('wynik');
-  if(!host)return;
-  let queued=false;
-  function queue(){
-    if(queued)return;
-    queued=true;
-    requestAnimationFrame(()=>requestAnimationFrame(()=>{
-      queued=false;
-      if(typeof v825FiltrujOpisyWariantow==='function')v825FiltrujOpisyWariantow();
-    }));
-  }
-  new MutationObserver(records=>{
-    if(records.some(r=>r.type==='childList'))queue();
-  }).observe(host,{subtree:true,childList:true});
   queue();
 })();
 </script>
