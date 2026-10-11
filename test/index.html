@@ -1,4 +1,4 @@
-<!-- WERSJA: 1096 -->
+<!-- WERSJA: 1097 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -33705,6 +33705,65 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not
  function queue(){if(pending)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
  new MutationObserver(records=>{if(records.some(r=>r.type==='childList' && !Array.from(r.addedNodes).every(n=>n.nodeType===1 && n.classList?.contains('os-lacznik-453'))))queue();}).observe(host,{childList:true,subtree:true});
  window.addEventListener('load',queue);queue();
+})();
+</script>
+
+<!-- V1097: koncowe przeliczenie ukladu po pierwszym renderze i zaladowaniu czcionek.
+     Uzywa istniejacych obslug zdarzenia resize, bez zmiany CSS ani geometrii separatorow. -->
+<script id="fwtp-v1097-pierwszy-render">
+(()=>{
+ 'use strict';
+ const host=document.getElementById('wynik');
+ if(!host)return;
+ let generation=0, scheduled=false, completed=false;
+ const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+ const waitForLayout=async()=>{
+   // Poczekaj, az przegladarka ustabilizuje szerokosc tabliczki i wysokosc listy.
+   let previous='', stable=0;
+   for(let i=0;i<16;i++){
+     await frame();
+     const tab=host.querySelector('.tabliczka');
+     if(!tab)continue;
+     const panel=tab.querySelector('.panel-prawy');
+     const r=tab.getBoundingClientRect();
+     const p=panel?.getBoundingClientRect();
+     const signature=[r.width.toFixed(2),r.height.toFixed(2),p?.width.toFixed(2),p?.height.toFixed(2)].join('|');
+     stable=signature===previous?stable+1:0;
+     previous=signature;
+     if(stable>=2)break;
+   }
+ };
+ async function finalize(token){
+   try{
+     if(document.fonts?.ready)await document.fonts.ready;
+     if(token!==generation)return;
+     await waitForLayout();
+     if(token!==generation)return;
+     // Pierwszy impuls odswieza obliczenia kolumn, drugi przelicza osie
+     // i separatory juz po ustaleniu docelowych wymiarow.
+     window.dispatchEvent(new Event('resize'));
+     await frame();await frame();await frame();
+     if(token!==generation)return;
+     window.dispatchEvent(new Event('resize'));
+     await frame();await frame();
+     if(token!==generation)return;
+     completed=true;
+   }finally{scheduled=false;}
+ }
+ function queue(){
+   if(completed||scheduled||!host.querySelector('.tabliczka'))return;
+   scheduled=true;
+   const token=++generation;
+   finalize(token);
+ }
+ const observer=new MutationObserver(()=>{
+   if(completed){observer.disconnect();return;}
+   queue();
+ });
+ observer.observe(host,{childList:true,subtree:false});
+ if(document.readyState==='complete')queue();
+ else window.addEventListener('load',queue,{once:true});
+ queue();
 })();
 </script>
 </body>
