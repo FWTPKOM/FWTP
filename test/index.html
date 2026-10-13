@@ -1,4 +1,4 @@
-<!-- WERSJA: 1101 -->
+<!-- WERSJA: 1102 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -33838,6 +33838,102 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not
   if(records.some(r=>r.type==='childList'&&Array.from(r.addedNodes).some(n=>n.nodeType===1&&!n.classList?.contains('fwtp-os-ciagla-1099')&&!n.classList?.contains('kropka-do-kropki-544')&&!n.classList?.contains('os-lacznik-453'))))queue();
  });
  observer.observe(host,{subtree:true,childList:true});
+ window.addEventListener('resize',queue);window.addEventListener('load',queue);
+ if(document.fonts?.ready)document.fonts.ready.then(queue);
+ queue();
+})();
+</script>
+
+<!-- V1102: os rysowana dopiero po ostatecznym podziale kolumn; bez osieroconych kresek -->
+<style id="fwtp-v1102-os-koncowa">
+/* Starsze laczniki byly pozycjonowane przed przeniesieniem separatorow. */
+.tabliczka .trasa-columns .kropka-do-kropki-544,
+.tabliczka .trasa-columns .fwtp-os-ciagla-1099,
+.tabliczka .trasa-columns .os-lacznik-453 {display:none!important;}
+.tabliczka .trasa-columns .trasa-kol {position:relative!important;}
+.tabliczka .trasa-columns .fwtp-os-final-1102 {
+ position:absolute!important;display:block!important;width:2.5px!important;
+ background:#111!important;z-index:21!important;pointer-events:none!important;
+ margin:0!important;padding:0!important;border:0!important;
+}
+.tabliczka .trasa-columns .fwtp-os-final-1102.przed {background:#777!important;}
+</style>
+<script id="fwtp-v1102-os-koncowa">
+(()=>{
+ 'use strict';
+ const host=document.getElementById('wynik');if(!host)return;
+ let queued=false,revision=0,rendering=false;
+ const isStop=e=>e?.matches?.('li.trasa-stop,li.trasa-extra-stop');
+ const isPass=e=>e?.matches?.('li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd),li.trasa-separator.trasa-strefa-440:not(.v588-objazd)');
+ const raf=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+ function geometry(){
+  const tab=host.querySelector('.tabliczka');if(!tab)return '';
+  return [...tab.querySelectorAll('.trasa-columns .trasa-kol')].map(col=>{
+   const r=col.getBoundingClientRect();
+   const rows=[...col.querySelectorAll('.trasa-lista-397 > li')];
+   return [r.left.toFixed(2),r.width.toFixed(2),rows.length,
+    ...rows.map(e=>{const q=e.getBoundingClientRect();return `${e.className}:${q.top.toFixed(2)}:${q.height.toFixed(2)}`;})].join('|');
+  }).join('||');
+ }
+ function draw(){
+  rendering=true;
+  try{
+   host.querySelectorAll('.fwtp-os-final-1102').forEach(e=>e.remove());
+   host.querySelectorAll('.trasa-columns .trasa-kol').forEach(col=>{
+    const cr=col.getBoundingClientRect();
+    col.querySelectorAll('.trasa-lista-397').forEach(list=>{
+     const rows=[...list.children];
+     for(let i=0;i<rows.length;i++){
+      const a=rows[i];if(!isStop(a))continue;
+      if(a.classList.contains('v612-koncowy')||a.classList.contains('v469-koniec'))continue;
+      let j=i+1,hasSeparator=false;
+      while(j<rows.length&&isPass(rows[j])){hasSeparator=true;j++;}
+      const b=rows[j];if(!hasSeparator||!isStop(b))continue;
+      const da=a.querySelector('.trasa-kropka')||a.querySelector('.trasa-os');
+      const db=b.querySelector('.trasa-kropka')||b.querySelector('.trasa-os');
+      if(!da||!db)continue;
+      const ar=da.getBoundingClientRect(),br=db.getBoundingClientRect();
+      if(!ar.width||!br.width)continue;
+      const x=ar.left+ar.width/2-cr.left;
+      const y1=ar.top+ar.height/2-cr.top+4.25;
+      const y2=br.top+br.height/2-cr.top-4.25;
+      if(y2<=y1||Math.abs(ar.left+ar.width/2-br.left-br.width/2)>5)continue;
+      const line=document.createElement('span');
+      line.className='fwtp-os-final-1102'+(a.classList.contains('przed')?' przed':'');
+      line.setAttribute('aria-hidden','true');
+      line.style.left=(x-1.25)+'px';line.style.top=y1+'px';line.style.height=(y2-y1)+'px';
+      col.appendChild(line);
+     }
+    });
+   });
+  }finally{rendering=false;}
+ }
+ async function settle(token){
+  if(document.fonts?.ready)await document.fonts.ready;
+  let prev='',same=0;
+  for(let i=0;i<30;i++){
+   await raf();if(token!==revision)return;
+   const now=geometry();same=now===prev?same+1:0;prev=now;
+   if(same>=3)break;
+  }
+  await raf();if(token!==revision)return;
+  draw();queued=false;
+ }
+ function queue(){
+  if(rendering)return;
+  const token=++revision;
+  if(queued)return;
+  queued=true;
+  (async()=>{
+   await settle(token);
+   // Jesli w trakcie czekania wystapila zmiana, zakoncz dopiero po jej ustabilizowaniu.
+   if(token!==revision){queued=false;queue();}
+  })();
+ }
+ new MutationObserver(records=>{
+  if(rendering)return;
+  if(records.some(r=>r.type==='childList'&&[...r.addedNodes,...r.removedNodes].some(n=>n.nodeType===1&&!n.classList?.contains('fwtp-os-final-1102'))))queue();
+ }).observe(host,{childList:true,subtree:true});
  window.addEventListener('resize',queue);window.addEventListener('load',queue);
  if(document.fonts?.ready)document.fonts.ready.then(queue);
  queue();
