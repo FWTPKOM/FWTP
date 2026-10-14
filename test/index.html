@@ -1,8 +1,8 @@
-<!-- WERSJA: 1115 -->
+<!-- WERSJA: 1116 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
-<!-- WERSJA: 1115 -->
+<!-- WERSJA: 1116 -->
 <!-- WERSJA: 760 — PRZENOSZENIE WSPÓLNEGO PRZYSTANKU PRZED WARIANTY -->
 <!-- HISTORIA: WERSJA 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
@@ -33851,7 +33851,7 @@ html body .tabliczka .trasa-stop.v665-jednoliniowy > .trasa-nazwa,
 html body .tabliczka .trasa-extra-stop.v665-jednoliniowy > .trasa-nazwa {white-space:nowrap!important}
 </style>
 
-<!-- WERSJA: 1115 -->
+<!-- WERSJA: 1116 -->
 <style id="fwtp-v1115-bez-limitu-listy">
 /* Szerokość prawego panelu wynika z miejsca pozostałego po rozkładzie. */
 html body .tabliczka.v861-uklad .panel-prawy { min-width:0!important; max-width:none!important; }
@@ -33859,39 +33859,44 @@ html body .tabliczka.v861-uklad .trasa-columns,
 html body .tabliczka.v861-uklad .trasa-head { max-width:none!important; }
 /* Nie zmieniamy line-height ani sposobu łamania nazw. */
 </style>
-<script id="fwtp-v1115-granica-rozkladu">
+<script id="fwtp-v1116-odstep-5px">
 (()=>{
+ 'use strict';
  const host=document.getElementById('wynik');
- let queued=false, running=false;
- function adjust(){
-  queued=false;if(running)return;
-  const tab=host?.querySelector('.tabliczka.v861-uklad');
+ if(!host)return;
+ const GAP=5;
+ let pending=false, busy=false;
+ function update(){
+  pending=false;
+  if(busy)return;
+  const tab=host.querySelector('.tabliczka.v861-uklad');
   const left=tab?.querySelector('.panel-lewy');
-  const right=tab?.querySelector('.panel-prawy');
   const table=left?.querySelector('.rozklady-grid');
-  if(!tab||!left||!right||!table)return;
-  running=true;
+  const right=tab?.querySelector('.panel-prawy');
+  if(!tab||!left||!table||!right)return;
+  busy=true;
   try{
    const tr=tab.getBoundingClientRect();
-   const candidates=[table,left.querySelector('.numer-linii-box'),left.querySelector('.linia-info'),left.querySelector('.naglowek-linii'),left.querySelector('.kierunek-linii')].filter(Boolean);
-   let edge=tr.left;
-   for(const el of candidates){const r=el.getBoundingClientRect();if(r.width&&r.height)edge=Math.max(edge,r.right)}
-   const minLeft=Math.ceil(edge-tr.left+4);
-   const paper=tab.clientWidth;
-   const safeLeft=Math.min(paper-120,Math.max(0,minLeft));
-   if(safeLeft>0){
-    const old=parseFloat(tab.style.getPropertyValue('--v869-lewa'));
-    if(!Number.isFinite(old)||Math.abs(old-safeLeft)>1){
-      tab.style.setProperty('--v869-lewa',safeLeft+'px','important');
-      tab.style.setProperty('--lewa',safeLeft+'px','important');
-      tab.style.setProperty('--prawa',(paper-safeLeft)+'px','important');
-    }
+   const rr=table.getBoundingClientRect();
+   if(!rr.width||!tr.width)return;
+   // Jedyna granica listy: prawa krawędź tabeli rozkładu + 5px.
+   // Nie uwzględniamy nagłówka, numeru ani kierunku w tym pomiarze.
+   const leftWidth=Math.max(0,Math.ceil(rr.right-tr.left+GAP));
+   const rightWidth=Math.max(0,Math.floor(tr.right-rr.right-GAP));
+   if(rightWidth<100)return;
+   const current=parseFloat(tab.style.getPropertyValue('--v869-lewa'));
+   if(!Number.isFinite(current)||Math.abs(current-leftWidth)>.5){
+    tab.style.setProperty('--v869-lewa',leftWidth+'px','important');
+    tab.style.setProperty('--lewa',leftWidth+'px','important');
+    tab.style.setProperty('--prawa',rightWidth+'px','important');
+    tab.style.setProperty('grid-template-columns',leftWidth+'px minmax(0,1fr)','important');
    }
-  }finally{running=false}
+  }finally{busy=false;}
  }
- function queue(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(adjust))}
- if(host)new MutationObserver(queue).observe(host,{childList:true,subtree:false});
- window.addEventListener('resize',queue);window.addEventListener('load',queue);
+ function queue(){if(pending)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(update));}
+ new MutationObserver(queue).observe(host,{childList:true,subtree:false});
+ window.addEventListener('resize',queue);
+ window.addEventListener('load',queue);
  if(document.fonts?.ready)document.fonts.ready.then(queue);
  queue();
 })();
