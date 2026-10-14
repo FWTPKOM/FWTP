@@ -1,8 +1,8 @@
-<!-- WERSJA: 1119 -->
+<!-- WERSJA: 1120 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
-<!-- WERSJA: 1119 -->
+<!-- WERSJA: 1120 -->
 <!-- WERSJA: 760 — PRZENOSZENIE WSPÓLNEGO PRZYSTANKU PRZED WARIANTY -->
 <!-- HISTORIA: WERSJA 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
@@ -33851,7 +33851,7 @@ html body .tabliczka .trasa-stop.v665-jednoliniowy > .trasa-nazwa,
 html body .tabliczka .trasa-extra-stop.v665-jednoliniowy > .trasa-nazwa {white-space:nowrap!important}
 </style>
 
-<!-- WERSJA: 1119 -->
+<!-- WERSJA: 1120 -->
 <style id="fwtp-v1115-bez-limitu-listy">
 /* Szerokość prawego panelu wynika z miejsca pozostałego po rozkładzie. */
 html body .tabliczka.v861-uklad .panel-prawy { min-width:0!important; max-width:none!important; }
@@ -33994,6 +33994,70 @@ html body .tabliczka.v861-uklad .trasa-columns .trasa-nz {
  }
  function queue(){if(queued||busy)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
  new MutationObserver(m=>{if(m.some(r=>r.target===host))queue()}).observe(host,{childList:true});
+ window.addEventListener('resize',queue);window.addEventListener('load',queue);
+ if(document.fonts?.ready)document.fonts.ready.then(queue);
+ queue();
+})();
+</script>
+
+
+<!-- V1120: rezerwacja osobnego miejsca na Ż i dopasowanie wierszy po ostatecznym rozkładzie -->
+<style id="fwtp-v1120-bez-kolizji">
+html body .tabliczka.v861-uklad .trasa-columns .trasa-stop > .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-columns .trasa-extra-stop > .trasa-nazwa {
+  box-sizing:border-box!important;
+  max-width:var(--v1120-name-width,none)!important;
+  min-width:0!important;
+  overflow-wrap:normal!important;
+  word-break:normal!important;
+}
+html body .tabliczka.v861-uklad .trasa-columns .trasa-nz {
+  right:2px!important;
+  width:12px!important;
+  text-align:center!important;
+}
+</style>
+<script id="fwtp-v1120-korekta">
+(()=>{
+ 'use strict';
+ const host=document.getElementById('wynik');if(!host)return;
+ let queued=false,running=false;
+ function measure(){
+  const tab=host.querySelector('.tabliczka.v861-uklad');
+  if(!tab)return;
+  const cols=[...tab.querySelectorAll('.trasa-columns .trasa-kol')];
+  for(const col of cols){
+   const colRect=col.getBoundingClientRect();
+   const rows=[...col.querySelectorAll('.trasa-stop,.trasa-extra-stop')].filter(x=>x.closest('.trasa-kol')===col);
+   for(const row of rows){
+    const name=row.querySelector(':scope > .trasa-nazwa');if(!name)continue;
+    const nr=row.querySelector(':scope > .trasa-nz');
+    const left=name.getBoundingClientRect().left;
+    const right=nr ? nr.getBoundingClientRect().left-4 : colRect.right-4;
+    const space=Math.max(20,Math.floor(right-left));
+    name.style.setProperty('--v1120-name-width',space+'px');
+    const label=(name.textContent||'').trim();
+    // Jednowyrazowe nazwy nie mogą być dzielone; pozostałe łamiemy na granicach słów.
+    const single=!/\s/.test(label);
+    row.classList.toggle('v1117-single',single);
+    name.style.setProperty('white-space',single?'nowrap':'normal','important');
+    const range=document.createRange();range.selectNodeContents(name);
+    const lines=[];
+    for(const rect of range.getClientRects()){
+     if(rect.width>.1&&!lines.some(y=>Math.abs(y-rect.top)<2))lines.push(rect.top);
+    }
+    const count=Math.max(1,lines.length);
+    const height=count*16.5;
+    row.style.setProperty('height',height+'px','important');
+    row.style.setProperty('min-height',height+'px','important');
+    row.dataset.fwtpLines=String(count);
+   }
+  }
+ }
+ function queue(){if(queued||running)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{
+  queued=false;running=true;try{measure()}finally{running=false}
+ }));}
+ new MutationObserver(changes=>{if(changes.some(c=>c.target===host))queue()}).observe(host,{childList:true});
  window.addEventListener('resize',queue);window.addEventListener('load',queue);
  if(document.fonts?.ready)document.fonts.ready.then(queue);
  queue();
