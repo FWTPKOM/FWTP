@@ -1,8 +1,8 @@
-<!-- WERSJA: 1112 -->
+<!-- WERSJA: 1113 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
-<!-- WERSJA: 1112 -->
+<!-- WERSJA: 761 -->
 <!-- WERSJA: 760 — PRZENOSZENIE WSPÓLNEGO PRZYSTANKU PRZED WARIANTY -->
 <!-- HISTORIA: WERSJA 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
@@ -7355,10 +7355,11 @@ body.tabliczka-w-trakcie-ladowania .trasa-nz {
 }
 </style>
 
-<!-- WERSJA: 1101 — POWTARZANY ZNAK WODNY FWTP NA EKRANIE I WYDRUKU -->
+<!-- WERSJA: 1100 — POWTARZANY ZNAK WODNY FWTP NA EKRANIE I WYDRUKU -->
 <style id="fwtp-watermark-v1100">
 /* Znak wodny jest częścią tła każdej tabliczki, nie osobną nakładką DOM. */
 html body .tabliczka {
+  background-color: #ffd800 !important;
   background-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22180%22%20height%3D%22140%22%20viewBox%3D%220%200%20180%20140%22%3E%3Ctext%20x%3D%2290%22%20y%3D%2270%22%20text-anchor%3D%22middle%22%20dominant-baseline%3D%22middle%22%20transform%3D%22rotate%28-45%2090%2070%29%22%20font-family%3D%22Arial%2Csans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2229%22%20fill%3D%22%23777777%22%20fill-opacity%3D%220.16%22%3EFWTP%3C%2Ftext%3E%3C%2Fsvg%3E") !important;
   background-position: 0 0 !important;
   background-size: 180px 140px !important;
@@ -29532,10 +29533,6 @@ html body .tabliczka .trasa-extra-stop.v665-jednoliniowy > .trasa-nazwa {
    gdy v664 przeniosło nazwę z dwóch wierszy do jednego. */
 function v665SynchronizujWysokosci(kolumny){
   if(!kolumny)return;
-  // V667: decyzja na podstawie rzeczywistej szerokości tekstu
-  // w AKTUALNYM foncie oraz wolnego miejsca w danej kolumnie.
-  // Nie używamy samej klasy .zawijaj, która mogła pozostać po
-  // wcześniejszej, węższej lub szerszej wersji kolumny.
   const miernik=document.createElement('canvas').getContext('2d');
   kolumny.querySelectorAll('.trasa-stop, .trasa-extra-stop').forEach(wiersz=>{
     const nazwa=wiersz.querySelector(':scope > .trasa-nazwa');
@@ -29543,26 +29540,35 @@ function v665SynchronizujWysokosci(kolumny){
     const css=getComputedStyle(nazwa);
     miernik.font=css.font;
     const napis=(nazwa.textContent||'').replace(/\s+/g,' ').trim();
+    const jednowyrazowy=!/\s/.test(napis);
     let szerokosc=miernik.measureText(napis).width;
-    // Canvas nie uwzględnia letter-spacing; doliczamy go jawnie.
     const rozstaw=parseFloat(css.letterSpacing);
-    if(Number.isFinite(rozstaw)&&rozstaw!==0)
-      szerokosc+=Math.max(0,napis.length-1)*rozstaw;
+    if(Number.isFinite(rozstaw)&&rozstaw!==0)szerokosc+=Math.max(0,napis.length-1)*rozstaw;
     const rect=nazwa.getBoundingClientRect();
     const row=wiersz.getBoundingClientRect();
     const nz=wiersz.querySelector(':scope > .trasa-nz');
     const rezerwaNz=nz?Math.max(0,nz.getBoundingClientRect().width)+2:0;
-    // Dwa ograniczenia: własne pole nazwy oraz fizyczny koniec
-    // wiersza, pomniejszony o oznaczenie NŻ.
     const doPrawej=Math.max(0,row.right-rect.left-rezerwaNz-2);
     const pole=rect.width>8?Math.min(rect.width,doPrawej):doPrawej;
-    const zawija=szerokosc>pole+0.5;
+    const zawija=!jednowyrazowy&&szerokosc>pole+0.5;
     nazwa.classList.toggle('zawijaj',zawija);
     wiersz.classList.toggle('v665-jednoliniowy',!zawija);
     wiersz.classList.toggle('v665-dwuliniowy',zawija);
     wiersz.classList.toggle('v612-dwuwierszowy',zawija);
     wiersz.style.removeProperty('height');
     wiersz.style.removeProperty('min-height');
+    // Mierzymy liczbę faktycznych linii po zawinięciu, nie z długości napisu.
+    // Nie zmieniamy line-height ani geometrii nazwy z wersji 1100.
+    const range=document.createRange();range.selectNodeContents(nazwa);
+    const ys=[];
+    for(const r of range.getClientRects()){
+      if(r.width<0.1||r.height<0.1)continue;
+      if(!ys.some(y=>Math.abs(y-r.top)<2))ys.push(r.top);
+    }
+    const n=jednowyrazowy?1:Math.max(1,Math.min(3,ys.length));
+    wiersz.classList.toggle('v1113-trzy',n>=3);
+    wiersz.classList.toggle('v1113-dwa',n===2);
+    wiersz.classList.toggle('v1113-jeden',n===1);
   });
 }
 </script>
@@ -30275,12 +30281,8 @@ function update(){
   if(cols.length===3){
     for(let i=0;i<2;i++){
       const a=list(cols[i]),b=list(cols[i+1]);let guard=0;
-      while(a&&b&&a.children.length>1&&exceeds(cols[i])&&guard++<400){
-        // Przenosimy rzeczywiste wiersze, nie ustawiamy im sztywnej wysokości.
-        // Wszelkie zawijanie (1/2/3 wiersze) pozostaje w standardowym CSS.
-        const last=a.lastElementChild;
-        b.insertBefore(last,b.firstChild);
-      }
+      while(a&&b&&a.children.length>1&&exceeds(cols[i])&&guard++<400)
+        b.insertBefore(a.lastElementChild,b.firstChild);
     }
     // Pusta trzecia kolumna nie jest potrzebna: przywróć dwie
     // wraz z nagłówkami i klasami całej tabliczki.
@@ -30300,9 +30302,7 @@ function update(){
 }
 function queue(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(()=>{queued=false;update();}));}
 const target=document.getElementById('wynik');if(target)new MutationObserver(queue).observe(target,{childList:true,subtree:false});
-window.addEventListener('resize',queue);window.addEventListener('load',queue);
-if(document.fonts?.ready)document.fonts.ready.then(queue);
-queue();
+window.addEventListener('resize',queue);window.addEventListener('load',queue);queue();
 })();
 </script>
 
@@ -33703,7 +33703,37 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not
   background-repeat:repeat-x!important;
 }
 </style>
-
+<script id="fwtp-v1096-os-przez-miejscowosci">
+(()=>{
+ const host=document.getElementById('wynik');
+ if(!host)return;
+ let pending=false;
+ const isStop=e=>e?.matches?.('li.trasa-stop, li.trasa-extra-stop, .trasa-stop, .trasa-extra-stop');
+ const isLocal=e=>e?.matches?.('li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd)');
+ function neighbor(sep,dir){
+   let el=dir<0?sep.previousElementSibling:sep.nextElementSibling;
+   while(el && isLocal(el))el=dir<0?el.previousElementSibling:el.nextElementSibling;
+   return isStop(el);
+ }
+ function run(){
+  pending=false;
+  host.querySelectorAll('.trasa-columns .trasa-lista-397').forEach(list=>{
+   list.querySelectorAll(':scope > li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd)').forEach(sep=>{
+    const connect=neighbor(sep,-1)&&neighbor(sep,1);
+    if(connect){
+      sep.classList.add('laczenie-osi-449');
+      if(!sep.querySelector(':scope > .os-lacznik-453')){
+       const line=document.createElement('span');line.className='os-lacznik-453';line.setAttribute('aria-hidden','true');sep.appendChild(line);
+      }
+    }
+   });
+  });
+ }
+ function queue(){if(pending)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
+ new MutationObserver(records=>{if(records.some(r=>r.type==='childList' && !Array.from(r.addedNodes).every(n=>n.nodeType===1 && n.classList?.contains('os-lacznik-453'))))queue();}).observe(host,{childList:true,subtree:true});
+ window.addEventListener('load',queue);queue();
+})();
+</script>
 
 <!-- V1097: koncowe przeliczenie ukladu po pierwszym renderze i zaladowaniu czcionek.
      Uzywa istniejacych obslug zdarzenia resize, bez zmiany CSS ani geometrii separatorow. -->
@@ -33775,132 +33805,61 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not
 .tabliczka .trasa-stop.przed > .fwtp-os-ciagla-1099,
 .tabliczka .trasa-extra-stop.przed > .fwtp-os-ciagla-1099 {background:#777!important;}
 </style>
-
-
-<!-- V1104: oś dopiero po końcowym przeniesieniu separatorów między kolumnami.
-     Jeden mechanizm (V544) tworzy połączenia; stare łączniki V1096/V1099 usuwamy. -->
-<script id="fwtp-v1104-os-po-kolumnach">
+<script id="fwtp-v1099-os-ciagla">
 (()=>{
  'use strict';
- const host=document.getElementById('wynik');
- if(!host)return;
- let pending=false, busy=false;
- const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
- function clean(){
-   host.querySelectorAll('.os-lacznik-453,.fwtp-os-ciagla-1099').forEach(el=>el.remove());
-   host.querySelectorAll('.trasa-separator.laczenie-osi-449').forEach(el=>el.classList.remove('laczenie-osi-449'));
+ const host=document.getElementById('wynik');if(!host)return;
+ const stop=e=>e?.matches?.('li.trasa-stop,li.trasa-extra-stop');
+ const through=e=>e?.matches?.('li.trasa-separator.trasa-miejscowosc-429:not(.v588-objazd),li.trasa-separator.trasa-strefa-440:not(.v588-objazd)');
+ let pending=false;
+ function update(){
+  pending=false;
+  host.querySelectorAll('.fwtp-os-ciagla-1099').forEach(e=>e.remove());
+  host.querySelectorAll('.trasa-columns .trasa-lista-397').forEach(list=>{
+   const rows=Array.from(list.children);
+   for(let i=0;i<rows.length;i++){
+    const a=rows[i];if(!stop(a))continue;
+    let j=i+1,separator=false;
+    while(j<rows.length&&through(rows[j])){separator=true;j++;}
+    const b=rows[j];if(!separator||!stop(b))continue;
+    if(a.classList.contains('v612-koncowy')||a.classList.contains('v469-koniec'))continue;
+    const ar=a.getBoundingClientRect(),ao=a.querySelector('.trasa-os'),bo=b.querySelector('.trasa-os');
+    if(!ao||!bo)continue;
+    const ad=ao.getBoundingClientRect(),bd=bo.getBoundingClientRect();
+    const x=ad.left+ad.width/2-ar.left;
+    const y1=ad.top+ad.height/2-ar.top+4.25;
+    const y2=bd.top+bd.height/2-ar.top-4.25;
+    if(y2<=y1)continue;
+    // Nie dubluj odcinka, jeżeli starszy mechanizm już go narysował.
+    if(a.querySelector(':scope > .kropka-do-kropki-544'))continue;
+    if(getComputedStyle(a).position==='static')a.style.position='relative';
+    const line=document.createElement('span');line.className='fwtp-os-ciagla-1099';
+    line.style.left=(x-1.25)+'px';line.style.top=y1+'px';line.style.height=(y2-y1)+'px';
+    line.setAttribute('aria-hidden','true');a.appendChild(line);
+   }
+  });
  }
- async function refresh(){
-   pending=false;
-   if(busy)return;
-   busy=true;
-   try{
-     // Pozwól zakończyć pomiary i przenoszenie elementów w istniejącym silniku.
-     await frame();await frame();
-     clean();
-     // Oryginalny V544 usuwa poprzednie odcinki i odtwarza je z aktualnych
-     // pozycji kropek w każdej kolumnie. Nie zmieniamy reguł wariantów.
-     if(typeof window.v544PolaczMiejscowosci==='function'){
-       window.v544PolaczMiejscowosci();
-     }
-   }finally{busy=false;}
- }
- function queue(){if(pending)return;pending=true;requestAnimationFrame(refresh);}
+ function queue(){if(pending)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(update));}
  const observer=new MutationObserver(records=>{
-   // Reaguj tylko na zmiany list/kolumn, nie na nasze własne linie.
-   if(records.some(r=>{
-     if(r.type!=='childList')return false;
-     const target=r.target;
-     const inRoute=target.nodeType===1 && (target.matches?.('.trasa-lista-397,.trasa-columns,.trasa-kol') || target.closest?.('.trasa-columns'));
-     if(!inRoute)return false;
-     return [...r.addedNodes,...r.removedNodes].some(n=>n.nodeType===1 && !n.matches?.('.kropka-do-kropki-544,.os-lacznik-453,.fwtp-os-ciagla-1099'));
-   }))queue();
+  if(records.some(r=>r.type==='childList'&&Array.from(r.addedNodes).some(n=>n.nodeType===1&&!n.classList?.contains('fwtp-os-ciagla-1099')&&!n.classList?.contains('kropka-do-kropki-544')&&!n.classList?.contains('os-lacznik-453'))))queue();
  });
  observer.observe(host,{subtree:true,childList:true});
- window.addEventListener('resize',queue);
- window.addEventListener('load',queue);
+ window.addEventListener('resize',queue);window.addEventListener('load',queue);
  if(document.fonts?.ready)document.fonts.ready.then(queue);
  queue();
 })();
 </script>
 
-<!-- V1112: wysokość wiersza bez zmiany line-height; nagłówek bez nakładania na rozkład -->
-<style id="fwtp-v1112">
-/* Bez zmian line-height i czcionki. */
-html body .tabliczka .trasa-columns .trasa-lista > li.trasa-stop.v1112-jeden,
-html body .tabliczka .trasa-columns .trasa-lista > li.trasa-extra-stop.v1112-jeden {height:16.5px!important;min-height:16.5px!important;max-height:none!important}
-html body .tabliczka .trasa-columns .trasa-lista > li.trasa-stop.v1112-dwa,
-html body .tabliczka .trasa-columns .trasa-lista > li.trasa-extra-stop.v1112-dwa {height:33px!important;min-height:33px!important;max-height:none!important}
-html body .tabliczka .trasa-columns .trasa-lista > li.trasa-stop.v1112-trzy,
-html body .tabliczka .trasa-columns .trasa-lista > li.trasa-extra-stop.v1112-trzy {height:49.5px!important;min-height:49.5px!important;max-height:none!important}
-html body .tabliczka .trasa-columns .trasa-nazwa.v1112-jednowyrazowa {white-space:nowrap!important;word-break:keep-all!important;overflow-wrap:normal!important}
-/* Tryb pod numerem: wyłączamy stare pozycjonowanie absolutne informacji. */
-html body .tabliczka.v1112-pod-numerem .panel-lewy .naglowek-tabliczki {
- height:auto!important;min-height:0!important;display:flex!important;
- flex-direction:column!important;align-items:flex-start!important;
-}
-html body .tabliczka.v1112-pod-numerem .panel-lewy .naglowek-tabliczki .dane-linii {
- position:relative!important;top:auto!important;left:auto!important;right:auto!important;
- transform:none!important;height:auto!important;min-height:0!important;
- width:100%!important;max-width:100%!important;
- padding:0!important;margin:5px 0 0!important;
-}
-html body .tabliczka.v1112-pod-numerem .panel-lewy .naglowek-tabliczki .typ-linii,
-html body .tabliczka.v1112-pod-numerem .panel-lewy .naglowek-tabliczki .kierunek,
-html body .tabliczka.v1112-pod-numerem .panel-lewy .naglowek-tabliczki .wazny {
- position:static!important;top:auto!important;left:auto!important;right:auto!important;
- transform:none!important;margin:0!important;
-}
-html body .tabliczka.v1112-pod-numerem .panel-lewy .naglowek-tabliczki .wazny {margin-top:4px!important}
-html body .tabliczka.v1112-pod-numerem .panel-lewy .rozklady-wrap {position:relative!important;top:auto!important;clear:both!important;margin-top:5px!important}
+<!-- FWTP V1113: rzeczywista liczba linii, wysokość wiersza; line-height bez zmian (jak V1100) -->
+<style id="fwtp-v1113-wysokosc">
+html body .tabliczka .trasa-columns li.trasa-stop.v1113-jeden,
+html body .tabliczka .trasa-columns li.trasa-extra-stop.v1113-jeden {height:16.5px!important;min-height:16.5px!important;max-height:none!important}
+html body .tabliczka .trasa-columns li.trasa-stop.v1113-dwa,
+html body .tabliczka .trasa-columns li.trasa-extra-stop.v1113-dwa {height:33px!important;min-height:33px!important;max-height:none!important}
+html body .tabliczka .trasa-columns li.trasa-stop.v1113-trzy,
+html body .tabliczka .trasa-columns li.trasa-extra-stop.v1113-trzy {height:49.5px!important;min-height:49.5px!important;max-height:none!important}
+html body .tabliczka .trasa-columns li.trasa-stop.v1113-trzy > .trasa-os,
+html body .tabliczka .trasa-columns li.trasa-extra-stop.v1113-trzy > .trasa-os {height:49.5px!important;min-height:49.5px!important}
 </style>
-<script id="fwtp-v1112-pomiary">
-(()=>{
- 'use strict';
- const host=document.getElementById('wynik');if(!host)return;
- let queued=false,active=false;
- function lines(name){
-   const text=(name.textContent||'').trim();if(!text||!(/\s/.test(text)))return 1;
-   const range=document.createRange();range.selectNodeContents(name);
-   const ys=[];
-   for(const r of range.getClientRects())if(r.width>0&&r.height>0&&!ys.some(y=>Math.abs(y-r.top)<2))ys.push(r.top);
-   return Math.max(1,Math.min(3,ys.length));
- }
- function update(){
-   queued=false;if(active)return;active=true;
-   try{
-     const tab=host.querySelector('.tabliczka');if(!tab)return;
-     const rows=tab.querySelectorAll('.trasa-columns .trasa-lista > li.trasa-stop,.trasa-columns .trasa-lista > li.trasa-extra-stop');
-     rows.forEach(row=>{
-       const name=row.querySelector(':scope > .trasa-nazwa');if(!name)return;
-       const oneWord=!/\s/.test((name.textContent||'').trim());
-       name.classList.toggle('v1112-jednowyrazowa',oneWord);
-       row.classList.remove('v1112-jeden','v1112-dwa','v1112-trzy');
-       const n=oneWord?1:lines(name);
-       row.classList.add(n===1?'v1112-jeden':n===2?'v1112-dwa':'v1112-trzy');
-     });
-     // Przenosimy informacje pod numer wyłącznie gdy obok niego brakuje szerokości.
-     const head=tab.querySelector('.naglowek-tabliczki');
-     const num=head?.querySelector('.numer-linii-box');
-     const info=head?.querySelector('.dane-linii');
-     if(head&&num&&info){
-       const was=tab.classList.contains('v1112-pod-numerem');
-       if(was)tab.classList.remove('v1112-pod-numerem');
-       const free=head.getBoundingClientRect().width-num.getBoundingClientRect().width;
-       const need=Math.max(125,Math.min(215,info.scrollWidth))+10;
-       const move=free<need;
-       if(move)tab.classList.add('v1112-pod-numerem');
-     }
-   }finally{active=false}
- }
- function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(update))}
- const observer=new MutationObserver(records=>{if(records.some(r=>r.type==='childList'))schedule()});
- observer.observe(host,{childList:true,subtree:true});
- window.addEventListener('resize',schedule,{passive:true});
- window.addEventListener('load',schedule);
- if(document.fonts?.ready)document.fonts.ready.then(schedule);
- schedule();
-})();
-</script>
 </body>
 </html>
