@@ -1,8 +1,8 @@
-<!-- WERSJA: 1123 -->
+<!-- WERSJA: 1126 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
-<!-- WERSJA: 1123 -->
+<!-- WERSJA: 1126 -->
 <!-- WERSJA: 760 — PRZENOSZENIE WSPÓLNEGO PRZYSTANKU PRZED WARIANTY -->
 <!-- HISTORIA: WERSJA 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
@@ -33851,7 +33851,7 @@ html body .tabliczka .trasa-stop.v665-jednoliniowy > .trasa-nazwa,
 html body .tabliczka .trasa-extra-stop.v665-jednoliniowy > .trasa-nazwa {white-space:nowrap!important}
 </style>
 
-<!-- WERSJA: 1123 -->
+<!-- WERSJA: 1126 -->
 <style id="fwtp-v1115-bez-limitu-listy">
 /* Szerokość prawego panelu wynika z miejsca pozostałego po rozkładzie. */
 html body .tabliczka.v861-uklad .panel-prawy { min-width:0!important; max-width:none!important; }
@@ -34152,6 +34152,89 @@ html body .tabliczka.v1123-trzy.v1123-pod-numerem .rozklady-wrap{margin-top:5px!
  new MutationObserver(ch=>{if(ch.some(m=>m.target===host))queue()}).observe(host,{childList:true});
  window.addEventListener('resize',queue);window.addEventListener('load',queue);
  document.fonts?.ready.then(queue);queue();
+})();
+</script>
+
+
+
+
+<!-- WERSJA 1126: szerokosci 3 kolumn z algorytmu 1109 (V1085/V988), bez zmian 1/2 kolumn -->
+<style id="fwtp-v1126-three">
+html body .tabliczka.v1123-trzy .trasa-columns.cols-3>.trasa-kol{min-width:0!important;overflow:visible!important;box-sizing:border-box!important}
+html body .tabliczka.v1123-trzy .trasa-columns.cols-3 .trasa-stop,
+html body .tabliczka.v1123-trzy .trasa-columns.cols-3 .trasa-extra-stop{width:100%!important;max-width:100%!important;position:relative!important;box-sizing:border-box!important}
+html body .tabliczka.v1123-trzy .trasa-columns.cols-3 .trasa-nz{position:absolute!important;left:auto!important;right:2px!important;width:12px!important;text-align:center!important}
+</style>
+<script id="fwtp-v1126-three-js">
+(()=>{
+'use strict';
+const host=document.getElementById('wynik');if(!host)return;
+let pending=false,running=false;
+const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+function measure(el,t){const s=getComputedStyle(el);ctx.font=[s.fontStyle,s.fontWeight,s.fontSize,s.fontFamily].join(' ');return ctx.measureText(t).width+(parseFloat(s.letterSpacing)||0)*Math.max(0,t.length-1)}
+function stats(col,label){
+ const rect=col.getBoundingClientRect(),full=[],word=[];
+ const header=label?Math.ceil(measure(label,'czasy, trasa, przystanki')+9):150;
+ for(const row of col.querySelectorAll('.trasa-stop,.trasa-extra-stop')){
+  if(row.closest('.trasa-kol')!==col)continue;
+  const el=row.querySelector(':scope > .trasa-nazwa');if(!el)continue;
+  const t=(el.dataset.v946Text||el.textContent||'').replace(/\s+/g,' ').trim();if(!t)continue;
+  const offset=Math.max(31,el.getBoundingClientRect().left-rect.left);
+  const nz=row.querySelector(':scope > .trasa-nz');
+  const reserve=Math.max(20,(nz?.getBoundingClientRect().width||10)+10);
+  full.push(Math.ceil(offset+measure(el,t)+reserve));
+  word.push(Math.ceil(offset+Math.max(...t.split(/\s+/).map(w=>measure(el,w)))+reserve));
+ }
+ full.sort((a,b)=>a-b);
+ const p90=full.length?full[Math.max(0,Math.ceil(full.length*.9)-1)]:0;
+ let localityMin=0;
+ for(const el of col.querySelectorAll('.trasa-miejscowosc-429:not(.v588-objazd) > .trasa-separator-title')){
+  const words=(el.textContent||'').trim().split(/\s+/).filter(Boolean);if(!words.length)continue;
+  const widest=Math.max(...words.map(w=>measure(el,w)));
+  const longest=Math.max(...words.map(w=>[...w].length));
+  localityMin=Math.max(localityMin,Math.ceil(widest+24),longest>=14?181:0);
+ }
+ const boundary=col.querySelector('.trasa-separator.graniczny-zawijany-836')?155:0;
+ const min=Math.max(header,word.length?Math.max(...word):0,localityMin,boundary);
+ return {min,target:Math.max(min,p90)};
+}
+function run(){pending=false;if(running)return;running=true;
+try{
+ const tab=host.querySelector('.tabliczka');const grid=tab?.querySelector('.trasa-columns.cols-3');
+ if(!tab||!grid||!tab.classList.contains('v1123-trzy'))return;
+ const cols=[...grid.children].filter(e=>e.classList.contains('trasa-kol'));if(cols.length!==3)return;
+ const head=tab.querySelector('.trasa-head.cols-3');const labels=[...(head?.querySelectorAll('.trasa-head-label')||[])];
+ const data=cols.map((c,i)=>stats(c,labels[i]));
+ const paper=tab.clientWidth;
+ const left=tab.querySelector('.panel-lewy');const timetable=left?.querySelector('.rozklady-grid');const num=left?.querySelector('.numer-linii-box');
+ const leftMin=Math.max(180,Math.ceil((timetable?.scrollWidth||0)+34),(num?.offsetWidth||0)+34);
+ const available=Math.max(0,paper-leftMin-8);
+ if(available<200)return;
+ let widths=data.map(x=>x.min);let sum=widths.reduce((a,b)=>a+b,0);
+ if(sum<available){let remain=available-sum;const needs=data.map((x,i)=>Math.max(0,x.target-widths[i]));const need=needs.reduce((a,b)=>a+b,0);
+  if(need){const used=Math.min(remain,need);widths=widths.map((w,i)=>w+used*needs[i]/need);remain-=used;}
+  if(remain>0)widths=widths.map(w=>w+remain/3);
+ }else if(sum>available){const ratio=available/sum;widths=widths.map(w=>w*ratio);}
+ const total=widths.reduce((a,b)=>a+b,0);const leftWidth=paper-total;
+ const spec=widths.map(w=>w.toFixed(2)+'px').join(' ');
+ tab.style.setProperty('--v1123-cols',spec,'important');
+ tab.style.setProperty('grid-template-columns',leftWidth.toFixed(2)+'px '+total.toFixed(2)+'px','important');
+ tab.style.setProperty('--v869-lewa',leftWidth.toFixed(2)+'px','important');
+ grid.style.setProperty('grid-template-columns',spec,'important');
+ if(head)head.style.setProperty('grid-template-columns',spec,'important');
+ for(const col of cols)for(const row of col.querySelectorAll('.trasa-stop,.trasa-extra-stop')){
+  if(row.closest('.trasa-kol')!==col)continue;
+  const name=row.querySelector(':scope > .trasa-nazwa');if(!name)continue;
+  const rightEdge=col.getBoundingClientRect().right-18;
+  const width=Math.max(20,Math.floor(rightEdge-name.getBoundingClientRect().left));
+  name.style.setProperty('max-width',width+'px','important');
+  name.style.setProperty('white-space',/\s/.test(name.textContent||'')?'normal':'nowrap','important');
+  row.style.removeProperty('height');row.style.removeProperty('min-height');
+ }
+}finally{running=false;}}
+function queue(){if(pending||running)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
+new MutationObserver(records=>{if(records.some(r=>r.target===host))queue()}).observe(host,{childList:true});
+window.addEventListener('resize',queue);window.addEventListener('load',queue);document.fonts?.ready.then(queue);queue();
 })();
 </script>
 
