@@ -1,8 +1,8 @@
-<!-- WERSJA: 1120 -->
+<!-- HISTORIA: WERSJA 1120 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
-<!-- WERSJA: 1120 -->
+<!-- HISTORIA: WERSJA 1120 -->
 <!-- WERSJA: 760 — PRZENOSZENIE WSPÓLNEGO PRZYSTANKU PRZED WARIANTY -->
 <!-- HISTORIA: WERSJA 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
@@ -33851,7 +33851,7 @@ html body .tabliczka .trasa-stop.v665-jednoliniowy > .trasa-nazwa,
 html body .tabliczka .trasa-extra-stop.v665-jednoliniowy > .trasa-nazwa {white-space:nowrap!important}
 </style>
 
-<!-- WERSJA: 1120 -->
+<!-- HISTORIA: WERSJA 1120 -->
 <style id="fwtp-v1115-bez-limitu-listy">
 /* Szerokość prawego panelu wynika z miejsca pozostałego po rozkładzie. */
 html body .tabliczka.v861-uklad .panel-prawy { min-width:0!important; max-width:none!important; }
@@ -34058,6 +34058,113 @@ html body .tabliczka.v861-uklad .trasa-columns .trasa-nz {
   queued=false;running=true;try{measure()}finally{running=false}
  }));}
  new MutationObserver(changes=>{if(changes.some(c=>c.target===host))queue()}).observe(host,{childList:true});
+ window.addEventListener('resize',queue);window.addEventListener('load',queue);
+ if(document.fonts?.ready)document.fonts.ready.then(queue);
+ queue();
+})();
+</script>
+
+
+<!-- WERSJA: 1121 -->
+<style id="fwtp-v1121">
+/* Cała wolna szerokość kartki należy do listy; rezerwa między tabelą i listą: 5 px. */
+html body .tabliczka.v861-uklad .trasa-columns,
+html body .tabliczka.v861-uklad .trasa-head{min-width:0!important;max-width:none!important}
+html body .tabliczka.v861-uklad .trasa-columns .trasa-kol{min-width:0!important;overflow:visible!important}
+html body .tabliczka.v861-uklad .trasa-columns .trasa-nz{right:2px!important;z-index:9!important}
+html body .tabliczka.v861-uklad .trasa-columns .trasa-nazwa{box-sizing:border-box!important;min-width:0!important;overflow-wrap:normal!important;word-break:normal!important}
+</style>
+<script id="fwtp-v1121-uklad">
+(()=>{
+ 'use strict';
+ const host=document.getElementById('wynik');if(!host)return;
+ let scheduled=false,working=false;
+ const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+ const norm=s=>(s||'').replace(/\s+/g,' ').trim().toLocaleUpperCase('pl');
+ const tick=()=>new Promise(r=>requestAnimationFrame(r));
+ function textWidth(s,el){const c=getComputedStyle(el);ctx.font=c.font;return ctx.measureText(s).width+(parseFloat(c.letterSpacing)||0)*Math.max(0,s.length-1)}
+ function fixVariant(tab){
+  if(!/N02/i.test(tab.querySelector('.numer-linii-box')?.textContent||''))return;
+  const lists=[...tab.querySelectorAll('.trasa-columns .trasa-lista')];
+  const rows=lists.flatMap(l=>[...l.children]);
+  const name=e=>norm(e.querySelector(':scope > .trasa-nazwa')?.textContent);
+  const idx=rows.findIndex(e=>name(e)==='ZAJEZDNIA STALOWA');
+  if(idx<0)return;
+  const depot=rows[idx];const list=depot.parentElement;
+  const preceding=rows.slice(0,idx).reverse().find(e=>name(e)==='SZWEDZKA');
+  const following=rows.slice(idx+1).find(e=>name(e)==='SZWEDZKA');
+  if(!preceding||!following)return;
+  const isVariant=e=>/TRASA W KURSACH/i.test(e.textContent||'')&&!e.querySelector('.trasa-nazwa');
+  const isAll=e=>/TRASA WE WSZYSTKICH KURSACH/i.test(e.textContent||'')&&!e.querySelector('.trasa-nazwa');
+  const variant=rows.find(isVariant),all=rows.find(isAll);
+  if(variant&&variant.nextElementSibling!==preceding){preceding.parentElement.insertBefore(variant,preceding)}
+  if(all&&all.nextElementSibling!==following){following.parentElement.insertBefore(all,following)}
+  // Jeżeli wcześniejszy filtr usunął separator powrotu, odtwórz go
+  // wyłącznie dla potwierdzonego w JSON rozgałęzienia N02.
+  if(!all){
+   const li=document.createElement('li');li.className=variant?.className||'trasa-extra-title-397';
+   li.textContent='Trasa we wszystkich kursach';
+   following.parentElement.insertBefore(li,following);
+  }
+ }
+ function distribute(tab,grid,cols){
+  const total=grid.clientWidth;if(total<180)return;
+  const rowsets=cols.map(col=>[...col.querySelectorAll('.trasa-stop,.trasa-extra-stop')].filter(r=>r.closest('.trasa-kol')===col));
+  const metrics=rowsets.map((rows,i)=>{
+   let minimum=90,demand=0;
+   const cr=cols[i].getBoundingClientRect();
+   for(const row of rows){const el=row.querySelector(':scope > .trasa-nazwa');if(!el)continue;
+    const t=norm(el.textContent);if(!t)continue;
+    const offset=el.getBoundingClientRect().left-cr.left;
+    const longest=Math.max(...t.split(/\s+/).map(w=>textWidth(w,el)));
+    minimum=Math.max(minimum,Math.ceil(offset+longest+19));
+    demand+=Math.max(0,textWidth(t,el)-longest);
+   }
+   return {minimum,demand:demand+1};
+  });
+  const minsum=metrics.reduce((s,m)=>s+m.minimum,0);
+  let sizes=metrics.map(m=>m.minimum);
+  if(minsum<=total){const extra=total-minsum,ds=metrics.reduce((s,m)=>s+m.demand,0);sizes=sizes.map((v,i)=>v+extra*metrics[i].demand/ds)}
+  else {const scale=total/minsum;sizes=sizes.map(v=>v*scale)}
+  const key=cols.length===3?'--v888-three':'--v888-two';
+  tab.style.setProperty(key,sizes.map(v=>v.toFixed(2)+'px').join(' '),'important');
+  return rowsets;
+ }
+ function setHeights(cols){
+  for(const col of cols){
+   const cr=col.getBoundingClientRect();
+   for(const row of col.querySelectorAll('.trasa-stop,.trasa-extra-stop')){
+    if(row.closest('.trasa-kol')!==col)continue;
+    const el=row.querySelector(':scope > .trasa-nazwa');if(!el)continue;
+    const z=row.querySelector(':scope > .trasa-nz');
+    const right=z?z.getBoundingClientRect().left-5:cr.right-5;
+    const w=Math.max(20,Math.floor(right-el.getBoundingClientRect().left));
+    el.style.setProperty('--v1120-name-width',w+'px');
+    const t=norm(el.textContent),single=!/\s/.test(t);
+    row.classList.toggle('v1117-single',single);
+    el.style.setProperty('white-space',single?'nowrap':'normal','important');
+    const range=document.createRange();range.selectNodeContents(el);
+    const tops=[];for(const r of range.getClientRects())if(r.width>.1&&!tops.some(y=>Math.abs(y-r.top)<2))tops.push(r.top);
+    const count=Math.max(1,tops.length);row.dataset.fwtpLines=count;
+    row.style.setProperty('height',count*16.5+'px','important');
+    row.style.setProperty('min-height',count*16.5+'px','important');
+   }
+  }
+ }
+ async function run(){scheduled=false;if(working)return;working=true;
+  try{
+   const tab=host.querySelector('.tabliczka.v861-uklad');if(!tab)return;
+   const table=tab.querySelector('.panel-lewy .rozklady-grid');const grid=tab.querySelector('.trasa-columns');if(!table||!grid)return;
+   const tr=tab.getBoundingClientRect(),rr=table.getBoundingClientRect();
+   const left=Math.ceil(rr.right-tr.left+5),right=Math.floor(tr.right-rr.right-5);
+   if(right>200){tab.style.setProperty('--v869-lewa',left+'px','important');tab.style.setProperty('--lewa',left+'px','important');tab.style.setProperty('--prawa',right+'px','important');tab.style.setProperty('grid-template-columns',left+'px minmax(0,1fr)','important')}
+   await tick();fixVariant(tab);
+   const cols=[...grid.children].filter(c=>c.classList.contains('trasa-kol'));
+   if(cols.length===2||cols.length===3){distribute(tab,grid,cols);await tick();setHeights(cols)}
+  }finally{working=false}
+ }
+ function queue(){if(scheduled||working)return;scheduled=true;requestAnimationFrame(()=>requestAnimationFrame(run))}
+ new MutationObserver(m=>{if(m.some(x=>x.target===host))queue()}).observe(host,{childList:true});
  window.addEventListener('resize',queue);window.addEventListener('load',queue);
  if(document.fonts?.ready)document.fonts.ready.then(queue);
  queue();
