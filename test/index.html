@@ -1,4 +1,4 @@
-<!-- WERSJA: 1130 -->
+<!-- WERSJA: 1131 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -34061,4 +34061,106 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-3 .trasa-nz {
   width:12px!important;text-align:center!important;
 }
 </style>
+
+<!-- WERSJA: 1131 — korekta rzeczywistej granicy i wysokości wyłącznie 3 kolumn -->
+<style id="fwtp-v1131">
+html body .tabliczka.v861-uklad:has(.trasa-columns.cols-3) .trasa-columns.cols-3,
+html body .tabliczka.v861-uklad:has(.trasa-columns.cols-3) .trasa-head.cols-3 {
+ grid-template-columns:var(--v1131-cols,repeat(3,minmax(0,1fr)))!important;
+ width:100%!important;min-width:0!important;
+}
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 .trasa-kol,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 .trasa-lista {min-width:0!important;overflow:visible!important}
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop {
+ position:relative!important;box-sizing:border-box!important;
+ height:auto!important;max-height:none!important;overflow:visible!important;
+ min-height:var(--v1131-row-height,16.5px)!important;
+}
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop > .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop > .trasa-nazwa {
+ box-sizing:border-box!important;white-space:normal!important;
+ overflow:visible!important;max-height:none!important;
+ line-height:12.5px!important;overflow-wrap:normal!important;word-break:normal!important;
+}
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 .trasa-nz {
+ position:absolute!important;right:2px!important;left:auto!important;width:12px!important;
+ text-align:center!important;
+}
+</style>
+<script id="fwtp-v1131-script">
+(()=>{
+ const host=document.getElementById('wynik');if(!host)return;
+ const ctx=document.createElement('canvas').getContext('2d');
+ let pending=false,working=false;
+ const measure=(word,el)=>{const st=getComputedStyle(el);ctx.font=st.font;return ctx.measureText(word).width+Math.max(0,word.length-1)*(parseFloat(st.letterSpacing)||0)};
+ function run(){
+  pending=false;if(working)return;working=true;
+  try{
+   const tab=host.querySelector('.tabliczka.v861-uklad');
+   const root=tab?.querySelector('.trasa-columns.cols-3');
+   const left=tab?.querySelector('.panel-lewy');
+   const table=left?.querySelector('.rozklady-grid');
+   const right=tab?.querySelector('.panel-prawy');
+   if(!root||!table||!right)return;
+   const tabRect=tab.getBoundingClientRect(),tableRect=table.getBoundingClientRect();
+   // Granica jest wyłącznie 5 px za tabelą, nie za nagłówkiem.
+   const leftWidth=Math.ceil(tableRect.right-tabRect.left+5);
+   const pageWidth=tab.clientWidth;
+   if(leftWidth>0&&leftWidth<pageWidth-350){
+    const value=leftWidth+'px';
+    tab.style.setProperty('--v869-lewa',value,'important');
+    tab.style.setProperty('--lewa',value,'important');
+    tab.style.setProperty('grid-template-columns',value+' minmax(0,1fr)','important');
+   }
+   const cols=[...root.children].filter(e=>e.classList.contains('trasa-kol'));
+   if(cols.length!==3)return;
+   const available=right.clientWidth;
+   if(available<330)return;
+   const required=cols.map(col=>{
+    const cr=col.getBoundingClientRect();let req=105;
+    for(const name of col.querySelectorAll('.trasa-stop > .trasa-nazwa,.trasa-extra-stop > .trasa-nazwa')){
+     const offset=Math.max(28,name.getBoundingClientRect().left-cr.left);
+     for(const word of (name.textContent||'').trim().split(/\s+/)){
+      req=Math.max(req,Math.ceil(offset+measure(word,name)+19));
+     }
+    }
+    for(const sep of col.querySelectorAll('.trasa-miejscowosc-429,.v485-miejscowosc')){
+     const label=sep.querySelector('.trasa-separator-title')||sep;
+     for(const word of (label.textContent||'').trim().split(/\s+/)){
+      if(word.length>=14)req=Math.max(req,181);
+      else if(word.length>=11)req=Math.max(req,150);
+     }
+    }
+    return req;
+   });
+   const total=required.reduce((a,b)=>a+b,0);
+   let widths=required.slice();
+   if(total<available){const extra=(available-total)/3;widths=widths.map(v=>v+extra)}
+   else {
+    const floors=required.map(v=>v>=181?181:v>=150?150:105);
+    const fs=floors.reduce((a,b)=>a+b,0);
+    if(fs<available){const f=(available-fs)/(total-fs||1);widths=required.map((v,i)=>floors[i]+(v-floors[i])*f)}
+    else widths=floors.map(v=>v*available/fs);
+   }
+   widths[2]+=available-widths.reduce((a,b)=>a+b,0);
+   tab.style.setProperty('--v1131-cols',widths.map(x=>x.toFixed(2)+'px').join(' '),'important');
+   // Dopiero po nadaniu szerokości mierz rzeczywistą wysokość każdej nazwy.
+   for(const li of root.querySelectorAll('li.trasa-stop,li.trasa-extra-stop')){
+    li.style.removeProperty('--v1131-row-height');
+    const name=li.querySelector(':scope > .trasa-nazwa');if(!name)continue;
+    const st=getComputedStyle(name);
+    const line=parseFloat(st.lineHeight)||12.5;
+    const actual=Math.max(name.scrollHeight,name.getBoundingClientRect().height);
+    const h=Math.max(16.5,Math.ceil(actual+2),Math.ceil(line+3));
+    li.style.setProperty('--v1131-row-height',h+'px');
+   }
+  }finally{working=false}
+ }
+ function queue(){if(pending)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(run))}
+ new MutationObserver(queue).observe(host,{childList:true,subtree:false});
+ window.addEventListener('resize',queue);window.addEventListener('load',queue);
+ document.fonts?.ready.then(queue);queue();
+})();
+</script>
 </body></html>
