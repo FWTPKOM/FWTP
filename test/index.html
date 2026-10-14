@@ -1,8 +1,8 @@
-<!-- WERSJA: 1116 -->
+<!-- WERSJA: 1117 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
-<!-- WERSJA: 1116 -->
+<!-- WERSJA: 1117 -->
 <!-- WERSJA: 760 — PRZENOSZENIE WSPÓLNEGO PRZYSTANKU PRZED WARIANTY -->
 <!-- HISTORIA: WERSJA 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
@@ -30540,7 +30540,7 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not
  z-index:4!important;background:white!important;
 }
 </style>
-<script id="fwtp-v889-pomiar">
+<script id="fwtp-v889-pomiar" type="text/plain">
 (()=>{
  let queued=false,busy=false;
  const host=document.getElementById('wynik');
@@ -30632,7 +30632,7 @@ html body .tabliczka .trasa-columns .trasa-stop .trasa-nazwa.v890-jedna-linia{
 html body .tabliczka .trasa-stop .trasa-nazwa{word-break:normal!important;overflow-wrap:normal!important;hyphens:none!important}
 /* Nie zmieniamy kroju, wielkości ani odstępów wierszy. */
 </style>
-<script id="fwtp-v892-bez-kolizji">
+<script id="fwtp-v892-bez-kolizji" type="text/plain">
 (()=>{
  const host=document.getElementById('wynik');let scheduled=false;
  function fit(){scheduled=false;
@@ -33851,7 +33851,7 @@ html body .tabliczka .trasa-stop.v665-jednoliniowy > .trasa-nazwa,
 html body .tabliczka .trasa-extra-stop.v665-jednoliniowy > .trasa-nazwa {white-space:nowrap!important}
 </style>
 
-<!-- WERSJA: 1116 -->
+<!-- WERSJA: 1117 -->
 <style id="fwtp-v1115-bez-limitu-listy">
 /* Szerokość prawego panelu wynika z miejsca pozostałego po rozkładzie. */
 html body .tabliczka.v861-uklad .panel-prawy { min-width:0!important; max-width:none!important; }
@@ -33901,5 +33901,104 @@ html body .tabliczka.v861-uklad .trasa-head { max-width:none!important; }
  queue();
 })();
 </script>
+
+<!-- V1117: finalne dopasowanie szerokości i wierszy, bez modyfikacji line-height -->
+<style id="fwtp-v1117-style">
+html body .tabliczka.v861-uklad .trasa-columns.cols-3,
+html body .tabliczka.v861-uklad .trasa-head.cols-3 {
+  grid-template-columns:var(--v888-three, minmax(0,1fr) minmax(0,1fr) minmax(0,1fr))!important;
+}
+html body .tabliczka.v861-uklad .trasa-columns .trasa-kol {min-width:0!important}
+html body .tabliczka.v861-uklad .trasa-stop > .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-extra-stop > .trasa-nazwa {
+  overflow-wrap:normal!important;word-break:normal!important;hyphens:none!important;
+  white-space:normal!important;
+}
+html body .tabliczka.v861-uklad .trasa-stop.v1117-single > .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-extra-stop.v1117-single > .trasa-nazwa {
+  white-space:nowrap!important;
+}
+html body .tabliczka.v861-uklad .trasa-columns .trasa-nz {
+  position:absolute!important;right:2px!important;left:auto!important;
+  display:block!important;visibility:visible!important;z-index:8!important;
+}
+</style>
+<script id="fwtp-v1117-layout">
+(()=>{
+ 'use strict';
+ const host=document.getElementById('wynik');if(!host)return;
+ let queued=false,busy=false;
+ const raf=()=>new Promise(r=>requestAnimationFrame(r));
+ const ctx=document.createElement('canvas').getContext('2d');
+ function width(str,el){const cs=getComputedStyle(el);ctx.font=cs.font;return ctx.measureText(str).width+(parseFloat(cs.letterSpacing)||0)*Math.max(0,str.length-1)}
+ function rows(col){return [...col.querySelectorAll('.trasa-stop,.trasa-extra-stop')].filter(el=>el.closest('.trasa-kol')===col)}
+ function minimum(col){
+   const cr=col.getBoundingClientRect();let min=85;
+   for(const row of rows(col)){
+     const el=row.querySelector(':scope > .trasa-nazwa');if(!el)continue;
+     const t=(el.textContent||'').replace(/\s+/g,' ').trim();if(!t)continue;
+     const longest=Math.max(...t.split(/\s+/).map(x=>width(x,el)));
+     const x=el.getBoundingClientRect().left-cr.left;
+     min=Math.max(min,Math.ceil(x+longest+15));
+   }
+   return min;
+ }
+ function fit(tab,grid,cols){
+   const available=grid.clientWidth;
+   if(available<100)return;
+   const mins=cols.map(minimum),sum=mins.reduce((a,b)=>a+b,0);
+   // Nie narzucamy procentów. Każda kolumna ma własną szerokość.
+   let sizes=mins.slice();
+   if(sum<available){
+     let extra=available-sum;
+     // Przydzielamy miejsce kolumnom, gdzie najwięcej nazw wymaga zawijania.
+     const demand=cols.map((col,i)=>rows(col).reduce((v,row)=>{
+       const el=row.querySelector(':scope > .trasa-nazwa');if(!el)return v;
+       const text=(el.textContent||'').replace(/\s+/g,' ').trim();
+       return v+Math.max(0,width(text,el)-(mins[i]-Math.max(0,el.getBoundingClientRect().left-col.getBoundingClientRect().left)-12));
+     },1));
+     const dsum=demand.reduce((a,b)=>a+b,0);
+     sizes=sizes.map((v,i)=>v+extra*demand[i]/dsum);
+   }else if(sum>available){
+     // Fizyczny brak miejsca: zachowujemy minimalną szerokość słów,
+     // zamiast wymuszać ich nakładanie przez skalowanie w dół.
+     return;
+   }
+   const prop=cols.length===3?'--v888-three':'--v888-two';
+   tab.style.setProperty(prop,sizes.map(v=>v.toFixed(2)+'px').join(' '),'important');
+ }
+ function heights(cols){
+   for(const col of cols)for(const row of rows(col)){
+     const el=row.querySelector(':scope > .trasa-nazwa');if(!el)continue;
+     const text=(el.textContent||'').replace(/\s+/g,' ').trim();
+     row.classList.toggle('v1117-single',!!text&&!/\s/.test(text));
+     row.style.removeProperty('height');row.style.removeProperty('min-height');
+     const range=document.createRange();range.selectNodeContents(el);
+     const tops=[];
+     for(const rect of range.getClientRects())if(rect.width>.1&&rect.height>.1&&!tops.some(t=>Math.abs(t-rect.top)<2))tops.push(rect.top);
+     const lines=Math.max(1,tops.length);
+     const h=16.5*lines;
+     row.style.setProperty('min-height',h+'px','important');
+     row.style.setProperty('height',h+'px','important');
+     row.dataset.fwtpLines=String(lines);
+   }
+ }
+ async function run(){queued=false;if(busy)return;busy=true;
+   try{
+     const tab=host.querySelector('.tabliczka.v861-uklad');
+     const grid=tab?.querySelector('.trasa-columns');if(!grid)return;
+     const cols=[...grid.children].filter(e=>e.classList.contains('trasa-kol'));
+     if(cols.length<2||cols.length>3)return;
+     await raf();fit(tab,grid,cols);await raf();heights(cols);await raf();
+   }finally{busy=false;}
+ }
+ function queue(){if(queued||busy)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
+ new MutationObserver(m=>{if(m.some(r=>r.target===host))queue()}).observe(host,{childList:true});
+ window.addEventListener('resize',queue);window.addEventListener('load',queue);
+ if(document.fonts?.ready)document.fonts.ready.then(queue);
+ queue();
+})();
+</script>
+
 </body>
 </html>
