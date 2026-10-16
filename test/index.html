@@ -1,4 +1,4 @@
-<!-- WERSJA: 1149 -->
+<!-- WERSJA: 1151 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -22544,6 +22544,56 @@ function v514RenderGotowejListy(){
                     tekst:'Trasa we wszystkich kursach'
                 });
             }
+        }
+    }
+
+    /* WERSJA 1151: wspólna logika prostych podjazdów dla WSZYSTKICH linii.
+       Trasy odczytujemy z JSON; nie sprawdzamy numeru linii.
+       Poprawiamy wyłącznie brakujący powrót do trasy wspólnej.
+       Gotowych, poprawnych rozgałęzień nie nadpisujemy. */
+    {
+        const trasy=Array.isArray(model?.trasy)?model.trasy:[];
+        const baza=trasy.find(t=>String(t?.wariant||'').toUpperCase()==='A');
+        const listaBazowa=Array.isArray(baza?.trasa)?baza.trasa.map(String):[];
+        const bazoweElementy=Array.isArray(model?.elementy)?model.elementy:[];
+        const getStop=id=>{
+            const el=bazoweElementy.find(e=>e?.typ==='przystanek'&&String(e.id)===id)
+              ||wynik760.find(e=>e?.typ==='przystanek'&&String(e.id)===id);
+            if(el)return {...el,koncowy:false,kontynuacja:false};
+            const p=v486BaseStops().find(e=>String(e.id)===id);
+            return {typ:'przystanek',id,nazwa:p?.nazwa_czysta||p?.nazwa||id.split('|')[1],
+                nr:p?.nr,stan:'normalny',koncowy:false,kontynuacja:false};
+        };
+        for(const wariant of trasy){
+            const litera=String(wariant?.wariant||'').trim().toUpperCase();
+            if(!litera||litera==='A'||!listaBazowa.length||!Array.isArray(wariant.trasa))continue;
+            const inna=wariant.trasa.map(String);
+            let prefix=0;
+            while(prefix<Math.min(listaBazowa.length,inna.length)&&listaBazowa[prefix]===inna[prefix])prefix++;
+            let suffix=0;
+            while(suffix<Math.min(listaBazowa.length,inna.length)-prefix &&
+                  listaBazowa[listaBazowa.length-1-suffix]===inna[inna.length-1-suffix])suffix++;
+            const podjazd=inna.slice(prefix,inna.length-suffix);
+            const ominiete=listaBazowa.slice(prefix,listaBazowa.length-suffix);
+            // Wyłącznie podjazd, bez równoległej gałęzi podstawowej.
+            if(!prefix||!suffix||!podjazd.length||ominiete.length)continue;
+            const przed=listaBazowa[prefix-1], powrot=listaBazowa[listaBazowa.length-suffix];
+            const start=wynik760.findIndex(e=>e?.typ==='przystanek'&&String(e.id)===przed);
+            if(start<0)continue;
+            const end=wynik760.findIndex((e,i)=>i>start&&e?.typ==='przystanek'&&String(e.id)===powrot);
+            const existing=wynik760.slice(start+1,end<0?undefined:end);
+            // Nie ruszaj poprawnej listy zawierającej separator powrotu.
+            if(existing.some(e=>e?.typ==='trasa_w_kursach'&&/WE WSZYSTKICH KURSACH/i.test(String(e.tekst||''))))continue;
+            const hasDetour=existing.some(e=>e?.typ==='przystanek'&&podjazd.includes(String(e.id)));
+            if(!hasDetour)continue;
+            const segment=[
+                {typ:'trasa_w_kursach',tekst:'TRASA W KURSACH „'+litera.toLowerCase()+'”'},
+                ...podjazd.map(getStop),
+                {typ:'trasa_w_kursach',tekst:'TRASA WE WSZYSTKICH KURSACH'},
+                getStop(powrot)
+            ];
+            if(end>=0)wynik760.splice(start+1,end-start,...segment);
+            else wynik760.splice(start+1,0,...segment);
         }
     }
 
