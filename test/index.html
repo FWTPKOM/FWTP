@@ -1,4 +1,4 @@
-<!-- WERSJA: 1135 -->
+<!-- WERSJA: 1136 -->
 <!-- HISTORIA: WERSJA 1131 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
@@ -34060,6 +34060,14 @@ function update(){
  }
  const available=Math.max(0,right.getBoundingClientRect().width);
  if(available<=0)return;
+ // Łącznik w nazwie przystanku jest częścią wyrazu, nie dodatkowym punktem łamania.
+ // Nie modyfikujemy innych układów ani separatorów.
+ for(const name of root.querySelectorAll('li.trasa-stop > .trasa-nazwa,li.trasa-extra-stop > .trasa-nazwa')){
+  const walker=document.createTreeWalker(name,NodeFilter.SHOW_TEXT);
+  let node;while((node=walker.nextNode())){
+   if(node.nodeValue.includes('-'))node.nodeValue=node.nodeValue.replace(/(?<=\p{L})-(?=\p{L})/gu,'‑');
+  }
+ }
  const minima=cols.map(col=>{
   let req=100,cityMin=0;
   const cr=col.getBoundingClientRect();
@@ -34081,13 +34089,24 @@ function update(){
  let sizes;
  if(idealSum<=available){const extra=(available-idealSum)/3;sizes=minima.map(v=>v.ideal+extra)}
  else if(floorSum<=available){const k=(available-floorSum)/(idealSum-floorSum||1);sizes=minima.map(v=>v.floor+(v.ideal-v.floor)*k)}
- else {const k=available/floorSum;sizes=minima.map(v=>v.floor*k)}
+ else { /* Fizyczny brak miejsca: zachowujemy pełną dostępną szerokość bez udawania, że minima zostały spełnione. */ const k=available/floorSum;sizes=minima.map(v=>v.floor*k)}
  sizes[2]+=available-sizes.reduce((a,b)=>a+b,0);
  tab.style.setProperty('--v1132-cols',sizes.map(v=>v.toFixed(2)+'px').join(' '),'important');
- // Usuwamy stare, wymuszone wysokości. Wysokość wiersza wynika z treści.
+ // Trzy kolumny: wysokość musi obejmować każdą faktycznie widoczną linię nazwy.
+ // Ustawiamy wysokości dopiero PO ostatecznym wyznaczeniu szerokości kolumn.
  for(const li of root.querySelectorAll('li.trasa-stop,li.trasa-extra-stop')){
   li.style.removeProperty('--v1131-row-height');
   li.style.removeProperty('height');li.style.removeProperty('min-height');
+  const name=li.querySelector(':scope > .trasa-nazwa');if(!name)continue;
+  const textHeight=Math.max(name.scrollHeight,name.getBoundingClientRect().height);
+  const lines=Math.max(1,Math.ceil((textHeight-1)/12.5));
+  const rowHeight=Math.max(16.5,lines*16.5);
+  li.style.setProperty('min-height',rowHeight+'px','important');
+ }
+ for(const sep of root.querySelectorAll('li.trasa-separator.trasa-miejscowosc-429')){
+  const label=sep.querySelector('.trasa-separator-title');if(!label)continue;
+  const needed=Math.ceil(label.scrollHeight+4);
+  if(needed>sep.getBoundingClientRect().height)sep.style.setProperty('min-height',needed+'px','important');
  }
  }finally{busy=false}
 }
@@ -34097,4 +34116,16 @@ window.addEventListener('resize',queue);window.addEventListener('load',queue);
 document.fonts?.ready.then(queue);queue();
 })();
 </script>
+<style id="fwtp-v1136-hyphens">
+/* Tylko trzy kolumny: rezerwa na Ż i naturalna wysokość tekstu. */
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop > .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop > .trasa-nazwa {
+  white-space:normal!important;hyphens:none!important;word-break:normal!important;
+  overflow-wrap:normal!important;line-height:12.5px!important;
+}
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop {
+  max-height:none!important;overflow:visible!important;
+}
+</style>
 </body></html>
