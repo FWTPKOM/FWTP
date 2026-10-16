@@ -1,4 +1,4 @@
-<!-- WERSJA: 1155 -->
+<!-- WERSJA: 1156 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -6696,6 +6696,7 @@ const MIEJSCOWOSCI = [
   "Wrzosówka",
   "Janów-Mikołajówka",
   "Sowia Wola",
+  "Sowia Wola Folwaryczna",
   "Sowia Wola Folwarczna",
   "Cybulice Duże",
   "Pruszków",
@@ -8276,7 +8277,7 @@ const MIEJSCOWOSCI = [
 "Wrzosówka",
     "Janów-Mikołajówka",
 "Sowia Wola",
-   
+    "Sowia Wola Folwaryczna",
   "Sowia Wola Folwarczna",
 "Cybulice Duże",
     "Pruszków",
@@ -20978,51 +20979,16 @@ function v514ModelListy(){
     const active=v486CurrentStop();
     const model=active?.lista_przystankowa;
 
-    /* V936: zgodność danych z V935; geometria kolumn pozostaje z V906. */
-    if(model && Array.isArray(model.elementy) && !model.elementy.length &&
+    /* V1156: puste elementy[] nie są gotową listą.
+       Wcześniej łączono wszystkie trasy[] w jeden ciąg unikalnych ID,
+       gubiąc rozgałęzienia i powroty na trasę wspólną (np. N02).
+       Zwracamy null, aby v486RenderRoutes użył istniejącego,
+       uniwersalnego renderera v496RenderRoutes(routes).
+       Dotyczy wszystkich linii, bez wyjątków dla numerów. */
+    if(model && Array.isArray(model.elementy) &&
+       model.elementy.length===0 &&
        Array.isArray(model.trasy) && model.trasy.length){
-        const rozklady=daneLinii?.rozkłady||daneLinii?.rozklady||[];
-        const mapa=new Map();
-        for(const rozklad of rozklady){
-            const kierunek=rozklad?.kierunki?.[Number(aktualnyKierunek)];
-            for(const p of (kierunek?.przystanki||[])){
-                if(!p?.id || String(p.typ||'').toUpperCase()==='TECH')continue;
-                if(!mapa.has(String(p.id)))mapa.set(String(p.id),p);
-            }
-        }
-        const ids=[];
-        const widziane=new Set();
-        for(const przebieg of model.trasy){
-            for(const id of (przebieg?.trasa||[])){
-                const klucz=String(id);
-                if(!widziane.has(klucz)){
-                    widziane.add(klucz);
-                    ids.push(klucz);
-                }
-            }
-        }
-        /* V916: stan ustalamy po pozycji dokładnego ID na przebiegu.
-           Przystanki przed aktywnym są minięte, nie przyszłe.
-           Nie pobieramy dla nich czasu z innego przystanku (np. 143). */
-        const aktywneId=String(active?.id||'');
-        const indeksAktywnego=ids.indexOf(aktywneId);
-        const wynik=ids.map((id,i)=>{
-            const p=mapa.get(id);
-            if(!p)return null;
-            const przed=indeksAktywnego>=0 && i<indeksAktywnego;
-            const aktualny=id===aktywneId;
-            return {
-                ...p,
-                typ:'przystanek',
-                id,
-                nazwa:p.nazwa_czysta||p.nazwa,
-                stan:przed?'miniety':(aktualny?'aktualny':'przyszly'),
-                czas_przejazdu:przed?null:(aktualny?0:undefined),
-                koncowy:i===ids.length-1,
-                kontynuacja:false
-            };
-        }).filter(Boolean);
-        if(wynik.length)return wynik;
+        return null;
     }
 
     if(
