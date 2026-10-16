@@ -3,7 +3,7 @@
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
-<!-- WERSJA: 1139 -->
+<!-- WERSJA: 1140 -->
 <!-- WERSJA: 760 — PRZENOSZENIE WSPÓLNEGO PRZYSTANKU PRZED WARIANTY -->
 <!-- HISTORIA: WERSJA 750 — BAZA V734; PRZYWRÓCONY PODZIAŁ WYPEŁNIAJĄCY PIERWSZĄ KOLUMNĘ -->
 <!-- WERSJA: 717 — GLOBALNIE: ZACHOWAJ FIZYCZNY SŁUPEK ODNOGI -->
@@ -30314,6 +30314,7 @@ function update(){
  t.classList.add('v861-uklad');
  const table=l.querySelector('.rozklady-grid');
  if(!table)return;
+ if(r.querySelector('.trasa-columns.cols-3'))return;
  // Tabele i numer linii to rzeczywiste minima; nie mierz całego nagłówka.
  const number=l.querySelector('.numer-linii-box');
  const need=Math.ceil(Math.max(table.scrollWidth||0,number?.offsetWidth||0)+24);
@@ -33906,7 +33907,7 @@ html body .tabliczka.v861-uklad .trasa-columns .trasa-nz {
 
 
 
-<!-- WERSJA: 1139 — 3 kolumny po pomiarze naturalnych wysokości; Ż jak 1109 -->
+<!-- WERSJA: 1140 — 3 kolumny po pomiarze naturalnych wysokości; Ż jak 1109 -->
 <style id="fwtp-v1129-css">
 /* Tylko trzy kolumny. Nie zmieniamy geometrii Ż z 1109. */
 html body .tabliczka.v861-uklad .trasa-columns.cols-3,
@@ -34023,87 +34024,71 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-3 .trasa-nz {
 }
 .tabliczka.v861-uklad.v1132-stacked .rozklady-wrap {margin-top:5px!important}
 </style>
-<script id="fwtp-v1132-layout">
+<script id="fwtp-v1140-dynamic-panels">
 (()=>{
 'use strict';
 const host=document.getElementById('wynik');if(!host)return;
+let pending=false,active=false;
 const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
-let busy=false,pending=false;
-function measure(word,el){const st=getComputedStyle(el);ctx.font=st.font;return ctx.measureText(word).width+Math.max(0,word.length-1)*(parseFloat(st.letterSpacing)||0)}
+function textWidth(word,el){const cs=getComputedStyle(el);ctx.font=cs.font;return ctx.measureText(word).width+Math.max(0,word.length-1)*(parseFloat(cs.letterSpacing)||0)}
 function update(){
- pending=false;if(busy)return;busy=true;
+ pending=false;if(active)return;active=true;
  try{
- const tab=host.querySelector('.tabliczka.v861-uklad');
- const root=tab?.querySelector('.trasa-columns.cols-3');
- const left=tab?.querySelector('.panel-lewy'),right=tab?.querySelector('.panel-prawy');
- const table=left?.querySelector('.rozklady-grid');
- if(!root||!right||!table)return;
- const cols=[...root.children].filter(e=>e.classList.contains('trasa-kol'));if(cols.length!==3)return;
- const tr=tab.getBoundingClientRect(),sr=table.getBoundingClientRect();
- // Minimalna lewa szerokość: rzeczywisty koniec tabeli + 5 px.
- // Jedyna granica: rzeczywista prawa krawędź rozkładu + 5 px.
- // Nie rezerwujemy 340 px ani żadnego sztucznego minimum dla listy.
- // Wewnętrzny padding panelu prawego nie może tworzyć pustego pasa.
- // Mierzymy faktyczny początek LISTY, nie tylko granicę paneli.
- const panelInset=root.getBoundingClientRect().left-right.getBoundingClientRect().left;
- const target=Math.max(0,Math.ceil(sr.right-tr.left+5-panelInset));
- // Nie wolno przykryć tabeli; gdy tabela zajmuje całą kartkę,
- // lista nie ma fizycznie dostępnej szerokości.
- if(target>=tab.clientWidth)return;
- tab.style.setProperty('--v869-lewa',target+'px','important');
- tab.style.setProperty('--lewa',target+'px','important');
- tab.style.setProperty('--prawa','calc(100% - '+target+'px)','important');
- tab.style.setProperty('grid-template-columns',target+'px minmax(0,1fr)','important');
- const header=left.querySelector('.naglowek-tabliczki');
- if(header){
-  // Nagłówek nie może wyznaczać szerokości lewej kolumny.
-  // Przy 3 kolumnach umieszczamy opis i kierunek pod numerem linii.
+  const tab=host.querySelector('.tabliczka.v861-uklad');
+  const left=tab?.querySelector('.panel-lewy'),right=tab?.querySelector('.panel-prawy');
+  const root=right?.querySelector('.trasa-columns.cols-3');
+  const table=left?.querySelector('.rozklady-grid');
+  if(!root||!table)return;
+  const cols=Array.from(root.children).filter(e=>e.classList.contains('trasa-kol'));
+  if(cols.length!==3)return;
   tab.classList.add('v1132-stacked');
- }
- const available=Math.max(0,right.getBoundingClientRect().width);
- if(available<=0)return;
- // Łącznik w nazwie przystanku jest częścią wyrazu, nie dodatkowym punktem łamania.
- // Nie modyfikujemy innych układów ani separatorów.
- for(const name of root.querySelectorAll('li.trasa-stop > .trasa-nazwa,li.trasa-extra-stop > .trasa-nazwa')){
-  const walker=document.createTreeWalker(name,NodeFilter.SHOW_TEXT);
-  let node;while((node=walker.nextNode())){
-   if(node.nodeValue.includes('-'))node.nodeValue=node.nodeValue.replace(/(?<=\p{L})-(?=\p{L})/gu,'‑');
-  }
- }
- const minima=cols.map(col=>{
-  let req=100,cityMin=0;
-  const cr=col.getBoundingClientRect();
-  for(const name of col.querySelectorAll('.trasa-stop > .trasa-nazwa,.trasa-extra-stop > .trasa-nazwa')){
-   const offset=Math.max(27,name.getBoundingClientRect().left-cr.left);
-   for(const word of (name.textContent||'').trim().split(/\s+/))req=Math.max(req,Math.ceil(offset+measure(word,name)+18));
-  }
-  for(const sep of col.querySelectorAll('.trasa-miejscowosc-429,.v485-miejscowosc')){
-   const label=sep.querySelector('.trasa-separator-title')||sep;
-   for(const word of (label.textContent||'').trim().split(/\s+/)){
-    if(word.length>=14)cityMin=Math.max(cityMin,181);
-    else if(word.length>=11)cityMin=Math.max(cityMin,150);
+  // Layout is measured against the actual timetable right edge, not the header,
+  // the old panel width, a percentage, or a reserved left/right minimum.
+  const paper=tab.getBoundingClientRect();
+  const schedule=table.getBoundingClientRect();
+  const rightBox=right.getBoundingClientRect();
+  const listBox=root.getBoundingClientRect();
+  const inset=listBox.left-rightBox.left;
+  const gap=5;
+  const border=parseFloat(getComputedStyle(tab).borderLeftWidth)||0;
+  const desired=schedule.right-paper.left+gap-inset;
+  const leftWidth=Math.max(0,Math.ceil(desired));
+  // If the schedule physically fills the card, do not overlap it; there is
+  // simply no free width to allocate to the stop list.
+  if(leftWidth>=tab.clientWidth-border)return;
+  const cssWidth=leftWidth+'px';
+  tab.style.setProperty('--v869-lewa',cssWidth,'important');
+  tab.style.setProperty('--lewa',cssWidth,'important');
+  tab.style.setProperty('--prawa','minmax(0,1fr)','important');
+  tab.style.setProperty('grid-template-columns',cssWidth+' minmax(0,1fr)','important');
+  // Compute the three internal widths from their contents, never from
+  // artificial panel minimum/maximum values.
+  const available=right.getBoundingClientRect().width;
+  if(available<=0)return;
+  const needs=cols.map(col=>{
+   let ideal=0,city=0;
+   const cr=col.getBoundingClientRect();
+   for(const name of col.querySelectorAll('.trasa-stop > .trasa-nazwa,.trasa-extra-stop > .trasa-nazwa')){
+    const offset=Math.max(0,name.getBoundingClientRect().left-cr.left);
+    for(const word of (name.textContent||'').trim().split(/\s+/))
+      ideal=Math.max(ideal,Math.ceil(offset+textWidth(word,name)+18));
    }
-  }
-  return {ideal:Math.max(req,cityMin),floor:Math.max(95,cityMin)};
- });
- const floorSum=minima.reduce((a,v)=>a+v.floor,0);
- const idealSum=minima.reduce((a,v)=>a+v.ideal,0);
- let sizes;
- if(idealSum<=available){const extra=(available-idealSum)/3;sizes=minima.map(v=>v.ideal+extra)}
- else if(floorSum<=available){const k=(available-floorSum)/(idealSum-floorSum||1);sizes=minima.map(v=>v.floor+(v.ideal-v.floor)*k)}
- else { /* Fizyczny brak miejsca: zachowujemy pełną dostępną szerokość bez udawania, że minima zostały spełnione. */ const k=available/floorSum;sizes=minima.map(v=>v.floor*k)}
- sizes[2]+=available-sizes.reduce((a,b)=>a+b,0);
- tab.style.setProperty('--v1132-cols',sizes.map(v=>v.toFixed(2)+'px').join(' '),'important');
- // Zachowujemy zwarte odstępy z wersji 1135: nie wymuszamy
- // dodatkowej wysokości na podstawie scrollHeight nazw ani separatorów.
- for(const li of root.querySelectorAll('li.trasa-stop,li.trasa-extra-stop')){
-  li.style.removeProperty('--v1131-row-height');
-  li.style.removeProperty('height');
-  li.style.removeProperty('min-height');
- }
- }finally{busy=false}
+   for(const sep of col.querySelectorAll('.trasa-miejscowosc-429,.v485-miejscowosc')){
+    const label=sep.querySelector('.trasa-separator-title')||sep;
+    for(const word of (label.textContent||'').trim().split(/\s+/)){
+     if(word.length>=14)city=Math.max(city,181);
+     else if(word.length>=11)city=Math.max(city,150);
+    }
+   }
+   return Math.max(ideal,city,1);
+  });
+  const sum=needs.reduce((a,b)=>a+b,0);
+  const widths=needs.map(n=>available*n/sum);
+  widths[2]+=available-widths.reduce((a,b)=>a+b,0);
+  tab.style.setProperty('--v1132-cols',widths.map(v=>v.toFixed(3)+'px').join(' '),'important');
+ }finally{active=false;}
 }
-function queue(){if(pending||busy)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(update))}
+function queue(){if(pending||active)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(update));}
 new MutationObserver(queue).observe(host,{childList:true,subtree:false});
 window.addEventListener('resize',queue);window.addEventListener('load',queue);
 document.fonts?.ready.then(queue);queue();
