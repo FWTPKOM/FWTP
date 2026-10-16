@@ -1,4 +1,4 @@
-<!-- WERSJA: 1159 -->
+<!-- WERSJA: 1160 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -48,7 +48,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>FWTP v757 — Tabliczki</title>
-<meta name="fwtp-version" content="1155"/>
+<meta name="fwtp-version" content="1160"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
 <script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sPxCq7PaSAZgofkQN2x8yF3_xxpxKUlsaQBInBm3F64lBKh4BnCciuKKVcQf3Jz_NBdRQb_bmKwJ4NOVjU6QGqlLysKpL1bRvNsDCRXyuMD2X4c_lCpZSNAYWgDQvitBBQfYeyhxpPHINE616HmVKFWuo-TcjLVvHADEbkr04gZnMPtWXv_tkMdTM6J2H_69zBQEhkqlO36zyzkWI25gzVRr2uyvOAFbSMU_yixTmGFo2pM7GXa-r05eHZmmdxI1cbUXjQHYecTSK-rUlKBl1V72CkahBzM7wZkMpZmAFpeWTk4WDlUXa31H8r2AurzAlliqKbmn46g76HzO5_GPQZQvhtr9dmPKAeMR_rZ02HI" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sDyvQBuoxox17_KRlPp29SKwugaMaVHZH-lXg7Me4XIBEwt15mCv1uqRyqMH-xRp8urkn2GKBjKSinJt--k9NFU3LbrASJ_btilmXWb7duejD4J2XdrB913svyl51nKpYX8-HLLkfvjFTdvXu_5G1u-hJpvzjdEbX-063Y6CXHkBnc7hfu4ApUg1MwuCjTKZxQT5jUnwaqD0FLGBxUUSyKBI_nCyxAxqRHPVNvfevE_Na0ZAtSC3NEn6nVxrNhweDkytC218IoO5Rp6F_cQfQ5yerDkGbJdxZaBr6wEs6RqD_KJpB-gZEM7WGtUm4_iiYKevwPzLdRiNgD4OGJMRDaBXVG6CaQRTnhMujcROCZ8" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=pKlnhzCyCnwX8pmmZaNlxDMrn9H9NEgRSiYuEYZIh0qKYjqZnAWEtDZKpqw9xXvDFYlHzXX39nvATweO787ShH6PDI8b6Lhr9V9_USw04DZ-qSw7C0l3-WOH-r6AuMB4giHrjY0zFNPox_FDweAQXPyRUqBERuyN6-jlB-2h3l3vPuutDA3YvFZ94yMluxl8tbxMUrd3sCHEoit3JAs7ZS9MnIJei0dyT769BMUer3Xy_CTVEMV6GZIAStVJr9q2PAt0op6-vFdUrnpAbMNC6nPCDg4D2RT8jC6j4KbfWhkW-J0Ela4u5mG01FQogNoE3NHAHw96NO2OF__6kk9H1-Oes-PG1TpRDAGM86EzsDnm9qwA6Il2SoO2W1HCRcr5" charset="UTF-8"></script><style>
@@ -22509,6 +22509,44 @@ function v514RenderGotowejListy(){
                     tekst:'Trasa we wszystkich kursach'
                 });
             }
+        }
+    }
+
+    /* V1160: zachowaj przejścia między wariantami zapisane w JSON.
+       Przekształcenia listy (np. łączenie tych samych nazw przystanków)
+       nie mogą usuwać separatora powrotu na wspólną trasę.
+       Dotyczy wszystkich linii, bez rozpoznawania numeru Nxx. */
+    {
+        const oryginal=Array.isArray(v486CurrentStop()?.lista_przystankowa?.elementy)
+            ? v486CurrentStop().lista_przystankowa.elementy : [];
+        const norm1160=x=>String(x??'').normalize('NFD')
+            .replace(/[\u0300-\u036f]/g,'').toUpperCase()
+            .replace(/\s+/g,' ').trim();
+        const jestPowrot1160=e=>e?.typ==='trasa_w_kursach' &&
+            /TRASA WE WSZYSTKICH KURSACH/.test(norm1160(e?.tekst));
+        const jestOdnoga1160=e=>e?.typ==='trasa_w_kursach' &&
+            /TRASA W KURSACH/.test(norm1160(e?.tekst));
+        const id1160=e=>String(e?.id??'');
+        for(let i=0;i<oryginal.length;i++){
+            if(!jestPowrot1160(oryginal[i]))continue;
+            // Separator powrotu ma sens tylko po realnym odgałęzieniu.
+            let od=i-1;
+            while(od>=0 && oryginal[od]?.typ!=='trasa_w_kursach')od--;
+            if(od<0 || !jestOdnoga1160(oryginal[od]))continue;
+            const pierwszy=oryginal.slice(i+1).find(e=>e?.typ==='przystanek');
+            if(!pierwszy)continue;
+            const pos=wynik760.findIndex(e=>e?.typ==='przystanek' &&
+                id1160(e)===id1160(pierwszy));
+            if(pos<0)continue;
+            // Nie powielaj już istniejącego powrotu przy tym przystanku.
+            let poprzedni=pos-1;
+            while(poprzedni>=0 &&
+                ['miejscowosc','strefa'].includes(wynik760[poprzedni]?.typ))
+                poprzedni--;
+            if(jestPowrot1160(wynik760[poprzedni]))continue;
+            // Odgałęzienie musi znajdować się także w aktualnej liście.
+            if(!wynik760.slice(0,pos).some(jestOdnoga1160))continue;
+            wynik760.splice(pos,0,{...oryginal[i]});
         }
     }
 
