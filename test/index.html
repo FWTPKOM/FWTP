@@ -1,4 +1,4 @@
-<!-- WERSJA: 1143 -->
+<!-- WERSJA: 1144 -->
 <!-- HISTORIA: WERSJA 1131 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
@@ -49,7 +49,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>FWTP v757 — Tabliczki</title>
-<meta name="fwtp-version" content="1143"/>
+<meta name="fwtp-version" content="1144"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
 <script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sPxCq7PaSAZgofkQN2x8yF3_xxpxKUlsaQBInBm3F64lBKh4BnCciuKKVcQf3Jz_NBdRQb_bmKwJ4NOVjU6QGqlLysKpL1bRvNsDCRXyuMD2X4c_lCpZSNAYWgDQvitBBQfYeyhxpPHINE616HmVKFWuo-TcjLVvHADEbkr04gZnMPtWXv_tkMdTM6J2H_69zBQEhkqlO36zyzkWI25gzVRr2uyvOAFbSMU_yixTmGFo2pM7GXa-r05eHZmmdxI1cbUXjQHYecTSK-rUlKBl1V72CkahBzM7wZkMpZmAFpeWTk4WDlUXa31H8r2AurzAlliqKbmn46g76HzO5_GPQZQvhtr9dmPKAeMR_rZ02HI" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sDyvQBuoxox17_KRlPp29SKwugaMaVHZH-lXg7Me4XIBEwt15mCv1uqRyqMH-xRp8urkn2GKBjKSinJt--k9NFU3LbrASJ_btilmXWb7duejD4J2XdrB913svyl51nKpYX8-HLLkfvjFTdvXu_5G1u-hJpvzjdEbX-063Y6CXHkBnc7hfu4ApUg1MwuCjTKZxQT5jUnwaqD0FLGBxUUSyKBI_nCyxAxqRHPVNvfevE_Na0ZAtSC3NEn6nVxrNhweDkytC218IoO5Rp6F_cQfQ5yerDkGbJdxZaBr6wEs6RqD_KJpB-gZEM7WGtUm4_iiYKevwPzLdRiNgD4OGJMRDaBXVG6CaQRTnhMujcROCZ8" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=pKlnhzCyCnwX8pmmZaNlxDMrn9H9NEgRSiYuEYZIh0qKYjqZnAWEtDZKpqw9xXvDFYlHzXX39nvATweO787ShH6PDI8b6Lhr9V9_USw04DZ-qSw7C0l3-WOH-r6AuMB4giHrjY0zFNPox_FDweAQXPyRUqBERuyN6-jlB-2h3l3vPuutDA3YvFZ94yMluxl8tbxMUrd3sCHEoit3JAs7ZS9MnIJei0dyT769BMUer3Xy_CTVEMV6GZIAStVJr9q2PAt0op6-vFdUrnpAbMNC6nPCDg4D2RT8jC6j4KbfWhkW-J0Ela4u5mG01FQogNoE3NHAHw96NO2OF__6kk9H1-Oes-PG1TpRDAGM86EzsDnm9qwA6Il2SoO2W1HCRcr5" charset="UTF-8"></script><style>
@@ -34150,70 +34150,110 @@ html body .tabliczka.v861-uklad:has(.trasa-columns.cols-3) .trasa-head.cols-3 {
  grid-template-columns:var(--v1143-cols,var(--v1132-cols,repeat(3,minmax(0,1fr))))!important;
 }
 </style>
-<script id="fwtp-v1143-compact-reflow">
+<script id="fwtp-v1144-real-lines-reflow">
 (()=>{
  'use strict';
  const host=document.getElementById('wynik');if(!host)return;
- let scheduled=false,working=false;
- function measureLines(name){
-  // Odczyt liczby faktycznych wierszy bez wysokości narzuconej przez grid,
-  // skalowania scaleY ani poprzednio zmierzonego przystanku.
-  const range=document.createRange();range.selectNodeContents(name);
-  const rects=[...range.getClientRects()].filter(r=>r.width>0&&r.height>0);
-  const ys=[];
-  for(const r of rects)if(!ys.some(y=>Math.abs(y-r.top)<3))ys.push(r.top);
-  return Math.max(1,ys.length);
+ let queued=false,running=false;
+ const rowSelector='li.trasa-stop,li.trasa-extra-stop';
+ // Read actual text line positions, including line breaks at a hyphen.
+ // A single Range over an element can also return rectangles of nested
+ // spans; we measure text-node fragments instead.
+ function countLines(name){
+   const tops=[];
+   const walker=document.createTreeWalker(name,NodeFilter.SHOW_TEXT);
+   let node;
+   while((node=walker.nextNode())){
+     if(!node.textContent.trim())continue;
+     const range=document.createRange();range.selectNodeContents(node);
+     for(const r of range.getClientRects()){
+       if(r.width<0.5||r.height<0.5)continue;
+       if(!tops.some(t=>Math.abs(t-r.top)<4))tops.push(r.top);
+     }
+   }
+   return Math.max(1,tops.length);
  }
- function update(){
-  scheduled=false;if(working)return;working=true;
+ function measureRow(el){
+   if(!el.matches(rowSelector))return;
+   const name=el.querySelector(':scope > .trasa-nazwa');if(!name)return;
+   // Never use the height of the previous row or of the grid track.
+   // The name itself must be laid out in the target column first.
+   el.style.removeProperty('--v1143-height');
+   const lines=countLines(name);
+   el.style.setProperty('--v1143-height',(16.5*lines)+'px');
+ }
+ function run(){
+  queued=false;if(running)return;running=true;
   try{
    const tab=host.querySelector('.tabliczka.v861-uklad');
    const grid=tab?.querySelector('.trasa-columns.cols-3');
-   const right=tab?.querySelector('.panel-prawy');
-   if(!grid||!right)return;
-   const cols=[...grid.children].filter(c=>c.classList.contains('trasa-kol'));
+   if(!grid)return;
+   const cols=[...grid.children].filter(e=>e.classList.contains('trasa-kol'));
    if(cols.length!==3)return;
    const lists=cols.map(c=>c.querySelector('.trasa-lista'));
    if(lists.some(l=>!l))return;
-   // Wersja 1140 oblicza granicę paneli i szerokości kolumn.
-   // Używamy tej geometrii, bez dodawania kolejnego algorytmu szerokości.
    const all=lists.flatMap(l=>[...l.children]);
    if(!all.length)return;
-   const maxBottom=tab.getBoundingClientRect().bottom-7;
-   // Przed przenoszeniem zmierz wiersze w obecnych kolumnach.
-   function setHeight(el){
-    if(!el.matches('.trasa-stop,.trasa-extra-stop'))return;
-    const name=el.querySelector(':scope > .trasa-nazwa');if(!name)return;
-    const lines=measureLines(name);
-    el.style.setProperty('--v1143-height',(16.5*lines)+'px');
+   // Repartition all three columns from the complete ordered sequence.
+   // The previous algorithm only pushed overflowing rows to the right,
+   // leaving the last column too long and large blank areas elsewhere.
+   const gridTop=grid.getBoundingClientRect().top;
+   const limit=tab.getBoundingClientRect().bottom-6;
+   const usable=Math.max(100,limit-gridTop);
+   function distribute(target){
+     lists.forEach(l=>l.replaceChildren());
+     let col=0;
+     for(let i=0;i<all.length;i++){
+       const el=all[i];
+       lists[col].appendChild(el);
+       measureRow(el);
+       const bottom=el.getBoundingClientRect().bottom;
+       const boundary=gridTop+target;
+       if(col<2 && lists[col].children.length>1 && bottom>boundary){
+         // Move this row to the next column and remeasure with its width.
+         lists[col+1].appendChild(el);
+         col++;measureRow(el);
+       }
+     }
+     return lists.map(l=>{
+       const last=l.lastElementChild;
+       return last?last.getBoundingClientRect().bottom-gridTop:0;
+     });
    }
-   all.forEach(setHeight);
-   // Rzeczywisty podział na trzy kolumny: elementy pozostają w kolejności,
-   // wysokość oceniana jest w docelowej kolumnie, po jej szerokości.
-   lists.forEach(l=>l.replaceChildren());
-   let column=0;
-   for(const el of all){
-    lists[column].appendChild(el);setHeight(el);
-    if(column<2&&lists[column].children.length>1&&el.getBoundingClientRect().bottom>maxBottom){
-     lists[column+1].appendChild(el);column++;setHeight(el);
-    }
+   // Binary-search the smallest common column-height target that keeps
+   // the third column within the card. This preserves natural compact
+   // row spacing and makes full use of all three columns.
+   let low=0,high=usable;
+   let best=null;
+   for(let k=0;k<11;k++){
+     const mid=(low+high)/2;
+     const heights=distribute(mid);
+     if(heights[2]<=usable+0.5){best=mid;high=mid;}
+     else low=mid;
    }
-   // Po przejściu do węższej kolumny nazwa może zyskać wiersz.
-   // W takim przypadku przenosimy tylko końcowe elementy, bez pustych przerw.
-   for(let i=0;i<2;i++){
-    let n=0;
-    while(lists[i].children.length>1&&n++<all.length){
-     const last=lists[i].lastElementChild;
-     if(last.getBoundingClientRect().bottom<=maxBottom)break;
-     lists[i+1].insertBefore(last,lists[i+1].firstChild);setHeight(last);
-    }
-   }
-  }finally{working=false;}
+   distribute(best===null?usable:best);
+   // On the final layout, recalculate each name in its actual column.
+   for(const list of lists)for(const el of list.children)measureRow(el);
+  }finally{running=false;}
  }
- function queue(){if(scheduled||working)return;scheduled=true;requestAnimationFrame(()=>requestAnimationFrame(update));}
+ function queue(){if(queued||running)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
  new MutationObserver(queue).observe(host,{childList:true,subtree:false});
  window.addEventListener('resize',queue);window.addEventListener('load',queue);
  document.fonts?.ready.then(queue);queue();
 })();
 </script>
+
+<!-- WERSJA: 1144 — pomiar rzeczywistych wierszy i równoważenie 3 kolumn -->
+<style id="fwtp-v1144-rows">
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop > .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop > .trasa-nazwa {
+  white-space:normal!important;line-height:12.5px!important;
+  overflow-wrap:normal!important;word-break:normal!important;hyphens:none!important;
+}
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop {
+  min-height:var(--v1143-height,16.5px)!important;
+  height:var(--v1143-height,16.5px)!important;
+}
+</style>
 </body></html>
