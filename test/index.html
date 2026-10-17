@@ -1,4 +1,4 @@
-<!-- WERSJA: 1186 -->
+<!-- WERSJA: 1187 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -34305,7 +34305,7 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.v1147-trzy-wiersze {
 }
 </style>
 
-<!-- WERSJA: 1186 — 12,5 px w nazwach; kolumny 1 → 2 → 3 bez wyrównywania -->
+<!-- WERSJA: 1187 — poprawiony podział i usuwanie miejscowości po faktycznym przepełnieniu -->
 <style id="fwtp-v1186-nazwy">
 html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop > .trasa-nazwa,
 html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop > .trasa-nazwa {
@@ -34319,54 +34319,82 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.v1147-trzy-wiersze {
  height:auto!important;min-height:16.5px!important;max-height:none!important;
 }
 </style>
-<script id="fwtp-v1186-kolejny-podzial">
+
+<style id="fwtp-v1187-line-height">
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop > .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop > .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop > .trasa-nazwa *,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop > .trasa-nazwa * {
+ line-height:12.5px!important;
+}
+</style>
+<script id="fwtp-v1187-podzial-po-pomiarze">
 (()=>{
  'use strict';
  const host=document.getElementById('wynik');if(!host)return;
- let queued=false,running=false;
- const processed=new WeakSet();
- const locality=e=>e.matches?.('li.trasa-separator.trasa-miejscowosc-429');
- function layout(lists,rows,boundary){
-  lists.forEach(l=>l.replaceChildren());
-  let column=0;
-  for(const row of rows){
-   lists[column].appendChild(row);
-   // Real height measured after insertion at the destination column's width.
-   if(column<2&&row.getBoundingClientRect().bottom>boundary&&lists[column].children.length>1){
-    row.remove();column++;lists[column].appendChild(row);
-   }
-  }
-  return lists[2].lastElementChild?.getBoundingClientRect().bottom<=boundary;
+ const states=new WeakMap();let queued=false,working=false;
+ const isLocality=el=>el.matches?.('li.trasa-separator.trasa-miejscowosc-429');
+ const isStop=el=>el.matches?.('li.trasa-stop,li.trasa-extra-stop');
+ function getBottom(list){
+   const last=list.lastElementChild;
+   return last?last.getBoundingClientRect().bottom:list.getBoundingClientRect().top;
  }
- function run(){
-  queued=false;if(running)return;running=true;
-  try{
-   for(const tab of host.querySelectorAll('.tabliczka.v861-uklad')){
-    if(processed.has(tab))continue;
-    const container=tab.querySelector('.trasa-columns.cols-3');if(!container)continue;
-    const cols=[...container.querySelectorAll(':scope > .trasa-kol')];
-    if(cols.length!==3)continue;
-    const lists=cols.map(c=>c.querySelector(':scope > .trasa-lista'));
-    if(lists.some(l=>!l))continue;
-    const rows=lists.flatMap(l=>[...l.children]);if(!rows.length)continue;
-    const boundary=tab.getBoundingClientRect().bottom-8;
-    let fits=layout(lists,rows,boundary);
-    if(!fits&&rows.some(locality)){
-     const without=rows.filter(r=>!locality(r));
-     rows.filter(locality).forEach(r=>r.remove());
-     fits=layout(lists,without,boundary);
-     tab.classList.add('v1186-bez-miejscowosci');
-    }
-    // Mark complete only after all rows were processed, to avoid endless rerenders.
-    processed.add(tab);
+ function distribute(lists,rows,limit){
+   lists.forEach(l=>l.replaceChildren());
+   let current=0;
+   for(const row of rows){
+     lists[current].appendChild(row);
+     // A row must be measured AFTER insertion: text can wrap differently in each column.
+     if(current<2 && getBottom(lists[current])>limit && lists[current].children.length>1){
+       row.remove();current++;lists[current].appendChild(row);
+     }
    }
-  }finally{running=false;}
+   return Math.max(...lists.map(getBottom))<=limit;
  }
- function queue(){if(queued||running)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
+ function process(){
+   queued=false;if(working)return;working=true;
+   try{
+     for(const tab of host.querySelectorAll('.tabliczka.v861-uklad')){
+       const holder=tab.querySelector('.trasa-columns.cols-3');if(!holder)continue;
+       const columns=[...holder.querySelectorAll(':scope > .trasa-kol')];if(columns.length!==3)continue;
+       const lists=columns.map(c=>c.querySelector(':scope > .trasa-lista'));
+       if(lists.some(l=>!l))continue;
+       const rect=tab.getBoundingClientRect();
+       if(rect.width<100||rect.height<100)continue;
+       const widths=columns.map(c=>Math.round(c.getBoundingClientRect().width));
+       const limit=rect.bottom-9;
+       const previous=states.get(tab);
+       const key=[...widths,Math.round(limit),Math.round(holder.getBoundingClientRect().top)].join(':');
+       // Re-evaluate after fonts or CSS settle. If the last column is now too tall,
+       // don't rely on the earlier "processed" flag.
+       const overflow=Math.max(...lists.map(getBottom))>limit+0.5;
+       if(previous?.key===key&&!overflow)continue;
+       const rows=lists.flatMap(l=>[...l.children]);
+       if(!rows.length)continue;
+       // Sequentially fill 1, then 2, then 3. Never equalize column heights.
+       let fits=distribute(lists,rows,limit);
+       if(!fits&&rows.some(isLocality)){
+         const retained=rows.filter(r=>!isLocality(r));
+         rows.filter(isLocality).forEach(r=>r.remove());
+         fits=distribute(lists,retained,limit);
+         tab.classList.add('v1187-bez-miejscowosci');
+       }
+       states.set(tab,{key,fits});
+     }
+   }finally{working=false;}
+ }
+ function queue(){if(queued||working)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(process));}
+ // Multiple passes are intentional: original layout scripts can change widths
+ // after initial rendering. No mutation loop: only listen for newly rendered cards.
  new MutationObserver(records=>{
-  if(records.some(r=>r.type==='childList'&&[...r.addedNodes].some(n=>n.nodeType===1&&n.matches?.('.tabliczka'))))queue();
- }).observe(host,{childList:true,subtree:false});
- window.addEventListener('load',queue);document.fonts?.ready.then(queue);queue();
+   if(records.some(r=>r.type==='childList'&&[...r.addedNodes].some(n=>n.nodeType===1&&
+      (n.matches?.('.tabliczka')||n.querySelector?.('.tabliczka')))))queue();
+ }).observe(host,{subtree:true,childList:true});
+ window.addEventListener('load',queue);
+ window.addEventListener('resize',queue);
+ document.fonts?.ready.then(queue);
+ queue();
+ requestAnimationFrame(()=>requestAnimationFrame(queue));
 })();
 </script>
 </body>
