@@ -1,7 +1,24 @@
-# WTP LIVE — wersja 2
+# WTP LIVE v3 — bez logowania użytkowników
 
-Zastąp pliki `index.html`, `style.css` i `app.js` w folderze `FWTP/test/` plikami z paczki. Wersja 2 pokazuje dokładne błędy API i nie zamyka okna klucza, dopóki nie pobierze danych.
+Strona działa na GitHub Pages. API Warszawy wymaga klucza, dlatego do publicznej mapy potrzebny jest Cloudflare Worker. Użytkownicy końcowi **nie podają żadnego klucza**.
 
-**Ważne:** strona GitHub Pages jest statyczna. Jeśli API Warszawy nie zezwala na zapytania CORS z przeglądarki, do publicznego działania potrzebny jest backend/proxy (np. Cloudflare Worker). Samo podanie prawidłowego klucza nie rozwiąże CORS. Klucz API nie jest zapisany w kodzie ani w localStorage. Nie wpisuj klucza do publicznego repozytorium.
+## Konfiguracja (jednorazowa, przez właściciela)
 
-Jeśli mapa nie pojawia się: sprawdź w konsoli przeglądarki F12 błędy ładowania biblioteki Leaflet. Jeśli jest błąd CORS, przekaż sam tekst błędu, bez klucza API.
+1. Cloudflare Dashboard → Workers & Pages → Create → Worker. Wklej zawartość `worker.js` i opublikuj.
+2. Worker → Settings → Variables and Secrets → Add → **Secret**, nazwa `API_KEY`. Wklej swój **nowy** klucz API Warszawa. Nie wpisuj klucza do plików na GitHubie.
+3. Skopiuj adres Workera, np. `https://wtp-live-api.twojanazwa.workers.dev`.
+4. W `config.js` wpisz ten adres w `window.WTP_API_PROXY`.
+5. Do folderu `/FWTP/test/` na GitHubie wgraj `index.html`, `style.css`, `app.js`, `config.js` (zastępując stare). **Nie musisz wgrywać `worker.js` ani sekretu do GitHuba.**
+6. Otwórz `https://fwtpkom.github.io/FWTP/test/` i odśwież Ctrl+F5.
+
+**Uwaga:** v3 nie wymaga logowania użytkowników, ale pierwsza konfiguracja Workera wymaga konta Cloudflare. Sam GitHub Pages nie przechowuje sekretów serwerowych. Worker używa ograniczonej listy dozwolonych endpointów; przed dużym ruchem warto ograniczyć CORS do własnej domeny i włączyć limity żądań.
+
+## Diagnostyka
+
+- Mapa bez pojazdów i komunikat „ustaw adres Workera”: nieuzupełniony `config.js`.
+- Błąd 500: brak sekretu `API_KEY`.
+- Błąd 403 / błędny klucz: sprawdź klucz w panelu API Warszawy.
+- „Failed to fetch”: sprawdź URL Workera i konfigurację domeny.
+- W razie braku stylów: sprawdź, czy `style.css` i `config.js` leżą obok `index.html`.
+
+API może czasowo nie odpowiadać, a zakres danych zależy od jego aktualnej dostępności. Nie weryfikowano jeszcze działania na żywym kluczu.
