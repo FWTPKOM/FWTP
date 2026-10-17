@@ -40,7 +40,7 @@ document.addEventListener("DOMContentLoaded", function () {
 </div>
 </div>
 
-            <a href="/FWTP/tabliczki/">Tabliczki</a>
+            <a href="/FWTP/tabliczka/">Tabliczki</a>
             <a href="/FWTP/aktualnosci/">Aktualności</a>
 
         </div>
