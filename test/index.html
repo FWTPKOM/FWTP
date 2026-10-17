@@ -1,4 +1,4 @@
-<!-- WERSJA: 1182 -->
+<!-- WERSJA: 1183 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -34222,66 +34222,63 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-3 .trasa-nz {
 </style>
 
 
-<!-- WERSJA: 1182 — BAZA 1173; awaryjne usunięcie separatorów miejscowości po przepełnieniu trzech kolumn -->
-<script id="fwtp-v1182-miejscowosci-awaryjnie">
+<!-- WERSJA: 1183 — zapełnianie kolumn kolejno, z pomiarem rzeczywistej wysokości -->
+<script id="fwtp-v1183-kolejne-kolumny">
 (()=>{
+ 'use strict';
  const host=document.getElementById('wynik');if(!host)return;
- const processed=new WeakSet();
- let pending=false;
- const locality=el=>el.matches?.('li.trasa-separator.trasa-miejscowosc-429');
- function check(){
-  pending=false;
-  for(const tab of host.querySelectorAll('.tabliczka.v861-uklad')){
-   if(processed.has(tab))continue;
-   const cols=tab.querySelector('.trasa-columns.cols-3');
-   if(!cols)continue;
-   const columns=[...cols.querySelectorAll(':scope > .trasa-kol')];
-   if(columns.length!==3)continue;
-   const lists=columns.map(c=>c.querySelector(':scope > .trasa-lista'));
-   if(lists.some(l=>!l))continue;
-   const boundary=tab.getBoundingClientRect().bottom-7;
-   const bottom=Math.max(...lists.map(l=>{
-    const children=[...l.children];
-    return children.length?children[children.length-1].getBoundingClientRect().bottom:l.getBoundingClientRect().bottom;
-   }));
-   if(bottom<=boundary+1)continue;
-   // Only if 3 columns genuinely overflow. Keep zone and variant separators.
-   processed.add(tab);
-   const rows=lists.flatMap(l=>[...l.children]);
-   const filtered=rows.filter(el=>!locality(el));
-   if(filtered.length===rows.length)continue;
-   rows.filter(locality).forEach(el=>el.remove());
-   // Preserve document order; distribute at row boundaries, never split a stop.
-   // First try equalized column heights, then progressively reduce the target.
-   const maxHeight=boundary-lists[0].getBoundingClientRect().top;
-   if(maxHeight<=0)continue;
-   const heights=filtered.map(el=>Math.max(el.getBoundingClientRect().height,el.offsetHeight,16.5));
-   const total=heights.reduce((a,b)=>a+b,0);
-   const target=Math.min(maxHeight,Math.max(total/3,maxHeight*.85));
-   const cuts=[];let sum=0, col=0;
-   for(let i=0;i<filtered.length;i++){
-    const h=heights[i];
-    if(col<2&&sum>0&&sum+h>target&&filtered.length-i>2-col){cuts.push(i);col++;sum=0;}
-    sum+=h;
+ const completed=new WeakSet();let scheduled=false,working=false;
+ const locality=el=>el.matches('li.trasa-separator.trasa-miejscowosc-429');
+ function process(){
+  scheduled=false;if(working)return;working=true;
+  try{
+   for(const tab of host.querySelectorAll('.tabliczka.v861-uklad')){
+    if(completed.has(tab))continue;
+    const cols=tab.querySelector('.trasa-columns.cols-3');if(!cols)continue;
+    const columns=[...cols.querySelectorAll(':scope > .trasa-kol')];if(columns.length!==3)continue;
+    const lists=columns.map(c=>c.querySelector(':scope > .trasa-lista'));
+    if(lists.some(l=>!l))continue;
+    const boundary=tab.getBoundingClientRect().bottom-7;
+    const bottom=()=>Math.max(...lists.map(l=>{
+     const last=l.lastElementChild;return last?last.getBoundingClientRect().bottom:l.getBoundingClientRect().top;
+    }));
+    if(bottom()<=boundary+0.5){completed.add(tab);continue;}
+    // When all three columns overflow, remove locality separators only.
+    const rows=lists.flatMap(l=>[...l.children]);
+    const keep=rows.filter(el=>!locality(el));
+    if(keep.length===rows.length){completed.add(tab);continue;}
+    rows.filter(locality).forEach(el=>el.remove());
+    // Measure after each insertion, using the ACTUAL column width and line wraps.
+    // Fill column 1 to the bottom, then 2, then 3. No equal-height targets.
+    lists.forEach(l=>l.replaceChildren());
+    let col=0;
+    for(const row of keep){
+     lists[col].appendChild(row);
+     if(col<2 && row.getBoundingClientRect().bottom>boundary+0.5 && lists[col].children.length>1){
+      row.remove();col++;lists[col].appendChild(row);
+     }
+    }
+    // If a row grew after moving (different column width), redistribute once
+    // more from scratch with the same sequential fitting rule.
+    if(bottom()>boundary+0.5){
+     const ordered=lists.flatMap(l=>[...l.children]);
+     lists.forEach(l=>l.replaceChildren());col=0;
+     for(const row of ordered){
+      lists[col].appendChild(row);
+      if(col<2&&row.getBoundingClientRect().bottom>boundary+0.5&&lists[col].children.length>1){
+       row.remove();lists[++col].appendChild(row);
+      }
+     }
+    }
+    tab.classList.add('v1183-bez-miejscowosci');
+    completed.add(tab);
    }
-   // Guarantee three groups if height heuristic placed too few boundaries.
-   while(cuts.length<2){
-    const start=cuts.length?cuts[cuts.length-1]:0;
-    const next=Math.min(filtered.length-(2-cuts.length),Math.max(start+1,Math.round((start+filtered.length)/2)));
-    if(next<=start)break;
-    cuts.push(next);
-   }
-   const ordered=[...new Set(cuts)].sort((a,b)=>a-b);
-   const groups=[filtered.slice(0,ordered[0]),filtered.slice(ordered[0],ordered[1]),filtered.slice(ordered[1])];
-   lists.forEach((l,i)=>l.replaceChildren(...groups[i]));
-   tab.classList.add('v1182-bez-miejscowosci');
-  }
+  }finally{working=false;}
  }
- function queue(){if(pending)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(check));}
- const observer=new MutationObserver(records=>{
-  if(records.some(r=>[...r.addedNodes].some(n=>n.nodeType===1&&(n.matches?.('.tabliczka')||n.querySelector?.('.tabliczka')))))queue();
- });
- observer.observe(host,{childList:true,subtree:true});
+ function queue(){if(scheduled||working)return;scheduled=true;requestAnimationFrame(()=>requestAnimationFrame(process));}
+ new MutationObserver(rs=>{
+  if(rs.some(r=>r.type==='childList'&&[...r.addedNodes].some(n=>n.nodeType===1&&(n.matches?.('.tabliczka')||n.querySelector?.('.tabliczka')))))queue();
+ }).observe(host,{childList:true,subtree:true});
  window.addEventListener('load',queue);window.addEventListener('resize',queue);
  document.fonts?.ready.then(queue);queue();
 })();
