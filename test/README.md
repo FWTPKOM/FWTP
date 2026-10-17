@@ -1,24 +1,7 @@
-# WTP LIVE – wersja 1
+# WTP LIVE — wersja 2
 
-Projekt statyczny przygotowany do GitHub Pages.
+Zastąp pliki `index.html`, `style.css` i `app.js` w folderze `FWTP/test/` plikami z paczki. Wersja 2 pokazuje dokładne błędy API i nie zamyka okna klucza, dopóki nie pobierze danych.
 
-## Funkcje
-- mapa autobusów i tramwajów na żywo,
-- automatyczne odświeżanie pozycji co 10 sekund,
-- filtrowanie po numerze linii,
-- informacje: linia, brygada, numer taborowy, czas GPS,
-- wyszukiwarka przystanków,
-- linie na wybranym słupku,
-- planowe odjazdy wraz z kierunkiem i brygadą.
+**Ważne:** strona GitHub Pages jest statyczna. Jeśli API Warszawy nie zezwala na zapytania CORS z przeglądarki, do publicznego działania potrzebny jest backend/proxy (np. Cloudflare Worker). Samo podanie prawidłowego klucza nie rozwiąże CORS. Klucz API nie jest zapisany w kodzie ani w localStorage. Nie wpisuj klucza do publicznego repozytorium.
 
-## Uruchomienie
-1. Rozpakuj ZIP.
-2. Wgraj `index.html`, `style.css` i `app.js` do repozytorium GitHub.
-3. W Settings -> Pages ustaw publikację z odpowiedniej gałęzi.
-4. Po wejściu na stronę wpisz własny ApiKey z api.um.warszawa.pl.
-
-Klucz API NIE jest zapisany w plikach ani localStorage.
-
-## Ważne przed publicznym udostępnieniem
-GitHub Pages nie ma backendu. W tej wersji każdy użytkownik musi podać własny klucz API.
-Docelowo można dodać proxy/serverless function i trzymać klucz jako sekret po stronie serwera.
+Jeśli mapa nie pojawia się: sprawdź w konsoli przeglądarki F12 błędy ładowania biblioteki Leaflet. Jeśli jest błąd CORS, przekaż sam tekst błędu, bez klucza API.
