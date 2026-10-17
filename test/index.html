@@ -1,4 +1,4 @@
-<!-- WERSJA: 1173 -->
+<!-- WERSJA: 1174 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -34220,6 +34220,102 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-3 .trasa-nz {
   transform-origin:right center!important;
 }
 </style>
+
+
+<!-- WERSJA 1174: awaryjne odzyskiwanie miejsca dla trzech kolumn -->
+<style id="fwtp-v1174-kompakt">
+/* Zwężenie tabel dopiero, gdy 3 kolumny nie mieszczą całej trasy. */
+html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid {
+  width:max-content!important;max-width:100%!important;
+  grid-template-columns:none!important;gap:3px!important;
+  justify-content:start!important;
+}
+html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid > .dzien {
+  width:max-content!important;min-width:0!important;max-width:none!important;
+  flex:0 0 auto!important;
+}
+html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid .dzien-tytul {
+  white-space:normal!important;overflow-wrap:normal!important;
+  max-width:126px!important;line-height:17px!important;
+  text-align:center!important;
+}
+html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid table {
+  width:auto!important;min-width:0!important;
+}
+/* Drugi etap: kierunek i typ pod numerem, rozkład poniżej. */
+html body .tabliczka.v861-uklad.v1174-naglowek .panel-lewy .naglowek-tabliczki {
+  display:grid!important;grid-template-columns:minmax(0,1fr)!important;
+  grid-template-rows:auto auto!important;justify-items:start!important;
+  width:calc(100% - 24px)!important;max-width:calc(100% - 24px)!important;
+  height:auto!important;min-height:0!important;
+  margin:12px 0 0 17px!important;overflow:visible!important;
+}
+html body .tabliczka.v861-uklad.v1174-naglowek .panel-lewy .naglowek-tabliczki .numer-linii-box {
+  grid-column:1!important;grid-row:1!important;
+  width:150px!important;max-width:150px!important;min-width:150px!important;
+  height:80px!important;min-height:80px!important;box-sizing:border-box!important;
+}
+html body .tabliczka.v861-uklad.v1174-naglowek .panel-lewy .naglowek-tabliczki .dane-linii {
+  grid-column:1!important;grid-row:2!important;position:static!important;
+  display:block!important;width:100%!important;min-width:0!important;
+  height:auto!important;padding:8px 0 0!important;margin:0!important;
+  box-sizing:border-box!important;
+}
+html body .tabliczka.v861-uklad.v1174-naglowek .panel-lewy .naglowek-tabliczki .typ-linii,
+html body .tabliczka.v861-uklad.v1174-naglowek .panel-lewy .naglowek-tabliczki .kierunek {
+  position:static!important;top:auto!important;white-space:normal!important;
+}
+html body .tabliczka.v861-uklad.v1174-naglowek .panel-lewy .rozklady-wrap {
+  position:static!important;margin-top:9px!important;clear:both!important;
+}
+</style>
+<script id="fwtp-v1174-adaptacja">
+(()=>{
+ 'use strict';
+ const host=document.getElementById('wynik');if(!host)return;
+ let busy=false,queued=false;
+ const frame=()=>new Promise(ok=>requestAnimationFrame(ok));
+ function overflow(tab){
+   const columns=tab.querySelector('.trasa-columns.cols-3');if(!columns)return false;
+   const bounds=tab.getBoundingClientRect();
+   // Kontroluj faktyczną pozycję ostatnich elementów, a nie tylko wysokość listy.
+   return [...columns.querySelectorAll('.trasa-kol')].some(col=>{
+     const list=col.querySelector('.trasa-lista-397');
+     const last=list?.lastElementChild;
+     return !!last && (last.getBoundingClientRect().bottom>bounds.bottom-6 ||
+       col.scrollHeight>col.clientHeight+4);
+   });
+ }
+ async function relayout(){
+   window.dispatchEvent(new Event('resize'));
+   await frame();await frame();await frame();
+ }
+ async function run(){
+   if(busy)return;busy=true;queued=false;
+   try{
+     for(const tab of host.querySelectorAll('.tabliczka.v861-uklad')){
+       if(!tab.querySelector('.trasa-columns.cols-3'))continue;
+       // Przy zmianie danych rozpoczynamy od zwykłego układu.
+       tab.classList.remove('v1174-ciasno','v1174-naglowek');
+       await relayout();
+       if(!overflow(tab))continue;
+       tab.classList.add('v1174-ciasno');
+       await relayout();
+       if(!overflow(tab))continue;
+       tab.classList.add('v1174-naglowek');
+       await relayout();
+     }
+   }finally{busy=false;}
+ }
+ function schedule(){if(busy||queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
+ new MutationObserver(records=>{
+   if(records.some(r=>r.type==='childList'&&[...r.addedNodes].some(n=>n.nodeType===1&&n.classList?.contains('tabliczka'))))schedule();
+ }).observe(host,{childList:true,subtree:false});
+ window.addEventListener('load',schedule);
+ if(document.fonts?.ready)document.fonts.ready.then(schedule);
+ schedule();
+})();
+</script>
 
 </body>
 </html>
