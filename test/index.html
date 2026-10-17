@@ -1,4 +1,4 @@
-<!-- WERSJA: 1185 -->
+<!-- WERSJA: 1186 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -34223,7 +34223,7 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-3 .trasa-nz {
 
 
 <!-- WERSJA: 1183 — zapełnianie kolumn kolejno, z pomiarem rzeczywistej wysokości -->
-<script id="fwtp-v1183-kolejne-kolumny">
+<script type="text/plain" id="fwtp-v1183-kolejne-kolumny">
 (()=>{
  'use strict';
  const host=document.getElementById('wynik');if(!host)return;
@@ -34297,12 +34297,77 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop > .trasa-naz
 html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop > .trasa-nazwa {
  height:auto!important;min-height:0!important;max-height:none!important;
  overflow-wrap:normal!important;word-break:normal!important;
- white-space:normal!important;line-height:16.5px!important;
+ white-space:normal!important;line-height:12.5px!important;
 }
 /* Nie pozwalamy, by stary znacznik trzech wierszy blokował wysokość. */
 html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.v1147-trzy-wiersze {
  height:auto!important;min-height:49.5px!important;max-height:none!important;
 }
 </style>
+
+<!-- WERSJA: 1186 — 12,5 px w nazwach; kolumny 1 → 2 → 3 bez wyrównywania -->
+<style id="fwtp-v1186-nazwy">
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop > .trasa-nazwa,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop > .trasa-nazwa {
+ line-height:12.5px!important;
+}
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-stop,
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.trasa-extra-stop {
+ height:auto!important;max-height:none!important;min-height:16.5px!important;
+}
+html body .tabliczka.v861-uklad .trasa-columns.cols-3 li.v1147-trzy-wiersze {
+ height:auto!important;min-height:16.5px!important;max-height:none!important;
+}
+</style>
+<script id="fwtp-v1186-kolejny-podzial">
+(()=>{
+ 'use strict';
+ const host=document.getElementById('wynik');if(!host)return;
+ let queued=false,running=false;
+ const processed=new WeakSet();
+ const locality=e=>e.matches?.('li.trasa-separator.trasa-miejscowosc-429');
+ function layout(lists,rows,boundary){
+  lists.forEach(l=>l.replaceChildren());
+  let column=0;
+  for(const row of rows){
+   lists[column].appendChild(row);
+   // Real height measured after insertion at the destination column's width.
+   if(column<2&&row.getBoundingClientRect().bottom>boundary&&lists[column].children.length>1){
+    row.remove();column++;lists[column].appendChild(row);
+   }
+  }
+  return lists[2].lastElementChild?.getBoundingClientRect().bottom<=boundary;
+ }
+ function run(){
+  queued=false;if(running)return;running=true;
+  try{
+   for(const tab of host.querySelectorAll('.tabliczka.v861-uklad')){
+    if(processed.has(tab))continue;
+    const container=tab.querySelector('.trasa-columns.cols-3');if(!container)continue;
+    const cols=[...container.querySelectorAll(':scope > .trasa-kol')];
+    if(cols.length!==3)continue;
+    const lists=cols.map(c=>c.querySelector(':scope > .trasa-lista'));
+    if(lists.some(l=>!l))continue;
+    const rows=lists.flatMap(l=>[...l.children]);if(!rows.length)continue;
+    const boundary=tab.getBoundingClientRect().bottom-8;
+    let fits=layout(lists,rows,boundary);
+    if(!fits&&rows.some(locality)){
+     const without=rows.filter(r=>!locality(r));
+     rows.filter(locality).forEach(r=>r.remove());
+     fits=layout(lists,without,boundary);
+     tab.classList.add('v1186-bez-miejscowosci');
+    }
+    // Mark complete only after all rows were processed, to avoid endless rerenders.
+    processed.add(tab);
+   }
+  }finally{running=false;}
+ }
+ function queue(){if(queued||running)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
+ new MutationObserver(records=>{
+  if(records.some(r=>r.type==='childList'&&[...r.addedNodes].some(n=>n.nodeType===1&&n.matches?.('.tabliczka'))))queue();
+ }).observe(host,{childList:true,subtree:false});
+ window.addEventListener('load',queue);document.fonts?.ready.then(queue);queue();
+})();
+</script>
 </body>
 </html>
