@@ -34107,5 +34107,103 @@ html body .tabliczka.v861-uklad.v1149-nocny-scalony .panel-lewy .rozklady-wrap {
  schedule();
 })();
 </script>
+
+<!-- WERSJA: 1166 — minima miejscowości sprawdzane we WSZYSTKICH 3 kolumnach -->
+<style id="fwtp-v1166-three-locality">
+html body .tabliczka.v861-uklad.v1166-three .trasa-columns.cols-3,
+html body .tabliczka.v861-uklad.v1166-three .trasa-head.cols-3{
+ grid-template-columns:var(--v1166-three-cols)!important;
+}
+</style>
+<script id="fwtp-v1166-three-locality">
+(()=>{
+ 'use strict';
+ const host=document.getElementById('wynik');if(!host)return;
+ let queued=false,running=false;
+ const next=()=>new Promise(r=>requestAnimationFrame(r));
+ const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+ function width(el,t){
+   const cs=getComputedStyle(el);ctx.font=cs.font;
+   return ctx.measureText(t).width+
+     (parseFloat(cs.letterSpacing)||0)*Math.max(0,[...t].length-1);
+ }
+ function minimum(col,label){
+   let required=0;
+   if(label)required=Math.max(required,Math.ceil(width(label,'czasy, trasa, przystanki')+8));
+   col.querySelectorAll('.trasa-miejscowosc-429:not(.v588-objazd) .trasa-separator-title')
+     .forEach(el=>{
+       const words=(el.textContent||'').trim().split(/\s+/).filter(Boolean);
+       if(!words.length)return;
+       const longest=Math.max(...words.map(w=>[...w].length));
+       const measured=Math.max(...words.map(w=>width(el,w)));
+       required=Math.max(required,Math.ceil(measured+24));
+       if(longest>=14)required=Math.max(required,181);
+     });
+   col.querySelectorAll('.trasa-stop,.trasa-extra-stop').forEach(row=>{
+     const el=row.querySelector(':scope > .trasa-nazwa');if(!el)return;
+     const txt=(el.dataset.v946Text||el.textContent||'').trim();
+     if(!txt)return;
+     const words=txt.split(/\s+/).filter(Boolean);
+     const nameMin=Math.max(...words.map(w=>width(el,w)));
+     const offset=el.getBoundingClientRect().left-col.getBoundingClientRect().left;
+     required=Math.max(required,Math.ceil(Math.max(31,offset)+nameMin+18));
+   });
+   return required;
+ }
+ async function update(){
+   if(running)return;
+   running=true;
+   try{
+     await next();await next();
+     const tab=host.querySelector('.tabliczka.v861-uklad');
+     const root=tab?.querySelector('.trasa-columns.cols-3');
+     const head=tab?.querySelector('.trasa-head.cols-3');
+     if(!tab||!root||!head)return;
+     const cols=[...root.children].filter(e=>e.classList.contains('trasa-kol'));
+     if(cols.length!==3)return;
+     const labels=[...head.querySelectorAll('.trasa-head-label')];
+     const mins=cols.map((c,i)=>minimum(c,labels[i]));
+     const paper=tab.getBoundingClientRect();
+     const grid=tab.querySelector('.panel-lewy .rozklady-grid');
+     const tableRight=grid?grid.getBoundingClientRect().right:paper.left+180;
+     // Granica lewego panelu nie może przeciąć rozkładu jazdy.
+     const minLeft=Math.ceil(Math.max(0,tableRight-paper.left)+5);
+     const available=Math.floor(paper.width-minLeft);
+     const required=mins.reduce((a,b)=>a+b,0);
+     if(required>available){
+       // Nie zmniejszamy kolumn poniżej wymagań tekstu; unikamy
+       // nakładania na rozkład. Przy braku przestrzeni zachowaj układ.
+       tab.classList.remove('v1166-three');
+       return;
+     }
+     const spare=available-required;
+     // Niewykorzystaną szerokość dzielimy pomiędzy trzy kolumny,
+     // bez odbierania przestrzeni kolumnie z długą miejscowością.
+     const widths=mins.map(m=>m+spare/3);
+     const template=widths.map(w=>w.toFixed(2)+'px').join(' ');
+     tab.style.setProperty('--v1166-three-cols',template);
+     tab.classList.add('v1166-three');
+     const right=widths.reduce((a,b)=>a+b,0);
+     const left=paper.width-right;
+     tab.style.setProperty('--v869-lewa',left+'px','important');
+     tab.style.setProperty('--lewa',left+'px','important');
+     tab.style.setProperty('--prawa',right+'px','important');
+     tab.style.setProperty('grid-template-columns',left+'px '+right+'px','important');
+   }finally{running=false;}
+ }
+ function queue(){
+   if(queued)return;queued=true;
+   requestAnimationFrame(()=>{queued=false;update();});
+ }
+ new MutationObserver(records=>{
+   if(records.some(r=>r.type==='childList'&&r.target===host))queue();
+ }).observe(host,{childList:true,subtree:false});
+ window.addEventListener('resize',queue);
+ window.addEventListener('load',queue);
+ document.fonts?.ready.then(queue);
+ queue();
+})();
+</script>
+
 </body>
 </html>
