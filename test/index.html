@@ -30718,7 +30718,13 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not
        if(!words.length)return;
        const longest=Math.max(...words.map(w=>[...w].length));
        const widest=Math.max(...words.map(w=>textWidth(el,w)));
-       min=Math.max(min,Math.ceil(widest+24),longest>=14?181:longest>=11?150:0);
+       // V1172: min. 181/150 to dolna granica, nie docelowa
+       // szerokość. Długie słowo musi także mieścić się za osią
+       // przystanków, bez przecinania jej przez separator.
+       const axis=col.querySelector('.trasa-stop .trasa-os');
+       const axisX=axis?axis.getBoundingClientRect().left-rect.left+axis.getBoundingClientRect().width/2:31;
+       const separatorNeed=Math.ceil(2*(axisX+7+widest/2)+8);
+       min=Math.max(min,Math.ceil(widest+24),separatorNeed,longest>=14?181:longest>=11?150:0);
      });
      col.querySelectorAll('li.trasa-stop,li.trasa-extra-stop').forEach(row=>{
        const name=row.querySelector(':scope > .trasa-nazwa');if(!name)return;
@@ -30733,9 +30739,15 @@ html body .tabliczka .trasa-columns li.trasa-separator.trasa-miejscowosc-429:not
    });
    const sum=mins.reduce((a,b)=>a+b,0);
    if(sum>available){
-     // Nie wciskaj kolumn na rozkład ani nie łam minimów miejscowości.
-     // Przy braku miejsca pozostaw poprzedni podział.
-     return;
+     // V1172: gdy twarde minima nie mieszczą się obok rozkładu,
+     // nie oddawaj sterowania starym regułom równych kolumn.
+     // Zachowaj minima, a prawy panel może zająć dodatkowe
+     // miejsce tylko do rzeczywistej granicy tabeli rozkładu.
+     // Jeżeli nadal jest za mało miejsca, zachowaj fizyczną
+     // granicę tabliczki i proporcjonalnie podziel dostępny obszar.
+     const factor=available/sum;
+     if(factor<=0)return;
+     mins.forEach((v,i)=>mins[i]=v*factor);
    }
    const widths=mins.slice();
    // Rozdziel zapas, wyrównując najpierw węższe kolumny.
@@ -34181,9 +34193,9 @@ html body .tabliczka.v861-uklad.v1149-nocny-scalony .panel-lewy .rozklady-wrap {
  schedule();
 })();
 </script>
-<!-- V1170: minima 150/181 px dla wszystkich 3 kolumn. -->
+<!-- WERSJA: 1172 | minimum 150/181 px i obszar wewnętrzny tabliczki -->
 
-<!-- WERSJA 1171: prawa granica trzech kolumn i znak Ż wewnątrz tabliczki -->
+<!-- WERSJA 1172: minima miejscowości i granica tabliczki we wspólnym algorytmie -->
 <style id="fwtp-v1171-trzy-kolumny-granica">
 html body .tabliczka.v861-uklad .trasa-columns.cols-3,
 html body .tabliczka.v861-uklad .trasa-head.cols-3{
