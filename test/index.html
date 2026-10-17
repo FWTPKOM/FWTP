@@ -1,4 +1,4 @@
-<!-- WERSJA: 1174 -->
+<!-- WERSJA: 1175 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -31229,7 +31229,7 @@ html body .tabliczka.v988-two .trasa-head.cols-2 .trasa-head-label{
    if(busy)return;
    busy=true;
    try{
-     await frame();await frame();await frame();
+     await frame();await frame();await frame();await frame();await frame();
      const tab=host.querySelector('.tabliczka');
      const root=tab?.querySelector('.trasa-columns');
      const head=tab?.querySelector('.trasa-head');
@@ -34222,12 +34222,12 @@ html body .tabliczka.v861-uklad .trasa-columns.cols-3 .trasa-nz {
 </style>
 
 
-<!-- WERSJA 1174: awaryjne odzyskiwanie miejsca dla trzech kolumn -->
+<!-- WERSJA 1175: wykrywanie przepełnienia całej listy trzech kolumn -->
 <style id="fwtp-v1174-kompakt">
 /* Zwężenie tabel dopiero, gdy 3 kolumny nie mieszczą całej trasy. */
 html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid {
   width:max-content!important;max-width:100%!important;
-  grid-template-columns:none!important;gap:3px!important;
+  grid-template-columns:repeat(2,max-content)!important;gap:3px!important;
   justify-content:start!important;
 }
 html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid > .dzien {
@@ -34236,7 +34236,7 @@ html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid > .dzien
 }
 html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid .dzien-tytul {
   white-space:normal!important;overflow-wrap:normal!important;
-  max-width:126px!important;line-height:17px!important;
+  width:112px!important;max-width:112px!important;line-height:17px!important;
   text-align:center!important;
 }
 html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid table {
@@ -34276,14 +34276,29 @@ html body .tabliczka.v861-uklad.v1174-naglowek .panel-lewy .rozklady-wrap {
  let busy=false,queued=false;
  const frame=()=>new Promise(ok=>requestAnimationFrame(ok));
  function overflow(tab){
-   const columns=tab.querySelector('.trasa-columns.cols-3');if(!columns)return false;
-   const bounds=tab.getBoundingClientRect();
-   // Kontroluj faktyczną pozycję ostatnich elementów, a nie tylko wysokość listy.
-   return [...columns.querySelectorAll('.trasa-kol')].some(col=>{
-     const list=col.querySelector('.trasa-lista-397');
-     const last=list?.lastElementChild;
-     return !!last && (last.getBoundingClientRect().bottom>bounds.bottom-6 ||
-       col.scrollHeight>col.clientHeight+4);
+   const columns=tab.querySelector('.trasa-columns.cols-3');
+   if(!columns)return false;
+   // Sprawdzaj położenie KAŻDEGO elementu trasy, nie tylko ostatniego
+   // dziecka listy. Poprzedni test pomijał wiersze wewnątrz zagnieżdżeń.
+   const tabRect=tab.getBoundingClientRect();
+   const limit=tabRect.bottom-7;
+   const cols=[...columns.querySelectorAll(':scope > .trasa-kol')];
+   return cols.some(col=>{
+     const cr=col.getBoundingClientRect();
+     if(cr.bottom>limit+1)return true;
+     if(col.scrollHeight>col.clientHeight+2)return true;
+     const entries=col.querySelectorAll('li, .trasa-stop, .trasa-extra-stop, .trasa-separator, .trasa-variant, .trasa-wariant, .trasa-kursy');
+     for(const item of entries){
+       const r=item.getBoundingClientRect();
+       if(r.height && r.bottom>limit)return true;
+     }
+     // Gdy lista ma transformacje lub niestandardowy układ, wykryj
+     // przekroczenie przez dowolny bezpośredni element listy.
+     for(const list of col.querySelectorAll('.trasa-lista-397')){
+       if(list.getBoundingClientRect().bottom>limit)return true;
+       if(list.scrollHeight>list.clientHeight+2)return true;
+     }
+     return false;
    });
  }
  async function relayout(){
@@ -34309,8 +34324,8 @@ html body .tabliczka.v861-uklad.v1174-naglowek .panel-lewy .rozklady-wrap {
  }
  function schedule(){if(busy||queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
  new MutationObserver(records=>{
-   if(records.some(r=>r.type==='childList'&&[...r.addedNodes].some(n=>n.nodeType===1&&n.classList?.contains('tabliczka'))))schedule();
- }).observe(host,{childList:true,subtree:false});
+   if(records.some(r=>r.type==='childList' && [...r.addedNodes].some(n=>n.nodeType===1 && (n.classList?.contains('tabliczka') || n.querySelector?.('.tabliczka')))))schedule();
+ }).observe(host,{childList:true,subtree:true});
  window.addEventListener('load',schedule);
  if(document.fonts?.ready)document.fonts.ready.then(schedule);
  schedule();
