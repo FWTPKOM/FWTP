@@ -1,4 +1,4 @@
-<!-- WERSJA: 1177 -->
+<!-- WERSJA: 1178 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -34269,68 +34269,7 @@ html body .tabliczka.v861-uklad.v1174-naglowek .panel-lewy .rozklady-wrap {
   position:static!important;margin-top:9px!important;clear:both!important;
 }
 </style>
-<script id="fwtp-v1174-adaptacja">
-(()=>{
- 'use strict';
- const host=document.getElementById('wynik');if(!host)return;
- let busy=false,queued=false;
- const frame=()=>new Promise(ok=>requestAnimationFrame(ok));
- function overflow(tab){
-   const columns=tab.querySelector('.trasa-columns.cols-3');
-   if(!columns)return false;
-   // Sprawdzaj położenie KAŻDEGO elementu trasy, nie tylko ostatniego
-   // dziecka listy. Poprzedni test pomijał wiersze wewnątrz zagnieżdżeń.
-   const tabRect=tab.getBoundingClientRect();
-   const limit=tabRect.bottom-7;
-   const cols=[...columns.querySelectorAll(':scope > .trasa-kol')];
-   return cols.some(col=>{
-     const cr=col.getBoundingClientRect();
-     if(cr.bottom>limit+1)return true;
-     if(col.scrollHeight>col.clientHeight+2)return true;
-     const entries=col.querySelectorAll('li, .trasa-stop, .trasa-extra-stop, .trasa-separator, .trasa-variant, .trasa-wariant, .trasa-kursy');
-     for(const item of entries){
-       const r=item.getBoundingClientRect();
-       if(r.height && r.bottom>limit)return true;
-     }
-     // Gdy lista ma transformacje lub niestandardowy układ, wykryj
-     // przekroczenie przez dowolny bezpośredni element listy.
-     for(const list of col.querySelectorAll('.trasa-lista-397')){
-       if(list.getBoundingClientRect().bottom>limit)return true;
-       if(list.scrollHeight>list.clientHeight+2)return true;
-     }
-     return false;
-   });
- }
- async function relayout(){
-   window.dispatchEvent(new Event('resize'));
-   await frame();await frame();await frame();
- }
- async function run(){
-   if(busy)return;busy=true;queued=false;
-   try{
-     for(const tab of host.querySelectorAll('.tabliczka.v861-uklad')){
-       if(!tab.querySelector('.trasa-columns.cols-3'))continue;
-       // Przy zmianie danych rozpoczynamy od zwykłego układu.
-       tab.classList.remove('v1174-ciasno','v1174-naglowek');
-       await relayout();
-       if(!overflow(tab))continue;
-       tab.classList.add('v1174-ciasno');
-       await relayout();
-       if(!overflow(tab))continue;
-       tab.classList.add('v1174-naglowek');
-       await relayout();
-     }
-   }finally{busy=false;}
- }
- function schedule(){if(busy||queued)return;queued=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
- new MutationObserver(records=>{
-   if(records.some(r=>r.type==='childList' && [...r.addedNodes].some(n=>n.nodeType===1 && (n.classList?.contains('tabliczka') || n.querySelector?.('.tabliczka')))))schedule();
- }).observe(host,{childList:true,subtree:true});
- window.addEventListener('load',schedule);
- if(document.fonts?.ready)document.fonts.ready.then(schedule);
- schedule();
-})();
-</script>
+<!-- WERSJA 1178: zastąpiono fwtp-v1174-adaptacja jednym kontrolerem -->
 
 
 <!-- WERSJA: 1176 — rzeczywiste zwężenie tabel w trybie awaryjnym 3 kolumn -->
@@ -34401,81 +34340,124 @@ html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid .dzien t
 
 
 <!-- WERSJA: 1177 — ponowny pomiar i podział 3 kolumn po zwężeniu rozkładu -->
-<script id="fwtp-v1177-reflow">
+<!-- WERSJA 1178: zastąpiono fwtp-v1177-reflow jednym kontrolerem -->
+
+<!-- WERSJA: 1178 — stabilna adaptacja i powrót do standardowego rozkładu bez miejscowości -->
+<style id="fwtp-v1178-bez-miejscowosci">
+/* Fallback: usuwa wyłącznie separatory miejscowości, nie strefy ani przystanki. */
+html body .tabliczka.v861-uklad.v1178-bez-miejscowosci .trasa-columns.cols-3 .trasa-separator.trasa-miejscowosc-429,
+html body .tabliczka.v861-uklad.v1178-bez-miejscowosci .trasa-columns.cols-3 .trasa-miejscowosc-429 {
+ display:none!important;height:0!important;min-height:0!important;max-height:0!important;
+ margin:0!important;padding:0!important;border:0!important;
+}
+/* Przywrócenie normalnych, jednoliniowych nagłówków rozkładów w fallbacku. */
+html body .tabliczka.v861-uklad.v1178-bez-miejscowosci .panel-lewy .rozklady-grid .dzien-tytul {
+ white-space:nowrap!important;line-height:normal!important;width:auto!important;
+ max-width:none!important;
+}
+</style>
+<script id="fwtp-v1178-adaptacja">
 (()=>{
  'use strict';
  const host=document.getElementById('wynik');if(!host)return;
- let pending=false,running=false;
- const raf=()=>new Promise(r=>requestAnimationFrame(r));
- const height=el=>{
-   const r=el.getBoundingClientRect(),s=getComputedStyle(el);
-   return r.height+(parseFloat(s.marginTop)||0)+(parseFloat(s.marginBottom)||0);
- };
- function adjust(tab){
-   const columns=tab.querySelector('.trasa-columns.cols-3');if(!columns)return false;
-   const cols=[...columns.querySelectorAll(':scope > .trasa-kol')];
-   if(cols.length!==3)return false;
-   const lists=cols.map(c=>c.querySelector('.trasa-lista, .trasa-lista-397'));
-   if(lists.some(l=>!l))return false;
-   const limit=Math.min(columns.getBoundingClientRect().bottom,tab.getBoundingClientRect().bottom-6);
-   let changed=false;
-   // Przenieś przepełnione wiersze do kolejnej kolumny, zachowując kolejność.
+ const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+ const limitOf=tab=>tab.getBoundingClientRect().bottom-7;
+ const listsOf=tab=>[...tab.querySelectorAll('.trasa-columns.cols-3 > .trasa-kol')]
+   .map(col=>col.querySelector('.trasa-lista-397, .trasa-lista'));
+ function over(tab){
+   const cols=tab.querySelector('.trasa-columns.cols-3');if(!cols)return false;
+   const limit=limitOf(tab);
+   return [...cols.querySelectorAll(':scope > .trasa-kol')].some(col=>{
+     const list=col.querySelector('.trasa-lista-397, .trasa-lista');
+     if(!list)return false;
+     if(list.getBoundingClientRect().bottom>limit+1)return true;
+     return [...list.children].some(item=>{
+       if(getComputedStyle(item).display==='none')return false;
+       const r=item.getBoundingClientRect();return r.height>0&&r.bottom>limit;
+     });
+   });
+ }
+ function redistribute(tab){
+   const lists=listsOf(tab);if(lists.length!==3||lists.some(l=>!l))return false;
+   const limit=limitOf(tab);let changed=false;
+   // Po usunięciu separatorów ponownie zapełnij kolumny od lewej.
+   // Użyj prawdziwej geometrii elementów, w tym wierszy 33/49,5 px.
    for(let i=0;i<2;i++){
-     const current=lists[i],next=lists[i+1];let guard=0;
-     while(current.lastElementChild && guard++<120){
-       const last=current.lastElementChild;
-       if(last.getBoundingClientRect().bottom<=limit+0.5)break;
-       next.insertBefore(last,next.firstChild);changed=true;
-     }
-   }
-   // Wypełnij wcześniejsze kolumny, jeśli po nowym zawijaniu zostało miejsce.
-   for(let i=0;i<2;i++){
-     const current=lists[i],next=lists[i+1];let guard=0;
-     while(next.firstElementChild && guard++<120){
-       const first=next.firstElementChild;
-       current.appendChild(first);
-       if(first.getBoundingClientRect().bottom>limit-1){
-         next.insertBefore(first,next.firstChild);break;
+     let count=0;
+     while(lists[i+1].firstElementChild&&count++<180){
+       const el=lists[i+1].firstElementChild;
+       lists[i].appendChild(el);
+       if(el.getBoundingClientRect().bottom>limit-3){
+         lists[i+1].insertBefore(el,lists[i+1].firstChild);break;
        }
        changed=true;
      }
    }
+   for(let i=0;i<2;i++){
+     let count=0;
+     while(lists[i].lastElementChild&&count++<180){
+       const el=lists[i].lastElementChild;
+       if(el.getBoundingClientRect().bottom<=limit-3)break;
+       lists[i+1].insertBefore(el,lists[i+1].firstChild);changed=true;
+     }
+   }
    return changed;
  }
+ async function refresh(tab){
+   window.dispatchEvent(new Event('resize'));
+   await frame();await frame();await frame();
+   redistribute(tab);
+   await frame();
+ }
+ let pending=false,running=false;
+ const handled=new WeakSet();
  async function run(){
-   if(running)return;running=true;pending=false;
+   if(running)return;pending=false;running=true;
    try{
-     for(const tab of host.querySelectorAll('.tabliczka.v861-uklad.v1174-ciasno')){
-       if(!tab.querySelector('.trasa-columns.cols-3'))continue;
-       // Po pomiarze szerokości tabel i przestawieniu nagłówka
-       // przelicz zawijanie, wysokość wierszy i podział kolumn.
-       for(let pass=0;pass<4;pass++){
-         window.dispatchEvent(new Event('resize'));
-         await raf();await raf();
-         const changed=adjust(tab);
-         if(typeof v665SynchronizujWysokosci==='function'){
-           v665SynchronizujWysokosci(tab.querySelector('.trasa-columns.cols-3'));
+     for(const tab of host.querySelectorAll('.tabliczka.v861-uklad')){
+       if(handled.has(tab)||!tab.querySelector('.trasa-columns.cols-3'))continue;
+       handled.add(tab);
+       // Od początku, tylko raz na wyrenderowaną tabliczkę.
+       tab.classList.remove('v1174-ciasno','v1174-naglowek','v1178-bez-miejscowosci');
+       await refresh(tab);
+       if(!over(tab))continue;
+       tab.classList.add('v1174-ciasno');
+       await refresh(tab);
+       if(!over(tab))continue;
+       tab.classList.add('v1174-naglowek');
+       await refresh(tab);
+       if(!over(tab))continue;
+       // Ostatnia próba: usuń miejscowości, wróć do normalnych
+       // nagłówków dni i ponownie przelicz szerokości oraz wysokości.
+       tab.classList.remove('v1174-ciasno','v1174-naglowek');
+       tab.classList.add('v1178-bez-miejscowosci');
+       await refresh(tab);
+       for(let i=0;i<3;i++){
+         if(!redistribute(tab))break;
+         await frame();
+       }
+       // Jeżeli standardowe nagłówki jednak powodują przepełnienie,
+       // zachowaj brak miejscowości i ponownie zwęź rozkłady.
+       if(over(tab)){
+         tab.classList.add('v1174-ciasno');
+         await refresh(tab);
+         if(over(tab)){
+           tab.classList.add('v1174-naglowek');
+           await refresh(tab);
          }
-         await raf();
-         if(!changed && pass>=1)break;
        }
      }
    }finally{running=false;}
  }
  function queue(){if(pending||running)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
  new MutationObserver(records=>{
-   if(records.some(r=>r.type==='childList'&&[...r.addedNodes].some(n=>n.nodeType===1&&n.classList?.contains('tabliczka'))))queue();
- }).observe(host,{childList:true,subtree:true});
+   if(records.some(r=>r.type==='childList'&&[...r.addedNodes].some(n=>
+     n.nodeType===1&&(n.matches?.('.tabliczka')||n.querySelector?.('.tabliczka')))))queue();
+ }).observe(host,{childList:true,subtree:false});
  window.addEventListener('load',queue);
- if(document.fonts?.ready)document.fonts.ready.then(queue);
- // Wersja 1174 uruchamia adaptację asynchronicznie: poczekaj na nią.
- const observer=new MutationObserver(records=>{
-   if(records.some(r=>r.type==='attributes'&&r.attributeName==='class'&&r.target.classList?.contains('tabliczka')))queue();
- });
- observer.observe(host,{subtree:true,attributes:true,attributeFilter:['class']});
+ document.fonts?.ready.then(queue);
  queue();
 })();
 </script>
-
 </body>
 </html>
