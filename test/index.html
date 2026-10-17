@@ -1,4 +1,4 @@
-<!-- WERSJA: 1162 -->
+<!-- WERSJA: 1164 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -48,7 +48,7 @@ function FWTP_V690_NazwaPrzystanku(p){
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>FWTP v757 — Tabliczki</title>
-<meta name="fwtp-version" content="1162"/>
+<meta name="fwtp-version" content="1163"/>
 <link href="../css/style.css" rel="stylesheet"/>
 
 <script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sPxCq7PaSAZgofkQN2x8yF3_xxpxKUlsaQBInBm3F64lBKh4BnCciuKKVcQf3Jz_NBdRQb_bmKwJ4NOVjU6QGqlLysKpL1bRvNsDCRXyuMD2X4c_lCpZSNAYWgDQvitBBQfYeyhxpPHINE616HmVKFWuo-TcjLVvHADEbkr04gZnMPtWXv_tkMdTM6J2H_69zBQEhkqlO36zyzkWI25gzVRr2uyvOAFbSMU_yixTmGFo2pM7GXa-r05eHZmmdxI1cbUXjQHYecTSK-rUlKBl1V72CkahBzM7wZkMpZmAFpeWTk4WDlUXa31H8r2AurzAlliqKbmn46g76HzO5_GPQZQvhtr9dmPKAeMR_rZ02HI" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=sDyvQBuoxox17_KRlPp29SKwugaMaVHZH-lXg7Me4XIBEwt15mCv1uqRyqMH-xRp8urkn2GKBjKSinJt--k9NFU3LbrASJ_btilmXWb7duejD4J2XdrB913svyl51nKpYX8-HLLkfvjFTdvXu_5G1u-hJpvzjdEbX-063Y6CXHkBnc7hfu4ApUg1MwuCjTKZxQT5jUnwaqD0FLGBxUUSyKBI_nCyxAxqRHPVNvfevE_Na0ZAtSC3NEn6nVxrNhweDkytC218IoO5Rp6F_cQfQ5yerDkGbJdxZaBr6wEs6RqD_KJpB-gZEM7WGtUm4_iiYKevwPzLdRiNgD4OGJMRDaBXVG6CaQRTnhMujcROCZ8" charset="UTF-8"></script><script type="text/javascript" src="https://gc.kis.v2.scr.kaspersky-labs.com/FD126C42-EBFA-4E12-B309-BB3FDD723AC1/main.js?attr=pKlnhzCyCnwX8pmmZaNlxDMrn9H9NEgRSiYuEYZIh0qKYjqZnAWEtDZKpqw9xXvDFYlHzXX39nvATweO787ShH6PDI8b6Lhr9V9_USw04DZ-qSw7C0l3-WOH-r6AuMB4giHrjY0zFNPox_FDweAQXPyRUqBERuyN6-jlB-2h3l3vPuutDA3YvFZ94yMluxl8tbxMUrd3sCHEoit3JAs7ZS9MnIJei0dyT769BMUer3Xy_CTVEMV6GZIAStVJr9q2PAt0op6-vFdUrnpAbMNC6nPCDg4D2RT8jC6j4KbfWhkW-J0Ela4u5mG01FQogNoE3NHAHw96NO2OF__6kk9H1-Oes-PG1TpRDAGM86EzsDnm9qwA6Il2SoO2W1HCRcr5" charset="UTF-8"></script><style>
@@ -20045,39 +20045,37 @@ function v486BuildRoutes(){
    przebiegu. Nie korzystamy z czasyTrasy() ani ze starego wyboru
    wariantu.
 */
+/* WERSJA 1164 — czasy dla list budowanych z model.trasy[].
+   W tym modelu route.representative nie jest ustawiony, dlatego
+   dotychczasowy renderer zwracał null dla wszystkich minut.
+   Wspólna metoda liczy dominantę z kursów na obu słupkach. */
+function v1164CzasPrzejazdu(id){
+    if(!id)return null;
+    const aktywny=v486CurrentStop();
+    if(!aktywny)return null;
+    if(String(v486StopId(aktywny))===String(id))return 0;
+    const wynik=v577NajczestszyCzasZCalegoTygodnia(id);
+    if(Number.isFinite(wynik))return wynik;
+    return v1163CzasZKursow(id);
+}
 function v486TravelMinutes(route,item){
-    const active = v486CurrentStop();
-    const rep = route?.representative;
-
-    const activeCourse = v486CourseAtStop(active,rep);
-    const stopCourse = v486CourseAtStop(item?.p,rep);
-
-    const t0 = v486MinutesValue(activeCourse?.czas);
-    const t1 = v486MinutesValue(stopCourse?.czas);
-
-    if(t0 === null || t1 === null){
-        return null;
+    const active=v486CurrentStop();
+    const id=v486StopId(item?.p);
+    if(!active||!id)return null;
+    const rep=route?.representative;
+    if(!rep){
+        return v1164CzasPrzejazdu(id);
     }
-
-    let diff = t1 - t0;
-
-    /*
-       V488:
-       - wcześniejsze przystanki mają czas ujemny względem tabliczki,
-       - przejście przez północ korygujemy tylko przy oczywistym
-         skoku do następnej doby.
-    */
-    if(diff < -12*60){
-        diff += 24*60;
-    }
-
-    if(diff > 12*60){
-        diff -= 24*60;
-    }
-
+    const activeCourse=v486CourseAtStop(active,rep);
+    const stopCourse=v486CourseAtStop(item?.p,rep);
+    const t0=v486MinutesValue(activeCourse?.czas);
+    const t1=v486MinutesValue(stopCourse?.czas);
+    if(t0===null||t1===null)return v1164CzasPrzejazdu(id);
+    let diff=t1-t0;
+    if(diff < -12*60)diff+=24*60;
+    if(diff > 12*60)diff-=24*60;
     return diff;
 }
-
 
 /*
    V488 — WSPÓLNA TRASA I ODGAŁĘZIENIA
@@ -21450,6 +21448,55 @@ function v577NajczestszyCzasZCalegoTygodnia(targetId){
     return best;
 }
 
+/* WERSJA 1163: fallback dla danych, w których gotowe elementy nie
+   mają czas_przejazdu, a stary v577 nie znajduje aktywnego słupka
+   w rozkładzie bazowym. Porównuje rzeczywiste kursy ze wszystkich dni,
+   po pełnym ID przystanku i numerze kursu. */
+function v1163CzasZKursow(targetId){
+    const active=v486CurrentStop();
+    const activeId=String(v486StopId(active)||'');
+    const destId=String(targetId||'');
+    if(!activeId||!destId)return null;
+    if(activeId===destId)return 0;
+    const deltas=[];
+    const rozklady=daneLinii?.rozkłady||daneLinii?.rozklady||[];
+    for(const r of rozklady){
+        const kier=r?.kierunki?.[Number(aktualnyKierunek)];
+        const stops=kier?.przystanki||[];
+        const a=stops.find(p=>String(v486StopId(p)||'')===activeId);
+        const b=stops.find(p=>String(v486StopId(p)||'')===destId);
+        if(!a||!b)continue;
+        const mapa=new Map();
+        for(const k of b.kursy||[]){
+            const key=String(k?.numer??'').trim();
+            const t=czasNaMinuty(k?.czas);
+            if(key&&t!==null){
+                if(!mapa.has(key))mapa.set(key,[]);
+                mapa.get(key).push(t);
+            }
+        }
+        for(const k of a.kursy||[]){
+            const key=String(k?.numer??'').trim();
+            const ta=czasNaMinuty(k?.czas);
+            if(!key||ta===null||!mapa.has(key))continue;
+            for(const tb of mapa.get(key)){
+                const delta=(tb-ta+1440)%1440;
+                if(delta<=240)deltas.push(delta);
+            }
+        }
+    }
+    if(!deltas.length)return null;
+    const counts=new Map();
+    for(const d of deltas)counts.set(d,(counts.get(d)||0)+1);
+    let result=null,frequency=-1;
+    for(const [d,n] of counts){
+        if(n>frequency||(n===frequency&&(result===null||d>result))){
+            result=d;frequency=n;
+        }
+    }
+    return result;
+}
+
 function v514MinutyDoPrzystanku(targetId){
     const active=v486CurrentStop();
     if(!active)return null;
@@ -21758,7 +21805,8 @@ function v514RenderStop(element,position,total){
             : (
                 Number.isFinite(czasZTygodnia)
                     ? czasZTygodnia
-                    : v514MinutyDoPrzystanku(id)
+                    : (v514MinutyDoPrzystanku(id) ??
+                       v1163CzasZKursow(id))
             );
 
     /*
