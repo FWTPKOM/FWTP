@@ -1,4 +1,4 @@
-<!-- WERSJA: 1176 -->
+<!-- WERSJA: 1177 -->
 <!-- WERSJA: 988 — BAZA V945 + 90% OSOBNO DLA KAŻDEJ Z 2 KOLUMN -->
 <!-- HISTORIA: WERSJA 764 -->
 <!-- HISTORIA: WERSJA 762 -->
@@ -34396,6 +34396,84 @@ html body .tabliczka.v861-uklad.v1174-ciasno .panel-lewy .rozklady-grid .dzien t
   if(records.some(r=>r.type==='childList'&&[...r.addedNodes].some(n=>n.nodeType===1&&n.classList?.contains('tabliczka'))))queue();
  }).observe(host,{childList:true,subtree:true});
  window.addEventListener('resize',queue);window.addEventListener('load',queue);queue();
+})();
+</script>
+
+
+<!-- WERSJA: 1177 — ponowny pomiar i podział 3 kolumn po zwężeniu rozkładu -->
+<script id="fwtp-v1177-reflow">
+(()=>{
+ 'use strict';
+ const host=document.getElementById('wynik');if(!host)return;
+ let pending=false,running=false;
+ const raf=()=>new Promise(r=>requestAnimationFrame(r));
+ const height=el=>{
+   const r=el.getBoundingClientRect(),s=getComputedStyle(el);
+   return r.height+(parseFloat(s.marginTop)||0)+(parseFloat(s.marginBottom)||0);
+ };
+ function adjust(tab){
+   const columns=tab.querySelector('.trasa-columns.cols-3');if(!columns)return false;
+   const cols=[...columns.querySelectorAll(':scope > .trasa-kol')];
+   if(cols.length!==3)return false;
+   const lists=cols.map(c=>c.querySelector('.trasa-lista, .trasa-lista-397'));
+   if(lists.some(l=>!l))return false;
+   const limit=Math.min(columns.getBoundingClientRect().bottom,tab.getBoundingClientRect().bottom-6);
+   let changed=false;
+   // Przenieś przepełnione wiersze do kolejnej kolumny, zachowując kolejność.
+   for(let i=0;i<2;i++){
+     const current=lists[i],next=lists[i+1];let guard=0;
+     while(current.lastElementChild && guard++<120){
+       const last=current.lastElementChild;
+       if(last.getBoundingClientRect().bottom<=limit+0.5)break;
+       next.insertBefore(last,next.firstChild);changed=true;
+     }
+   }
+   // Wypełnij wcześniejsze kolumny, jeśli po nowym zawijaniu zostało miejsce.
+   for(let i=0;i<2;i++){
+     const current=lists[i],next=lists[i+1];let guard=0;
+     while(next.firstElementChild && guard++<120){
+       const first=next.firstElementChild;
+       current.appendChild(first);
+       if(first.getBoundingClientRect().bottom>limit-1){
+         next.insertBefore(first,next.firstChild);break;
+       }
+       changed=true;
+     }
+   }
+   return changed;
+ }
+ async function run(){
+   if(running)return;running=true;pending=false;
+   try{
+     for(const tab of host.querySelectorAll('.tabliczka.v861-uklad.v1174-ciasno')){
+       if(!tab.querySelector('.trasa-columns.cols-3'))continue;
+       // Po pomiarze szerokości tabel i przestawieniu nagłówka
+       // przelicz zawijanie, wysokość wierszy i podział kolumn.
+       for(let pass=0;pass<4;pass++){
+         window.dispatchEvent(new Event('resize'));
+         await raf();await raf();
+         const changed=adjust(tab);
+         if(typeof v665SynchronizujWysokosci==='function'){
+           v665SynchronizujWysokosci(tab.querySelector('.trasa-columns.cols-3'));
+         }
+         await raf();
+         if(!changed && pass>=1)break;
+       }
+     }
+   }finally{running=false;}
+ }
+ function queue(){if(pending||running)return;pending=true;requestAnimationFrame(()=>requestAnimationFrame(run));}
+ new MutationObserver(records=>{
+   if(records.some(r=>r.type==='childList'&&[...r.addedNodes].some(n=>n.nodeType===1&&n.classList?.contains('tabliczka'))))queue();
+ }).observe(host,{childList:true,subtree:true});
+ window.addEventListener('load',queue);
+ if(document.fonts?.ready)document.fonts.ready.then(queue);
+ // Wersja 1174 uruchamia adaptację asynchronicznie: poczekaj na nią.
+ const observer=new MutationObserver(records=>{
+   if(records.some(r=>r.type==='attributes'&&r.attributeName==='class'&&r.target.classList?.contains('tabliczka')))queue();
+ });
+ observer.observe(host,{subtree:true,attributes:true,attributeFilter:['class']});
+ queue();
 })();
 </script>
 
