@@ -1,1 +1,1 @@
-WTP LIVE v5 — poprawka odczytu odpowiedzi API. Zastąp pliki index.html, app.js, config.js, style.css w FWTP/test. Nie zmieniaj Workera ani sekretu. W panelu zobaczysz liczby autobusów i tramwajów lub czytelny błąd.
+WTP LIVE v6 – mapa, prostokątne etykiety linia/brygada/numer, strzałka kierunku z kolejnych pozycji GPS; odjazdy planowe z filtrami brygady i oznaczeń dnia. Wgraj 4 pliki index.html, style.css, app.js, config.js do FWTP/test. Cloudflare Worker bez zmian. Kierunek niedostępny do czasu wykrycia ruchu; rozkład nie oznacza faktycznej realizacji kursu.
