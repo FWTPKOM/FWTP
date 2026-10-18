@@ -1,1 +1,5 @@
-WTP LIVE v12. Wgraj index.html, app.js, style.css i config.js do FWTP/test. Worker bez zmian. Przybliżenie: <11 kropki, 11–13 numery linii, >=14 pełne etykiety. Panel pojazdu używa opcjonalnego /route; bez tego endpointu nie wyświetli zmyślonej trasy. Kierunek GPS wymaga dwóch kolejnych różnych pomiarów. Historia przeglądarki działa dla zakładek.
+WTP LIVE v13
+
+Kliknięcie pojazdu otwiera bezpośrednio dolny panel trasy. Usunięto popup Leaflet.
+Do pełnej listy przystanków, godzin i oznaczenia aktualnego przystanku konieczny jest działający endpoint /route w Cloudflare Worker. Nie są one dostępne w samym GPS.
+Wgraj index.html, app.js, style.css i config.js do FWTP/test.
