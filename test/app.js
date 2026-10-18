@@ -249,16 +249,28 @@ function addRoutePanel(container,z,n,name,line){
    if(!response.ok)throw Error('Brak endpointu trasy');
    const json=await response.json();const items=Array.isArray(json)?json:Array.isArray(json.result)?json.result:[];
    if(!items.length)throw Error('Brak uporządkowanej listy przystanków');
-   area.replaceChildren();const list=document.createElement('ol');list.className='route-stops';
+   area.replaceChildren();const list=document.createElement('ol');list.className='route-stops kind-'+(selectedVehicleKind(line)||'bus');
    const selected=focusedVehicle && String(focusedVehicle.Lines).toUpperCase()===String(line).toUpperCase()?focusedVehicle:null;
    let currentIndex=-1;
    // Pozycję na trasie wolno określić tylko gdy źródło udostępnia jawny identyfikator bieżącego przystanku.
    const currentStop=selected?.CurrentStopId||selected?.currentStopId;
    if(currentStop)currentIndex=items.findIndex(x=>String(x.id)===String(currentStop));
    items.forEach((item,i)=>{const li=document.createElement('li');li.className='route-stop'+(i===currentIndex?' current':'')+(currentIndex>=0&&i<currentIndex?' passed':'');
-     const dot=document.createElement('span');dot.className='route-dot';const label=document.createElement('span');label.textContent=String(item.name||item.nazwa||'Nieznany przystanek');li.append(dot,label);if(i===currentIndex){const here=document.createElement('b');here.textContent='Pojazd tutaj';li.append(here)}list.append(li)});
+     const dot=document.createElement('span');dot.className='route-dot';
+     const label=document.createElement('span');label.className='route-stop-name';label.textContent=String(item.name||item.nazwa||'Nieznany przystanek');li.append(dot,label);
+     // Wyświetlamy wyłącznie godzinę rzeczywiście przypisaną do tego przystanku w danych trasy.
+     const rawTime=item.departureTime??item.arrivalTime??item.czas??item.time??null;
+     if(rawTime!==null && rawTime!==''){const time=document.createElement('time');time.className='route-stop-time';time.textContent=String(rawTime).slice(0,5);li.append(time)}
+     if(i===currentIndex){li.title='Pozycja pojazdu';}
+     list.append(li)});
    area.append(list);
    if(currentIndex<0){const note=document.createElement('p');note.className='route-note';note.textContent='API GPS nie wskazuje bieżącego przystanku. Nie oznaczamy przystanków jako minięte na podstawie zgadywania.';area.prepend(note)}
   }catch(e){area.textContent='Pełna lista przystanków nie jest jeszcze dostępna. Obecny Worker udostępnia pozycje GPS, słupki, linie i odjazdy, ale nie uporządkowany przebieg trasy. Aby pokazać kropki, bieżący i minięte przystanki, trzeba dodać wiarygodne dane tras i dopasowanie GPS do trasy.'}
  });
+}
+
+function selectedVehicleKind(line){
+ if(!focusedVehicle||String(focusedVehicle.Lines).toUpperCase()!==String(line).toUpperCase())return 'bus';
+ const n=Number(focusedVehicle.kind??focusedVehicle.Kind??focusedVehicle.type);
+ return n===2?'tram':'bus';
 }
