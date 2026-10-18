@@ -1,5 +1,1 @@
-WTP LIVE v9
-
-Podmień index.html, app.js, style.css i config.js w FWTP/test. Cloudflare Worker pozostaje bez zmian.
-
-Zmiany: przebudowane odjazdy, diagnostyka struktury rekordu, warstwa przystanków widoczna przy zoom >=13. Kliknięcie przystanku umożliwia sprawdzenie linii i kierunków z rozkładu. Brak strzałek geograficznych przy słupkach, ponieważ API przystanków nie udostępnia ich azymutu.
+WTP LIVE v10. Zastąp pliki w FWTP/test/. Worker i sekret API_KEY bez zmian. Nowe kolory, mniejsze etykiety. Kierunek GPS wyznaczany dopiero po dwóch kolejnych różnych pozycjach; znak ? oznacza brak pewnego kierunku. Trasa z kropkami wymaga osobnego źródła uporządkowanej listy przystanków (/route) i danych bieżącego przystanku; obecny Worker tego nie udostępnia. Nie pokazujemy fikcyjnych miniętych przystanków.

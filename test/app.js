@@ -1,8 +1,9 @@
-// WTP LIVE v9 – kolory znaczników i rogi 7px; logika danych bez zmian.
+// WTP LIVE v10 – kolory znaczników i rogi 7px; logika danych bez zmian.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let map,layer,vehicles=[],stops=[];
+let focusedVehicle=null; const ROUTE_API='/route';
 function unpack(payload){
   // API Warszawy może zwrócić result jako tablicę, obiekt albo tekst JSON.
   let data=payload;
@@ -118,31 +119,33 @@ function draw(){
   if(!layer)return;
   layer.clearLayers();let count=0;
   const filter=$('line').value.trim().toUpperCase();
+  const zoom=map.getZoom(), bounds=map.getBounds();
   for(const v of vehicles){
     if((v.kind===1&&!$('bus').checked)||(v.kind===2&&!$('tram').checked))continue;
     const line=String(v.Lines||v.lines||'').toUpperCase();
     if(filter&&line!==filter)continue;
     const lat=Number(v.Lat??v.lat),lon=Number(v.Lon??v.lon);
     if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat<51||lat>53||lon<19||lon>23)continue;
+    if(!bounds.contains([lat,lon]))continue;
     const brigade=String(v.Brigade??'?'),number=String(v.VehicleNumber??'?');
     // Zwarta, jednorzędowa etykieta jak na wzorze: kierunek, typ, linia/brygada/numer.
     // Kierunek GPS jest znany dopiero po wykryciu ruchu pomiędzy kolejnymi odczytami.
     const arrow=Number.isFinite(v._bearing)
       ? `<span class="badge-direction" title="Kierunek ruchu wyliczony z GPS"><svg viewBox="0 0 24 24" style="transform:rotate(${v._bearing}deg)" aria-hidden="true"><path d="M12 3 5 15l7-3 7 3z" fill="currentColor"/><path d="M12 11v10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>`
-      : `<span class="badge-direction unknown" title="Brak danych do wyznaczenia kierunku">·</span>`;
+      : `<span class="badge-direction unknown" title="Kierunek oczekuje na drugi aktualny odczyt GPS">?</span>`;
     const vehicleSymbol=`<svg class="badge-vehicle" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2.5" width="14" height="16" rx="3" fill="currentColor"/><rect x="7.5" y="5" width="9" height="6" rx=".8" fill="#fff"/><circle cx="8.5" cy="19" r="1.8" fill="currentColor"/><circle cx="15.5" cy="19" r="1.8" fill="currentColor"/></svg>`;
     const content=`<div class="vehicle-badge">${arrow}${vehicleSymbol}<span class="badge-line">${escapeHTML(line)}</span><span class="badge-divider">/</span><span class="badge-brigade">${escapeHTML(brigade)}</span><span class="badge-divider">/</span><span class="badge-number">${escapeHTML(number)}</span></div>`;
     const icon=L.divIcon({className:'vehicle-icon'+(v.kind===2?' tram':''),html:content,iconSize:[1,1],iconAnchor:[0,0]});
-    const marker=L.marker([lat,lon],{icon});
+    const marker=L.marker([lat,lon],{icon,zIndexOffset:0});
     const gps=String(v.Time??'');
-    marker.bindPopup(`<b>${v.kind===1?'Autobus':'Tramwaj'} ${escapeHTML(line)}</b><br>Brygada: ${escapeHTML(brigade)}<br>Numer taborowy: ${escapeHTML(number)}<br>Ostatnia pozycja GPS: ${escapeHTML(gps)}<br><small>Kierunek strzałki ustalany z kolejnych pozycji GPS.</small><br><button class="popup-timetable">Znajdź odjazdy tej brygady</button>`);
+    marker.bindPopup(`<b>${v.kind===1?'Autobus':'Tramwaj'} ${escapeHTML(line)}</b><br>Brygada: ${escapeHTML(brigade)}<br>Numer taborowy: ${escapeHTML(number)}<br>Ostatnia pozycja GPS: ${escapeHTML(gps)}<br><small>Kierunek strzałki ustalany z kolejnych pozycji GPS.</small><br><button class="popup-timetable">Rozkład i trasa pojazdu</button>`);
     marker.on('popupopen',()=>{
       const btn=marker.getPopup()?.getElement()?.querySelector('.popup-timetable');
       if(btn)btn.onclick=()=>{
-        selectedLine=line;selectedBrigade=brigade;
+        selectedLine=line;selectedBrigade=brigade;focusedVehicle={...v};
         $('stop').placeholder='Wpisz przystanek obsługiwany przez linię '+line;
         document.querySelector('[data-tab="odjazdy"]').click();
-        $('results').textContent='Wyszukaj przystanek, aby zobaczyć odjazdy linii '+line+' i brygady '+brigade+'.';
+        $('results').textContent='Linia '+line+', brygada '+brigade+', pojazd '+number+'. Wyszukaj przystanek, aby zobaczyć odjazdy i pozycję pojazdu.';
         $('stop').focus();
       };
     });
@@ -185,6 +188,10 @@ async function showDepartures(z,n,name,line){
     const h=document.createElement('h2');h.textContent=`${name} ${n} · linia ${line}`;wrap.append(h);
     const back=document.createElement('button');back.textContent='← Wybierz inną linię';back.className='secondary';back.onclick=()=>showLines(z,n,name);wrap.append(back);
     const intro=document.createElement('p');intro.textContent='Rozkład planowy — wybierz kierunek i brygadę. Dane nie są prognozą przyjazdu.';wrap.append(intro);
+    if(focusedVehicle && String(focusedVehicle.Lines).toUpperCase()===String(line).toUpperCase()){
+      const selected=document.createElement('div');selected.className='vehicle-context';selected.textContent='Wybrany pojazd: '+focusedVehicle.VehicleNumber+' · brygada '+focusedVehicle.Brigade+' · GPS '+(focusedVehicle.Time||'brak czasu');wrap.append(selected);
+    }
+    addRoutePanel(wrap,z,n,name,line);
     const controls=document.createElement('div');controls.className='departure-controls';
     const dirs=[...new Set(entries.map(x=>x.direction).filter(Boolean))].sort();
     const dir=document.createElement('select');dir.innerHTML='<option value="">Wszystkie kierunki</option>';
@@ -226,4 +233,32 @@ async function showDepartures(z,n,name,line){
     dir.onchange=render;brigade.onchange=()=>{selectedBrigade=brigade.value;render()};day.onchange=render;render();
   }catch(e){wrap.textContent='Błąd pobierania odjazdów: '+e.message}
 }
-window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('main section').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='mapa'&&map)setTimeout(()=>map.invalidateSize(),100)});$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY)refresh();else $('status').textContent='Mapa jest gotowa. Aby wyświetlać dane LIVE, ustaw adres Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
+window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('main section').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='mapa'&&map)setTimeout(()=>map.invalidateSize(),100)});$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY)refresh();else $('status').textContent='Mapa jest gotowa. Aby wyświetlać dane LIVE, ustaw adres Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
+
+// Trasa wymaga kolejności przystanków z wiarygodnego źródła.
+// /route jest opcjonalnym rozszerzeniem Workera, nie częścią dotychczasowych 4 endpointów.
+function addRoutePanel(container,z,n,name,line){
+ const details=document.createElement('details');details.className='route-panel';
+ const summary=document.createElement('summary');summary.textContent='Trasa i pozycja pojazdu · linia '+line;details.append(summary);
+ const area=document.createElement('div');area.className='route-body';details.append(area);container.append(details);
+ details.addEventListener('toggle',async()=>{
+  if(!details.open || details.dataset.loaded)return;
+  details.dataset.loaded='1';area.textContent='Sprawdzanie dostępności przebiegu trasy…';
+  try{
+   const response=await fetch(PROXY+ROUTE_API+'?'+new URLSearchParams({line}),{cache:'no-store'});
+   if(!response.ok)throw Error('Brak endpointu trasy');
+   const json=await response.json();const items=Array.isArray(json)?json:Array.isArray(json.result)?json.result:[];
+   if(!items.length)throw Error('Brak uporządkowanej listy przystanków');
+   area.replaceChildren();const list=document.createElement('ol');list.className='route-stops';
+   const selected=focusedVehicle && String(focusedVehicle.Lines).toUpperCase()===String(line).toUpperCase()?focusedVehicle:null;
+   let currentIndex=-1;
+   // Pozycję na trasie wolno określić tylko gdy źródło udostępnia jawny identyfikator bieżącego przystanku.
+   const currentStop=selected?.CurrentStopId||selected?.currentStopId;
+   if(currentStop)currentIndex=items.findIndex(x=>String(x.id)===String(currentStop));
+   items.forEach((item,i)=>{const li=document.createElement('li');li.className='route-stop'+(i===currentIndex?' current':'')+(currentIndex>=0&&i<currentIndex?' passed':'');
+     const dot=document.createElement('span');dot.className='route-dot';const label=document.createElement('span');label.textContent=String(item.name||item.nazwa||'Nieznany przystanek');li.append(dot,label);if(i===currentIndex){const here=document.createElement('b');here.textContent='Pojazd tutaj';li.append(here)}list.append(li)});
+   area.append(list);
+   if(currentIndex<0){const note=document.createElement('p');note.className='route-note';note.textContent='API GPS nie wskazuje bieżącego przystanku. Nie oznaczamy przystanków jako minięte na podstawie zgadywania.';area.prepend(note)}
+  }catch(e){area.textContent='Pełna lista przystanków nie jest jeszcze dostępna. Obecny Worker udostępnia pozycje GPS, słupki, linie i odjazdy, ale nie uporządkowany przebieg trasy. Aby pokazać kropki, bieżący i minięte przystanki, trzeba dodać wiarygodne dane tras i dopasowanie GPS do trasy.'}
+ });
+}
