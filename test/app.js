@@ -1,4 +1,4 @@
-// WTP LIVE v10 – kolory znaczników i rogi 7px; logika danych bez zmian.
+// WTP LIVE v12 – kolory znaczników i rogi 7px; logika danych bez zmian.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -134,8 +134,8 @@ function draw(){
       ? `<span class="badge-direction" title="Kierunek ruchu wyliczony z GPS"><svg viewBox="0 0 24 24" style="transform:rotate(${v._bearing}deg)" aria-hidden="true"><path d="M12 3 5 15l7-3 7 3z" fill="currentColor"/><path d="M12 11v10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>`
       : `<span class="badge-direction unknown" title="Kierunek oczekuje na drugi aktualny odczyt GPS">?</span>`;
     const vehicleSymbol=`<svg class="badge-vehicle" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2.5" width="14" height="16" rx="3" fill="currentColor"/><rect x="7.5" y="5" width="9" height="6" rx=".8" fill="#fff"/><circle cx="8.5" cy="19" r="1.8" fill="currentColor"/><circle cx="15.5" cy="19" r="1.8" fill="currentColor"/></svg>`;
-    const content=`<div class="vehicle-badge">${arrow}${vehicleSymbol}<span class="badge-line">${escapeHTML(line)}</span><span class="badge-divider">/</span><span class="badge-brigade">${escapeHTML(brigade)}</span><span class="badge-divider">/</span><span class="badge-number">${escapeHTML(number)}</span></div>`;
-    const icon=L.divIcon({className:'vehicle-icon'+(v.kind===2?' tram':''),html:content,iconSize:[1,1],iconAnchor:[0,0]});
+    const content=zoom<11?'<span class="vehicle-dot"></span>':zoom<14?`<span class="vehicle-mini">${escapeHTML(line)}</span>`:`<div class="vehicle-badge">${arrow}${vehicleSymbol}<span class="badge-line">${escapeHTML(line)}</span><span class="badge-divider">/</span><span class="badge-brigade">${escapeHTML(brigade)}</span><span class="badge-divider">/</span><span class="badge-number">${escapeHTML(number)}</span></div>`;
+    const icon=L.divIcon({className:'vehicle-icon'+(v.kind===2?' tram':'')+(zoom<11?' dot-mode':zoom<14?' mini-mode':''),html:content,iconSize:[1,1],iconAnchor:[0,0]});
     const marker=L.marker([lat,lon],{icon,zIndexOffset:0});
     const gps=String(v.Time??'');
     marker.bindPopup(`<b>${v.kind===1?'Autobus':'Tramwaj'} ${escapeHTML(line)}</b><br>Brygada: ${escapeHTML(brigade)}<br>Numer taborowy: ${escapeHTML(number)}<br>Ostatnia pozycja GPS: ${escapeHTML(gps)}<br><small>Kierunek strzałki ustalany z kolejnych pozycji GPS.</small><br><button class="popup-timetable">Rozkład i trasa pojazdu</button>`);
@@ -143,10 +143,7 @@ function draw(){
       const btn=marker.getPopup()?.getElement()?.querySelector('.popup-timetable');
       if(btn)btn.onclick=()=>{
         selectedLine=line;selectedBrigade=brigade;focusedVehicle={...v};
-        $('stop').placeholder='Wpisz przystanek obsługiwany przez linię '+line;
-        document.querySelector('[data-tab="odjazdy"]').click();
-        $('results').textContent='Linia '+line+', brygada '+brigade+', pojazd '+number+'. Wyszukaj przystanek, aby zobaczyć odjazdy i pozycję pojazdu.';
-        $('stop').focus();
+        openVehiclePanel(v);
       };
     });
     marker.addTo(layer);count++;
@@ -233,7 +230,34 @@ async function showDepartures(z,n,name,line){
     dir.onchange=render;brigade.onchange=()=>{selectedBrigade=brigade.value;render()};day.onchange=render;render();
   }catch(e){wrap.textContent='Błąd pobierania odjazdów: '+e.message}
 }
-window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x===b));document.querySelectorAll('main section').forEach(x=>x.classList.toggle('active',x.id===b.dataset.tab));if(b.dataset.tab==='mapa'&&map)setTimeout(()=>map.invalidateSize(),100)});$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY)refresh();else $('status').textContent='Mapa jest gotowa. Aby wyświetlać dane LIVE, ustaw adres Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
+
+function openVehiclePanel(v){
+ const panel=$('vehiclePanel');panel.hidden=false;
+ const line=String(v.Lines||'?'),brigade=String(v.Brigade||'?'),number=String(v.VehicleNumber||'?');
+ $('vehicleHeading').textContent=`${v.kind===2?'Tramwaj':'Autobus'} ${line} · brygada ${brigade} · tabor ${number}`;
+ const body=$('vehicleBody');body.replaceChildren();
+ const intro=document.createElement('p');intro.textContent='Sprawdzanie przebiegu trasy i godzin dla tej brygady…';body.append(intro);
+ const url=new URL(PROXY+'/route');url.searchParams.set('line',line);url.searchParams.set('brigade',brigade);url.searchParams.set('vehicle',number);
+ fetch(url,{cache:'no-store'}).then(async response=>{if(!response.ok)throw Error('Brak danych trasy');return response.json()}).then(json=>{
+ const items=Array.isArray(json)?json:Array.isArray(json.result)?json.result:[];
+ if(!items.length)throw Error('Brak przystanków');
+ body.replaceChildren();const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
+ const currentId=json.currentStopId??v.CurrentStopId??null;
+ const index=currentId===null?-1:items.findIndex(x=>String(x.id)===String(currentId));
+ items.forEach((item,i)=>{const li=document.createElement('li');li.className='route-stop'+(index===i?' current':'')+(index>=0&&i<index?' passed':'');
+ const dot=document.createElement('span');dot.className='route-dot';const name=document.createElement('span');name.className='route-stop-name';name.textContent=item.name??item.nazwa??'Przystanek';li.append(dot,name);
+ const time=item.departureTime??item.arrivalTime??item.time??null;if(time){const t=document.createElement('time');t.className='route-stop-time';t.textContent=String(time).slice(0,5);li.append(t)}list.append(li)});
+ if(index<0){const note=document.createElement('p');note.textContent='Brak potwierdzonego bieżącego przystanku — nie oznaczono miniętych.';body.append(note)}body.append(list);
+ }).catch(()=>{intro.textContent='Obecny Worker nie udostępnia jeszcze przebiegu trasy konkretnej brygady (/route). Nie można wiarygodnie pokazać miniętych i kolejnych przystanków ani godzin bez tych danych.'});
+}
+function setTab(tab,record=true){
+ document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x.dataset.tab===tab));
+ document.querySelectorAll('main section').forEach(x=>x.classList.toggle('active',x.id===tab));
+ if(record && location.hash!=='#'+tab)history.pushState({tab},'', '#'+tab);
+ if(tab==='mapa'&&map)setTimeout(()=>map.invalidateSize(),100);
+}
+
+window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>$('vehiclePanel').hidden=true;$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY)refresh();else $('status').textContent='Mapa jest gotowa. Aby wyświetlać dane LIVE, ustaw adres Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
 
 // Trasa wymaga kolejności przystanków z wiarygodnego źródła.
 // /route jest opcjonalnym rozszerzeniem Workera, nie częścią dotychczasowych 4 endpointów.
