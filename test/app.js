@@ -1,4 +1,4 @@
-// WTP LIVE v12 – kolory znaczników i rogi 7px; logika danych bez zmian.
+// WTP LIVE v14 – kolory znaczników i rogi 7px; logika danych bez zmian.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -77,11 +77,68 @@ function renderStopMarkers(){
     if(!z||!n)continue;
     const marker=L.circleMarker(coords,{radius:6,color:'#075e54',weight:2,fillColor:'#fff',fillOpacity:1});
     marker.bindTooltip(escapeHTML(name)+' '+escapeHTML(n),{direction:'top'});
-    // Bez popupu Leaflet: jedno kliknięcie otwiera od razu panel trasy.
-    marker.on('click',()=>{
-      selectedLine=line;selectedBrigade=brigade;focusedVehicle={...v};
-      openVehiclePanel(v);
+    marker.bindPopup(`<b>${escapeHTML(name)} ${escapeHTML(n)}</b><br>Sprawdź linie i kierunki odjazdów.<br><button class="open-stop">Zobacz odjazdy</button>`);
+    marker.on('popupopen',()=>{
+      const btn=marker.getPopup()?.getElement()?.querySelector('.open-stop');
+      if(btn)btn.onclick=()=>{
+        document.querySelector('[data-tab="odjazdy"]').click();
+        $('stop').value=name;
+        $('results').textContent=`Wybrano ${name} ${n}`;
+        showLines(z,n,name);
+      };
     });
+    marker.addTo(stopLayer);shown++;
+    if(shown>=450)break;
+  }
+  $('stopStatus').textContent=`Przystanki w widoku: ${shown}. Kierunki sprawdzisz po wybraniu przystanku i linii.`;
+}
+const lastLocations=new Map();
+function direction(lat1,lon1,lat2,lon2){
+  const rad=Math.PI/180;
+  const y=Math.sin((lon2-lon1)*rad)*Math.cos(lat2*rad);
+  const x=Math.cos(lat1*rad)*Math.sin(lat2*rad)-Math.sin(lat1*rad)*Math.cos(lat2*rad)*Math.cos((lon2-lon1)*rad);
+  return (Math.atan2(y,x)*180/Math.PI+360)%360;
+}
+function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??'')+':'+String(v.Lines??'')+':'+String(v.Brigade??'')}
+function updateHeadings(rows){
+  const now=Date.now();
+  for(const v of rows){
+    const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=Date.parse(String(v.Time||'').replace(' ','T'));
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
+    const prev=lastLocations.get(key);
+    if(prev && Number.isFinite(stamp) && stamp>prev.stamp && stamp-prev.stamp<180000 && now-prev.seen<180000){
+      const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
+      if(meters>=12 && meters<2000)v._bearing=direction(prev.lat,prev.lon,lat,lon);
+      else v._bearing=prev.bearing;
+    }else if(prev)v._bearing=prev.bearing;
+    if(!prev || !Number.isFinite(stamp) || stamp>=prev.stamp)lastLocations.set(key,{lat,lon,stamp,bearing:v._bearing,seen:now});
+  }
+  for(const [k,v] of lastLocations)if(now-v.seen>600000)lastLocations.delete(k);
+}
+function draw(){
+  if(!layer)return;
+  layer.clearLayers();let count=0;
+  const filter=$('line').value.trim().toUpperCase();
+  const zoom=map.getZoom(), bounds=map.getBounds();
+  for(const v of vehicles){
+    if((v.kind===1&&!$('bus').checked)||(v.kind===2&&!$('tram').checked))continue;
+    const line=String(v.Lines||v.lines||'').toUpperCase();
+    if(filter&&line!==filter)continue;
+    const lat=Number(v.Lat??v.lat),lon=Number(v.Lon??v.lon);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat<51||lat>53||lon<19||lon>23)continue;
+    if(!bounds.contains([lat,lon]))continue;
+    const brigade=String(v.Brigade??'?'),number=String(v.VehicleNumber??'?');
+    // Zwarta, jednorzędowa etykieta jak na wzorze: kierunek, typ, linia/brygada/numer.
+    // Kierunek GPS jest znany dopiero po wykryciu ruchu pomiędzy kolejnymi odczytami.
+    const arrow=Number.isFinite(v._bearing)
+      ? `<span class="badge-direction" title="Kierunek ruchu wyliczony z GPS"><svg viewBox="0 0 24 24" style="transform:rotate(${v._bearing}deg)" aria-hidden="true"><path d="M12 3 5 15l7-3 7 3z" fill="currentColor"/><path d="M12 11v10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>`
+      : `<span class="badge-direction unknown" title="Kierunek oczekuje na drugi aktualny odczyt GPS">?</span>`;
+    const vehicleSymbol=`<svg class="badge-vehicle" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2.5" width="14" height="16" rx="3" fill="currentColor"/><rect x="7.5" y="5" width="9" height="6" rx=".8" fill="#fff"/><circle cx="8.5" cy="19" r="1.8" fill="currentColor"/><circle cx="15.5" cy="19" r="1.8" fill="currentColor"/></svg>`;
+    const content=zoom<11?'<span class="vehicle-dot"></span>':zoom<14?`<span class="vehicle-mini">${escapeHTML(line)}</span>`:`<div class="vehicle-badge">${arrow}${vehicleSymbol}<span class="badge-line">${escapeHTML(line)}</span><span class="badge-divider">/</span><span class="badge-brigade">${escapeHTML(brigade)}</span><span class="badge-divider">/</span><span class="badge-number">${escapeHTML(number)}</span></div>`;
+    const icon=L.divIcon({className:'vehicle-icon'+(v.kind===2?' tram':'')+(zoom<11?' dot-mode':zoom<14?' mini-mode':''),html:content,iconSize:[1,1],iconAnchor:[0,0]});
+    const marker=L.marker([lat,lon],{icon,zIndexOffset:0});
+    const gps=String(v.Time??'');
+    marker.on('click',()=>{selectedLine=line;selectedBrigade=brigade;focusedVehicle={...v};openVehiclePanel(v);});
     marker.addTo(layer);count++;
   }
   $('count').textContent='Widoczne pojazdy: '+count+' / '+vehicles.length;

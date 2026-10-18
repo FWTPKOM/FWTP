@@ -1,5 +1,1 @@
-WTP LIVE v13
-
-Kliknięcie pojazdu otwiera bezpośrednio dolny panel trasy. Usunięto popup Leaflet.
-Do pełnej listy przystanków, godzin i oznaczenia aktualnego przystanku konieczny jest działający endpoint /route w Cloudflare Worker. Nie są one dostępne w samym GPS.
-Wgraj index.html, app.js, style.css i config.js do FWTP/test.
+WTP LIVE v14: naprawiono brak funkcji draw(), błędnie podpięte kliknięcie przystanku i przesadnie duże znaczniki. Kliknięcie pojazdu otwiera panel bez popupu. Pełna trasa wymaga endpointu /route. Wgraj wszystkie pliki do FWTP/test.
