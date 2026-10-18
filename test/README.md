@@ -1,1 +1,6 @@
-WTP LIVE v6 – mapa, prostokątne etykiety linia/brygada/numer, strzałka kierunku z kolejnych pozycji GPS; odjazdy planowe z filtrami brygady i oznaczeń dnia. Wgraj 4 pliki index.html, style.css, app.js, config.js do FWTP/test. Cloudflare Worker bez zmian. Kierunek niedostępny do czasu wykrycia ruchu; rozkład nie oznacza faktycznej realizacji kursu.
+# WTP LIVE v8
+
+Zmiana wyglądu znaczników: prostokąt z zaokrągleniem 7 px, autobusy fioletowe, tramwaje czerwone.
+Kolory przygotowane dla przyszłych warstw: metro umiarkowanie jasnoniebieskie, SKM umiarkowanie ciemnozielone. Aktualne API LIVE dostarcza tylko autobusy i tramwaje – v8 nie dodaje fikcyjnych pozycji metra i SKM.
+
+Podmień index.html, style.css, app.js i config.js w folderze test na GitHub Pages. Cloudflare Worker pozostaje bez zmian.

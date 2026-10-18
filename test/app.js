@@ -1,3 +1,4 @@
+// WTP LIVE v8 – kolory znaczników i rogi 7px; logika danych bez zmian.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -56,9 +57,14 @@ function draw(){
     const lat=Number(v.Lat??v.lat),lon=Number(v.Lon??v.lon);
     if(!Number.isFinite(lat)||!Number.isFinite(lon)||lat<51||lat>53||lon<19||lon>23)continue;
     const brigade=String(v.Brigade??'?'),number=String(v.VehicleNumber??'?');
-    const arrow=Number.isFinite(v._bearing)?`<span class="heading-arrow" style="transform:rotate(${v._bearing}deg)">▲</span>`:'<span class="heading-unknown" title="Kierunek nieznany">·</span>';
-    const content=`<div class="vehicle-badge">${arrow}<div class="vehicle-main">${escapeHTML(line)}<span class="vehicle-slash">/</span>${escapeHTML(brigade)}</div><div class="vehicle-number">${escapeHTML(number)}</div></div>`;
-    const icon=L.divIcon({className:'vehicle-icon'+(v.kind===2?' tram':''),html:content,iconSize:[90,44],iconAnchor:[45,22]});
+    // Zwarta, jednorzędowa etykieta jak na wzorze: kierunek, typ, linia/brygada/numer.
+    // Kierunek GPS jest znany dopiero po wykryciu ruchu pomiędzy kolejnymi odczytami.
+    const arrow=Number.isFinite(v._bearing)
+      ? `<span class="badge-direction" title="Kierunek ruchu wyliczony z GPS"><svg viewBox="0 0 24 24" style="transform:rotate(${v._bearing}deg)" aria-hidden="true"><path d="M12 3 5 15l7-3 7 3z" fill="currentColor"/><path d="M12 11v10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>`
+      : `<span class="badge-direction unknown" title="Brak danych do wyznaczenia kierunku">·</span>`;
+    const vehicleSymbol=`<svg class="badge-vehicle" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2.5" width="14" height="16" rx="3" fill="currentColor"/><rect x="7.5" y="5" width="9" height="6" rx=".8" fill="#fff"/><circle cx="8.5" cy="19" r="1.8" fill="currentColor"/><circle cx="15.5" cy="19" r="1.8" fill="currentColor"/></svg>`;
+    const content=`<div class="vehicle-badge">${arrow}${vehicleSymbol}<span class="badge-line">${escapeHTML(line)}</span><span class="badge-divider">/</span><span class="badge-brigade">${escapeHTML(brigade)}</span><span class="badge-divider">/</span><span class="badge-number">${escapeHTML(number)}</span></div>`;
+    const icon=L.divIcon({className:'vehicle-icon'+(v.kind===2?' tram':''),html:content,iconSize:[1,1],iconAnchor:[0,0]});
     const marker=L.marker([lat,lon],{icon});
     const gps=String(v.Time??'');
     marker.bindPopup(`<b>${v.kind===1?'Autobus':'Tramwaj'} ${escapeHTML(line)}</b><br>Brygada: ${escapeHTML(brigade)}<br>Numer taborowy: ${escapeHTML(number)}<br>Ostatnia pozycja GPS: ${escapeHTML(gps)}<br><small>Kierunek strzałki ustalany z kolejnych pozycji GPS.</small><br><button class="popup-timetable">Znajdź odjazdy tej brygady</button>`);
