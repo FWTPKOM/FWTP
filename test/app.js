@@ -1,4 +1,4 @@
-// WTP LIVE v15 – kolory znaczników i rogi 7px; logika danych bez zmian.
+// WTP LIVE v16 – kolory znaczników i rogi 7px; logika danych bez zmian.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -231,7 +231,7 @@ function openVehiclePanel(v){
  const body=$('vehicleBody');body.replaceChildren();
  const intro=document.createElement('p');intro.className='route-note';intro.textContent='Pobieranie trasy brygady i godzin przystankowych…';body.append(intro);
  const url=new URL(PROXY+'/route');url.searchParams.set('line',line);url.searchParams.set('brigade',brigade);url.searchParams.set('vehicle',number);
- fetch(url,{cache:'no-store'}).then(async response=>{if(!response.ok)throw Error('Brak danych trasy');return response.json()}).then(json=>{
+ fetch(url,{cache:'no-store'}).then(async response=>{if(!response.ok){const detail=await response.json().catch(()=>({}));throw Error(detail.error||'HTTP '+response.status)}return response.json()}).then(json=>{
  const items=Array.isArray(json)?json:Array.isArray(json.result)?json.result:[];
  if(!items.length)throw Error('Brak przystanków');
  body.replaceChildren();const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
@@ -241,7 +241,7 @@ function openVehiclePanel(v){
  const dot=document.createElement('span');dot.className='route-dot';const name=document.createElement('span');name.className='route-stop-name';name.textContent=item.name??item.nazwa??'Przystanek';li.append(dot,name);
  const time=item.departureTime??item.arrivalTime??item.time??null;if(time){const t=document.createElement('time');t.className='route-stop-time';t.textContent=String(time).slice(0,5);li.append(t)}list.append(li)});
  if(index<0){const note=document.createElement('p');note.textContent='Brak potwierdzonego bieżącego przystanku — nie oznaczono miniętych.';body.append(note)}body.append(list);
- }).catch(()=>{intro.textContent='Brak danych trasy tej brygady. Worker musi obsługiwać endpoint /route zwracający kolejność przystanków i godziny. Pozycje GPS nie zawierają tych informacji.';});
+ }).catch(e=>{intro.textContent='Nie można wyświetlić wiarygodnej trasy: '+e.message;});
 }
 function setTab(tab,record=true){
  document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x.dataset.tab===tab));

@@ -1,5 +1,8 @@
-WTP LIVE v15
+WTP LIVE v16
 
-Wgraj wszystkie pliki do FWTP/test, zastępując stare.
-Adres Workera: https://wtp-live-api.woj-warszawa.workers.dev
-Zmieniono wersjonowanie zasobów CSS i JS na v15, aby przeglądarka nie korzystała ze starych plików.
+Pliki strony: index.html, app.js, style.css, config.js -> GitHub Pages /FWTP/test/.
+Plik worker.js -> Cloudflare Workers (Edit code / Deploy).
+Sekret API_KEY pozostaje w Cloudflare, nie w kodzie.
+
+Uwaga: /route zwraca 501 ROUTE_DATA_UNAVAILABLE zamiast pozornej trasy.
+Brak źródła kompletnej kolejności przystanków dla brygady. Pozostałe endpointy zachowano.
