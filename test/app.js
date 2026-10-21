@@ -1,4 +1,4 @@
-// WTP LIVE v21 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v22 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -148,7 +148,62 @@ function draw(){
 }
 let selectedLine='',selectedBrigade='';
 let busy=false;
-async function refresh(){if(busy)return;busy=true;$('status').classList.remove('error');$('status').textContent='Pobieranie pojazdów…';try{const [b,t]=await Promise.all([request('/live',{type:1}),request('/live',{type:2})]);const buses=unpack(b),trams=unpack(t);vehicles=[...buses.map(v=>({...v,kind:1})),...trams.map(v=>({...v,kind:2}))];updateHeadings(vehicles);applyKnownDirections();draw();queueDirections();fetchServerHeadings();$('status').textContent='Ostatnie pobranie: '+new Date().toLocaleTimeString('pl-PL')+' | Autobusy: '+buses.length+', tramwaje: '+trams.length;}catch(e){$('status').textContent='Błąd: '+e.message;$('status').classList.add('error')}finally{busy=false}}
+// Każdy typ pojazdu pobieramy osobno: awaria 522 nie blokuje drugiego.
+// Przechowujemy ostatni udany odczyt, ale nie udajemy, że jest bieżący.
+const lastSuccessful={1:null,2:null};
+const MAX_SNAPSHOT_AGE=120000;
+async function fetchFleet(type){
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),12000);
+  try{
+    const url=new URL(PROXY+'/live');url.searchParams.set('type',String(type));
+    const response=await fetch(url,{cache:'no-store',signal:controller.signal});
+    if(!response.ok)throw Error('HTTP '+response.status);
+    const body=await response.json();
+    const rows=unpack(body);
+    const normalized=rows.filter(v=>v&&typeof v==='object').map(v=>({...v,kind:type}));
+    lastSuccessful[type]={at:Date.now(),rows:normalized};
+    return {rows:normalized,error:null,stale:false};
+  }catch(e){
+    const cache=lastSuccessful[type];
+    if(cache&&Date.now()-cache.at<MAX_SNAPSHOT_AGE)
+      return {rows:cache.rows,error:e.message,stale:true};
+    return {rows:[],error:e.name==='AbortError'?'przekroczono 12 s':e.message,stale:false};
+  }finally{clearTimeout(timeout)}
+}
+async function refresh(){
+  if(busy)return;
+  busy=true;
+  $('status').classList.remove('error');
+  $('status').textContent=vehicles.length?'Aktualizowanie pojazdów…':'Pobieranie pojazdów (maks. 12 sekund)…';
+  try{
+    const [b,t]=await Promise.all([fetchFleet(1),fetchFleet(2)]);
+    const next=[...b.rows,...t.rows];
+    // Nie usuwamy dotychczasowej mapy w przypadku krótkotrwałego błędu serwera.
+    if(next.length||!vehicles.length){
+      const previous=new Map(vehicles.map(v=>[vehicleIdentity(v),v]));
+      vehicles=next;
+      for(const v of vehicles){
+        const old=previous.get(vehicleIdentity(v));
+        if(old){if(old._headsign)v._headsign=old._headsign;if(Number.isFinite(old._bearing))v._bearing=old._bearing}
+      }
+      updateHeadings(vehicles);
+      applyKnownDirections();
+      draw();
+      // Dopasowanie GTFS nie może blokować odświeżania pojazdów.
+      queueDirections().catch(err=>console.warn('GTFS:',err));
+      fetchServerHeadings().catch(()=>{});
+    }
+    const errors=[b.error&&'autobusy: '+b.error,t.error&&'tramwaje: '+t.error].filter(Boolean);
+    $('status').textContent='Ostatnia próba: '+new Date().toLocaleTimeString('pl-PL')+
+      ' | Autobusy: '+b.rows.length+', tramwaje: '+t.rows.length+
+      (errors.length?' | Problem API: '+errors.join('; '):'')+
+      (b.stale||t.stale?' | część pozycji z poprzedniego odczytu':'');
+    if(errors.length)$('status').classList.add('error');
+  }catch(e){$('status').textContent='Błąd mapy: '+e.message;$('status').classList.add('error');console.error(e)}
+  finally{busy=false}
+}
+
 async function searchStops(){const q=$('stop').value.trim().toLowerCase();if(q.length<2){$('results').textContent='Wpisz co najmniej dwa znaki.';return}$('results').textContent='Wyszukiwanie…';$('timetable').replaceChildren();try{if(!stops.length)stops=normalizedRows(await request('/stops'));const matching=stops.filter(s=>String(value(s,'nazwa_zespolu')).toLowerCase().includes(q)).slice(0,60);$('results').replaceChildren();if(!matching.length)$('results').textContent='Nie znaleziono przystanku.';for(const s of matching){const z=value(s,'zespol'),n=value(s,'slupek'),name=value(s,'nazwa_zespolu');const d=document.createElement('div');d.className='item';d.textContent=`${name} — ${z}/${n}`;d.onclick=()=>showLines(z,n,name);$('results').append(d)}}catch(e){$('results').textContent=e.message}}
 async function showLines(z,n,name){
   $('timetable').textContent='Pobieranie linii…';
