@@ -1,4 +1,4 @@
-// WTP LIVE v22 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v29 – zgodność z Workerem v28/v29, stabilna historia GPS, niezależne pobieranie pojazdów.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -94,14 +94,14 @@ function renderStopMarkers(){
 }
 // Historia GPS zachowywana pomiędzy otwarciami strony (tylko w tej przeglądarce).
 // Pozwala pokazać kierunek natychmiast, gdy istnieją dwa świeże pomiary.
-const HISTORY_KEY='wtp-live-gps-history-v21';
+const HISTORY_KEY='wtp-live-gps-history-v29';
 const lastLocations=new Map();
 try{
   const saved=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]');
   const now=Date.now();
   if(Array.isArray(saved))for(const [key,point] of saved){
     if(typeof key==='string' && point && Number.isFinite(point.lat) && Number.isFinite(point.lon) &&
-       Number.isFinite(point.stamp) && Number.isFinite(point.seen) && now-point.seen<180000 && point.seen<=now)
+       Number.isFinite(point.stamp) && Number.isFinite(point.seen) && now-point.seen<600000 && point.seen<=now)
       lastLocations.set(key,point);
   }
 }catch(e){/* Prywatny tryb przeglądarki może blokować pamięć. */}
@@ -111,7 +111,7 @@ function saveLocationHistory(force=false){
   if(!force && now-lastHistorySave<12000)return;
   lastHistorySave=now;
   try{
-    const recent=[...lastLocations].filter(([,p])=>now-p.seen<180000);
+    const recent=[...lastLocations].filter(([,p])=>now-p.seen<600000);
     localStorage.setItem(HISTORY_KEY,JSON.stringify(recent));
   }catch(e){/* Brak miejsca lub wyłączony localStorage. */}
 }
@@ -122,23 +122,42 @@ function direction(lat1,lon1,lat2,lon2){
   const x=Math.cos(lat1*rad)*Math.sin(lat2*rad)-Math.sin(lat1*rad)*Math.cos(lat2*rad)*Math.cos((lon2-lon1)*rad);
   return (Math.atan2(y,x)*180/Math.PI+360)%360;
 }
-function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??'')+':'+String(v.Lines??'')+':'+String(v.Brigade??'')}
-function updateHeadings(rows, central={}){
+function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??'').trim();}
+function parseGpsUtc(raw){
+  const s=String(raw??'').trim();
+  if(!s)return NaN;
+  return Date.parse(/[zZ]$|[+-]\d\d:?\d\d$/.test(s)?s.replace(' ','T'):s.replace(' ','T')+'Z');
+}
+function freshCentralTime(value){
+  const n=Number(value);if(!Number.isFinite(n))return NaN;
+  return n<1e11?n*1000:n;
+}
+function updateHeadings(rows,central={}){
   const now=Date.now();
   for(const v of rows){
-    const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=Date.parse(String(v.Time||'').replace(' ','T'));
-    const remote=central[key];
-    if(remote && Number.isFinite(remote.bearing) && Number.isFinite(remote.computed) && now-remote.computed>=0 && now-remote.computed<180000) v._bearing=remote.bearing;
-    if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
+    const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=parseGpsUtc(v.Time);
+    const exactKey=v.kind+':'+String(v.VehicleNumber??'').trim()+':'+String(v.Lines??'').trim()+':'+String(v.Brigade??'').trim();
+    const remote=central[exactKey]||central[key];
+    const computed=freshCentralTime(remote?.computed);
+    if(Number.isFinite(Number(remote?.bearing))&&remote?.bearing!==null&&Number.isFinite(computed)&&now-computed>=0&&now-computed<240000){
+      v._bearing=Number(remote.bearing);
+    }
+    if(!Number.isFinite(lat)||!Number.isFinite(lon)||!Number.isFinite(stamp))continue;
+    // Nie wykorzystujemy wieloletnich danych ani pomiarów znacząco z przyszłości.
+    if(now-stamp>600000||stamp-now>90000)continue;
     const prev=lastLocations.get(key);
-    if(prev && Number.isFinite(stamp) && stamp>prev.stamp && stamp-prev.stamp<180000 && now-prev.seen<180000){
-      const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
-      if(meters>=12 && meters<2000)v._bearing=direction(prev.lat,prev.lon,lat,lon);
-      else v._bearing=prev.bearing;
-    }else if(prev && !Number.isFinite(v._bearing))v._bearing=prev.bearing;
-    if(!prev || !Number.isFinite(stamp) || stamp>=prev.stamp)lastLocations.set(key,{lat,lon,stamp,bearing:v._bearing,seen:now});
+    if(prev&&stamp>prev.stamp&&stamp-prev.stamp<600000&&now-prev.seen<600000){
+      const meters=geoDistance(prev.lat,prev.lon,lat,lon);
+      if(meters>=12&&meters<1800)v._bearing=direction(prev.lat,prev.lon,lat,lon);
+      else if(meters<12&&Number.isFinite(prev.bearing)&&!Number.isFinite(v._bearing))v._bearing=prev.bearing;
+    }else if(prev&&Number.isFinite(prev.bearing)&&!Number.isFinite(v._bearing)&&now-prev.seen<240000){
+      v._bearing=prev.bearing;
+    }
+    // Nie zastępujemy starszym pomiarem nowszego punktu.
+    if(!prev||stamp>prev.stamp){lastLocations.set(key,{lat,lon,stamp,bearing:v._bearing,seen:now});}
+    else if(stamp===prev.stamp&&Number.isFinite(v._bearing))prev.bearing=v._bearing;
   }
-  for(const [k,v] of lastLocations)if(now-v.seen>180000)lastLocations.delete(k);
+  for(const [k,v] of lastLocations)if(now-v.seen>600000)lastLocations.delete(k);
   saveLocationHistory();
 }
 function draw(){
@@ -171,7 +190,32 @@ function draw(){
 }
 let selectedLine='',selectedBrigade='';
 let busy=false;
-async function refresh(){if(busy)return;busy=true;$('status').classList.remove('error');$('status').textContent='Pobieranie pojazdów…';try{const [b,t,h]=await Promise.all([request('/live',{type:1}),request('/live',{type:2}),request('/headings').catch(()=>null)]);const buses=unpack(b),trams=unpack(t);vehicles=[...buses.map(v=>({...v,kind:1})),...trams.map(v=>({...v,kind:2}))];const central=h&&Number.isFinite(h.updatedAt)&&Date.now()-h.updatedAt<180000?h.headings||{}:{};updateHeadings(vehicles,central);draw();$('status').textContent='Ostatnie pobranie: '+new Date().toLocaleTimeString('pl-PL')+' | Autobusy: '+buses.length+', tramwaje: '+trams.length;}catch(e){$('status').textContent='Błąd: '+e.message;$('status').classList.add('error')}finally{busy=false}}
+async function refresh(){
+ if(busy)return;busy=true;
+ $('status').classList.remove('error');$('status').textContent='Pobieranie pojazdów…';
+ try{
+   const results=await Promise.allSettled([
+     request('/live',{type:1}),request('/live',{type:2}),request('/headings')
+   ]);
+   const [b,t,h]=results;
+   const buses=b.status==='fulfilled'?unpack(b.value):null;
+   const trams=t.status==='fulfilled'?unpack(t.value):null;
+   const previousBus=vehicles.filter(v=>v.kind===1);
+   const previousTram=vehicles.filter(v=>v.kind===2);
+   // Awaria jednego typu nie usuwa drugiego z mapy.
+   vehicles=[...(buses??previousBus).map(v=>({...v,kind:1})),...(trams??previousTram).map(v=>({...v,kind:2}))];
+   const payload=h.status==='fulfilled'?h.value:null;
+   const central=payload&&Date.now()-freshCentralTime(payload.updatedAt)<300000?payload.headings||{}:{};
+   updateHeadings(vehicles,central);
+   draw();
+   const errors=[];
+   if(b.status==='rejected')errors.push('autobusy: '+b.reason.message);
+   if(t.status==='rejected')errors.push('tramwaje: '+t.reason.message);
+   $('status').textContent='Ostatnie sprawdzenie: '+new Date().toLocaleTimeString('pl-PL')+' | Autobusy: '+(buses?.length??'poprzednie')+', tramwaje: '+(trams?.length??'poprzednie')+(errors.length?' | '+errors.join('; '):'');
+   $('status').classList.toggle('error',errors.length>0);
+ }catch(e){$('status').textContent='Błąd: '+e.message;$('status').classList.add('error');}
+ finally{busy=false;}
+}
 async function searchStops(){const q=$('stop').value.trim().toLowerCase();if(q.length<2){$('results').textContent='Wpisz co najmniej dwa znaki.';return}$('results').textContent='Wyszukiwanie…';$('timetable').replaceChildren();try{if(!stops.length)stops=normalizedRows(await request('/stops'));const matching=stops.filter(s=>String(value(s,'nazwa_zespolu')).toLowerCase().includes(q)).slice(0,60);$('results').replaceChildren();if(!matching.length)$('results').textContent='Nie znaleziono przystanku.';for(const s of matching){const z=value(s,'zespol'),n=value(s,'slupek'),name=value(s,'nazwa_zespolu');const d=document.createElement('div');d.className='item';d.textContent=`${name} — ${z}/${n}`;d.onclick=()=>showLines(z,n,name);$('results').append(d)}}catch(e){$('results').textContent=e.message}}
 async function showLines(z,n,name){
   $('timetable').textContent='Pobieranie linii…';
@@ -263,11 +307,11 @@ async function loadGtfs(line){
  return gtfsCache.get(line).promise;
 }
 function chooseGtfsTrip(trips,v){
- const lat=Number(v.Lat),lon=Number(v.Lon),when=new Date(String(v.Time||'').replace(' ','T'));
+ const lat=Number(v.Lat),lon=Number(v.Lon),when=new Date(parseGpsUtc(v.Time));
  if(!Number.isFinite(when.getTime()))return null;
- // API podaje czas lokalny Warszawy bez strefy. Nie interpretujemy go jako UTC.
+ // W bieżącej diagnostyce GPS jest interpretowany jako UTC; czas kursu odczytujemy w strefie Warszawy.
  const age=Math.abs(Date.now()-when.getTime());if(age>10*60*1000)return null;
- const time=when.getHours()*60+when.getMinutes();
+ const time=nowWarsaw(when);
  const choices=[];
  for(const trip of trips){const ss=trip.stops;if(!ss||ss.length<2)continue;
   const first=minutes(ss[0][4]),last=minutes(ss.at(-1)[4]);
