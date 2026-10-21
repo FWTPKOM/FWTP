@@ -1,4 +1,4 @@
-// WTP LIVE v22 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v30 – powrót do sprawdzonej logiki v19; niezależne pobieranie GPS.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -99,7 +99,7 @@ function direction(lat1,lon1,lat2,lon2){
   const x=Math.cos(lat1*rad)*Math.sin(lat2*rad)-Math.sin(lat1*rad)*Math.cos(lat2*rad)*Math.cos((lon2-lon1)*rad);
   return (Math.atan2(y,x)*180/Math.PI+360)%360;
 }
-function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??'')+':'+String(v.Lines??'')+':'+String(v.Brigade??'')}
+function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??'')}
 function updateHeadings(rows){
   const now=Date.now();
   for(const v of rows){
@@ -134,12 +134,9 @@ function draw(){
       ? `<span class="badge-direction" title="Kierunek ruchu wyliczony z GPS"><svg viewBox="0 0 24 24" style="transform:rotate(${v._bearing}deg)" aria-hidden="true"><path d="M12 3 5 15l7-3 7 3z" fill="currentColor"/><path d="M12 11v10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>`
       : `<span class="badge-direction unknown" title="Kierunek oczekuje na drugi aktualny odczyt GPS">?</span>`;
     const vehicleSymbol=`<svg class="badge-vehicle" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2.5" width="14" height="16" rx="3" fill="currentColor"/><rect x="7.5" y="5" width="9" height="6" rx=".8" fill="#fff"/><circle cx="8.5" cy="19" r="1.8" fill="currentColor"/><circle cx="15.5" cy="19" r="1.8" fill="currentColor"/></svg>`;
-    const directionName=v._headsign;
-    const directionTitle=directionName ? 'Kierunek: '+directionName : (Number.isFinite(v._bearing)?'Kierunek ruchu GPS':'Kierunek jeszcze nieustalony');
-    const content=zoom<11?'<span class="vehicle-dot"></span>':zoom<14?`<span class="vehicle-mini">${escapeHTML(line)}</span>`:`<div class="vehicle-badge">${arrow}${vehicleSymbol}<span class="badge-line">${escapeHTML(line)}</span><span class="badge-divider">/</span><span class="badge-brigade">${escapeHTML(brigade)}</span><span class="badge-divider">/</span><span class="badge-number">${escapeHTML(number)}</span>${directionName?`<span class="badge-headsign"> → ${escapeHTML(directionName)}</span>`:''}</div>`;
+    const content=zoom<11?'<span class="vehicle-dot"></span>':zoom<14?`<span class="vehicle-mini">${escapeHTML(line)}</span>`:`<div class="vehicle-badge">${arrow}${vehicleSymbol}<span class="badge-line">${escapeHTML(line)}</span><span class="badge-divider">/</span><span class="badge-brigade">${escapeHTML(brigade)}</span><span class="badge-divider">/</span><span class="badge-number">${escapeHTML(number)}</span></div>`;
     const icon=L.divIcon({className:'vehicle-icon'+(v.kind===2?' tram':'')+(zoom<11?' dot-mode':zoom<14?' mini-mode':''),html:content,iconSize:[1,1],iconAnchor:[0,0]});
-    const marker=L.marker([lat,lon],{icon,zIndexOffset:0,title:directionTitle});
-    if(directionName)marker.bindTooltip(escapeHTML('Kierunek: '+directionName),{direction:'top'});
+    const marker=L.marker([lat,lon],{icon,zIndexOffset:0});
     const gps=String(v.Time??'');
     marker.on('click',()=>{selectedLine=line;selectedBrigade=brigade;focusedVehicle={...v};openVehiclePanel(v);});
     marker.addTo(layer);count++;
@@ -148,62 +145,35 @@ function draw(){
 }
 let selectedLine='',selectedBrigade='';
 let busy=false;
-// Każdy typ pojazdu pobieramy osobno: awaria 522 nie blokuje drugiego.
-// Przechowujemy ostatni udany odczyt, ale nie udajemy, że jest bieżący.
-const lastSuccessful={1:null,2:null};
-const MAX_SNAPSHOT_AGE=120000;
-async function fetchFleet(type){
-  const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),12000);
-  try{
-    const url=new URL(PROXY+'/live');url.searchParams.set('type',String(type));
-    const response=await fetch(url,{cache:'no-store',signal:controller.signal});
-    if(!response.ok)throw Error('HTTP '+response.status);
-    const body=await response.json();
-    const rows=unpack(body);
-    const normalized=rows.filter(v=>v&&typeof v==='object').map(v=>({...v,kind:type}));
-    lastSuccessful[type]={at:Date.now(),rows:normalized};
-    return {rows:normalized,error:null,stale:false};
-  }catch(e){
-    const cache=lastSuccessful[type];
-    if(cache&&Date.now()-cache.at<MAX_SNAPSHOT_AGE)
-      return {rows:cache.rows,error:e.message,stale:true};
-    return {rows:[],error:e.name==='AbortError'?'przekroczono 12 s':e.message,stale:false};
-  }finally{clearTimeout(timeout)}
-}
+// Każdy typ jest pobierany osobno; jeden timeout/błąd nie ukrywa drugiego.
+let refreshSerial=0;
 async function refresh(){
   if(busy)return;
   busy=true;
+  const serial=++refreshSerial;
   $('status').classList.remove('error');
-  $('status').textContent=vehicles.length?'Aktualizowanie pojazdów…':'Pobieranie pojazdów (maks. 12 sekund)…';
-  try{
-    const [b,t]=await Promise.all([fetchFleet(1),fetchFleet(2)]);
-    const next=[...b.rows,...t.rows];
-    // Nie usuwamy dotychczasowej mapy w przypadku krótkotrwałego błędu serwera.
-    if(next.length||!vehicles.length){
-      const previous=new Map(vehicles.map(v=>[vehicleIdentity(v),v]));
-      vehicles=next;
-      for(const v of vehicles){
-        const old=previous.get(vehicleIdentity(v));
-        if(old){if(old._headsign)v._headsign=old._headsign;if(Number.isFinite(old._bearing))v._bearing=old._bearing}
-      }
-      updateHeadings(vehicles);
-      applyKnownDirections();
+  $('status').textContent=vehicles.length?'Aktualizacja pozycji GPS…':'Pobieranie pojazdów…';
+  const results={};
+  async function one(type){
+    try{
+      const payload=await request('/live',{type});
+      const rows=unpack(payload).map(v=>({...v,kind:type}));
+      results[type]={rows};
+      if(serial!==refreshSerial)return;
+      vehicles=vehicles.filter(v=>v.kind!==type).concat(rows);
+      updateHeadings(rows);
       draw();
-      // Dopasowanie GTFS nie może blokować odświeżania pojazdów.
-      queueDirections().catch(err=>console.warn('GTFS:',err));
-      fetchServerHeadings().catch(()=>{});
-    }
-    const errors=[b.error&&'autobusy: '+b.error,t.error&&'tramwaje: '+t.error].filter(Boolean);
-    $('status').textContent='Ostatnia próba: '+new Date().toLocaleTimeString('pl-PL')+
-      ' | Autobusy: '+b.rows.length+', tramwaje: '+t.rows.length+
-      (errors.length?' | Problem API: '+errors.join('; '):'')+
-      (b.stale||t.stale?' | część pozycji z poprzedniego odczytu':'');
-    if(errors.length)$('status').classList.add('error');
-  }catch(e){$('status').textContent='Błąd mapy: '+e.message;$('status').classList.add('error');console.error(e)}
-  finally{busy=false}
+    }catch(e){results[type]={error:e.message};}
+  }
+  try{
+    await Promise.allSettled([one(1),one(2)]);
+    const b=vehicles.filter(v=>v.kind===1).length;
+    const t=vehicles.filter(v=>v.kind===2).length;
+    const errors=[1,2].filter(type=>results[type]?.error).map(type=>(type===1?'Autobusy':'Tramwaje')+': '+results[type].error);
+    $('status').textContent='Ostatnia próba: '+new Date().toLocaleTimeString('pl-PL')+' | Autobusy: '+b+', tramwaje: '+t+(errors.length?' | '+errors.join(' | '):'');
+    $('status').classList.toggle('error',errors.length>0);
+  }finally{busy=false;}
 }
-
 async function searchStops(){const q=$('stop').value.trim().toLowerCase();if(q.length<2){$('results').textContent='Wpisz co najmniej dwa znaki.';return}$('results').textContent='Wyszukiwanie…';$('timetable').replaceChildren();try{if(!stops.length)stops=normalizedRows(await request('/stops'));const matching=stops.filter(s=>String(value(s,'nazwa_zespolu')).toLowerCase().includes(q)).slice(0,60);$('results').replaceChildren();if(!matching.length)$('results').textContent='Nie znaleziono przystanku.';for(const s of matching){const z=value(s,'zespol'),n=value(s,'slupek'),name=value(s,'nazwa_zespolu');const d=document.createElement('div');d.className='item';d.textContent=`${name} — ${z}/${n}`;d.onclick=()=>showLines(z,n,name);$('results').append(d)}}catch(e){$('results').textContent=e.message}}
 async function showLines(z,n,name){
   $('timetable').textContent='Pobieranie linii…';
@@ -319,93 +289,6 @@ function chooseGtfsTrip(trips,v){
  if(choices.length>1&&choices[1].score-choices[0].score<120)return null;
  return {choice:choices[0],ambiguous:choices.length>1&&choices[1].score-choices[0].score<300};
 }
-
-// v21: wyznaczanie kierunku od pierwszego pobrania z dziennego GTFS.
-// Kierunek tekstowy oznacza przystanek docelowy kursu, nie kierunek kompasowy.
-const directionMemo=new Map();
-const directionLoading=new Set();
-let directionGeneration=0;
-function vehicleIdentity(v){return v.kind+':'+String(v.VehicleNumber||'')+':'+String(v.Lines||'')+':'+String(v.Brigade||'')}
-function parseGpsLocal(t){
- const m=String(t||'').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
- if(!m)return null;
- // Czas z API bywa UTC albo lokalny. Ustalamy wariant bliższy teraz.
- const utc=Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]);
- const localCandidates=[utc-3600000,utc-7200000];
- const now=Date.now();
- return [utc,...localCandidates].sort((a,b)=>Math.abs(now-a)-Math.abs(now-b))[0];
-}
-function applyKnownDirections(){
- for(const v of vehicles){
-  const d=directionMemo.get(vehicleIdentity(v));
-  if(d && Date.now()-d.saved<180000){v._headsign=d.name;v._tripMatch=d.match}
- }
-}
-function chooseDirectionFromGtfs(trips,v){
- const lat=Number(v.Lat),lon=Number(v.Lon),epoch=parseGpsLocal(v.Time);
- if(!Number.isFinite(lat)||!Number.isFinite(lon)||!Number.isFinite(epoch)||Math.abs(Date.now()-epoch)>12*60000)return null;
- const tm=nowWarsaw(new Date(epoch));
- const bearing=Number.isFinite(v._bearing)?v._bearing:null;
- const options=[];
- for(const trip of trips){
-  const ss=trip.stops;if(!Array.isArray(ss)||ss.length<2)continue;
-  const first=minutes(ss[0][4]),last=minutes(ss[ss.length-1][4]);
-  if(!Number.isFinite(first)||!Number.isFinite(last))continue;
-  const timeCandidates=[tm,tm+1440];
-  if(!timeCandidates.some(x=>x>=first-15&&x<=last+15))continue;
-  let best=Infinity,idx=-1,distBest=Infinity;
-  for(let i=0;i<ss.length;i++){
-   const s=ss[i],t=minutes(s[4]);if(!Number.isFinite(t))continue;
-   const delta=Math.min(...timeCandidates.map(x=>Math.abs(t-x)));
-   if(delta>28)continue;
-   const dist=geoDistance(lat,lon,Number(s[2]),Number(s[3]));
-   if(!Number.isFinite(dist)||dist>1100)continue;
-   let score=dist+delta*85;
-   if(bearing!==null&&i<ss.length-1){
-    const a=ss[i],b=ss[i+1];const dir=direction(Number(a[2]),Number(a[3]),Number(b[2]),Number(b[3]));
-    const diff=Math.abs(((dir-bearing+540)%360)-180);
-    if(diff>100)score+=400;
-   }
-   if(score<best){best=score;idx=i;distBest=dist}
-  }
-  if(idx>=0)options.push({trip,index:idx,score:best,distance:distBest});
- }
- options.sort((a,b)=>a.score-b.score);
- if(!options.length||options[0].distance>650)return null;
- const winner=options[0];
- // Różne kierunki o zbliżonej punktacji: nie pokazuj fałszywego celu.
- const competing=options.find(x=>x.trip.headsign!==winner.trip.headsign && x.score-winner.score<200);
- if(competing)return null;
- const name=String(winner.trip.headsign||winner.trip.stops.at(-1)?.[1]||'').trim();
- if(!name)return null;
- return {name,match:winner};
-}
-async function queueDirections(){
- const gen=++directionGeneration;
- const visible=vehicles.filter(v=>map&&map.getBounds().contains([Number(v.Lat),Number(v.Lon)]));
- const lines=[...new Set(visible.map(v=>String(v.Lines||'')).filter(Boolean))];
- // Limit równoległości chroni GitHub Pages i przeglądarkę przed setkami żądań.
- let cursor=0;
- async function worker(){while(cursor<lines.length){
-  const line=lines[cursor++];if(directionLoading.has(line))continue;
-  directionLoading.add(line);
-  try{
-   const data=await loadGtfs(line);
-   if(data.date!==todayWarsaw())continue;
-   let changed=false;
-   for(const v of vehicles){if(String(v.Lines)!==line)continue;
-    const key=vehicleIdentity(v),old=directionMemo.get(key);
-    if(old&&Date.now()-old.saved<90000)continue;
-    const matched=chooseDirectionFromGtfs(data.trips,v);
-    if(matched){v._headsign=matched.name;v._tripMatch=matched.match;directionMemo.set(key,{...matched,saved:Date.now()});changed=true}
-   }
-   if(changed&&gen===directionGeneration)draw();
-  }catch(e){/* pojedyncza linia nie może zatrzymać całej mapy */}
-  finally{directionLoading.delete(line)}
- }}
- await Promise.all(Array.from({length:Math.min(4,lines.length)},worker));
-}
-
 let vehiclePanelRequest=0;
 async function openVehiclePanel(v){
  const serial=++vehiclePanelRequest,panel=$('vehiclePanel');panel.hidden=false;
@@ -481,6 +364,3 @@ function selectedVehicleKind(line){
  const n=Number(focusedVehicle.kind??focusedVehicle.Kind??focusedVehicle.type);
  return n===2?'tram':'bus';
 }
-
-// Kierunek GPS z historii KV Workera; działa od pierwszego otwarcia, gdy Worker ma pomiary.
-async function fetchServerHeadings(){try{const data=await request('/headings');const h=data.headings||{};let changed=false;for(const v of vehicles){const key=v.kind+':'+String(v.VehicleNumber||'');const x=h[key]||h[vehicleIdentity(v)];if(x&&Number.isFinite(Number(x.bearing))){v._bearing=Number(x.bearing);changed=true}}if(changed)draw()}catch(e){/* bez historii nadal działa GTFS */}}
