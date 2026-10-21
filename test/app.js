@@ -1,4 +1,4 @@
-// WTP LIVE v16 – kolory znaczników i rogi 7px; logika danych bez zmian.
+// WTP LIVE v20 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -224,24 +224,69 @@ async function showDepartures(z,n,name,line){
   }catch(e){wrap.textContent='Błąd pobierania odjazdów: '+e.message}
 }
 
-function openVehiclePanel(v){
- const panel=$('vehiclePanel');panel.hidden=false;
+// GTFS Warszawa: lokalne pliki dzienne. Kurs dobierany na podstawie czasu i GPS.
+// Data jest odczytywana z aktualizowanych automatycznie plików GTFS, nie z kodu strony.
+const gtfsCache=new Map();
+function minutes(t){const m=String(t||'').match(/^(\d+):(\d+)/);return m?Number(m[1])*60+Number(m[2]):NaN}
+function geoDistance(a,b,c,d){const r=Math.PI/180,dy=(c-a)*r,dx=(d-b)*r;return 6371000*Math.sqrt(dy*dy+Math.cos(a*r)*Math.cos(c*r)*dx*dx)}
+function todayWarsaw(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Warsaw',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()).replaceAll('-','')}
+function nowWarsaw(date){const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Warsaw',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date);return Number(parts.find(p=>p.type==='hour').value)*60+Number(parts.find(p=>p.type==='minute').value)}
+async function loadGtfs(line){
+ const day=todayWarsaw();const cached=gtfsCache.get(line);if(cached&&cached.day!==day)gtfsCache.delete(line);
+ if(!gtfsCache.has(line))gtfsCache.set(line,{day,promise:fetch('gtfs/'+encodeURIComponent(line.replaceAll('/','_'))+'.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('Brak GTFS dla linii '+line);return r.json()}).catch(e=>{gtfsCache.delete(line);throw e})});
+ return gtfsCache.get(line).promise;
+}
+function chooseGtfsTrip(trips,v){
+ const lat=Number(v.Lat),lon=Number(v.Lon),when=new Date(String(v.Time||'').replace(' ','T'));
+ if(!Number.isFinite(when.getTime()))return null;
+ // API podaje czas lokalny Warszawy bez strefy. Nie interpretujemy go jako UTC.
+ const age=Math.abs(Date.now()-when.getTime());if(age>10*60*1000)return null;
+ const time=when.getHours()*60+when.getMinutes();
+ const choices=[];
+ for(const trip of trips){const ss=trip.stops;if(!ss||ss.length<2)continue;
+  const first=minutes(ss[0][4]),last=minutes(ss.at(-1)[4]);
+  if(!Number.isFinite(first)||!Number.isFinite(last)||time<first-12||time>last+12)continue;
+  let best=Infinity,index=-1;
+  for(let i=0;i<ss.length;i++){
+   const t=minutes(ss[i][4]);const dt=Math.abs(t-time);if(dt>40)continue;
+   const dist=geoDistance(lat,lon,ss[i][2],ss[i][3]);
+   // Dopasowanie nie utożsamia najbliższego przystanku z potwierdzoną lokalizacją pojazdu.
+   const score=dist+dt*95;
+   if(score<best){best=score;index=i}
+  }
+  if(index>=0)choices.push({trip,index,score:best,distance:geoDistance(lat,lon,ss[index][2],ss[index][3])});
+ }
+ choices.sort((a,b)=>a.score-b.score);
+ if(!choices.length||choices[0].distance>900)return null;
+ if(choices.length>1&&choices[1].score-choices[0].score<120)return null;
+ return {choice:choices[0],ambiguous:choices.length>1&&choices[1].score-choices[0].score<300};
+}
+let vehiclePanelRequest=0;
+async function openVehiclePanel(v){
+ const serial=++vehiclePanelRequest,panel=$('vehiclePanel');panel.hidden=false;
  const line=String(v.Lines||'?'),brigade=String(v.Brigade||'?'),number=String(v.VehicleNumber||'?');
  $('vehicleHeading').textContent=`${line} · ${v.kind===2?'Tramwaj':'Autobus'} · brygada ${brigade} · tabor ${number}`;
  const body=$('vehicleBody');body.replaceChildren();
- const intro=document.createElement('p');intro.className='route-note';intro.textContent='Pobieranie trasy brygady i godzin przystankowych…';body.append(intro);
- const url=new URL(PROXY+'/route');url.searchParams.set('line',line);url.searchParams.set('brigade',brigade);url.searchParams.set('vehicle',number);
- fetch(url,{cache:'no-store'}).then(async response=>{if(!response.ok){const detail=await response.json().catch(()=>({}));throw Error(detail.error||'HTTP '+response.status)}return response.json()}).then(json=>{
- const items=Array.isArray(json)?json:Array.isArray(json.result)?json.result:[];
- if(!items.length)throw Error('Brak przystanków');
- body.replaceChildren();const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
- const currentId=json.currentStopId??v.CurrentStopId??null;
- const index=currentId===null?-1:items.findIndex(x=>String(x.id)===String(currentId));
- items.forEach((item,i)=>{const li=document.createElement('li');li.className='route-stop'+(index===i?' current':'')+(index>=0&&i<index?' passed':'');
- const dot=document.createElement('span');dot.className='route-dot';const name=document.createElement('span');name.className='route-stop-name';name.textContent=item.name??item.nazwa??'Przystanek';li.append(dot,name);
- const time=item.departureTime??item.arrivalTime??item.time??null;if(time){const t=document.createElement('time');t.className='route-stop-time';t.textContent=String(time).slice(0,5);li.append(t)}list.append(li)});
- if(index<0){const note=document.createElement('p');note.textContent='Brak potwierdzonego bieżącego przystanku — nie oznaczono miniętych.';body.append(note)}body.append(list);
- }).catch(e=>{intro.textContent='Nie można wyświetlić wiarygodnej trasy: '+e.message;});
+ const note=document.createElement('p');note.className='route-note';note.textContent='Dopasowywanie kursu do rozkładu GTFS i pozycji GPS…';body.append(note);
+ try{
+  const data=await loadGtfs(line);if(serial!==vehiclePanelRequest||panel.hidden)return;
+  const dateWarsaw=todayWarsaw();
+  if(dateWarsaw!==data.date){note.textContent='Rozkład GTFS pochodzi z '+data.date+'. Automatyczna aktualizacja GTFS jest opóźniona. Nie wyświetlamy nieaktualnych godzin.';return}
+  const match=chooseGtfsTrip(data.trips,v);
+  if(!match){note.textContent='Nie można potwierdzić kursu na podstawie aktualnego GPS i GTFS (pozycja może być nieaktualna albo kurs niejednoznaczny). Nie wyświetlamy przypadkowej trasy.';return}
+  const {trip,index,distance}=match.choice;
+  body.replaceChildren();
+  const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · godziny planowe · kurs dobrany orientacyjnie na podstawie GPS i czasu'+(match.ambiguous?' (kilka możliwych kursów)':'')+'. Brygada nie jest powiązana bezpośrednio z GTFS.';body.append(heading);
+  const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
+  trip.stops.forEach((item,i)=>{
+   const li=document.createElement('li');li.className='route-stop'+(i===index?' current':'')+(i<index?' passed':'');
+   const dot=document.createElement('span');dot.className='route-dot';
+   const name=document.createElement('span');name.className='route-stop-name';name.textContent=item[1];
+   const t=document.createElement('time');t.className='route-stop-time';t.textContent=item[4];
+   li.append(dot,name,t);list.append(li);
+  });body.append(list);
+  const active=list.children[index];if(active)active.scrollIntoView({block:'nearest',behavior:'smooth'});
+ }catch(e){if(serial===vehiclePanelRequest)note.textContent='Nie udało się wczytać GTFS: '+e.message}
 }
 function setTab(tab,record=true){
  document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x.dataset.tab===tab));
@@ -250,7 +295,7 @@ function setTab(tab,record=true){
  if(tab==='mapa'&&map)setTimeout(()=>map.invalidateSize(),100);
 }
 
-window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>$('vehiclePanel').hidden=true;$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
+window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;$('vehiclePanel').hidden=true};$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
 
 // Trasa wymaga kolejności przystanków z wiarygodnego źródła.
 // /route jest opcjonalnym rozszerzeniem Workera, nie częścią dotychczasowych 4 endpointów.
