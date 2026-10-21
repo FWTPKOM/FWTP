@@ -1,4 +1,4 @@
-// WTP LIVE v21 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v22 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -123,17 +123,19 @@ function direction(lat1,lon1,lat2,lon2){
   return (Math.atan2(y,x)*180/Math.PI+360)%360;
 }
 function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??'')+':'+String(v.Lines??'')+':'+String(v.Brigade??'')}
-function updateHeadings(rows){
+function updateHeadings(rows, central={}){
   const now=Date.now();
   for(const v of rows){
     const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=Date.parse(String(v.Time||'').replace(' ','T'));
+    const remote=central[key];
+    if(remote && Number.isFinite(remote.bearing) && Number.isFinite(remote.computed) && now-remote.computed>=0 && now-remote.computed<180000) v._bearing=remote.bearing;
     if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
     const prev=lastLocations.get(key);
     if(prev && Number.isFinite(stamp) && stamp>prev.stamp && stamp-prev.stamp<180000 && now-prev.seen<180000){
       const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
       if(meters>=12 && meters<2000)v._bearing=direction(prev.lat,prev.lon,lat,lon);
       else v._bearing=prev.bearing;
-    }else if(prev)v._bearing=prev.bearing;
+    }else if(prev && !Number.isFinite(v._bearing))v._bearing=prev.bearing;
     if(!prev || !Number.isFinite(stamp) || stamp>=prev.stamp)lastLocations.set(key,{lat,lon,stamp,bearing:v._bearing,seen:now});
   }
   for(const [k,v] of lastLocations)if(now-v.seen>180000)lastLocations.delete(k);
@@ -169,7 +171,7 @@ function draw(){
 }
 let selectedLine='',selectedBrigade='';
 let busy=false;
-async function refresh(){if(busy)return;busy=true;$('status').classList.remove('error');$('status').textContent='Pobieranie pojazdów…';try{const [b,t]=await Promise.all([request('/live',{type:1}),request('/live',{type:2})]);const buses=unpack(b),trams=unpack(t);vehicles=[...buses.map(v=>({...v,kind:1})),...trams.map(v=>({...v,kind:2}))];updateHeadings(vehicles);draw();$('status').textContent='Ostatnie pobranie: '+new Date().toLocaleTimeString('pl-PL')+' | Autobusy: '+buses.length+', tramwaje: '+trams.length;}catch(e){$('status').textContent='Błąd: '+e.message;$('status').classList.add('error')}finally{busy=false}}
+async function refresh(){if(busy)return;busy=true;$('status').classList.remove('error');$('status').textContent='Pobieranie pojazdów…';try{const [b,t,h]=await Promise.all([request('/live',{type:1}),request('/live',{type:2}),request('/headings').catch(()=>null)]);const buses=unpack(b),trams=unpack(t);vehicles=[...buses.map(v=>({...v,kind:1})),...trams.map(v=>({...v,kind:2}))];const central=h&&Number.isFinite(h.updatedAt)&&Date.now()-h.updatedAt<180000?h.headings||{}:{};updateHeadings(vehicles,central);draw();$('status').textContent='Ostatnie pobranie: '+new Date().toLocaleTimeString('pl-PL')+' | Autobusy: '+buses.length+', tramwaje: '+trams.length;}catch(e){$('status').textContent='Błąd: '+e.message;$('status').classList.add('error')}finally{busy=false}}
 async function searchStops(){const q=$('stop').value.trim().toLowerCase();if(q.length<2){$('results').textContent='Wpisz co najmniej dwa znaki.';return}$('results').textContent='Wyszukiwanie…';$('timetable').replaceChildren();try{if(!stops.length)stops=normalizedRows(await request('/stops'));const matching=stops.filter(s=>String(value(s,'nazwa_zespolu')).toLowerCase().includes(q)).slice(0,60);$('results').replaceChildren();if(!matching.length)$('results').textContent='Nie znaleziono przystanku.';for(const s of matching){const z=value(s,'zespol'),n=value(s,'slupek'),name=value(s,'nazwa_zespolu');const d=document.createElement('div');d.className='item';d.textContent=`${name} — ${z}/${n}`;d.onclick=()=>showLines(z,n,name);$('results').append(d)}}catch(e){$('results').textContent=e.message}}
 async function showLines(z,n,name){
   $('timetable').textContent='Pobieranie linii…';
