@@ -1,4 +1,4 @@
-// WTP LIVE v32 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v33 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -22,7 +22,7 @@ function unpack(payload){
   }
   throw Error('Nieznany format odpowiedzi API (brak listy pojazdów).');
 }
-async function request(path,params={}){if(!PROXY)throw Error('Nie skonfigurowano adresu Cloudflare Workera w config.js.');const url=new URL(PROXY+path);Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));const response=await fetch(url,{cache:'no-store'});if(!response.ok)throw Error('Serwer API: HTTP '+response.status);const data=await response.json();if(data.error)throw Error(typeof data.error==='string'?data.error:'Błąd API');return data;}
+async function request(path,params={}){if(!PROXY)throw Error('Nie skonfigurowano adresu Cloudflare Workera w config.js.');const url=new URL(PROXY+path);Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),20000);let response;try{response=await fetch(url,{cache:'no-store',signal:controller.signal})}finally{clearTimeout(timeout)};if(!response.ok)throw Error('Serwer API: HTTP '+response.status);const data=await response.json();if(data.error)throw Error(typeof data.error==='string'?data.error:'Błąd API');return data;}
 function value(row,key){
   if(!row)return '';
   const target=key.toLowerCase();
@@ -92,65 +92,36 @@ function renderStopMarkers(){
   }
   $('stopStatus').textContent=`Przystanki w widoku: ${shown}. Kierunki sprawdzisz po wybraniu przystanku i linii.`;
 }
-// WTP LIVE v32 — kierunki oparte na faktycznym ruchu, jak w v17/v19.
-// Historia jest utrzymywana niezależnie od odświeżania mapy i od brygady.
+// WTP LIVE v33: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
 const lastLocations=new Map();
-const STORAGE_KEY='wtp-live-gps-history-v32';
-try {
-  const saved=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');
-  if(Array.isArray(saved)) for(const [key,record] of saved){
-    if(record && Number.isFinite(record.seen) && Date.now()-record.seen<20*60*1000)
-      lastLocations.set(key,record);
-  }
-}catch{}
-function gpsTimestamp(raw){
-  const s=String(raw||'').trim();
-  if(!s)return NaN;
-  return Date.parse(s.replace(' ','T')+(/(?:Z|[+-]\d\d:?\d\d)$/.test(s)?'':'Z'));
-}
-function direction(lat1,lon1,lat2,lon2){
-  const rad=Math.PI/180;
-  const y=Math.sin((lon2-lon1)*rad)*Math.cos(lat2*rad);
-  const x=Math.cos(lat1*rad)*Math.sin(lat2*rad)-Math.sin(lat1*rad)*Math.cos(lat2*rad)*Math.cos((lon2-lon1)*rad);
-  return (Math.atan2(y,x)*180/Math.PI+360)%360;
-}
-function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??v['Numer pojazdu']??'');}
-let historySaveAt=0;
-const gpsStats={moving:0,unchanged:0,older:0,newVehicles:0};
+const HISTORY_KEY='wtp-live-v33-gps';
+try { const saved=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]'); for(const [k,v] of saved){if(Date.now()-v.seen<30*60*1000)lastLocations.set(k,v)} }catch{}
+function gpsMs(raw){const s=String(raw||'').trim().replace(' ','T');return Date.parse(s+(/(?:Z|[+-]\d\d:?\d\d)$/.test(s)?'':'Z'))}
+function direction(lat1,lon1,lat2,lon2){const r=Math.PI/180,y=Math.sin((lon2-lon1)*r)*Math.cos(lat2*r),x=Math.cos(lat1*r)*Math.sin(lat2*r)-Math.sin(lat1*r)*Math.cos(lat2*r)*Math.cos((lon2-lon1)*r);return(Math.atan2(y,x)*180/Math.PI+360)%360}
+function vehicleKey(v){return String(v.kind)+':'+String(v.VehicleNumber??'')}
+let historySave=0;
 function updateHeadings(rows){
-  const now=Date.now();
-  Object.keys(gpsStats).forEach(k=>gpsStats[k]=0);
-  for(const v of rows){
-    const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=gpsTimestamp(v.Time);
-    if(!Number.isFinite(lat)||!Number.isFinite(lon)||!Number.isFinite(stamp))continue;
-    const prev=lastLocations.get(key);
-    if(prev && Number.isFinite(prev.bearing) && now-prev.seen<20*60*1000)
-      v._bearing=prev.bearing;
-    if(!prev){
-      gpsStats.newVehicles++;
-      lastLocations.set(key,{lat,lon,stamp,bearing:null,seen:now});
-      continue;
-    }
-    if(stamp<prev.stamp){gpsStats.older++;continue;}
-    const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
-    if(stamp>prev.stamp && meters>=12 && meters<2000 && stamp-prev.stamp<=20*60*1000){
-      v._bearing=direction(prev.lat,prev.lon,lat,lon);
-      gpsStats.moving++;
-    }else gpsStats.unchanged++;
-    // Nie zastępuj nowym odczytem poprzedniego punktu, gdy GPS nie zmienił pozycji.
-    // Dzięki temu powolny ruch może zostać wykryty po kilku cyklach.
-    if(stamp>prev.stamp && meters>=12 && meters<2000){
-      lastLocations.set(key,{lat,lon,stamp,bearing:Number.isFinite(v._bearing)?v._bearing:null,seen:now});
-    }else{
-      prev.seen=now;
-      if(Number.isFinite(v._bearing))prev.bearing=v._bearing;
-    }
-  }
-  for(const [key,v] of lastLocations)if(now-v.seen>20*60*1000)lastLocations.delete(key);
-  if(now-historySaveAt>10000){
-    historySaveAt=now;
-    try{localStorage.setItem(STORAGE_KEY,JSON.stringify([...lastLocations]));}catch{}
-  }
+ const now=Date.now();
+ for(const v of rows){
+  const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=gpsMs(v.Time);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)||!Number.isFinite(stamp))continue;
+  const prev=lastLocations.get(key);
+  if(prev && Number.isFinite(prev.bearing) && now-prev.seen<30*60*1000)v._bearing=prev.bearing;
+  // Stare lub przyszłe GPS nie jest dowodem aktualnego kierunku.
+  if(stamp<now-15*60*1000 || stamp>now+5*60*1000)continue;
+  if(!prev){lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:null});continue}
+  if(stamp<=prev.stamp)continue;
+  const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
+  if(meters>=10 && meters<1800 && stamp-prev.stamp<=15*60*1000){
+    v._bearing=direction(prev.lat,prev.lon,lat,lon);
+    lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:v._bearing});
+  }else if(meters>=1800 || stamp-prev.stamp>15*60*1000){
+    lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:null});
+    delete v._bearing;
+  }else{prev.seen=now}
+ }
+ for(const [key,p] of lastLocations)if(now-p.seen>30*60*1000)lastLocations.delete(key);
+ if(now-historySave>10000){historySave=now;try{localStorage.setItem(HISTORY_KEY,JSON.stringify([...lastLocations]))}catch{}}
 }
 function draw(){
   if(!layer)return;
@@ -167,7 +138,7 @@ function draw(){
     const brigade=String(v.Brigade??'?'),number=String(v.VehicleNumber??'?');
     // Zwarta, jednorzędowa etykieta jak na wzorze: kierunek, typ, linia/brygada/numer.
     // Kierunek GPS jest znany dopiero po wykryciu ruchu pomiędzy kolejnymi odczytami.
-    const arrow=Number.isFinite(v._bearing)
+    const arrow=(Math.abs(Date.now()-gpsMs(v.Time))<=15*60*1000 && Number.isFinite(v._bearing))
       ? `<span class="badge-direction" title="Kierunek ruchu wyliczony z GPS"><svg viewBox="0 0 24 24" style="transform:rotate(${v._bearing}deg)" aria-hidden="true"><path d="M12 3 5 15l7-3 7 3z" fill="currentColor"/><path d="M12 11v10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>`
       : `<span class="badge-direction unknown" title="Kierunek oczekuje na drugi aktualny odczyt GPS">?</span>`;
     const vehicleSymbol=`<svg class="badge-vehicle" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2.5" width="14" height="16" rx="3" fill="currentColor"/><rect x="7.5" y="5" width="9" height="6" rx=".8" fill="#fff"/><circle cx="8.5" cy="19" r="1.8" fill="currentColor"/><circle cx="15.5" cy="19" r="1.8" fill="currentColor"/></svg>`;
@@ -182,33 +153,40 @@ function draw(){
 }
 let selectedLine='',selectedBrigade='';
 let busy=false;
-const lastSuccess={1:null,2:null};
+const received={1:[],2:[]};
+const fetchedAt={1:0,2:0};
+const SNAPSHOT_KEY='wtp-live-v33-last-good';
+try {const saved=JSON.parse(sessionStorage.getItem(SNAPSHOT_KEY)||'{}');for(const type of [1,2])if(Date.now()-saved[type]?.at<3*60*1000){received[type]=saved[type].rows||[];fetchedAt[type]=saved[type].at}}catch{}
+function publishVehicles(){vehicles=[...received[1].map(v=>({...v,kind:1})),...received[2].map(v=>({...v,kind:2}))];draw()}
+function gpsAgeDescription(){
+ const now=Date.now(),times=vehicles.map(v=>gpsMs(v.Time)).filter(Number.isFinite);
+ if(!times.length)return 'Brak znacznika czasu GPS';
+ const newest=Math.max(...times),mins=Math.round((now-newest)/60000);
+ if(mins>15)return 'UWAGA: dane GPS sprzed około '+mins+' min — nie są aktualne';
+ if(mins< -5)return 'UWAGA: czas GPS wyprzedza zegar o '+(-mins)+' min';
+ return 'Najnowszy GPS: '+Math.max(0,mins)+' min temu';
+}
 async function refresh(){
-  if(busy)return;
-  busy=true;
-  const status=$('status');
-  status.classList.remove('error');
-  status.textContent=vehicles.length?'Odświeżanie pozycji GPS…':'Pobieranie pojazdów…';
-  let successes=0,failures=[];
-  async function fetchType(type){
-    try{
-      const payload=await request('/live',{type});
-      const rows=unpack(payload).map(v=>({...v,kind:type}));
-      lastSuccess[type]=Date.now();
-      // Nie uzależniamy rysowania mapy od GTFS ani drugiego typu pojazdu.
-      vehicles=vehicles.filter(v=>v.kind!==type).concat(rows);
-      updateHeadings(rows);
-      successes++;
-      draw();
-    }catch(e){failures.push((type===1?'Autobusy':'Tramwaje')+': '+e.message);}
-  }
+ if(busy)return;busy=true;
+ const status=$('status');status.classList.remove('error');
+ if(!vehicles.length)status.textContent='Pobieranie pojazdów…';
+ const errors=[];let ok=0;
+ const fetchType=async type=>{
   try{
-    await Promise.allSettled([fetchType(1),fetchType(2)]);
-    const bus=vehicles.filter(v=>v.kind===1).length,tram=vehicles.filter(v=>v.kind===2).length;
-    status.textContent=(successes?'GPS '+new Date().toLocaleTimeString('pl-PL'):'Brak nowej odpowiedzi GPS')+
-      ` · autobusy ${bus}, tramwaje ${tram} · ruch GPS: ${gpsStats.moving}`+(failures.length?' · '+failures.join('; '):'');
-    if(!successes && !vehicles.length)status.classList.add('error');
-  }finally{busy=false;}
+   const data=unpack(await request('/live',{type}));
+   const rows=data.filter(v=>v && Number.isFinite(Number(v.Lat)) && Number.isFinite(Number(v.Lon)));
+   updateHeadings(rows.map(v=>Object.assign(v,{kind:type})));
+   received[type]=rows;fetchedAt[type]=Date.now();ok++;
+   try{sessionStorage.setItem(SNAPSHOT_KEY,JSON.stringify({1:{rows:received[1],at:fetchedAt[1]},2:{rows:received[2],at:fetchedAt[2]}}))}catch{}
+   publishVehicles();
+   status.textContent='Pobrano '+new Date().toLocaleTimeString('pl-PL')+' · '+gpsAgeDescription();
+  }catch(e){errors.push((type===1?'Autobusy':'Tramwaje')+': '+e.message)}
+ };
+ try{
+  await Promise.allSettled([fetchType(1),fetchType(2)]);
+  status.textContent=(ok?'Odczyt '+new Date().toLocaleTimeString('pl-PL'):'Nie udało się odświeżyć')+' · '+gpsAgeDescription()+(errors.length?' · '+errors.join('; '):'');
+  if(!ok)status.classList.add('error');
+ }finally{busy=false}
 }
 async function searchStops(){const q=$('stop').value.trim().toLowerCase();if(q.length<2){$('results').textContent='Wpisz co najmniej dwa znaki.';return}$('results').textContent='Wyszukiwanie…';$('timetable').replaceChildren();try{if(!stops.length)stops=normalizedRows(await request('/stops'));const matching=stops.filter(s=>String(value(s,'nazwa_zespolu')).toLowerCase().includes(q)).slice(0,60);$('results').replaceChildren();if(!matching.length)$('results').textContent='Nie znaleziono przystanku.';for(const s of matching){const z=value(s,'zespol'),n=value(s,'slupek'),name=value(s,'nazwa_zespolu');const d=document.createElement('div');d.className='item';d.textContent=`${name} — ${z}/${n}`;d.onclick=()=>showLines(z,n,name);$('results').append(d)}}catch(e){$('results').textContent=e.message}}
 async function showLines(z,n,name){
@@ -301,9 +279,9 @@ async function loadGtfs(line){
  return gtfsCache.get(line).promise;
 }
 function chooseGtfsTrip(trips,v){
- const lat=Number(v.Lat),lon=Number(v.Lon),when=new Date(gpsTimestamp(v.Time));
+ const lat=Number(v.Lat),lon=Number(v.Lon),when=new Date(gpsMs(v.Time));
  if(!Number.isFinite(when.getTime()))return null;
- // Czas GPS z API jest interpretowany jako UTC; rozkład GTFS używa czasu Warszawy.
+ // Porównanie GPS jako UTC z lokalnym czasem rozkładu w Warszawie.
  const age=Math.abs(Date.now()-when.getTime());if(age>10*60*1000)return null;
  const time=nowWarsaw(when);
  const choices=[];
@@ -337,7 +315,7 @@ async function openVehiclePanel(v){
   const dateWarsaw=todayWarsaw();
   if(dateWarsaw!==data.date){note.textContent='Rozkład GTFS pochodzi z '+data.date+'. Automatyczna aktualizacja GTFS jest opóźniona. Nie wyświetlamy nieaktualnych godzin.';return}
   const match=chooseGtfsTrip(data.trips,v);
-  if(!match){note.textContent='Nie można potwierdzić kursu na podstawie aktualnego GPS i GTFS (pozycja może być nieaktualna albo kurs niejednoznaczny). Nie wyświetlamy przypadkowej trasy.';return}
+  if(!match){note.textContent='Nie można wiarygodnie dopasować bieżącego kursu: GPS jest nieaktualny lub kilka kursów ma podobną trasę. Rozkład nie będzie zgadywany.';return}
   const {trip,index,distance}=match.choice;
   body.replaceChildren();
   const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · godziny planowe · kurs dobrany orientacyjnie na podstawie GPS i czasu'+(match.ambiguous?' (kilka możliwych kursów)':'')+'. Brygada nie jest powiązana bezpośrednio z GTFS.';body.append(heading);
@@ -359,7 +337,7 @@ function setTab(tab,record=true){
  if(tab==='mapa'&&map)setTimeout(()=>map.invalidateSize(),100);
 }
 
-window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;$('vehiclePanel').hidden=true};$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
+window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;$('vehiclePanel').hidden=true};$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
 
 // Trasa wymaga kolejności przystanków z wiarygodnego źródła.
 // /route jest opcjonalnym rozszerzeniem Workera, nie częścią dotychczasowych 4 endpointów.
