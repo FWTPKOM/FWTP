@@ -1,4 +1,4 @@
-// WTP LIVE v31 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v32 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -92,14 +92,15 @@ function renderStopMarkers(){
   }
   $('stopStatus').textContent=`Przystanki w widoku: ${shown}. Kierunki sprawdzisz po wybraniu przystanku i linii.`;
 }
-// WTP LIVE v31 — historia GPS niezależna od pobierania i wyświetlania pojazdów.
-// Dane API są zwykle w UTC bez sufiksu Z; nie odrzucamy ich przy samym rysowaniu mapy.
+// WTP LIVE v32 — kierunki oparte na faktycznym ruchu, jak w v17/v19.
+// Historia jest utrzymywana niezależnie od odświeżania mapy i od brygady.
 const lastLocations=new Map();
-const STORAGE_KEY='wtp-live-gps-history-v31';
+const STORAGE_KEY='wtp-live-gps-history-v32';
 try {
   const saved=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');
-  if(Array.isArray(saved))for(const [key,record] of saved){
-    if(record && Date.now()-record.seen<10*60*1000)lastLocations.set(key,record);
+  if(Array.isArray(saved)) for(const [key,record] of saved){
+    if(record && Number.isFinite(record.seen) && Date.now()-record.seen<20*60*1000)
+      lastLocations.set(key,record);
   }
 }catch{}
 function gpsTimestamp(raw){
@@ -115,26 +116,37 @@ function direction(lat1,lon1,lat2,lon2){
 }
 function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??v['Numer pojazdu']??'');}
 let historySaveAt=0;
+const gpsStats={moving:0,unchanged:0,older:0,newVehicles:0};
 function updateHeadings(rows){
   const now=Date.now();
+  Object.keys(gpsStats).forEach(k=>gpsStats[k]=0);
   for(const v of rows){
     const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=gpsTimestamp(v.Time);
     if(!Number.isFinite(lat)||!Number.isFinite(lon)||!Number.isFinite(stamp))continue;
     const prev=lastLocations.get(key);
-    if(prev && Number.isFinite(prev.bearing) && now-prev.seen<5*60*1000)v._bearing=prev.bearing;
-    // Nie traktujemy ponownie pobranego identycznego punktu jako nowego pomiaru.
-    if(prev && stamp>prev.stamp && stamp-prev.stamp<=10*60*1000){
-      const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
-      if(meters>=10 && meters<=2000){
-        const b=direction(prev.lat,prev.lon,lat,lon);
-        v._bearing=b;
-      }
+    if(prev && Number.isFinite(prev.bearing) && now-prev.seen<20*60*1000)
+      v._bearing=prev.bearing;
+    if(!prev){
+      gpsStats.newVehicles++;
+      lastLocations.set(key,{lat,lon,stamp,bearing:null,seen:now});
+      continue;
     }
-    if(!prev || stamp>prev.stamp){
+    if(stamp<prev.stamp){gpsStats.older++;continue;}
+    const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
+    if(stamp>prev.stamp && meters>=12 && meters<2000 && stamp-prev.stamp<=20*60*1000){
+      v._bearing=direction(prev.lat,prev.lon,lat,lon);
+      gpsStats.moving++;
+    }else gpsStats.unchanged++;
+    // Nie zastępuj nowym odczytem poprzedniego punktu, gdy GPS nie zmienił pozycji.
+    // Dzięki temu powolny ruch może zostać wykryty po kilku cyklach.
+    if(stamp>prev.stamp && meters>=12 && meters<2000){
       lastLocations.set(key,{lat,lon,stamp,bearing:Number.isFinite(v._bearing)?v._bearing:null,seen:now});
-    }else if(prev){prev.seen=now;}
+    }else{
+      prev.seen=now;
+      if(Number.isFinite(v._bearing))prev.bearing=v._bearing;
+    }
   }
-  for(const [key,v] of lastLocations)if(now-v.seen>10*60*1000)lastLocations.delete(key);
+  for(const [key,v] of lastLocations)if(now-v.seen>20*60*1000)lastLocations.delete(key);
   if(now-historySaveAt>10000){
     historySaveAt=now;
     try{localStorage.setItem(STORAGE_KEY,JSON.stringify([...lastLocations]));}catch{}
@@ -194,7 +206,7 @@ async function refresh(){
     await Promise.allSettled([fetchType(1),fetchType(2)]);
     const bus=vehicles.filter(v=>v.kind===1).length,tram=vehicles.filter(v=>v.kind===2).length;
     status.textContent=(successes?'GPS '+new Date().toLocaleTimeString('pl-PL'):'Brak nowej odpowiedzi GPS')+
-      ` · autobusy ${bus}, tramwaje ${tram}`+(failures.length?' · '+failures.join('; '):'');
+      ` · autobusy ${bus}, tramwaje ${tram} · ruch GPS: ${gpsStats.moving}`+(failures.length?' · '+failures.join('; '):'');
     if(!successes && !vehicles.length)status.classList.add('error');
   }finally{busy=false;}
 }
