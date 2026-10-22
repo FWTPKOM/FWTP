@@ -1,4 +1,4 @@
-// WTP LIVE v30 – powrót do sprawdzonej logiki v19; niezależne pobieranie GPS.
+// WTP LIVE v31 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -92,28 +92,53 @@ function renderStopMarkers(){
   }
   $('stopStatus').textContent=`Przystanki w widoku: ${shown}. Kierunki sprawdzisz po wybraniu przystanku i linii.`;
 }
+// WTP LIVE v31 — historia GPS niezależna od pobierania i wyświetlania pojazdów.
+// Dane API są zwykle w UTC bez sufiksu Z; nie odrzucamy ich przy samym rysowaniu mapy.
 const lastLocations=new Map();
+const STORAGE_KEY='wtp-live-gps-history-v31';
+try {
+  const saved=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');
+  if(Array.isArray(saved))for(const [key,record] of saved){
+    if(record && Date.now()-record.seen<10*60*1000)lastLocations.set(key,record);
+  }
+}catch{}
+function gpsTimestamp(raw){
+  const s=String(raw||'').trim();
+  if(!s)return NaN;
+  return Date.parse(s.replace(' ','T')+(/(?:Z|[+-]\d\d:?\d\d)$/.test(s)?'':'Z'));
+}
 function direction(lat1,lon1,lat2,lon2){
   const rad=Math.PI/180;
   const y=Math.sin((lon2-lon1)*rad)*Math.cos(lat2*rad);
   const x=Math.cos(lat1*rad)*Math.sin(lat2*rad)-Math.sin(lat1*rad)*Math.cos(lat2*rad)*Math.cos((lon2-lon1)*rad);
   return (Math.atan2(y,x)*180/Math.PI+360)%360;
 }
-function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??'')}
+function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??v['Numer pojazdu']??'');}
+let historySaveAt=0;
 function updateHeadings(rows){
   const now=Date.now();
   for(const v of rows){
-    const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=Date.parse(String(v.Time||'').replace(' ','T'));
-    if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
+    const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=gpsTimestamp(v.Time);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon)||!Number.isFinite(stamp))continue;
     const prev=lastLocations.get(key);
-    if(prev && Number.isFinite(stamp) && stamp>prev.stamp && stamp-prev.stamp<180000 && now-prev.seen<180000){
+    if(prev && Number.isFinite(prev.bearing) && now-prev.seen<5*60*1000)v._bearing=prev.bearing;
+    // Nie traktujemy ponownie pobranego identycznego punktu jako nowego pomiaru.
+    if(prev && stamp>prev.stamp && stamp-prev.stamp<=10*60*1000){
       const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
-      if(meters>=12 && meters<2000)v._bearing=direction(prev.lat,prev.lon,lat,lon);
-      else v._bearing=prev.bearing;
-    }else if(prev)v._bearing=prev.bearing;
-    if(!prev || !Number.isFinite(stamp) || stamp>=prev.stamp)lastLocations.set(key,{lat,lon,stamp,bearing:v._bearing,seen:now});
+      if(meters>=10 && meters<=2000){
+        const b=direction(prev.lat,prev.lon,lat,lon);
+        v._bearing=b;
+      }
+    }
+    if(!prev || stamp>prev.stamp){
+      lastLocations.set(key,{lat,lon,stamp,bearing:Number.isFinite(v._bearing)?v._bearing:null,seen:now});
+    }else if(prev){prev.seen=now;}
   }
-  for(const [k,v] of lastLocations)if(now-v.seen>600000)lastLocations.delete(k);
+  for(const [key,v] of lastLocations)if(now-v.seen>10*60*1000)lastLocations.delete(key);
+  if(now-historySaveAt>10000){
+    historySaveAt=now;
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify([...lastLocations]));}catch{}
+  }
 }
 function draw(){
   if(!layer)return;
@@ -145,33 +170,32 @@ function draw(){
 }
 let selectedLine='',selectedBrigade='';
 let busy=false;
-// Każdy typ jest pobierany osobno; jeden timeout/błąd nie ukrywa drugiego.
-let refreshSerial=0;
+const lastSuccess={1:null,2:null};
 async function refresh(){
   if(busy)return;
   busy=true;
-  const serial=++refreshSerial;
-  $('status').classList.remove('error');
-  $('status').textContent=vehicles.length?'Aktualizacja pozycji GPS…':'Pobieranie pojazdów…';
-  const results={};
-  async function one(type){
+  const status=$('status');
+  status.classList.remove('error');
+  status.textContent=vehicles.length?'Odświeżanie pozycji GPS…':'Pobieranie pojazdów…';
+  let successes=0,failures=[];
+  async function fetchType(type){
     try{
       const payload=await request('/live',{type});
       const rows=unpack(payload).map(v=>({...v,kind:type}));
-      results[type]={rows};
-      if(serial!==refreshSerial)return;
+      lastSuccess[type]=Date.now();
+      // Nie uzależniamy rysowania mapy od GTFS ani drugiego typu pojazdu.
       vehicles=vehicles.filter(v=>v.kind!==type).concat(rows);
       updateHeadings(rows);
+      successes++;
       draw();
-    }catch(e){results[type]={error:e.message};}
+    }catch(e){failures.push((type===1?'Autobusy':'Tramwaje')+': '+e.message);}
   }
   try{
-    await Promise.allSettled([one(1),one(2)]);
-    const b=vehicles.filter(v=>v.kind===1).length;
-    const t=vehicles.filter(v=>v.kind===2).length;
-    const errors=[1,2].filter(type=>results[type]?.error).map(type=>(type===1?'Autobusy':'Tramwaje')+': '+results[type].error);
-    $('status').textContent='Ostatnia próba: '+new Date().toLocaleTimeString('pl-PL')+' | Autobusy: '+b+', tramwaje: '+t+(errors.length?' | '+errors.join(' | '):'');
-    $('status').classList.toggle('error',errors.length>0);
+    await Promise.allSettled([fetchType(1),fetchType(2)]);
+    const bus=vehicles.filter(v=>v.kind===1).length,tram=vehicles.filter(v=>v.kind===2).length;
+    status.textContent=(successes?'GPS '+new Date().toLocaleTimeString('pl-PL'):'Brak nowej odpowiedzi GPS')+
+      ` · autobusy ${bus}, tramwaje ${tram}`+(failures.length?' · '+failures.join('; '):'');
+    if(!successes && !vehicles.length)status.classList.add('error');
   }finally{busy=false;}
 }
 async function searchStops(){const q=$('stop').value.trim().toLowerCase();if(q.length<2){$('results').textContent='Wpisz co najmniej dwa znaki.';return}$('results').textContent='Wyszukiwanie…';$('timetable').replaceChildren();try{if(!stops.length)stops=normalizedRows(await request('/stops'));const matching=stops.filter(s=>String(value(s,'nazwa_zespolu')).toLowerCase().includes(q)).slice(0,60);$('results').replaceChildren();if(!matching.length)$('results').textContent='Nie znaleziono przystanku.';for(const s of matching){const z=value(s,'zespol'),n=value(s,'slupek'),name=value(s,'nazwa_zespolu');const d=document.createElement('div');d.className='item';d.textContent=`${name} — ${z}/${n}`;d.onclick=()=>showLines(z,n,name);$('results').append(d)}}catch(e){$('results').textContent=e.message}}
@@ -265,11 +289,11 @@ async function loadGtfs(line){
  return gtfsCache.get(line).promise;
 }
 function chooseGtfsTrip(trips,v){
- const lat=Number(v.Lat),lon=Number(v.Lon),when=new Date(String(v.Time||'').replace(' ','T'));
+ const lat=Number(v.Lat),lon=Number(v.Lon),when=new Date(gpsTimestamp(v.Time));
  if(!Number.isFinite(when.getTime()))return null;
- // API podaje czas lokalny Warszawy bez strefy. Nie interpretujemy go jako UTC.
+ // Czas GPS z API jest interpretowany jako UTC; rozkład GTFS używa czasu Warszawy.
  const age=Math.abs(Date.now()-when.getTime());if(age>10*60*1000)return null;
- const time=when.getHours()*60+when.getMinutes();
+ const time=nowWarsaw(when);
  const choices=[];
  for(const trip of trips){const ss=trip.stops;if(!ss||ss.length<2)continue;
   const first=minutes(ss[0][4]),last=minutes(ss.at(-1)[4]);
