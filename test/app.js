@@ -1,4 +1,4 @@
-// WTP LIVE v20 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v34 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -22,7 +22,7 @@ function unpack(payload){
   }
   throw Error('Nieznany format odpowiedzi API (brak listy pojazdów).');
 }
-async function request(path,params={}){if(!PROXY)throw Error('Nie skonfigurowano adresu Cloudflare Workera w config.js.');const url=new URL(PROXY+path);Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));const response=await fetch(url,{cache:'no-store'});if(!response.ok)throw Error('Serwer API: HTTP '+response.status);const data=await response.json();if(data.error)throw Error(typeof data.error==='string'?data.error:'Błąd API');return data;}
+async function request(path,params={}){if(!PROXY)throw Error('Nie skonfigurowano adresu Cloudflare Workera w config.js.');const url=new URL(PROXY+path);Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),20000);let response;try{response=await fetch(url,{cache:'no-store',signal:controller.signal})}finally{clearTimeout(timeout)};if(!response.ok)throw Error('Serwer API: HTTP '+response.status);const data=await response.json();if(data.error)throw Error(typeof data.error==='string'?data.error:'Błąd API');return data;}
 function value(row,key){
   if(!row)return '';
   const target=key.toLowerCase();
@@ -45,6 +45,10 @@ function normalizedRows(payload){
     if(row?.values && !Array.isArray(row.values) && typeof row.values==='object')return {...row,...row.values};
     return row;
   });
+}
+function normalizeVehicle(v){
+ const pick=(...names)=>{for(const name of names){const x=value(v,name);if(x!==undefined&&x!==null&&String(x).trim()!=='')return x}return ''};
+ return {...v,Lines:String(pick('Lines','Linie','line','linia')).trim(),Lat:Number(pick('Lat','Szer. geogr.','latitude','lat')),Lon:Number(pick('Lon','Dł. geogr.','longitude','lon')),Time:String(pick('Time','Czas','time')).trim(),VehicleNumber:String(pick('VehicleNumber','Numer pojazdu','vehicleNumber')).trim(),Brigade:String(pick('Brigade','Brygada','brigade')).trim()};
 }
 function validTime(t){return /^\d{1,2}:\d{2}(?::\d{2})?$/.test(String(t??'').trim())}
 let stopLayer,showStopMarkers=false,stopMapLoading=false;
@@ -92,28 +96,36 @@ function renderStopMarkers(){
   }
   $('stopStatus').textContent=`Przystanki w widoku: ${shown}. Kierunki sprawdzisz po wybraniu przystanku i linii.`;
 }
+// WTP LIVE v34: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
 const lastLocations=new Map();
-function direction(lat1,lon1,lat2,lon2){
-  const rad=Math.PI/180;
-  const y=Math.sin((lon2-lon1)*rad)*Math.cos(lat2*rad);
-  const x=Math.cos(lat1*rad)*Math.sin(lat2*rad)-Math.sin(lat1*rad)*Math.cos(lat2*rad)*Math.cos((lon2-lon1)*rad);
-  return (Math.atan2(y,x)*180/Math.PI+360)%360;
-}
-function vehicleKey(v){return v.kind+':'+String(v.VehicleNumber??'')+':'+String(v.Lines??'')+':'+String(v.Brigade??'')}
+const HISTORY_KEY='wtp-live-v34-gps';
+try { const saved=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]'); for(const [k,v] of saved){if(Date.now()-v.seen<30*60*1000)lastLocations.set(k,v)} }catch{}
+function gpsMs(raw){const s=String(raw||'').trim().replace(' ','T');return Date.parse(s+(/(?:Z|[+-]\d\d:?\d\d)$/.test(s)?'':'Z'))}
+function direction(lat1,lon1,lat2,lon2){const r=Math.PI/180,y=Math.sin((lon2-lon1)*r)*Math.cos(lat2*r),x=Math.cos(lat1*r)*Math.sin(lat2*r)-Math.sin(lat1*r)*Math.cos(lat2*r)*Math.cos((lon2-lon1)*r);return(Math.atan2(y,x)*180/Math.PI+360)%360}
+function vehicleKey(v){return String(v.kind)+':'+String(v.VehicleNumber??'')}
+let historySave=0;
 function updateHeadings(rows){
-  const now=Date.now();
-  for(const v of rows){
-    const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=Date.parse(String(v.Time||'').replace(' ','T'));
-    if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
-    const prev=lastLocations.get(key);
-    if(prev && Number.isFinite(stamp) && stamp>prev.stamp && stamp-prev.stamp<180000 && now-prev.seen<180000){
-      const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
-      if(meters>=12 && meters<2000)v._bearing=direction(prev.lat,prev.lon,lat,lon);
-      else v._bearing=prev.bearing;
-    }else if(prev)v._bearing=prev.bearing;
-    if(!prev || !Number.isFinite(stamp) || stamp>=prev.stamp)lastLocations.set(key,{lat,lon,stamp,bearing:v._bearing,seen:now});
-  }
-  for(const [k,v] of lastLocations)if(now-v.seen>600000)lastLocations.delete(k);
+ const now=Date.now();
+ for(const v of rows){
+  const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=gpsMs(v.Time);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)||!Number.isFinite(stamp))continue;
+  const prev=lastLocations.get(key);
+  if(prev && Number.isFinite(prev.bearing) && now-prev.seen<3*60*1000 && stamp-prev.stamp<3*60*1000)v._bearing=prev.bearing;
+  // Stare lub przyszłe GPS nie jest dowodem aktualnego kierunku.
+  if(stamp<now-15*60*1000 || stamp>now+5*60*1000)continue;
+  if(!prev){lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:null});continue}
+  if(stamp<=prev.stamp)continue;
+  const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
+  if(meters>=10 && meters<1800 && stamp-prev.stamp<=15*60*1000){
+    v._bearing=direction(prev.lat,prev.lon,lat,lon);
+    lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:v._bearing});
+  }else if(meters>=1800 || stamp-prev.stamp>15*60*1000){
+    lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:null});
+    delete v._bearing;
+  }else{prev.seen=now}
+ }
+ for(const [key,p] of lastLocations)if(now-p.seen>30*60*1000)lastLocations.delete(key);
+ if(now-historySave>10000){historySave=now;try{localStorage.setItem(HISTORY_KEY,JSON.stringify([...lastLocations]))}catch{}}
 }
 function draw(){
   if(!layer)return;
@@ -130,7 +142,7 @@ function draw(){
     const brigade=String(v.Brigade??'?'),number=String(v.VehicleNumber??'?');
     // Zwarta, jednorzędowa etykieta jak na wzorze: kierunek, typ, linia/brygada/numer.
     // Kierunek GPS jest znany dopiero po wykryciu ruchu pomiędzy kolejnymi odczytami.
-    const arrow=Number.isFinite(v._bearing)
+    const arrow=(Math.abs(Date.now()-gpsMs(v.Time))<=15*60*1000 && Number.isFinite(v._bearing))
       ? `<span class="badge-direction" title="Kierunek ruchu wyliczony z GPS"><svg viewBox="0 0 24 24" style="transform:rotate(${v._bearing}deg)" aria-hidden="true"><path d="M12 3 5 15l7-3 7 3z" fill="currentColor"/><path d="M12 11v10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>`
       : `<span class="badge-direction unknown" title="Kierunek oczekuje na drugi aktualny odczyt GPS">?</span>`;
     const vehicleSymbol=`<svg class="badge-vehicle" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2.5" width="14" height="16" rx="3" fill="currentColor"/><rect x="7.5" y="5" width="9" height="6" rx=".8" fill="#fff"/><circle cx="8.5" cy="19" r="1.8" fill="currentColor"/><circle cx="15.5" cy="19" r="1.8" fill="currentColor"/></svg>`;
@@ -145,7 +157,45 @@ function draw(){
 }
 let selectedLine='',selectedBrigade='';
 let busy=false;
-async function refresh(){if(busy)return;busy=true;$('status').classList.remove('error');$('status').textContent='Pobieranie pojazdów…';try{const [b,t]=await Promise.all([request('/live',{type:1}),request('/live',{type:2})]);const buses=unpack(b),trams=unpack(t);vehicles=[...buses.map(v=>({...v,kind:1})),...trams.map(v=>({...v,kind:2}))];updateHeadings(vehicles);draw();$('status').textContent='Ostatnie pobranie: '+new Date().toLocaleTimeString('pl-PL')+' | Autobusy: '+buses.length+', tramwaje: '+trams.length;}catch(e){$('status').textContent='Błąd: '+e.message;$('status').classList.add('error')}finally{busy=false}}
+const received={1:[],2:[]};
+const sourceInfo={1:{total:0,fresh:0,newest:0},2:{total:0,fresh:0,newest:0}};
+const fetchedAt={1:0,2:0};
+const SNAPSHOT_KEY='wtp-live-v34-last-good';
+try {const saved=JSON.parse(sessionStorage.getItem(SNAPSHOT_KEY)||'{}');for(const type of [1,2])if(Date.now()-saved[type]?.at<3*60*1000){received[type]=(saved[type].rows||[]).map(normalizeVehicle).filter(v=>Number.isFinite(gpsMs(v.Time))&&Date.now()-gpsMs(v.Time)<15*60000);fetchedAt[type]=saved[type].at}}catch{}
+function publishVehicles(){vehicles=[...received[1].map(v=>({...v,kind:1})),...received[2].map(v=>({...v,kind:2}))];draw()}
+function gpsAgeDescription(){
+ const now=Date.now(),times=vehicles.map(v=>gpsMs(v.Time)).filter(Number.isFinite);
+ if(!times.length)return 'Brak znacznika czasu GPS';
+ const newest=Math.max(...times),mins=Math.round((now-newest)/60000);
+ if(mins>15)return 'UWAGA: dane GPS sprzed około '+mins+' min — nie są aktualne';
+ if(mins< -5)return 'UWAGA: czas GPS wyprzedza zegar o '+(-mins)+' min';
+ return 'Najnowszy GPS: '+Math.max(0,mins)+' min temu';
+}
+async function refresh(){
+ if(busy)return;busy=true;
+ const status=$('status');status.classList.remove('error');
+ if(!vehicles.length)status.textContent='Pobieranie pojazdów…';
+ const errors=[];let ok=0;
+ const fetchType=async type=>{
+  try{
+   const data=unpack(await request('/live',{type}));
+   const all=data.map(normalizeVehicle).filter(v=>Number.isFinite(v.Lat)&&Number.isFinite(v.Lon));
+    const rows=all.filter(v=>{const ms=gpsMs(v.Time);return Number.isFinite(ms)&&Date.now()-ms<=15*60000&&ms-Date.now()<=5*60000});
+    sourceInfo[type]={total:all.length,fresh:rows.length,newest:all.reduce((a,v)=>Math.max(a,gpsMs(v.Time)||0),0)};
+   updateHeadings(rows.map(v=>Object.assign(v,{kind:type})));
+   received[type]=rows;fetchedAt[type]=Date.now();ok++;
+   try{sessionStorage.setItem(SNAPSHOT_KEY,JSON.stringify({1:{rows:received[1],at:fetchedAt[1]},2:{rows:received[2],at:fetchedAt[2]}}))}catch{}
+   publishVehicles();
+   status.textContent='Pobrano '+new Date().toLocaleTimeString('pl-PL')+' · '+gpsAgeDescription();
+  }catch(e){errors.push((type===1?'Autobusy':'Tramwaje')+': '+e.message)}
+ };
+ try{
+  await Promise.allSettled([fetchType(1),fetchType(2)]);
+  status.textContent=(ok?'Odczyt '+new Date().toLocaleTimeString('pl-PL'):'Nie udało się odświeżyć')+' · '+gpsAgeDescription()+' · GPS: '+[1,2].map(t=>(t===1?'A':'T')+' '+sourceInfo[t].fresh+'/'+sourceInfo[t].total+(sourceInfo[t].newest?' (ostatni '+new Date(sourceInfo[t].newest).toLocaleString('pl-PL')+')':'')).join(', ')+(errors.length?' · '+errors.join('; '):'');
+   if(ok&&!vehicles.length)status.classList.add('error');
+  if(!ok)status.classList.add('error');
+ }finally{busy=false}
+}
 async function searchStops(){const q=$('stop').value.trim().toLowerCase();if(q.length<2){$('results').textContent='Wpisz co najmniej dwa znaki.';return}$('results').textContent='Wyszukiwanie…';$('timetable').replaceChildren();try{if(!stops.length)stops=normalizedRows(await request('/stops'));const matching=stops.filter(s=>String(value(s,'nazwa_zespolu')).toLowerCase().includes(q)).slice(0,60);$('results').replaceChildren();if(!matching.length)$('results').textContent='Nie znaleziono przystanku.';for(const s of matching){const z=value(s,'zespol'),n=value(s,'slupek'),name=value(s,'nazwa_zespolu');const d=document.createElement('div');d.className='item';d.textContent=`${name} — ${z}/${n}`;d.onclick=()=>showLines(z,n,name);$('results').append(d)}}catch(e){$('results').textContent=e.message}}
 async function showLines(z,n,name){
   $('timetable').textContent='Pobieranie linii…';
@@ -237,11 +287,11 @@ async function loadGtfs(line){
  return gtfsCache.get(line).promise;
 }
 function chooseGtfsTrip(trips,v){
- const lat=Number(v.Lat),lon=Number(v.Lon),when=new Date(String(v.Time||'').replace(' ','T'));
+ const lat=Number(v.Lat),lon=Number(v.Lon),when=new Date(gpsMs(v.Time));
  if(!Number.isFinite(when.getTime()))return null;
- // API podaje czas lokalny Warszawy bez strefy. Nie interpretujemy go jako UTC.
+ // Porównanie GPS jako UTC z lokalnym czasem rozkładu w Warszawie.
  const age=Math.abs(Date.now()-when.getTime());if(age>10*60*1000)return null;
- const time=when.getHours()*60+when.getMinutes();
+ const time=nowWarsaw(when);
  const choices=[];
  for(const trip of trips){const ss=trip.stops;if(!ss||ss.length<2)continue;
   const first=minutes(ss[0][4]),last=minutes(ss.at(-1)[4]);
@@ -258,7 +308,7 @@ function chooseGtfsTrip(trips,v){
  }
  choices.sort((a,b)=>a.score-b.score);
  if(!choices.length||choices[0].distance>900)return null;
- if(choices.length>1&&choices[1].score-choices[0].score<120)return null;
+ // Zbliżone kursy są pokazywane jako orientacyjne, nie jako potwierdzone.
  return {choice:choices[0],ambiguous:choices.length>1&&choices[1].score-choices[0].score<300};
 }
 let vehiclePanelRequest=0;
@@ -273,7 +323,19 @@ async function openVehiclePanel(v){
   const dateWarsaw=todayWarsaw();
   if(dateWarsaw!==data.date){note.textContent='Rozkład GTFS pochodzi z '+data.date+'. Automatyczna aktualizacja GTFS jest opóźniona. Nie wyświetlamy nieaktualnych godzin.';return}
   const match=chooseGtfsTrip(data.trips,v);
-  if(!match){note.textContent='Nie można potwierdzić kursu na podstawie aktualnego GPS i GTFS (pozycja może być nieaktualna albo kurs niejednoznaczny). Nie wyświetlamy przypadkowej trasy.';return}
+  if(!match){
+    note.textContent='Nie można potwierdzić bieżącego kursu z GPS. Poniżej możesz wybrać planową trasę linii '+line+' (bez oznaczania aktualnego przystanku).';
+    const options=document.createElement('div');options.className='lines';body.append(options);
+    const byRoute=new Map();for(const trip of (data.trips||[])){if(!Array.isArray(trip.stops)||trip.stops.length<2)continue;const key=(trip.headsign||'Kierunek nieznany')+'|'+trip.stops.map(s=>s[0]).join(',');if(!byRoute.has(key))byRoute.set(key,trip)}
+    for(const trip of [...byRoute.values()].slice(0,25)){
+      const btn=document.createElement('button');btn.textContent=trip.headsign||'Trasa bez nazwy';btn.onclick=()=>{
+        body.querySelectorAll('.route-stops').forEach(x=>x.remove());const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
+        trip.stops.forEach(item=>{const li=document.createElement('li');li.className='route-stop';const dot=document.createElement('span');dot.className='route-dot';const name=document.createElement('span');name.className='route-stop-name';name.textContent=item[1];const time=document.createElement('time');time.className='route-stop-time';time.textContent=item[4];li.append(dot,name,time);list.append(li)});body.append(list);
+      };options.append(btn)
+    }
+    if(!byRoute.size)note.textContent+=' Brak tras w pliku GTFS.';
+    return;
+   }
   const {trip,index,distance}=match.choice;
   body.replaceChildren();
   const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · godziny planowe · kurs dobrany orientacyjnie na podstawie GPS i czasu'+(match.ambiguous?' (kilka możliwych kursów)':'')+'. Brygada nie jest powiązana bezpośrednio z GTFS.';body.append(heading);
@@ -295,7 +357,7 @@ function setTab(tab,record=true){
  if(tab==='mapa'&&map)setTimeout(()=>map.invalidateSize(),100);
 }
 
-window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;$('vehiclePanel').hidden=true};$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
+window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;$('vehiclePanel').hidden=true};$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
 
 // Trasa wymaga kolejności przystanków z wiarygodnego źródła.
 // /route jest opcjonalnym rozszerzeniem Workera, nie częścią dotychczasowych 4 endpointów.
