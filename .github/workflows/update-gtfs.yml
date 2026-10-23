@@ -1,12 +1,9 @@
-
 name: Automatyczna aktualizacja GTFS
 
 on:
   schedule:
     - cron: '17 */4 * * *'
-
   workflow_dispatch:
-
   push:
     branches:
       - main
@@ -25,59 +22,47 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 35
-
     steps:
       - name: Pobierz repozytorium
         uses: actions/checkout@v4
-
+        with:
+          persist-credentials: true
       - name: Skonfiguruj Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
       - name: Pobierz i przetwórz GTFS
         run: python test/update_gtfs.py
-
       - name: Sprawdź wygenerowane dane przystanków
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
-
-          path = Path("test/gtfs/stops_meta.json")
-
+          path = Path('test/gtfs/stops_meta.json')
           if not path.is_file():
-              raise SystemExit("BŁĄD: nie wygenerowano stops_meta.json")
-
-          data = json.loads(path.read_text(encoding="utf-8"))
-          version = data.get("version")
-          stops = data.get("stops", [])
-
-          print(f"Wersja danych: {version}")
-          print(f"Liczba przystanków: {len(stops)}")
-
-          if version != 44:
-              raise SystemExit(
-                  f"BŁĄD: oczekiwano wersji 44, otrzymano {version}"
-              )
-
-          if not stops:
-              raise SystemExit("BŁĄD: lista przystanków jest pusta")
-
-          print("Dane przystanków wygenerowane poprawnie.")
+              raise SystemExit('BŁĄD: brak stops_meta.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          version = data.get('version')
+          stops = data.get('stops')
+          print(f'Wersja danych: {version}')
+          print(f'Liczba przystanków: {len(stops) if isinstance(stops, list) else 0}')
+          if not isinstance(version, int) or version < 45:
+              raise SystemExit(f'BŁĄD: nieprawidłowa wersja danych: {version}')
+          if not isinstance(stops, list) or not stops:
+              raise SystemExit('BŁĄD: lista przystanków jest pusta')
+          if not all(isinstance(s, list) and len(s) >= 4 for s in stops):
+              raise SystemExit('BŁĄD: nieprawidłowa struktura danych przystanków')
+          print('Dane przystanków są poprawne.')
           PY
-
       - name: Zapisz nowe rozkłady i kierunki przystanków
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A test/gtfs
-
           if ! git diff --cached --quiet; then
-            git commit -m "Automatyczna aktualizacja GTFS i przystanków"
+            git commit -m 'Automatyczna aktualizacja GTFS i przystanków'
             git pull --rebase origin "${GITHUB_REF_NAME}"
             git push origin HEAD:"${GITHUB_REF_NAME}"
           else
-            echo "Brak zmian w danych GTFS."
+            echo 'Brak zmian w danych GTFS.'
           fi
