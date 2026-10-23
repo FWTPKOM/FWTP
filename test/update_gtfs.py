@@ -39,7 +39,16 @@ def main():
                 with z.open(members[name]) as stream,io.TextIOWrapper(stream,encoding='utf-8-sig',newline='') as f:
                     yield from csv.DictReader(f)
             return it()
-        stops={r['stop_id']:(r.get('stop_name',''),float(r.get('stop_lat') or 0),float(r.get('stop_lon') or 0),r.get('stop_desc','')) for r in rows('stops.txt')}
+        stops={}
+        for r in rows('stops.txt'):
+            sid=r.get('stop_id')
+            if not sid:continue
+            try:
+                lat=float(r.get('stop_lat') or 0)
+                lon=float(r.get('stop_lon') or 0)
+            except (ValueError,TypeError):continue
+            if not (51 < lat < 53 and 19 < lon < 23):continue
+            stops[sid]=(r.get('stop_name',''),lat,lon,r.get('stop_desc',''))
         route_rows=list(rows('routes.txt'))
         routes={r['route_id']:r.get('route_short_name','') for r in route_rows}
         route_types={r['route_id']:int(r['route_type']) for r in route_rows if str(r.get('route_type','')).isdigit()}
@@ -148,7 +157,7 @@ def main():
             modes=(['tram'] if 0 in kinds else [])+(['bus'] if 3 in kinds or 700 in kinds else [])
             for sid in set(seq):
                 if sid not in stops:continue
-                _,lat,lon=stops[sid]
+                _,lat,lon,*_=stops[sid]
                 ang=tangent_at((lat,lon),pts)
                 if ang is not None:
                     for mode in modes:headings[sid,mode].add(round(ang,1))
@@ -165,7 +174,7 @@ def main():
                     if sid not in stops:continue
                     other=seq[j+1] if j+1<len(seq) else (seq[j-1] if j else None)
                     if other is None or other[0] not in stops:continue
-                    _,lat,lon=stops[sid];_,lat2,lon2=stops[other[0]]
+                    lat,lon=stops[sid][1:3];lat2,lon2=stops[other[0]][1:3]
                     angle=bearing((lat,lon),(lat2,lon2)) if j+1<len(seq) else bearing((lat2,lon2),(lat,lon))
                     for mode in modes:
                         if (sid,mode) not in headings:fallback[sid,mode].add(round(angle,1))
@@ -179,15 +188,17 @@ def main():
         OUT.mkdir(exist_ok=True)
         desired={}
         for line,items in result.items():
-            filename=line.replace('/','_')+'.json'
+            filename=''.join(c if c.isalnum() or c in '-_' else '_' for c in line)+'.json'
             desired[filename]=json.dumps({'date':day,'line':line,'trips':items},ensure_ascii=False,separators=(',',':'))+'\n'
         # Najpierw generujemy komplet plików, a dopiero później podmieniamy poprzednie.
         with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
             stage=pathlib.Path(tmp)
             for name,content in desired.items():(stage/name).write_text(content,encoding='utf-8')
             for name in desired:os.replace(stage/name,OUT/name)
+        # Usuwamy wyłącznie stare pliki rozkładów linii, nie pliki metadanych.
+        protected={'stops_meta.json','status.json'}
         for old in OUT.glob('*.json'):
-            if old.name not in desired:old.unlink()
+            if old.name not in desired and old.name not in protected:old.unlink()
         (OUT/'stops_meta.json').write_text(json.dumps({'version':45,'date':day,'stops':stop_meta},ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
         (OUT/'status.json').write_text(json.dumps({'date':day,'source':source,'updated_at':dt.datetime.now(dt.timezone.utc).isoformat(),'lines':len(result)},ensure_ascii=False)+'\n',encoding='utf-8')
         print('Gotowe:',day,len(result),'linii',sum(map(len,result.values())),'kursów')
