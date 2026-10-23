@@ -51,7 +51,7 @@ function normalizeVehicle(v){
  return {...v,Lines:String(pick('Lines','Linie','line','linia')).trim(),Lat:Number(pick('Lat','Szer. geogr.','latitude','lat')),Lon:Number(pick('Lon','Dł. geogr.','longitude','lon')),Time:String(pick('Time','Czas','time')).trim(),VehicleNumber:String(pick('VehicleNumber','Numer pojazdu','vehicleNumber')).trim(),Brigade:String(pick('Brigade','Brygada','brigade')).trim(),_bearing:v._bearing!==null&&v._bearing!==undefined&&Number.isFinite(Number(v._bearing))?Number(v._bearing):null};
 }
 function validTime(t){return /^\d{1,2}:\d{2}(?::\d{2})?$/.test(String(t??'').trim())}
-// WTP LIVE v44 — przystanki: metadane wszystkich tras GTFS, nie tylko pojazdów w kadrze.
+// WTP LIVE v45 — przystanki: metadane wszystkich tras GTFS, nie tylko pojazdów w kadrze.
 let stopLayer,showStopMarkers=true,stopMapLoading=false;
 const STOP_DOT_ZOOM=13,STOP_ARROW_ZOOM=16;
 let stopMeta=[],stopMetaLoading=false,stopMetaReady=false;
@@ -60,7 +60,7 @@ function stopCoordinates(row){
  const lon=Number(value(row,'dlug_geo')||value(row,'lon')||value(row,'longitude'));
  return Number.isFinite(lat)&&Number.isFinite(lon)&&lat>51&&lat<53&&lon>19&&lon<23?[lat,lon]:null;
 }
-function stopDirectionSvg(deg,color){return `<svg width="18" height="18" viewBox="0 0 24 24" style="transform:rotate(${Math.round(deg)}deg)" aria-hidden="true"><path d="M12 2 L21 21 L12 17 L3 21 Z" fill="${color}" stroke="white" stroke-width="1.6"/></svg>`}
+function stopDirectionSvg(deg,color){return `<svg width="19" height="19" viewBox="0 0 24 24" style="transform:rotate(${Math.round(deg)}deg)" aria-hidden="true"><path d="M12 2 L21 21 L12 17 L3 21 Z" fill="${color}" stroke="white" stroke-width="1.3"/></svg>`}
 async function loadStopMeta(){
  if(stopMetaLoading||stopMetaReady)return;
  stopMetaLoading=true;
@@ -92,6 +92,19 @@ async function toggleStopMap(){
  if(!stopMetaReady)void loadStopMeta();
  renderStopMarkers();
 }
+// Rozpoznaj NŻ wyłącznie z jawnego oznaczenia w API lub GTFS.
+function isRequestStop(row,meta){
+ const flagNames=['na_zadanie','na_żądanie','nz','n_z','request_stop','stop_on_request','on_request','is_request_stop','czy_na_zadanie','typ_przystanku','rodzaj_przystanku','charakter_przystanku'];
+ for(const key of flagNames){
+  const raw=value(row,key);if(raw===undefined||raw===null||String(raw).trim()==='')continue;
+  const s=String(raw).trim().toLowerCase();
+  if(['true','tak','yes','nż','nz','na żądanie','na zadanie','request','1'].includes(s))return true;
+  if(['false','nie','no','stały','staly','fixed','0'].includes(s))return false;
+ }
+ if(meta&&meta.length>4&&meta[4]!==null){return meta[4]===1||meta[4]===true;}
+ const name=String(value(row,'nazwa_zespolu')||'');
+ return /(?:\(|\[|\s)(?:NŻ|NZ|na żądanie)(?:\)|\]|$)/i.test(name);
+}
 function renderStopMarkers(){
  if(!stopLayer)return;
  stopLayer.clearLayers();if(!showStopMarkers)return;
@@ -107,12 +120,15 @@ function renderStopMarkers(){
   const bus=meta&&Number.isFinite(meta[2]),tram=meta&&Number.isFinite(meta[3]);
   const color=bus&&tram?'#ed8b00':tram?'#e00000':bus?'#820082':'#64748b';
   const bearing=zoom>=STOP_ARROW_ZOOM?(bus&&tram?(meta[2]??meta[3]):tram?meta[3]:bus?meta[2]:null):null;
+  const requestStop=isRequestStop(row,meta);
+  const fill=requestStop?'#fff':color;
+  const arrowColor=requestStop?color:'#fff';
   let marker;
   if(Number.isFinite(bearing)){
-   marker=L.marker(coords,{icon:L.divIcon({className:'wtp-stop-icon',html:`<span class="wtp-stop-arrow" style="border-color:${color}">${stopDirectionSvg(bearing,color)}</span>`,iconSize:[23,23],iconAnchor:[11,11]})});withDirection++;
-  }else marker=L.circleMarker(coords,{radius:zoom>=STOP_ARROW_ZOOM?5:3.5,color,weight:2,fillColor:'#fff',fillOpacity:1});
+   marker=L.marker(coords,{icon:L.divIcon({className:'wtp-stop-icon',html:`<span class="wtp-stop-arrow" style="border-color:${color};background:${fill}">${stopDirectionSvg(bearing,arrowColor)}</span>`,iconSize:[25,25],iconAnchor:[12.5,12.5]})});withDirection++;
+  }else marker=L.circleMarker(coords,{radius:zoom>=STOP_ARROW_ZOOM?6:4.5,color,weight:2,fillColor:fill,fillOpacity:1});
   const mode=bus&&tram?'Autobusowo-tramwajowy':tram?'Tramwajowy':bus?'Autobusowy':'Rodzaj nieustalony';
-  marker.bindTooltip(escapeHTML(name)+' '+escapeHTML(n)+' · '+mode,{direction:'top'});
+  marker.bindTooltip(escapeHTML(name)+' '+escapeHTML(n),{direction:'top',className:'wtp-stop-tooltip '+(bus&&tram?'wtp-stop-tip-mixed':tram?'wtp-stop-tip-tram':bus?'wtp-stop-tip-bus':'wtp-stop-tip-unknown')});
   marker.bindPopup(`<b>${escapeHTML(name)} ${escapeHTML(n)}</b><br>${mode}<br><button class="open-stop">Zobacz odjazdy</button>`);
   marker.on('popupopen',()=>{const btn=marker.getPopup()?.getElement()?.querySelector('.open-stop');if(btn)btn.onclick=()=>{document.querySelector('[data-tab="odjazdy"]').click();$('stop').value=name;$('results').textContent=`Wybrano ${name} ${n}`;showLines(z,n,name)}});
   marker.addTo(stopLayer);shown++;if(shown>=650)break;
@@ -121,7 +137,7 @@ function renderStopMarkers(){
 }
 // WTP LIVE v42: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
 const lastLocations=new Map();
-const HISTORY_KEY='wtp-live-v44-gps';
+const HISTORY_KEY='wtp-live-v45-gps';
 try { const saved=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]'); for(const [k,v] of saved){if(Date.now()-v.seen<30*60*1000)lastLocations.set(k,v)} }catch{}
 function gpsMs(raw){const s=String(raw||'').trim().replace(' ','T');return Date.parse(s+(/(?:Z|[+-]\d\d:?\d\d)$/.test(s)?'':'Z'))}
 function direction(lat1,lon1,lat2,lon2){const r=Math.PI/180,y=Math.sin((lon2-lon1)*r)*Math.cos(lat2*r),x=Math.cos(lat1*r)*Math.sin(lat2*r)-Math.sin(lat1*r)*Math.cos(lat2*r)*Math.cos((lon2-lon1)*r);return(Math.atan2(y,x)*180/Math.PI+360)%360}

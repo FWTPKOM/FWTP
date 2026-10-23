@@ -39,7 +39,7 @@ def main():
                 with z.open(members[name]) as stream,io.TextIOWrapper(stream,encoding='utf-8-sig',newline='') as f:
                     yield from csv.DictReader(f)
             return it()
-        stops={r['stop_id']:(r.get('stop_name',''),float(r.get('stop_lat') or 0),float(r.get('stop_lon') or 0)) for r in rows('stops.txt')}
+        stops={r['stop_id']:(r.get('stop_name',''),float(r.get('stop_lat') or 0),float(r.get('stop_lon') or 0),r.get('stop_desc','')) for r in rows('stops.txt')}
         route_rows=list(rows('routes.txt'))
         routes={r['route_id']:r.get('route_short_name','') for r in route_rows}
         route_types={r['route_id']:int(r['route_type']) for r in route_rows if str(r.get('route_type','')).isdigit()}
@@ -173,8 +173,8 @@ def main():
         for (sid,mode),angles in headings.items():metadata.setdefault(sid,{})[mode]=dominant(angles)
         for (sid,mode),angles in fallback.items():
             if mode not in metadata.get(sid,{}):metadata.setdefault(sid,{})[mode]=dominant(angles)
-        stop_meta=[[stops[sid][1],stops[sid][2],data.get('bus'),data.get('tram')] for sid,data in metadata.items() if sid in stops]
-        print('Kierunki v44:',len(stop_meta),'przystanków;',len(shape_points),'geometrii shapes.txt',flush=True)
+        stop_meta=[[stops[sid][1],stops[sid][2],data.get('bus'),data.get('tram'),(1 if __import__('re').search(r'(?:\bNŻ\b|\bNZ\b|na żądanie|na zadanie)', str(stops[sid][3])+' '+str(stops[sid][0]),__import__('re').I) else None)] for sid,data in metadata.items() if sid in stops]
+        print('Kierunki v45:',len(stop_meta),'przystanków;',len(shape_points),'geometrii shapes.txt',flush=True)
 
         OUT.mkdir(exist_ok=True)
         desired={}
@@ -188,7 +188,7 @@ def main():
             for name in desired:os.replace(stage/name,OUT/name)
         for old in OUT.glob('*.json'):
             if old.name not in desired:old.unlink()
-        (OUT/'stops_meta.json').write_text(json.dumps({'version':44,'date':day,'stops':stop_meta},ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
+        (OUT/'stops_meta.json').write_text(json.dumps({'version':45,'date':day,'stops':stop_meta},ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
         (OUT/'status.json').write_text(json.dumps({'date':day,'source':source,'updated_at':dt.datetime.now(dt.timezone.utc).isoformat(),'lines':len(result)},ensure_ascii=False)+'\n',encoding='utf-8')
         print('Gotowe:',day,len(result),'linii',sum(map(len,result.values())),'kursów')
     os.unlink(path)
