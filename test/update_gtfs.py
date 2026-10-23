@@ -40,7 +40,13 @@ def main():
                     yield from csv.DictReader(f)
             return it()
         stops={r['stop_id']:(r.get('stop_name',''),float(r.get('stop_lat') or 0),float(r.get('stop_lon') or 0)) for r in rows('stops.txt')}
-        routes={r['route_id']:r.get('route_short_name','') for r in rows('routes.txt')}
+        route_rows=list(rows('routes.txt'))
+        routes={r['route_id']:r.get('route_short_name','') for r in route_rows}
+        route_types={r['route_id']:int(r['route_type']) for r in route_rows if str(r.get('route_type','')).isdigit()}
+        line_types={}
+        for r in route_rows:
+            line=r.get('route_short_name','')
+            if line and r['route_id'] in route_types:line_types.setdefault(line,set()).add(route_types[r['route_id']])
         services=set()
         weekday=['monday','tuesday','wednesday','thursday','friday','saturday','sunday'][today.weekday()]
         for r in rows('calendar.txt'):
@@ -77,6 +83,39 @@ def main():
                 sequence.append([sid,name,lat,lon,tm])
         flush()
         if not result:raise RuntimeError('Brak kompletnych tras; nie nadpisuję danych')
+        # v43: kierunki i typy WSZYSTKICH przystanków z GTFS.
+        # Unikalne odcinki, aby częstotliwość kursowania nie wypaczała kierunku.
+        import math, collections
+        edges=collections.defaultdict(set)
+        incoming=collections.defaultdict(set)
+        for line,items in result.items():
+            kinds=line_types.get(line,set())
+            modes=(["tram"] if 0 in kinds else [])+(["bus"] if 3 in kinds or 700 in kinds else [])
+            for trip in items:
+                seq=trip['stops']
+                for a,b in zip(seq,seq[1:]):
+                    if a[0]==b[0]:continue
+                    for mode in modes:
+                        edges[(a[0],mode)].add(b[0]);incoming[(b[0],mode)].add(a[0])
+        def bearing(a,b):
+            if a not in stops or b not in stops:return None
+            _,la,lo=stops[a];_,lb,lob=stops[b];r=math.pi/180
+            y=math.sin((lob-lo)*r)*math.cos(lb*r)
+            x=math.cos(la*r)*math.sin(lb*r)-math.sin(la*r)*math.cos(lb*r)*math.cos((lob-lo)*r)
+            return (math.degrees(math.atan2(y,x))+360)%360
+        def dominant(angles):
+            angles=[a for a in angles if a is not None]
+            if not angles:return None
+            center=max(angles,key=lambda a:sum(abs((a-b+180)%360-180)<=45 for b in angles))
+            cluster=[a for a in angles if abs((a-center+180)%360-180)<=45]
+            return round((math.degrees(math.atan2(sum(math.sin(math.radians(a)) for a in cluster),sum(math.cos(math.radians(a)) for a in cluster)))+360)%360,1)
+        metadata={}
+        for (sid,mode),targets in edges.items():metadata.setdefault(sid,{})[mode]=dominant(bearing(sid,b) for b in targets)
+        # Dla końcowych, bez odjazdu w GTFS, zachowaj orientację dojazdu.
+        for (sid,mode),sources in incoming.items():
+            if mode not in metadata.get(sid,{}):metadata.setdefault(sid,{})[mode]=dominant(bearing(a,sid) for a in sources)
+        stop_meta=[[stops[sid][1],stops[sid][2],data.get('bus'),data.get('tram')] for sid,data in metadata.items() if sid in stops]
+
         OUT.mkdir(exist_ok=True)
         desired={}
         for line,items in result.items():
@@ -89,6 +128,7 @@ def main():
             for name in desired:os.replace(stage/name,OUT/name)
         for old in OUT.glob('*.json'):
             if old.name not in desired:old.unlink()
+        (OUT/'stops_meta.json').write_text(json.dumps({'version':43,'date':day,'stops':stop_meta},ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
         (OUT/'status.json').write_text(json.dumps({'date':day,'source':source,'updated_at':dt.datetime.now(dt.timezone.utc).isoformat(),'lines':len(result)},ensure_ascii=False)+'\n',encoding='utf-8')
         print('Gotowe:',day,len(result),'linii',sum(map(len,result.values())),'kursów')
     os.unlink(path)

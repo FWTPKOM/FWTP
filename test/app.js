@@ -1,4 +1,4 @@
-// WTP LIVE v40 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v43 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -51,130 +51,77 @@ function normalizeVehicle(v){
  return {...v,Lines:String(pick('Lines','Linie','line','linia')).trim(),Lat:Number(pick('Lat','Szer. geogr.','latitude','lat')),Lon:Number(pick('Lon','Dł. geogr.','longitude','lon')),Time:String(pick('Time','Czas','time')).trim(),VehicleNumber:String(pick('VehicleNumber','Numer pojazdu','vehicleNumber')).trim(),Brigade:String(pick('Brigade','Brygada','brigade')).trim(),_bearing:v._bearing!==null&&v._bearing!==undefined&&Number.isFinite(Number(v._bearing))?Number(v._bearing):null};
 }
 function validTime(t){return /^\d{1,2}:\d{2}(?::\d{2})?$/.test(String(t??'').trim())}
-// WTP LIVE v40 — przystanki: daleko niewidoczne, srednio kropki, blisko kierunek z GTFS.
+// WTP LIVE v43 — przystanki: metadane wszystkich tras GTFS, nie tylko pojazdów w kadrze.
 let stopLayer,showStopMarkers=true,stopMapLoading=false;
 const STOP_DOT_ZOOM=13,STOP_ARROW_ZOOM=16;
-const stopBearings=new Map();
-// v42: jedna wiarygodna orientacja na słupek; nie łącz przeciwnych kierunków.
-let stopSpatialIndex=null;
-function nearbyStopRows(lat,lon){
- if(!stopSpatialIndex){stopSpatialIndex=new Map();for(const row of stops){const p=stopCoordinates(row);if(!p)continue;const k=Math.round(p[0]*1000)+','+Math.round(p[1]*1000);if(!stopSpatialIndex.has(k))stopSpatialIndex.set(k,[]);stopSpatialIndex.get(k).push(row)}}
- const result=[];for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)result.push(...(stopSpatialIndex.get((Math.round(lat*1000)+a)+','+(Math.round(lon*1000)+b))||[]));return result;
-}
-const stopRouteLoaded=new Set();
-let stopRouteLoading=false;
+let stopMeta=[],stopMetaLoading=false,stopMetaReady=false;
 function stopCoordinates(row){
-  const lat=Number(value(row,'szer_geo')||value(row,'lat')||value(row,'latitude'));
-  const lon=Number(value(row,'dlug_geo')||value(row,'lon')||value(row,'longitude'));
-  return Number.isFinite(lat)&&Number.isFinite(lon)&&lat>51&&lat<53&&lon>19&&lon<23?[lat,lon]:null;
+ const lat=Number(value(row,'szer_geo')||value(row,'lat')||value(row,'latitude'));
+ const lon=Number(value(row,'dlug_geo')||value(row,'lon')||value(row,'longitude'));
+ return Number.isFinite(lat)&&Number.isFinite(lon)&&lat>51&&lat<53&&lon>19&&lon<23?[lat,lon]:null;
 }
-function stopKey(row){return String(value(row,'zespol')).trim()+':'+String(value(row,'slupek')).trim()}
-function stopDirectionSvg(deg){return `<svg width="19" height="19" viewBox="0 0 24 24" style="transform:rotate(${Math.round(deg)}deg)" aria-hidden="true"><path d="M12 2 L21 21 L12 17 L3 21 Z" fill="#075e54" stroke="white" stroke-width="1.6"/></svg>`}
+function stopDirectionSvg(deg,color){return `<svg width="18" height="18" viewBox="0 0 24 24" style="transform:rotate(${Math.round(deg)}deg)" aria-hidden="true"><path d="M12 2 L21 21 L12 17 L3 21 Z" fill="${color}" stroke="white" stroke-width="1.6"/></svg>`}
+async function loadStopMeta(){
+ if(stopMetaLoading||stopMetaReady)return;
+ stopMetaLoading=true;
+ try{
+  const r=await fetch('gtfs/stops_meta.json',{cache:'no-cache'});
+  if(!r.ok)throw Error('Brak gtfs/stops_meta.json (HTTP '+r.status+')');
+  const json=await r.json();if(!Array.isArray(json.stops))throw Error('Nieprawidłowy format metadanych');
+  stopMeta=json.stops;stopMetaReady=true;
+ }catch(e){console.warn('Metadane kierunków przystanków:',e.message)}
+ finally{stopMetaLoading=false;renderStopMarkers()}
+}
+function stopMetaAt(lat,lon){
+ let closest=null,d=Infinity;
+ for(const m of stopMeta){
+  if(Math.abs(m[0]-lat)>.00023||Math.abs(m[1]-lon)>.00035)continue;
+  const metres=Math.hypot((m[0]-lat)*111195,(m[1]-lon)*111195*Math.cos(lat*Math.PI/180));
+  if(metres<d){d=metres;closest=m}
+ }
+ return d<=22?closest:null;
+}
 async function toggleStopMap(){
-  showStopMarkers=$('showStops')?.checked??true;
-  if(!showStopMarkers){stopLayer?.clearLayers();return}
-  if(!stops.length&&!stopMapLoading){
-    stopMapLoading=true;$('stopStatus').textContent='Pobieranie przystanków…';
-    try{stops=normalizedRows(await request('/stops'))}catch(e){$('stopStatus').textContent='Błąd przystanków: '+e.message}
-    finally{stopMapLoading=false}
-  }
-  renderStopMarkers();
-}
-function addStopDirection(id,deg){
-  if(!Number.isFinite(deg))return;
-  const vals=stopBearings.get(id)||[];
-  // Jeden przejazd może mieć kilka wariantów; zachowujemy próbki do ustalenia dominującego kierunku.
-  if(vals.length<200)vals.push((deg+360)%360);
-  stopBearings.set(id,vals);
-}
-function selectedStopDirection(id){
-  const vals=stopBearings.get(id)||[];
-  if(!vals.length)return null;
-  // Dominujący kierunek: kołowa mediana wokół największego skupiska ±35°.
-  let best=null;
-  for(const candidate of vals){
-    const matching=vals.filter(v=>Math.abs(((v-candidate+540)%360)-180)<=35);
-    if(!best||matching.length>best.length)best=matching;
-  }
-  // Jeżeli kierunki są sprzeczne i żaden nie dominuje, nie pokazuj mylącej strzałki.
-  if(best.length/vals.length<0.65)return null;
-  const x=best.reduce((s,v)=>s+Math.sin(v*Math.PI/180),0);
-  const y=best.reduce((s,v)=>s+Math.cos(v*Math.PI/180),0);
-  return (Math.atan2(x,y)*180/Math.PI+360)%360;
-}
-async function loadVisibleStopDirections(){
-  if(stopRouteLoading||!showStopMarkers||map.getZoom()<STOP_ARROW_ZOOM)return;
-  // GTFS jest źródłem planowego kierunku wyjazdu ze słupka, nie chwilowego GPS.
-  const bounds=map.getBounds().pad(.15);
-  const lines=[...new Set(vehicles.filter(v=>bounds.contains([Number(v.Lat),Number(v.Lon)])).map(v=>String(v.Lines||'').trim()).filter(Boolean))]
-    .filter(l=>!stopRouteLoaded.has(l)).slice(0,12);
-  if(!lines.length)return;
-  stopRouteLoading=true;
-  try{
-    await Promise.allSettled(lines.map(async line=>{
-      stopRouteLoaded.add(line);
-      try{
-        const data=await loadGtfs(line);
-        for(const trip of data.trips||[]){
-          const seq=trip.stops||[];
-          for(let i=0;i+1<seq.length;i++){
-            const a=seq[i],b=seq[i+1];
-            if(!Array.isArray(a)||!Array.isArray(b))continue;
-            const la=Number(a[2]),lo=Number(a[3]),lb=Number(b[2]),lob=Number(b[3]);
-            if(![la,lo,lb,lob].every(Number.isFinite)||!bounds.contains([la,lo]))continue;
-            const bearing=direction(la,lo,lb,lob);
-            // Wybierz WYŁĄCZNIE najbliższy słupek, nie wszystkie w promieniu 25 m.
-            // Dzięki temu kierunek z drugiej strony ulicy nie trafia do tego słupka.
-            let nearest=null,nearestMetres=Infinity;
-            for(const row of nearbyStopRows(la,lo)){
-              const pos=stopCoordinates(row);
-              if(!pos||!bounds.contains(pos))continue;
-              const metres=Math.hypot((pos[0]-la)*111195,(pos[1]-lo)*111195*Math.cos(la*Math.PI/180));
-              if(metres<nearestMetres){nearest=row;nearestMetres=metres;}
-            }
-            if(nearest&&nearestMetres<18)addStopDirection(stopKey(nearest),bearing);
-          }
-        }
-      }catch(e){console.warn('Kierunki przystanków: '+line,e.message)}
-    }));
-  }finally{stopRouteLoading=false;renderStopMarkers()}
+ showStopMarkers=$('showStops')?.checked??true;
+ if(!showStopMarkers){stopLayer?.clearLayers();return}
+ if(!stops.length&&!stopMapLoading){
+  stopMapLoading=true;$('stopStatus').textContent='Pobieranie przystanków…';
+  try{stops=normalizedRows(await request('/stops'))}catch(e){$('stopStatus').textContent='Błąd przystanków: '+e.message}
+  finally{stopMapLoading=false}
+ }
+ if(!stopMetaReady)void loadStopMeta();
+ renderStopMarkers();
 }
 function renderStopMarkers(){
-  if(!stopLayer)return;
-  stopLayer.clearLayers();
-  if(!showStopMarkers)return;
-  const zoom=map.getZoom();
-  if(zoom<STOP_DOT_ZOOM){$('stopStatus').textContent='Przystanki ukryte — przybliż mapę, aby zobaczyć kropki.';return}
-  if(!stops.length){if(!stopMapLoading)toggleStopMap();return}
-  const bounds=map.getBounds();let shown=0,withDirection=0;
-  for(const row of stops){
-    const coords=stopCoordinates(row);if(!coords||!bounds.contains(coords))continue;
-    const z=String(value(row,'zespol')),n=String(value(row,'slupek')),name=String(value(row,'nazwa_zespolu'));
-    if(!z||!n)continue;
-    const bearing=zoom>=STOP_ARROW_ZOOM?selectedStopDirection(stopKey(row)):null;
-    let marker;
-    if(Number.isFinite(bearing)){
-      const html='<span class="wtp-stop-arrow">'+stopDirectionSvg(bearing)+'</span>';
-      marker=L.marker(coords,{icon:L.divIcon({className:'wtp-stop-icon',html,iconSize:[23,23],iconAnchor:[11,11]})});
-      withDirection++;
-    }else{
-      marker=L.circleMarker(coords,{radius:zoom>=STOP_ARROW_ZOOM?5:3.5,color:'#075e54',weight:1.5,fillColor:'#fff',fillOpacity:1});
-    }
-    marker.bindTooltip(escapeHTML(name)+' '+escapeHTML(n),{direction:'top'});
-    marker.bindPopup(`<b>${escapeHTML(name)} ${escapeHTML(n)}</b><br><button class="open-stop">Zobacz odjazdy</button>`);
-    marker.on('popupopen',()=>{
-      const btn=marker.getPopup()?.getElement()?.querySelector('.open-stop');
-      if(btn)btn.onclick=()=>{document.querySelector('[data-tab="odjazdy"]').click();$('stop').value=name;$('results').textContent=`Wybrano ${name} ${n}`;showLines(z,n,name)};
-    });
-    marker.addTo(stopLayer);shown++;
-    if(shown>=650)break;
-  }
-  $('stopStatus').textContent=zoom<STOP_ARROW_ZOOM?`Przystanki: ${shown} kropek. Przybliż do poziomu ${STOP_ARROW_ZOOM}, aby zobaczyć kierunki.`:`Przystanki: ${shown}; kierunki z GTFS: ${withDirection}. Pozostałe są kropkami.`;
-  if(zoom>=STOP_ARROW_ZOOM&&!stopRouteLoading)void loadVisibleStopDirections();
+ if(!stopLayer)return;
+ stopLayer.clearLayers();if(!showStopMarkers)return;
+ const zoom=map.getZoom();
+ if(zoom<STOP_DOT_ZOOM){$('stopStatus').textContent='Przystanki ukryte — przybliż mapę.';return}
+ if(!stops.length){if(!stopMapLoading)void toggleStopMap();return}
+ const bounds=map.getBounds();let shown=0,withDirection=0;
+ for(const row of stops){
+  const coords=stopCoordinates(row);if(!coords||!bounds.contains(coords))continue;
+  const z=String(value(row,'zespol')),n=String(value(row,'slupek')),name=String(value(row,'nazwa_zespolu'));
+  if(!z||!n)continue;
+  const meta=stopMetaAt(coords[0],coords[1]);
+  const bus=meta&&Number.isFinite(meta[2]),tram=meta&&Number.isFinite(meta[3]);
+  const color=bus&&tram?'#ed8b00':tram?'#e00000':bus?'#820082':'#64748b';
+  const bearing=zoom>=STOP_ARROW_ZOOM?(bus&&tram?(meta[2]??meta[3]):tram?meta[3]:bus?meta[2]:null):null;
+  let marker;
+  if(Number.isFinite(bearing)){
+   marker=L.marker(coords,{icon:L.divIcon({className:'wtp-stop-icon',html:`<span class="wtp-stop-arrow" style="border-color:${color}">${stopDirectionSvg(bearing,color)}</span>`,iconSize:[23,23],iconAnchor:[11,11]})});withDirection++;
+  }else marker=L.circleMarker(coords,{radius:zoom>=STOP_ARROW_ZOOM?5:3.5,color,weight:2,fillColor:'#fff',fillOpacity:1});
+  const mode=bus&&tram?'Autobusowo-tramwajowy':tram?'Tramwajowy':bus?'Autobusowy':'Rodzaj nieustalony';
+  marker.bindTooltip(escapeHTML(name)+' '+escapeHTML(n)+' · '+mode,{direction:'top'});
+  marker.bindPopup(`<b>${escapeHTML(name)} ${escapeHTML(n)}</b><br>${mode}<br><button class="open-stop">Zobacz odjazdy</button>`);
+  marker.on('popupopen',()=>{const btn=marker.getPopup()?.getElement()?.querySelector('.open-stop');if(btn)btn.onclick=()=>{document.querySelector('[data-tab="odjazdy"]').click();$('stop').value=name;$('results').textContent=`Wybrano ${name} ${n}`;showLines(z,n,name)}});
+  marker.addTo(stopLayer);shown++;if(shown>=650)break;
+ }
+ $('stopStatus').textContent=`Przystanki: ${shown}; strzałki: ${withDirection}. Fioletowy: autobus · czerwony: tramwaj · pomarańczowy: oba.`+(stopMetaReady?'':' Trwa wczytywanie danych GTFS.');
 }
 // WTP LIVE v42: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
 const lastLocations=new Map();
-const HISTORY_KEY='wtp-live-v42-gps';
+const HISTORY_KEY='wtp-live-v43-gps';
 try { const saved=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]'); for(const [k,v] of saved){if(Date.now()-v.seen<30*60*1000)lastLocations.set(k,v)} }catch{}
 function gpsMs(raw){const s=String(raw||'').trim().replace(' ','T');return Date.parse(s+(/(?:Z|[+-]\d\d:?\d\d)$/.test(s)?'':'Z'))}
 function direction(lat1,lon1,lat2,lon2){const r=Math.PI/180,y=Math.sin((lon2-lon1)*r)*Math.cos(lat2*r),x=Math.cos(lat1*r)*Math.sin(lat2*r)-Math.sin(lat1*r)*Math.cos(lat2*r)*Math.cos((lon2-lon1)*r);return(Math.atan2(y,x)*180/Math.PI+360)%360}
