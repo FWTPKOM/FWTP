@@ -82,7 +82,7 @@ def main():
         for trip,seq,sid,tm in conn.execute('SELECT trip,seq,stop,tm FROM times ORDER BY trip,seq'):
             if trip!=previous:flush();previous=trip;sequence=[]
             if sid in stops:
-                name,lat,lon=stops[sid]
+                name,lat,lon,*additional=stops[sid]
                 sequence.append([sid,name,lat,lon,tm])
         flush()
         if not result:raise RuntimeError('Brak kompletnych tras; nie nadpisuję danych')
