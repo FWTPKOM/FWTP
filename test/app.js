@@ -1,4 +1,4 @@
-// WTP LIVE v35 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v36 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -96,9 +96,9 @@ function renderStopMarkers(){
   }
   $('stopStatus').textContent=`Przystanki w widoku: ${shown}. Kierunki sprawdzisz po wybraniu przystanku i linii.`;
 }
-// WTP LIVE v35: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
+// WTP LIVE v36: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
 const lastLocations=new Map();
-const HISTORY_KEY='wtp-live-v35-gps';
+const HISTORY_KEY='wtp-live-v36-gps';
 try { const saved=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]'); for(const [k,v] of saved){if(Date.now()-v.seen<30*60*1000)lastLocations.set(k,v)} }catch{}
 function gpsMs(raw){const s=String(raw||'').trim().replace(' ','T');return Date.parse(s+(/(?:Z|[+-]\d\d:?\d\d)$/.test(s)?'':'Z'))}
 function direction(lat1,lon1,lat2,lon2){const r=Math.PI/180,y=Math.sin((lon2-lon1)*r)*Math.cos(lat2*r),x=Math.cos(lat1*r)*Math.sin(lat2*r)-Math.sin(lat1*r)*Math.cos(lat2*r)*Math.cos((lon2-lon1)*r);return(Math.atan2(y,x)*180/Math.PI+360)%360}
@@ -160,7 +160,7 @@ let busy=false;
 const received={1:[],2:[]};
 const sourceInfo={1:{total:0,fresh:0,newest:0},2:{total:0,fresh:0,newest:0}};
 const fetchedAt={1:0,2:0};
-const SNAPSHOT_KEY='wtp-live-v35-last-good';
+const SNAPSHOT_KEY='wtp-live-v36-last-good';
 try {const saved=JSON.parse(sessionStorage.getItem(SNAPSHOT_KEY)||'{}');for(const type of [1,2])if(Date.now()-saved[type]?.at<3*60*1000){received[type]=(saved[type].rows||[]).map(normalizeVehicle).filter(v=>Number.isFinite(gpsMs(v.Time))&&Date.now()-gpsMs(v.Time)<15*60000);fetchedAt[type]=saved[type].at}}catch{}
 function publishVehicles(){vehicles=[...received[1].map(v=>({...v,kind:1})),...received[2].map(v=>({...v,kind:2}))];draw()}
 function gpsAgeDescription(){
