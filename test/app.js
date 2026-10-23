@@ -1,4 +1,4 @@
-// WTP LIVE v46 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v48 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -95,11 +95,11 @@ async function toggleStopMap(){
 }
 // Rozpoznaj NŻ wyłącznie z jawnego oznaczenia w API lub GTFS.
 function isRequestStop(row,meta){
- const flagNames=['na_zadanie','na_żądanie','nz','n_z','request_stop','stop_on_request','on_request','is_request_stop','czy_na_zadanie','typ_przystanku','rodzaj_przystanku','charakter_przystanku'];
+ const flagNames=['na_zadanie','na_żądanie','nz','n_z','request_stop','stop_on_request','on_request','is_request_stop','czy_na_zadanie','typ_przystanku','rodzaj_przystanku','charakter_przystanku','stop_type','stop_kind','stop_category','request','is_on_demand','on_demand','nazwa_typu','status_przystanku'];
  for(const key of flagNames){
   const raw=value(row,key);if(raw===undefined||raw===null||String(raw).trim()==='')continue;
   const s=String(raw).trim().toLowerCase();
-  if(['true','tak','yes','nż','nz','na żądanie','na zadanie','request','1'].includes(s))return true;
+  if(['true','tak','yes','nż','nz','na żądanie','na zadanie','request','1','n/z','na życzenie'].includes(s)||/na\s+żądanie|na\s+zadanie/i.test(s))return true;
   if(['false','nie','no','stały','staly','fixed','0'].includes(s))return false;
  }
  if(meta&&meta.length>4&&meta[4]!==null){return meta[4]===1||meta[4]===true;}
@@ -401,6 +401,21 @@ function setTab(tab,record=true){
 }
 
 
+// v48: dopasowanie pojazdu do kursu wymaga zgodności linii i brygady.
+// Brak brygady w odjeździe oznacza brak wiarygodnego przypisania.
+function vehicleForDeparture(e){
+ if(!e.brigade)return null;
+ const matches=vehicles.filter(v=>String(v.Lines||'').trim().toUpperCase()===String(e.line).trim().toUpperCase()&&String(v.Brigade||'').trim().toUpperCase()===String(e.brigade).trim().toUpperCase()&&Number.isFinite(Number(v.Lat))&&Number.isFinite(Number(v.Lon)));
+ return matches.length===1?matches[0]:null;
+}
+// Przewidywany czas pokazujemy tylko, jeśli nowe API poda go jawnie.
+// Sam GPS i numer brygady nie wystarczają do obliczenia opóźnienia.
+function apiPredictedTime(row){
+ for(const k of ['predicted_departure','predictedDeparture','estimated_departure','estimatedDeparture','realtime_departure','realtimeDeparture','prognoza_odjazdu','czas_prognozowany','godzina_prognozowana']){
+  const raw=value(row,k);if(raw!==undefined&&raw!==null&&validTime(String(raw).trim()))return String(raw).trim().slice(0,5);
+ }
+ return null;
+}
 // v47: panel przystanku — bez dymka Leaflet. API odjazdów pozostaje źródłem godzin.
 function setStopLineHover(line){
  hoveredStopLine=String(line||'').trim().toUpperCase();
@@ -450,7 +465,7 @@ async function openStopPanel(z,n,name,color){
    try{
     const rows=normalizedRows(await request('/departures',{busstopId:z,busstopNr:n,line}));
     for(const r of rows){const time=String(value(r,'czas')||value(r,'time')||'').trim();if(!validTime(time))continue;
-     all.push({line,time,direction:String(value(r,'kierunek')||value(r,'direction')||'').trim(),brigade:String(value(r,'brygada')||value(r,'brigade')||'').trim()});}
+     all.push({line,time,direction:String(value(r,'kierunek')||value(r,'direction')||'').trim(),brigade:String(value(r,'brygada')||value(r,'brigade')||'').trim(),predicted:apiPredictedTime(r)});}
    }catch(e){failures++}completed++;
    if(serial===stopPaneRequest){renderEntries();status.hidden=all.length>0; if(!all.length)status.textContent=completed===lines.length?'Brak dostępnych odjazdów.':'Pobieranie odjazdów…';}
   }}
@@ -461,7 +476,13 @@ async function openStopPanel(z,n,name,color){
    if(!entries.length){list.textContent=completed===lines.length?'Brak rozpoznanych godzin odjazdów.':'Oczekiwanie na odjazdy…';return}
    for(const e of entries){
     const item=document.createElement('div');item.className='wtp-stop-departure';item.style.setProperty('--stop-color',color);
-    const time=document.createElement('strong');time.className='wtp-stop-departure-time';time.textContent=e.time.slice(0,5);
+    const time=document.createElement('div');time.className='wtp-stop-departure-time';
+    const planned=document.createElement('strong');planned.textContent=e.time.slice(0,5);
+    if(e.predicted&&e.predicted!==e.time.slice(0,5)){
+      planned.className='wtp-stop-planned-changed';planned.title='Godzina rozkładowa';
+      const predicted=document.createElement('strong');predicted.className='wtp-stop-predicted';predicted.textContent=e.predicted;predicted.title='Prognoza podana przez API';
+      time.append(planned,predicted);
+    }else time.append(planned);
     const badge=document.createElement('button');badge.className='wtp-stop-line';badge.textContent=e.line;badge.title='Najedź, aby pokazać pojazdy linii '+e.line;
     badge.onmouseenter=()=>setStopLineHover(e.line);
     badge.onmouseleave=()=>setStopLineHover('');
@@ -471,18 +492,19 @@ async function openStopPanel(z,n,name,color){
       selected=e.line;
       pinnedStopLine=String(e.line).toUpperCase();
       const matching=vehicles.filter(v=>String(v.Lines||v.lines||'').toUpperCase()===pinnedStopLine&&Number.isFinite(Number(v.Lat??v.lat))&&Number.isFinite(Number(v.Lon??v.lon)));
-      const sameBrigade=matching.filter(v=>e.brigade&&String(v.Brigade??v.brigade??'').trim()===e.brigade);
-      const pool=sameBrigade.length?sameBrigade:matching;
+      const exact=vehicleForDeparture(e);
+      const pool=exact?[exact]:[];
       const stopLat=Number.isFinite(Number(window._selectedStopLat))?Number(window._selectedStopLat):map.getCenter().lat;
       const stopLon=Number.isFinite(Number(window._selectedStopLon))?Number(window._selectedStopLon):map.getCenter().lng;
       pool.sort((a,b)=>map.distance([Number(a.Lat??a.lat),Number(a.Lon??a.lon)],[stopLat,stopLon])-map.distance([Number(b.Lat??b.lat),Number(b.Lon??b.lon)],[stopLat,stopLon]));
       pinnedStopVehicle=pool[0]||null;
       hoveredStopLine='';draw();
       if(pinnedStopVehicle){map.setView([Number(pinnedStopVehicle.Lat??pinnedStopVehicle.lat),Number(pinnedStopVehicle.Lon??pinnedStopVehicle.lon)],Math.max(map.getZoom(),15));}
-      else {status.hidden=false;status.textContent='Brak aktualnej pozycji pojazdu tej linii.';}
+      else {status.hidden=false;status.textContent=e.brigade?'Nie można jednoznacznie przypisać pojazdu do brygady '+e.brigade+'.':'Brak numeru brygady w odjeździe — nie przypisuję przypadkowego pojazdu.';}
     };
     const info=document.createElement('div');info.className='wtp-stop-departure-direction';info.textContent=e.direction||'Kierunek niepodany';
-    const sub=document.createElement('small');sub.textContent=e.brigade?'Brygada '+e.brigade:'Odjazd planowy';info.append(sub);
+    const sub=document.createElement('small');const linked=vehicleForDeparture(e);
+    sub.textContent=e.brigade?'Brygada '+e.brigade+(linked?' · pojazd '+linked.VehicleNumber:' · pojazd nieustalony'):'Brygada nieustalona';info.append(sub);
     item.append(time,badge,info);list.append(item);
    }
   }
