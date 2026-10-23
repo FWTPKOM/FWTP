@@ -1,4 +1,4 @@
-// WTP LIVE v48 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v49 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -381,7 +381,7 @@ async function openVehiclePanel(v){
    }
   const {trip,index,distance}=match.choice;
   body.replaceChildren();
-  const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · godziny planowe · kurs dobrany orientacyjnie na podstawie GPS i czasu'+(match.ambiguous?' (kilka możliwych kursów)':'')+'. Brygada nie jest powiązana bezpośrednio z GTFS.';body.append(heading);
+  const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · godziny rozkładowe; brak potwierdzonej prognozy dla tego kursu.';body.append(heading);
   const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
   trip.stops.forEach((item,i)=>{
    const li=document.createElement('li');li.className='route-stop'+(i===index?' current':'')+(i<index?' passed':'');
@@ -390,7 +390,7 @@ async function openVehiclePanel(v){
    const t=document.createElement('time');t.className='route-stop-time';t.textContent=item[4];
    li.append(dot,name,t);list.append(li);
   });body.append(list);
-  const active=list.children[index];if(active)active.scrollIntoView({block:'nearest',behavior:'smooth'});
+  const active=list.children[index];if(active){requestAnimationFrame(()=>{const container=$('vehicleBody');const target=active.offsetTop-list.offsetTop;container.scrollTop=Math.max(0,target-container.clientHeight/2);});}
  }catch(e){if(serial===vehiclePanelRequest)note.textContent='Nie udało się wczytać GTFS: '+e.message}
 }
 function setTab(tab,record=true){
