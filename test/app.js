@@ -1,4 +1,4 @@
-// WTP LIVE v38 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v40 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -51,54 +51,111 @@ function normalizeVehicle(v){
  return {...v,Lines:String(pick('Lines','Linie','line','linia')).trim(),Lat:Number(pick('Lat','Szer. geogr.','latitude','lat')),Lon:Number(pick('Lon','Dł. geogr.','longitude','lon')),Time:String(pick('Time','Czas','time')).trim(),VehicleNumber:String(pick('VehicleNumber','Numer pojazdu','vehicleNumber')).trim(),Brigade:String(pick('Brigade','Brygada','brigade')).trim(),_bearing:v._bearing!==null&&v._bearing!==undefined&&Number.isFinite(Number(v._bearing))?Number(v._bearing):null};
 }
 function validTime(t){return /^\d{1,2}:\d{2}(?::\d{2})?$/.test(String(t??'').trim())}
-let stopLayer,showStopMarkers=false,stopMapLoading=false;
+// WTP LIVE v40 — przystanki: daleko niewidoczne, srednio kropki, blisko kierunek z GTFS.
+let stopLayer,showStopMarkers=true,stopMapLoading=false;
+const STOP_DOT_ZOOM=13,STOP_ARROW_ZOOM=16;
+const stopBearings=new Map();
+let stopSpatialIndex=null;
+function nearbyStopRows(lat,lon){
+ if(!stopSpatialIndex){stopSpatialIndex=new Map();for(const row of stops){const p=stopCoordinates(row);if(!p)continue;const k=Math.round(p[0]*1000)+','+Math.round(p[1]*1000);if(!stopSpatialIndex.has(k))stopSpatialIndex.set(k,[]);stopSpatialIndex.get(k).push(row)}}
+ const result=[];for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)result.push(...(stopSpatialIndex.get((Math.round(lat*1000)+a)+','+(Math.round(lon*1000)+b))||[]));return result;
+}
+const stopRouteLoaded=new Set();
+let stopRouteLoading=false;
 function stopCoordinates(row){
   const lat=Number(value(row,'szer_geo')||value(row,'lat')||value(row,'latitude'));
   const lon=Number(value(row,'dlug_geo')||value(row,'lon')||value(row,'longitude'));
   return Number.isFinite(lat)&&Number.isFinite(lon)&&lat>51&&lat<53&&lon>19&&lon<23?[lat,lon]:null;
 }
+function stopKey(row){return String(value(row,'zespol')).trim()+':'+String(value(row,'slupek')).trim()}
+function stopDirectionSvg(deg){return `<svg width="19" height="19" viewBox="0 0 24 24" style="transform:rotate(${Math.round(deg)}deg)" aria-hidden="true"><path d="M12 2 L21 21 L12 17 L3 21 Z" fill="#075e54" stroke="white" stroke-width="1.6"/></svg>`}
 async function toggleStopMap(){
-  showStopMarkers=$('showStops').checked;
-  if(!showStopMarkers){stopLayer.clearLayers();return}
-  if(stopMapLoading)return;
-  stopMapLoading=true;
-  $('stopStatus').textContent='Pobieranie przystanków…';
+  showStopMarkers=$('showStops')?.checked??true;
+  if(!showStopMarkers){stopLayer?.clearLayers();return}
+  if(!stops.length&&!stopMapLoading){
+    stopMapLoading=true;$('stopStatus').textContent='Pobieranie przystanków…';
+    try{stops=normalizedRows(await request('/stops'))}catch(e){$('stopStatus').textContent='Błąd przystanków: '+e.message}
+    finally{stopMapLoading=false}
+  }
+  renderStopMarkers();
+}
+function addStopDirection(id,deg){
+  if(!Number.isFinite(deg))return;
+  const vals=stopBearings.get(id)||[];
+  if(!vals.some(v=>Math.abs(((v-deg+540)%360)-180)<22))vals.push(deg);
+  stopBearings.set(id,vals.slice(0,4));
+}
+async function loadVisibleStopDirections(){
+  if(stopRouteLoading||!showStopMarkers||map.getZoom()<STOP_ARROW_ZOOM)return;
+  // GTFS jest źródłem planowego kierunku wyjazdu ze słupka, nie chwilowego GPS.
+  const bounds=map.getBounds().pad(.15);
+  const lines=[...new Set(vehicles.filter(v=>bounds.contains([Number(v.Lat),Number(v.Lon)])).map(v=>String(v.Lines||'').trim()).filter(Boolean))]
+    .filter(l=>!stopRouteLoaded.has(l)).slice(0,12);
+  if(!lines.length)return;
+  stopRouteLoading=true;
   try{
-    if(!stops.length)stops=normalizedRows(await request('/stops'));
-    renderStopMarkers();
-  }catch(e){$('stopStatus').textContent='Błąd przystanków: '+e.message}
-  finally{stopMapLoading=false}
+    await Promise.allSettled(lines.map(async line=>{
+      stopRouteLoaded.add(line);
+      try{
+        const data=await loadGtfs(line);
+        for(const trip of data.trips||[]){
+          const seq=trip.stops||[];
+          for(let i=0;i+1<seq.length;i++){
+            const a=seq[i],b=seq[i+1];
+            if(!Array.isArray(a)||!Array.isArray(b))continue;
+            const la=Number(a[2]),lo=Number(a[3]),lb=Number(b[2]),lob=Number(b[3]);
+            if(![la,lo,lb,lob].every(Number.isFinite)||!bounds.contains([la,lo]))continue;
+            const bearing=direction(la,lo,lb,lob);
+            // GTFS przechowuje identyfikator zespołu; słupek dopasowujemy geograficznie.
+            for(const row of nearbyStopRows(la,lo)){
+              const pos=stopCoordinates(row);
+              if(!pos||!bounds.contains(pos))continue;
+              if(Math.abs(pos[0]-la)>.00028||Math.abs(pos[1]-lo)>.00045)continue;
+              const metres=Math.hypot((pos[0]-la)*111195,(pos[1]-lo)*111195*Math.cos(la*Math.PI/180));
+              if(metres<25)addStopDirection(stopKey(row),bearing);
+            }
+          }
+        }
+      }catch(e){console.warn('Kierunki przystanków: '+line,e.message)}
+    }));
+  }finally{stopRouteLoading=false;renderStopMarkers()}
 }
 function renderStopMarkers(){
-  if(!showStopMarkers||!stopLayer)return;
+  if(!stopLayer)return;
   stopLayer.clearLayers();
-  const bounds=map.getBounds();let shown=0;
-  // Ograniczenie liczby punktów przy małym przybliżeniu.
-  if(map.getZoom()<13){$('stopStatus').textContent='Przybliż mapę do poziomu 13, aby zobaczyć przystanki.';return}
+  if(!showStopMarkers)return;
+  const zoom=map.getZoom();
+  if(zoom<STOP_DOT_ZOOM){$('stopStatus').textContent='Przystanki ukryte — przybliż mapę, aby zobaczyć kropki.';return}
+  if(!stops.length){if(!stopMapLoading)toggleStopMap();return}
+  const bounds=map.getBounds();let shown=0,withDirection=0;
   for(const row of stops){
     const coords=stopCoordinates(row);if(!coords||!bounds.contains(coords))continue;
     const z=String(value(row,'zespol')),n=String(value(row,'slupek')),name=String(value(row,'nazwa_zespolu'));
     if(!z||!n)continue;
-    const marker=L.circleMarker(coords,{radius:6,color:'#075e54',weight:2,fillColor:'#fff',fillOpacity:1});
+    const arrows=zoom>=STOP_ARROW_ZOOM?(stopBearings.get(stopKey(row))||[]):[];
+    let marker;
+    if(arrows.length){
+      const html='<span class="wtp-stop-arrow">'+arrows.slice(0,2).map(stopDirectionSvg).join('')+'</span>';
+      marker=L.marker(coords,{icon:L.divIcon({className:'wtp-stop-icon',html,iconSize:[arrows.length>1?38:23,23],iconAnchor:[11,11]})});
+      withDirection++;
+    }else{
+      marker=L.circleMarker(coords,{radius:zoom>=STOP_ARROW_ZOOM?5:3.5,color:'#075e54',weight:1.5,fillColor:'#fff',fillOpacity:1});
+    }
     marker.bindTooltip(escapeHTML(name)+' '+escapeHTML(n),{direction:'top'});
-    marker.bindPopup(`<b>${escapeHTML(name)} ${escapeHTML(n)}</b><br>Sprawdź linie i kierunki odjazdów.<br><button class="open-stop">Zobacz odjazdy</button>`);
+    marker.bindPopup(`<b>${escapeHTML(name)} ${escapeHTML(n)}</b><br><button class="open-stop">Zobacz odjazdy</button>`);
     marker.on('popupopen',()=>{
       const btn=marker.getPopup()?.getElement()?.querySelector('.open-stop');
-      if(btn)btn.onclick=()=>{
-        document.querySelector('[data-tab="odjazdy"]').click();
-        $('stop').value=name;
-        $('results').textContent=`Wybrano ${name} ${n}`;
-        showLines(z,n,name);
-      };
+      if(btn)btn.onclick=()=>{document.querySelector('[data-tab="odjazdy"]').click();$('stop').value=name;$('results').textContent=`Wybrano ${name} ${n}`;showLines(z,n,name)};
     });
     marker.addTo(stopLayer);shown++;
-    if(shown>=450)break;
+    if(shown>=650)break;
   }
-  $('stopStatus').textContent=`Przystanki w widoku: ${shown}. Kierunki sprawdzisz po wybraniu przystanku i linii.`;
+  $('stopStatus').textContent=zoom<STOP_ARROW_ZOOM?`Przystanki: ${shown} kropek. Przybliż do poziomu ${STOP_ARROW_ZOOM}, aby zobaczyć kierunki.`:`Przystanki: ${shown}; kierunki z GTFS: ${withDirection}. Pozostałe są kropkami.`;
+  if(zoom>=STOP_ARROW_ZOOM&&!stopRouteLoading)void loadVisibleStopDirections();
 }
-// WTP LIVE v38: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
+// WTP LIVE v40: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
 const lastLocations=new Map();
-const HISTORY_KEY='wtp-live-v38-gps';
+const HISTORY_KEY='wtp-live-v40-gps';
 try { const saved=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]'); for(const [k,v] of saved){if(Date.now()-v.seen<30*60*1000)lastLocations.set(k,v)} }catch{}
 function gpsMs(raw){const s=String(raw||'').trim().replace(' ','T');return Date.parse(s+(/(?:Z|[+-]\d\d:?\d\d)$/.test(s)?'':'Z'))}
 function direction(lat1,lon1,lat2,lon2){const r=Math.PI/180,y=Math.sin((lon2-lon1)*r)*Math.cos(lat2*r),x=Math.cos(lat1*r)*Math.sin(lat2*r)-Math.sin(lat1*r)*Math.cos(lat2*r)*Math.cos((lon2-lon1)*r);return(Math.atan2(y,x)*180/Math.PI+360)%360}
@@ -358,7 +415,7 @@ function setTab(tab,record=true){
  if(tab==='mapa'&&map)setTimeout(()=>map.invalidateSize(),100);
 }
 
-window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{if(showStopMarkers)renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;$('vehiclePanel').hidden=true};$('refresh').onclick=refresh;$('showStops').onchange=toggleStopMap;for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
+window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{renderStopMarkers();draw()})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;$('vehiclePanel').hidden=true};$('refresh').onclick=refresh;$('showStops').checked=true;$('showStops').onchange=toggleStopMap;toggleStopMap();for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
 
 // Trasa wymaga kolejności przystanków z wiarygodnego źródła.
 // /route jest opcjonalnym rozszerzeniem Workera, nie częścią dotychczasowych 4 endpointów.
