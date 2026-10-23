@@ -59,6 +59,9 @@ def main():
             if r.get('service_id') in services and r.get('route_id') in routes:
                 line=routes[r['route_id']]
                 if line:trips[r['trip_id']]=(line,r.get('trip_headsign') or '',r.get('block_id') or '')
+        trip_shapes={}
+        for r in rows('trips.txt'):
+            if r.get('trip_id') in trips and r.get('shape_id'):trip_shapes[r['trip_id']]=r['shape_id']
         if not trips:raise RuntimeError('Brak aktywnych kursów na '+day+'; nie nadpisuję danych')
         conn=sqlite3.connect(':memory:')
         conn.execute('CREATE TABLE times(trip TEXT, seq INT, stop TEXT, tm TEXT)')
@@ -83,38 +86,95 @@ def main():
                 sequence.append([sid,name,lat,lon,tm])
         flush()
         if not result:raise RuntimeError('Brak kompletnych tras; nie nadpisuję danych')
-        # v43: kierunki i typy WSZYSTKICH przystanków z GTFS.
-        # Unikalne odcinki, aby częstotliwość kursowania nie wypaczała kierunku.
+        # v44: lokalny styczny kierunek toru/jezdni z shapes.txt.
+        # Segment musi przechodzić BLISKO słupka, nie łączyć dwa odległe przystanki.
         import math, collections
-        edges=collections.defaultdict(set)
-        incoming=collections.defaultdict(set)
-        for line,items in result.items():
-            kinds=line_types.get(line,set())
-            modes=(["tram"] if 0 in kinds else [])+(["bus"] if 3 in kinds or 700 in kinds else [])
-            for trip in items:
-                seq=trip['stops']
-                for a,b in zip(seq,seq[1:]):
-                    if a[0]==b[0]:continue
-                    for mode in modes:
-                        edges[(a[0],mode)].add(b[0]);incoming[(b[0],mode)].add(a[0])
         def bearing(a,b):
-            if a not in stops or b not in stops:return None
-            _,la,lo=stops[a];_,lb,lob=stops[b];r=math.pi/180
+            la,lo=a;lb,lob=b;r=math.pi/180
             y=math.sin((lob-lo)*r)*math.cos(lb*r)
             x=math.cos(la*r)*math.sin(lb*r)-math.sin(la*r)*math.cos(lb*r)*math.cos((lob-lo)*r)
             return (math.degrees(math.atan2(y,x))+360)%360
         def dominant(angles):
             angles=[a for a in angles if a is not None]
             if not angles:return None
-            center=max(angles,key=lambda a:sum(abs((a-b+180)%360-180)<=45 for b in angles))
-            cluster=[a for a in angles if abs((a-center+180)%360-180)<=45]
+            # Najliczniejszy klaster +/- 35 stopni; jeden główny kierunek na słupek.
+            center=max(angles,key=lambda a:sum(abs((a-b+180)%360-180)<=35 for b in angles))
+            cluster=[a for a in angles if abs((a-center+180)%360-180)<=35]
             return round((math.degrees(math.atan2(sum(math.sin(math.radians(a)) for a in cluster),sum(math.cos(math.radians(a)) for a in cluster)))+360)%360,1)
+        # Reprezentatywne przebiegi: jeden kurs na kombinację linii i shape_id.
+        representative={}
+        for line,items in result.items():
+            for trip in items:
+                shape=trip_shapes.get(trip['id'])
+                if shape and (line,shape) not in representative:
+                    representative[line,shape]=[x[0] for x in trip['stops']]
+        shape_ids={shape for _,shape in representative}
+        shape_points=collections.defaultdict(list)
+        if 'shapes.txt' in members:
+            for r in rows('shapes.txt'):
+                shape=r.get('shape_id')
+                if shape in shape_ids:
+                    try:shape_points[shape].append((int(r['shape_pt_sequence']),float(r['shape_pt_lat']),float(r['shape_pt_lon'])))
+                    except (ValueError,KeyError):pass
+        for shape,pts in shape_points.items():
+            pts.sort(key=lambda x:x[0]);shape_points[shape]=[(p[1],p[2]) for p in pts]
+        headings=collections.defaultdict(set)
+        def tangent_at(stop,pts):
+            if len(pts)<2:return None
+            lat,lon=stop
+            # Wyszukaj najbliższy punkt na odcinku polilinii, w metrach.
+            scale=111195*math.cos(math.radians(lat));unit=111195
+            best=(float('inf'),None,None)
+            for i,(a,b) in enumerate(zip(pts,pts[1:])):
+                ax=(a[1]-lon)*scale;ay=(a[0]-lat)*unit
+                bx=(b[1]-lon)*scale;by=(b[0]-lat)*unit
+                dx=bx-ax;dy=by-ay;den=dx*dx+dy*dy
+                if den<0.04:continue
+                t=max(0,min(1,-(ax*dx+ay*dy)/den))
+                d2=(ax+t*dx)**2+(ay+t*dy)**2
+                if d2<best[0]:best=(d2,i,t)
+            d2,i,t=best
+            if i is None or d2>55**2:return None
+            # Kierunek styczny w pobliżu słupka; bierzemy ok. 15 m w obie strony
+            # (na krótkich odcinkach zapobiega to skokom kąta).
+            a=pts[i];b=pts[i+1]
+            if t<0.25 and i>0:a=pts[i-1]
+            if t>0.75 and i+2<len(pts):b=pts[i+2]
+            return bearing(a,b)
+        for (line,shape),seq in representative.items():
+            pts=shape_points.get(shape)
+            if not pts:continue
+            kinds=line_types.get(line,set())
+            modes=(['tram'] if 0 in kinds else [])+(['bus'] if 3 in kinds or 700 in kinds else [])
+            for sid in set(seq):
+                if sid not in stops:continue
+                _,lat,lon=stops[sid]
+                ang=tangent_at((lat,lon),pts)
+                if ang is not None:
+                    for mode in modes:headings[sid,mode].add(round(ang,1))
+        # Fallback tylko dla tras bez shapes.txt: wektor między sąsiednimi słupkami.
+        # Typ przystanku pozostaje rozpoznawany także wtedy, gdy brak geometrii.
+        fallback=collections.defaultdict(set)
+        for line,items in result.items():
+            kinds=line_types.get(line,set())
+            modes=(['tram'] if 0 in kinds else [])+(['bus'] if 3 in kinds or 700 in kinds else [])
+            for trip in items:
+                seq=trip['stops']
+                for j,cur in enumerate(seq):
+                    sid=cur[0]
+                    if sid not in stops:continue
+                    other=seq[j+1] if j+1<len(seq) else (seq[j-1] if j else None)
+                    if other is None or other[0] not in stops:continue
+                    _,lat,lon=stops[sid];_,lat2,lon2=stops[other[0]]
+                    angle=bearing((lat,lon),(lat2,lon2)) if j+1<len(seq) else bearing((lat2,lon2),(lat,lon))
+                    for mode in modes:
+                        if (sid,mode) not in headings:fallback[sid,mode].add(round(angle,1))
         metadata={}
-        for (sid,mode),targets in edges.items():metadata.setdefault(sid,{})[mode]=dominant(bearing(sid,b) for b in targets)
-        # Dla końcowych, bez odjazdu w GTFS, zachowaj orientację dojazdu.
-        for (sid,mode),sources in incoming.items():
-            if mode not in metadata.get(sid,{}):metadata.setdefault(sid,{})[mode]=dominant(bearing(a,sid) for a in sources)
+        for (sid,mode),angles in headings.items():metadata.setdefault(sid,{})[mode]=dominant(angles)
+        for (sid,mode),angles in fallback.items():
+            if mode not in metadata.get(sid,{}):metadata.setdefault(sid,{})[mode]=dominant(angles)
         stop_meta=[[stops[sid][1],stops[sid][2],data.get('bus'),data.get('tram')] for sid,data in metadata.items() if sid in stops]
+        print('Kierunki v44:',len(stop_meta),'przystanków;',len(shape_points),'geometrii shapes.txt',flush=True)
 
         OUT.mkdir(exist_ok=True)
         desired={}
@@ -128,7 +188,7 @@ def main():
             for name in desired:os.replace(stage/name,OUT/name)
         for old in OUT.glob('*.json'):
             if old.name not in desired:old.unlink()
-        (OUT/'stops_meta.json').write_text(json.dumps({'version':43,'date':day,'stops':stop_meta},ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
+        (OUT/'stops_meta.json').write_text(json.dumps({'version':44,'date':day,'stops':stop_meta},ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
         (OUT/'status.json').write_text(json.dumps({'date':day,'source':source,'updated_at':dt.datetime.now(dt.timezone.utc).isoformat(),'lines':len(result)},ensure_ascii=False)+'\n',encoding='utf-8')
         print('Gotowe:',day,len(result),'linii',sum(map(len,result.values())),'kursów')
     os.unlink(path)
