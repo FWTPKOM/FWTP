@@ -375,6 +375,18 @@ function chooseGtfsTrip(trips,v){
  }
  return choices.sort((a,b)=>a.score-b.score).slice(0,12);
 }
+function renderVehicleRoute(trip,index,body,description,kind){
+ body.replaceChildren();
+ const note=document.createElement('p');note.className='route-note';note.textContent=description;body.append(note);
+ const list=document.createElement('ol');list.className='route-stops kind-'+(kind===2?'tram':'bus');
+ trip.stops.forEach((item,i)=>{
+  const li=document.createElement('li');li.className='route-stop'+(i===index?' current':'')+(i<index?' passed':'');
+  const dot=document.createElement('span');dot.className='route-dot';
+  const name=document.createElement('span');name.className='route-stop-name';name.textContent=item[1];
+  const t=document.createElement('time');t.className='route-stop-time';t.textContent=item[4];
+  li.append(dot,name,t);list.append(li);
+ });body.append(list);
+}
 let vehiclePanelRequest=0;
 async function openVehiclePanel(v){
  const serial=++vehiclePanelRequest,panel=$('vehiclePanel');panel.hidden=false;
@@ -387,29 +399,32 @@ async function openVehiclePanel(v){
   const dateWarsaw=todayWarsaw();
   if(dateWarsaw!==data.date){note.textContent='Rozkład GTFS pochodzi z '+data.date+'. Automatyczna aktualizacja GTFS jest opóźniona. Nie wyświetlamy nieaktualnych godzin.';return}
   const candidates=chooseGtfsTrip(data.trips,v);
-  const confirmed=[];
-  for(const candidate of candidates){
-   if(await confirmTripBrigade(candidate.trip,v))confirmed.push(candidate);
-   if(serial!==vehiclePanelRequest||panel.hidden)return;
+  if(!candidates.length){
+   note.textContent='Brak trasy w pobliżu aktualnego GPS. Nie przypisuję przypadkowego kursu.';return;
   }
-  // Przy dwóch podobnych, potwierdzonych kursach nie wybieramy arbitralnie.
-  const match=confirmed.length===1?{choice:confirmed[0]}:null;
-  if(!match){
-    note.textContent='Nie potwierdzono jednoznacznie kursu brygady '+brigade+' w odjazdach tego dnia. Możesz obejrzeć planowe trasy linii '+line+'; nie przypisuję innej brygady.';
-    const options=document.createElement('div');options.className='lines';body.append(options);
-    const byRoute=new Map();for(const trip of (data.trips||[])){if(!Array.isArray(trip.stops)||trip.stops.length<2)continue;const key=(trip.headsign||'Kierunek nieznany')+'|'+trip.stops.map(s=>s[0]).join(',');if(!byRoute.has(key))byRoute.set(key,trip)}
-    for(const trip of [...byRoute.values()].slice(0,25)){
-      const btn=document.createElement('button');btn.textContent=trip.headsign||'Trasa bez nazwy';btn.onclick=()=>{
-        body.querySelectorAll('.route-stops').forEach(x=>x.remove());const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
-        trip.stops.forEach(item=>{const li=document.createElement('li');li.className='route-stop';const dot=document.createElement('span');dot.className='route-dot';const name=document.createElement('span');name.className='route-stop-name';name.textContent=item[1];const time=document.createElement('time');time.className='route-stop-time';time.textContent=item[4];li.append(dot,name,time);list.append(li)});body.append(list);
-      };options.append(btn)
-    }
-    if(!byRoute.size)note.textContent+=' Brak tras w pliku GTFS.';
-    return;
+  // Statyczny GTFS nie zawiera brygady. Nie wolno udawać pewnego dopasowania.
+  const best=candidates[0];
+  const different=candidates.find(c=>c.trip.headsign!==best.trip.headsign ||
+   c.trip.stops.map(x=>x[0]).join('|')!==best.trip.stops.map(x=>x[0]).join('|'));
+  const match={choice:best};
+  if(different && different.score-best.score<=300){
+   note.textContent='Kilka tras pasuje do GPS. Wybierz wariant. Nie oznacza to przypisania brygady '+brigade+'.';
+   const options=document.createElement('div');options.className='wtp-route-options';body.append(options);
+   const unique=new Map();
+   for(const c of candidates){
+    const key=c.trip.headsign+'|'+c.trip.stops.map(x=>x[0]).join(',');
+    if(!unique.has(key))unique.set(key,c);
    }
+   for(const c of [...unique.values()].slice(0,8)){
+    const btn=document.createElement('button');btn.textContent=c.trip.headsign||'Nieznany kierunek';
+    btn.onclick=()=>renderVehicleRoute(c.trip,c.index,body,'Wariant orientacyjny; brygada '+brigade+' niepowiązana z kursem GTFS.',v.kind);
+    options.append(btn);
+   }
+   return;
+  }
   const {trip,index,distance}=match.choice;
   body.replaceChildren();
-  const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · brygada '+brigade+' potwierdzona w odjazdach; godziny planowe. Brak zweryfikowanej prognozy opóźnienia.';body.append(heading);
+  const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · wariant orientacyjny według GPS; brak potwierdzonego kursu brygady '+brigade+'. Godziny planowe, nie prognoza.';body.append(heading);
   const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
   trip.stops.forEach((item,i)=>{
    const li=document.createElement('li');li.className='route-stop'+(i===index?' current':'')+(i<index?' passed':'');
