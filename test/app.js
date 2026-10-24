@@ -1,4 +1,4 @@
-// WTP LIVE v50 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v52 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -375,6 +375,38 @@ function chooseGtfsTrip(trips,v){
  }
  return choices.sort((a,b)=>a.score-b.score).slice(0,12);
 }
+// v52: wyłącznie ostrożna estymacja opóźnienia z rzeczywistego GPS.
+// Brak GPS blisko słupka = brak prognozy, a nie zmyślona godzina.
+function estimateObservedDelay(trip,v){
+ const stamp=gpsMs(v.Time),age=Date.now()-stamp;
+ if(!Number.isFinite(stamp)||age< -30000||age>90000)return null;
+ const lat=Number(v.Lat),lon=Number(v.Lon),clock=nowWarsaw(new Date(stamp));
+ let best=null;
+ for(let i=0;i<trip.stops.length;i++){
+  const st=trip.stops[i],d=geoDistance(lat,lon,Number(st[2]),Number(st[3]));
+  const scheduled=minutes(st[4]);
+  if(!Number.isFinite(d)||!Number.isFinite(scheduled)||d>45)continue;
+  let delta=clock-scheduled;
+  if(delta< -720)delta+=1440;
+  if(delta>720)delta-=1440;
+  // Ujemny wynik może oznaczać oczekiwanie na odjazd; nie traktuj go jako przyspieszenia.
+  if(delta<2||delta>45)continue;
+  if(!best||d<best.distance)best={delay:delta,at:i,distance:d};
+ }
+ return best;
+}
+function displayClock(t){const m=minutes(t);if(!Number.isFinite(m))return String(t||'');return String(Math.floor((m%1440)/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')}
+function displayTimeCell(item,i,delayInfo){
+ const t=document.createElement('time');t.className='route-stop-time';
+ const planned=displayClock(item[4]);
+ if(delayInfo&&i>delayInfo.at){
+  const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=planned;
+  const next=document.createElement('strong');next.className='wtp-estimated-time';
+  next.textContent=displayClock(String(minutes(item[4])+delayInfo.delay)+':00');
+  t.append(old,next);t.title='Szacowany czas (+ '+delayInfo.delay+' min) na podstawie GPS przy wcześniejszym przystanku; nie jest to oficjalna prognoza';
+ }else{t.textContent=planned}
+ return t;
+}
 function renderVehicleRoute(trip,index,body,description,kind){
  body.replaceChildren();
  const note=document.createElement('p');note.className='route-note';note.textContent=description;body.append(note);
@@ -383,7 +415,7 @@ function renderVehicleRoute(trip,index,body,description,kind){
   const li=document.createElement('li');li.className='route-stop'+(i===index?' current':'')+(i<index?' passed':'');
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=item[1];
-  const t=document.createElement('time');t.className='route-stop-time';t.textContent=item[4];
+  const t=displayTimeCell(item,i,null);
   li.append(dot,name,t);list.append(li);
  });body.append(list);
 }
@@ -425,12 +457,14 @@ async function openVehiclePanel(v){
   const {trip,index,distance}=match.choice;
   body.replaceChildren();
   const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · wariant orientacyjny według GPS; brak potwierdzonego kursu brygady '+brigade+'. Godziny planowe, nie prognoza.';body.append(heading);
+  const delayInfo=estimateObservedDelay(trip,v);
+  if(delayInfo){heading.textContent+=' · Szacowane opóźnienie: +'+delayInfo.delay+' min, na podstawie GPS przy przystanku (nieoficjalne).';}
   const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
   trip.stops.forEach((item,i)=>{
    const li=document.createElement('li');li.className='route-stop'+(i===index?' current':'')+(i<index?' passed':'');
    const dot=document.createElement('span');dot.className='route-dot';
    const name=document.createElement('span');name.className='route-stop-name';name.textContent=item[1];
-   const t=document.createElement('time');t.className='route-stop-time';t.textContent=item[4];
+   const t=displayTimeCell(item,i,delayInfo);
    li.append(dot,name,t);list.append(li);
   });body.append(list);
   const active=list.children[index];if(active){requestAnimationFrame(()=>{const container=$('vehicleBody');const target=active.offsetTop-list.offsetTop;container.scrollTop=Math.max(0,target-container.clientHeight/2);});}
