@@ -1,4 +1,4 @@
-// WTP LIVE v49 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v50 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -329,30 +329,51 @@ async function loadGtfs(line){
  if(!gtfsCache.has(line))gtfsCache.set(line,{day,promise:fetch('gtfs/'+encodeURIComponent(line.replaceAll('/','_'))+'.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error('Brak GTFS dla linii '+line);return r.json()}).catch(e=>{gtfsCache.delete(line);throw e})});
  return gtfsCache.get(line).promise;
 }
+// v50: kurs wolno powiązać z brygadą dopiero po potwierdzeniu
+// w odjazdach konkretnego słupka. Samo podobieństwo GPS nie wystarcza.
+const brigadeProofCache=new Map();
+function normalizeBrigade(x){return String(x??'').trim().replace(/^0+(?=\d)/,'').toUpperCase()}
+function tripStopId(stop){return String(stop?.[0]??'').replace(/[^0-9]/g,'')}
+function stopParts(stop){
+ const raw=tripStopId(stop);
+ if(raw.length<6)return null;
+ return {z:raw.slice(0,-2),n:raw.slice(-2)};
+}
+async function confirmTripBrigade(trip,v){
+ const line=String(v.Lines||'').trim(),brigade=normalizeBrigade(v.Brigade);
+ if(!line||!brigade||!Array.isArray(trip.stops))return false;
+ const now=Date.now(),key=[todayWarsaw(),line,brigade,trip.stops.map(x=>tripStopId(x)).join('|')].join(':');
+ const cached=brigadeProofCache.get(key);if(cached&&now-cached.at<120000)return cached.ok;
+ const when=nowWarsaw(new Date(gpsMs(v.Time)));
+ const candidates=trip.stops.map((stop,i)=>({stop,i,parts:stopParts(stop)}))
+  .filter(x=>x.parts&&Math.abs(minutes(x.stop[4])-when)<65)
+  .sort((a,b)=>Math.abs(minutes(a.stop[4])-when)-Math.abs(minutes(b.stop[4])-when)).slice(0,5);
+ let ok=false;
+ for(const x of candidates){
+  try{
+   const rows=normalizedRows(await request('/departures',{busstopId:x.parts.z,busstopNr:x.parts.n,line}));
+   if(rows.some(r=>normalizeBrigade(value(r,'brygada')||value(r,'brigade'))===brigade &&
+       Math.abs(minutes(value(r,'czas')||value(r,'time'))-minutes(x.stop[4]))<=1)){ok=true;break}
+  }catch(e){console.warn('Nie udało się potwierdzić brygady na słupku',x.parts,e.message)}
+ }
+ brigadeProofCache.set(key,{at:now,ok});return ok;
+}
 function chooseGtfsTrip(trips,v){
  const lat=Number(v.Lat),lon=Number(v.Lon),when=new Date(gpsMs(v.Time));
- if(!Number.isFinite(when.getTime()))return null;
- // Porównanie GPS jako UTC z lokalnym czasem rozkładu w Warszawie.
- const age=Math.abs(Date.now()-when.getTime());if(age>10*60*1000)return null;
- const time=nowWarsaw(when);
- const choices=[];
+ if(!Number.isFinite(when.getTime())||Math.abs(Date.now()-when.getTime())>10*60000)return [];
+ const time=nowWarsaw(when),choices=[];
  for(const trip of trips){const ss=trip.stops;if(!ss||ss.length<2)continue;
   const first=minutes(ss[0][4]),last=minutes(ss.at(-1)[4]);
-  if(!Number.isFinite(first)||!Number.isFinite(last)||time<first-12||time>last+12)continue;
-  let best=Infinity,index=-1;
+  if(!Number.isFinite(first)||!Number.isFinite(last)||time<first-25||time>last+25)continue;
+  let best=Infinity,index=-1,distBest=Infinity;
   for(let i=0;i<ss.length;i++){
-   const t=minutes(ss[i][4]);const dt=Math.abs(t-time);if(dt>40)continue;
+   const dt=Math.abs(minutes(ss[i][4])-time);if(dt>45)continue;
    const dist=geoDistance(lat,lon,ss[i][2],ss[i][3]);
-   // Dopasowanie nie utożsamia najbliższego przystanku z potwierdzoną lokalizacją pojazdu.
-   const score=dist+dt*95;
-   if(score<best){best=score;index=i}
+   const score=dist+dt*80;if(score<best){best=score;index=i;distBest=dist}
   }
-  if(index>=0)choices.push({trip,index,score:best,distance:geoDistance(lat,lon,ss[index][2],ss[index][3])});
+  if(index>=0&&distBest<850)choices.push({trip,index,score:best,distance:distBest});
  }
- choices.sort((a,b)=>a.score-b.score);
- if(!choices.length||choices[0].distance>900)return null;
- // Zbliżone kursy są pokazywane jako orientacyjne, nie jako potwierdzone.
- return {choice:choices[0],ambiguous:choices.length>1&&choices[1].score-choices[0].score<300};
+ return choices.sort((a,b)=>a.score-b.score).slice(0,12);
 }
 let vehiclePanelRequest=0;
 async function openVehiclePanel(v){
@@ -365,9 +386,16 @@ async function openVehiclePanel(v){
   const data=await loadGtfs(line);if(serial!==vehiclePanelRequest||panel.hidden)return;
   const dateWarsaw=todayWarsaw();
   if(dateWarsaw!==data.date){note.textContent='Rozkład GTFS pochodzi z '+data.date+'. Automatyczna aktualizacja GTFS jest opóźniona. Nie wyświetlamy nieaktualnych godzin.';return}
-  const match=chooseGtfsTrip(data.trips,v);
+  const candidates=chooseGtfsTrip(data.trips,v);
+  const confirmed=[];
+  for(const candidate of candidates){
+   if(await confirmTripBrigade(candidate.trip,v))confirmed.push(candidate);
+   if(serial!==vehiclePanelRequest||panel.hidden)return;
+  }
+  // Przy dwóch podobnych, potwierdzonych kursach nie wybieramy arbitralnie.
+  const match=confirmed.length===1?{choice:confirmed[0]}:null;
   if(!match){
-    note.textContent='Nie można potwierdzić bieżącego kursu z GPS. Poniżej możesz wybrać planową trasę linii '+line+' (bez oznaczania aktualnego przystanku).';
+    note.textContent='Nie potwierdzono jednoznacznie kursu brygady '+brigade+' w odjazdach tego dnia. Możesz obejrzeć planowe trasy linii '+line+'; nie przypisuję innej brygady.';
     const options=document.createElement('div');options.className='lines';body.append(options);
     const byRoute=new Map();for(const trip of (data.trips||[])){if(!Array.isArray(trip.stops)||trip.stops.length<2)continue;const key=(trip.headsign||'Kierunek nieznany')+'|'+trip.stops.map(s=>s[0]).join(',');if(!byRoute.has(key))byRoute.set(key,trip)}
     for(const trip of [...byRoute.values()].slice(0,25)){
@@ -381,7 +409,7 @@ async function openVehiclePanel(v){
    }
   const {trip,index,distance}=match.choice;
   body.replaceChildren();
-  const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · godziny rozkładowe; brak potwierdzonej prognozy dla tego kursu.';body.append(heading);
+  const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · brygada '+brigade+' potwierdzona w odjazdach; godziny planowe. Brak zweryfikowanej prognozy opóźnienia.';body.append(heading);
   const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
   trip.stops.forEach((item,i)=>{
    const li=document.createElement('li');li.className='route-stop'+(i===index?' current':'')+(i<index?' passed':'');
