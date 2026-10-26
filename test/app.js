@@ -1,5 +1,5 @@
 // WTP LIVE — WERSJA: 58
-// WTP LIVE v61 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v62 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -396,7 +396,7 @@ function etaMapStops(gtfsStops,etaStops){
  }
  return {mapped:out,exactCount,coverage:n/Math.max(1,gtfsStops.length),error:n?totalError/n:Infinity};
 }
-// WTP LIVE v61 — najpierw dosłowne powiązanie linia + brygada w ETA.
+// WTP LIVE v62 — najpierw dosłowne powiązanie linia + brygada w ETA.
 // GPS i GTFS nie mogą blokować odczytu rozkładu brygady.
 function etaServiceMinutes(raw){
  const m=String(raw??'').match(/(\d{1,3}):(\d{2})/);
@@ -451,43 +451,79 @@ async function etaMatchVehicle(v,gtfsTrips=[]){
  // Zwracamy także inne kursy tej samej brygady; żadnego kursu innej brygady.
  return {selected:matches[0],alternatives:matches.slice(1,12),line,brigade,now};
 }
-function etaNamesForCourse(stops,gtfsTrips){
- const names=new Map();
- for(const trip of gtfsTrips||[])for(const s of trip.stops||[]){
-  const id=etaStopCode(s[0]);if(id&&!names.has(id))names.set(id,String(s[1]||''));
+// WTP LIVE v62: nazwy przystanków ETA nie są identyfikatorami GTFS.
+// Mapujemy je po uporządkowanym przebiegu i godzinach, bez fikcyjnego utożsamiania ID.
+function etaNameMatch(etaStops,gtfsTrips,course){
+ const eta=etaMonotonicStops(etaStops), candidates=[];
+ for(const trip of gtfsTrips||[]){
+  const ss=trip.stops||[];if(ss.length<2)continue;
+  const ts=ss.map(s=>minutes(s[4]));
+  if(!ts.every(Number.isFinite))continue;
+  const eTimes=eta.map(s=>s._time);
+  const a=eTimes.find(Number.isFinite),z=[...eTimes].reverse().find(Number.isFinite);
+  if(!Number.isFinite(a)||!Number.isFinite(z))continue;
+  const startGap=etaTimeNear(a,ts[0]),endGap=etaTimeNear(z,ts.at(-1));
+  if(startGap>8||endGap>12)continue;
+  // Dynamiczne wyrównanie list przystanków. Wymagamy zgodności godzin
+  // i zachowania kolejności, aby nie podpisać kursu obcą trasą.
+  const n=eta.length,m=ss.length;
+  if(Math.abs(n-m)>Math.max(6,Math.ceil(n*.22)))continue;
+  const dp=Array.from({length:n+1},()=>new Float64Array(m+1));
+  const back=Array.from({length:n+1},()=>new Uint8Array(m+1));
+  const skip=4.5;
+  for(let i=1;i<=n;i++){dp[i][0]=i*skip;back[i][0]=1}
+  for(let j=1;j<=m;j++){dp[0][j]=j*skip;back[0][j]=2}
+  for(let i=1;i<=n;i++)for(let j=1;j<=m;j++){
+   const et=eTimes[i-1],gt=ts[j-1];
+   const delta=Number.isFinite(et)?etaTimeNear(et,gt):10;
+   const same=dp[i-1][j-1]+Math.min(18,delta)*1.8;
+   const del=dp[i-1][j]+skip,ins=dp[i][j-1]+skip;
+   if(same<=del&&same<=ins){dp[i][j]=same;back[i][j]=0}
+   else if(del<=ins){dp[i][j]=del;back[i][j]=1}
+   else{dp[i][j]=ins;back[i][j]=2}
+  }
+  const mapping=new Array(n).fill(-1);let i=n,j=m,matched=0,errors=0;
+  while(i>0||j>0){const op=back[i][j];if(i>0&&j>0&&op===0){
+   const delta=etaTimeNear(eTimes[i-1],ts[j-1]);
+   if(delta<=2){mapping[i-1]=j-1;matched++;errors+=delta}
+   i--;j--;
+  }else if(i>0&&(j===0||op===1))i--;else j--}
+  const coverage=matched/Math.max(n,m);
+  if(coverage<.78||errors/Math.max(1,matched)>1.2)continue;
+  const score=dp[n][m]+startGap+endGap;
+  candidates.push({trip,mapping,score,coverage});
  }
- return stops.map(s=>names.get(etaStopCode(s.stop_id))||('Przystanek '+String(s.stop_id??'?')));
+ candidates.sort((a,b)=>a.score-b.score);
+ // Jeżeli dwa różne przebiegi pasują równie dobrze, nie zgadujemy nazw.
+ if(candidates.length>1 && candidates[1].score-candidates[0].score<3 &&
+   candidates[0].trip.stops.map(s=>s[0]).join()!==candidates[1].trip.stops.map(s=>s[0]).join())return null;
+ return candidates[0]||null;
+}
+function etaNamesForCourse(stops,gtfsTrips,course){
+ const matched=etaNameMatch(stops,gtfsTrips,course);
+ return {matched:!!matched,names:stops.map((s,i)=>{
+  const j=matched?.mapping[i];
+  return j>=0?String(matched.trip.stops[j][1]||'Przystanek'):'Przystanek '+String(s.stop_id??'?');
+ })};
 }
 function renderEtaRoute(match,v,body,gtfsTrips=[]){
- const {selected,alternatives}=match;
- const all=[selected,...alternatives];
- function render(choice){
-  body.replaceChildren();
-  const note=document.createElement('p');note.className='route-note';
-  note.textContent='ETA: linia '+choice.course.line+', brygada '+choice.course.brigade+', kurs '+choice.course.course_id+'. Godziny rozkładowe tej brygady; bez prognozy GPS.';
-  body.append(note);
-  if(all.length>1){
-   const label=document.createElement('p');label.className='route-note';
-   label.textContent='Brygada ma kilka kursów. Wybrano kurs najbliższy czasowo; można wybrać inny kurs tej samej brygady:';body.append(label);
-   const options=document.createElement('div');options.className='wtp-route-options';
-   for(const candidate of all){const button=document.createElement('button');
-    button.textContent=displayClock(candidate.course.departure)+' · kurs '+candidate.course.course_id;
-    button.disabled=String(candidate.course.course_id)===String(choice.course.course_id);
-    button.onclick=()=>render(candidate);options.append(button)}
-   body.append(options);
-  }
-  const names=etaNamesForCourse(choice.etaStops,gtfsTrips);
-  const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
-  choice.etaStops.forEach((stop,i)=>{
-   const li=document.createElement('li');li.className='route-stop';
-   const dot=document.createElement('span');dot.className='route-dot';
-   const name=document.createElement('span');name.className='route-stop-name';name.textContent=names[i];
-   const time=document.createElement('time');time.className='route-stop-time';
-   time.textContent=displayClock(stop.arrival||stop.departure||'');
-   li.append(dot,name,time);list.append(li);
-  });body.append(list);
- }
- render(selected);
+ const choice=match.selected;
+ body.replaceChildren();
+ const names=etaNamesForCourse(choice.etaStops,gtfsTrips,choice.course);
+ const note=document.createElement('p');note.className='route-note';
+ note.textContent='Rozkład planowy: linia '+choice.course.line+', brygada '+choice.course.brigade+'. '+
+  (names.matched?'Nazwy przystanków dopasowane do przebiegu GTFS.':'Brak pewnego dopasowania nazw przystanków do GTFS.')+
+  ' Kurs wybrany automatycznie na podstawie czasu; bez prognozy GPS.';
+ body.append(note);
+ const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
+ choice.etaStops.forEach((stop,i)=>{
+  const li=document.createElement('li');li.className='route-stop';
+  const dot=document.createElement('span');dot.className='route-dot';
+  const name=document.createElement('span');name.className='route-stop-name';name.textContent=names.names[i];
+  const time=document.createElement('time');time.className='route-stop-time';
+  time.textContent=displayClock(stop.arrival||stop.departure||'');
+  li.append(dot,name,time);list.append(li);
+ });body.append(list);
 }
 
 // v50: kurs wolno powiązać z brygadą dopiero po potwierdzeniu
