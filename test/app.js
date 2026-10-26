@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 74
+// WTP LIVE — WERSJA: 75
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -775,14 +775,15 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  body.append(note);
  const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
  const nearest=prediction.geo.near;
- const current=Number.isInteger(prediction.currentIndex)&&prediction.currentIndex>=0?prediction.currentIndex:(nearest&&nearest.distance<=GPS_STOP_RADIUS_M?nearest.i:-1);
+ const current=nearest&&nearest.distance<=GPS_STOP_RADIUS_M?nearest.i:-1;
  choice.etaStops.forEach((stop,i)=>{
   const li=document.createElement('li');li.className='route-stop'+(i===current?' current':'')+(current>=0&&i<current?' passed':'');
   const j=names.mapping?.[i],mapped=Number.isInteger(j)&&j>=0?names.trip?.stops?.[j]:null;
   // v73: dla ETA priorytet ma jawna flaga z odcinków tego samego wariantu.
   // null = nieustalony; nie zastępuj go typem przypadkowego pobliskiego słupka.
-  if(stop.slupek_na_zadanie===1 || stop.slupek_na_zadanie==='1')li.classList.add('request-stop');
-  else if(stop.slupek_na_zadanie===0 || stop.slupek_na_zadanie==='0')li.classList.add('fixed-stop');
+  const stopFlag=stop.slupek_na_zadanie??stop.na_zadanie??stop.request_stop??mapped?.slupek_na_zadanie??null;
+  if(stopFlag===1 || stopFlag==='1' || stopFlag===true)li.classList.add('request-stop');
+  else if(stopFlag===0 || stopFlag==='0' || stopFlag===false)li.classList.add('fixed-stop');
   else li.classList.add('unknown-stop');
 
   const dot=document.createElement('span');dot.className='route-dot';
@@ -809,7 +810,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  // v74: własny SVG i etykieta pod nazwą, nie obok godziny.
  const projected=prediction.geo&&routeProgressFromTrace(prediction.geo,v);
  const livePoints=prediction.geo?.points||[];
- let segment=server?.currentIndex>=0?server.currentIndex:current;
+ let segment=server?.currentIndex>=0?server.currentIndex:(prediction.currentIndex>=0?prediction.currentIndex:current);
  if(projected&&projected.i>=0)segment=projected.i;
  segment=Math.max(0,Math.min(choice.etaStops.length-1,segment));
  const coords=livePoints.find(p=>p.i===segment),after=livePoints.find(p=>p.i===segment+1);
@@ -1085,7 +1086,7 @@ async function openStopPanel(z,n,name,color){
  }catch(e){if(serial===stopPaneRequest)status.textContent='Nie udało się pobrać linii: '+e.message}
 }
 
-window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);map.createPane('stopsPane');map.getPane('stopsPane').style.zIndex='410';map.createPane('vehiclesPane');map.getPane('vehiclesPane').style.zIndex='650';L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{renderStopMarkers();draw()});map.on('click',()=>{if(!$('vehiclePanel').hidden){stopPaneRequest++;vehiclePanelRequest++;$('vehiclePanel').hidden=true;hoveredStopLine='';draw();}})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;stopPaneRequest++;hoveredStopLine='';pinnedStopLine='';pinnedStopVehicle=null;$('vehiclePanel').hidden=true;draw()};$('refresh').onclick=refresh;$('showStops').checked=true;$('showStops').onchange=toggleStopMap;toggleStopMap();for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY)refresh()},15000)});
+window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);map.createPane('stopsPane');map.getPane('stopsPane').style.zIndex='410';map.createPane('vehiclesPane');map.getPane('vehiclesPane').style.zIndex='650';L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{renderStopMarkers();draw()});map.on('click',()=>{if(!$('vehiclePanel').hidden){stopPaneRequest++;vehiclePanelRequest++;$('vehiclePanel').hidden=true;hoveredStopLine='';draw();}})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;stopPaneRequest++;hoveredStopLine='';pinnedStopLine='';pinnedStopVehicle=null;$('vehiclePanel').hidden=true;draw()};$('refresh').onclick=refresh;$('showStops').checked=true;$('showStops').onchange=toggleStopMap;toggleStopMap();for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY && !document.hidden)refresh()},10000)});
 
 // Trasa wymaga kolejności przystanków z wiarygodnego źródła.
 // /route jest opcjonalnym rozszerzeniem Workera, nie częścią dotychczasowych 4 endpointów.
