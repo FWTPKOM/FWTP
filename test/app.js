@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 73
+// WTP LIVE — WERSJA: 74
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -205,7 +205,7 @@ function draw(){
     const arrow=(Math.abs(Date.now()-gpsMs(v.Time))<=15*60*1000 && Number.isFinite(v._bearing))
       ? `<span class="badge-direction" title="Kierunek ruchu wyliczony z GPS"><svg viewBox="0 0 24 24" style="transform:rotate(${v._bearing}deg)" aria-hidden="true"><path d="M12 3 5 15l7-3 7 3z" fill="currentColor"/><path d="M12 11v10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>`
       : `<span class="badge-direction unknown" title="Kierunek oczekuje na drugi aktualny odczyt GPS">?</span>`;
-    const vehicleSymbol=`<svg class="badge-vehicle" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="2.5" width="14" height="16" rx="3" fill="currentColor"/><rect x="7.5" y="5" width="9" height="6" rx=".8" fill="#fff"/><circle cx="8.5" cy="19" r="1.8" fill="currentColor"/><circle cx="15.5" cy="19" r="1.8" fill="currentColor"/></svg>`;
+    const vehicleSymbol=`<img class="badge-vehicle wtp-custom-vehicle" src="${v.kind===2?'icons/WTP-tramwaj.svg':'icons/WTP-autobus.svg'}" alt="" aria-hidden="true">`;
     const content=zoom<11?'<span class="vehicle-dot"></span>':zoom<14?`<span class="vehicle-mini">${escapeHTML(line)}</span>`:`<div class="vehicle-badge">${arrow}${vehicleSymbol}<span class="badge-line">${escapeHTML(line)}</span><span class="badge-divider">/</span><span class="badge-brigade">${escapeHTML(brigade)}</span><span class="badge-divider">/</span><span class="badge-number">${escapeHTML(number)}</span></div>`;
     const icon=L.divIcon({className:'vehicle-icon'+(v.kind===2?' tram':'')+(zoom<11?' dot-mode':zoom<14?' mini-mode':''),html:content,iconSize:[1,1],iconAnchor:[0,0]});
     const marker=L.marker([lat,lon],{icon,pane:'vehiclesPane',zIndexOffset:1000});
@@ -787,6 +787,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
 
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=names.names[i];
+  const stopText=document.createElement('span');stopText.className='wtp-route-stop-text';stopText.append(name);
   const raw=(i===0 ? (stop.departure||stop.arrival) : (i===choice.etaStops.length-1 ? (stop.arrival||stop.departure) : (stop.departure||stop.arrival)))||'';
   const time=document.createElement('time');time.className='route-stop-time';
   const planned=etaServiceMinutes(raw);
@@ -803,9 +804,9 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    next.style.cssText='display:block;color:#c9221c;font-weight:750;line-height:1.3;text-align:right';
    time.append(old,next);time.title=measured!==null&&measured!==undefined?'Szacowany czas zaobserwowania pojazdu w poblizu przystanku (GPS)':'Prognoza z postepu GPS na trasie';
   }else time.textContent=displayClock(raw);
-  li.append(dot,name,time);list.append(li);
+  li.append(dot,stopText,time);list.append(li);
  });
- // v72: znacznik pojazdu i kolejny przystanek wzdłuż osi trasy.
+ // v74: własny SVG i etykieta pod nazwą, nie obok godziny.
  const projected=prediction.geo&&routeProgressFromTrace(prediction.geo,v);
  const livePoints=prediction.geo?.points||[];
  let segment=server?.currentIndex>=0?server.currentIndex:current;
@@ -822,12 +823,17 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  if(Number.isFinite(gpsMs(v.Time))&&Date.now()-gpsMs(v.Time)<90000&&segment<list.children.length){
   const li=list.children[segment];
   const marker=document.createElement('span');marker.className='wtp-vehicle-on-route';
-  marker.textContent=v.kind===2?'🚋':'🚌';marker.title='Przybliżona pozycja GPS pojazdu';
+  const markerImage=document.createElement('img');
+  markerImage.src=v.kind===2?'icons/WTP-tramwaj.svg':'icons/WTP-autobus.svg';
+  markerImage.alt=v.kind===2?'Tramwaj':'Autobus';
+  marker.append(markerImage);marker.title='Przybliżona pozycja GPS pojazdu';
+  // Pozycja od środka bieżącego przystanku do środka następnego.
   marker.style.top=(50+fraction*100)+'%';li.append(marker);
+  const nearStop=nearest&&nearest.distance<=GPS_STOP_RADIUS_M&&nearest.i===segment;
   const next=names.names[Math.min(segment+1,names.names.length-1)];
-  const nextLabel=document.createElement('div');nextLabel.className='wtp-next-stop';
-  nextLabel.textContent='Następny przystanek: '+next;
-  li.append(nextLabel);
+  const nextLabel=document.createElement('span');nextLabel.className='wtp-next-stop';
+  nextLabel.textContent=(nearStop?'Przystanek: '+names.names[segment]:'Następny przystanek: '+next);
+  li.querySelector('.wtp-route-stop-text')?.append(nextLabel);
  }
  body.append(list);
  if(current>=0){const active=list.children[current];if(active)requestAnimationFrame(()=>{if(body.contains(active))body.scrollTop=Math.max(0,active.offsetTop-list.offsetTop-body.clientHeight/2)});}
