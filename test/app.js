@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 71
+// WTP LIVE — WERSJA: 72
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -111,7 +111,7 @@ function isRequestStop(row,meta){
 // WERSJA 70: typ przystanku pobierany wyłącznie z jawnych danych źródłowych.
 function requestStopNear(lat,lon){
  if(!Array.isArray(stops)||!stops.length||!Number.isFinite(lat)||!Number.isFinite(lon))return null;
- let closest=null,best=35;
+ let closest=null,best=16;
  for(const row of stops){
   const p=stopCoordinates(row);if(!p||Math.abs(p[0]-lat)>.0004||Math.abs(p[1]-lon)>.0006)continue;
   const d=geoDistance(lat,lon,p[0],p[1]);
@@ -124,7 +124,7 @@ function decorateRouteStop(li,lat,lon){
  const request=requestStopNear(Number(lat),Number(lon));
  if(request===true)li.classList.add('request-stop');
  else if(request===false)li.classList.add('fixed-stop');
- else li.classList.add('fixed-stop'); // Brak flagi NŻ: nie oznaczaj przystanku jako NŻ bez dowodu
+ else li.classList.add('unknown-stop'); // GTFS nie zawiera typu NŻ: nie zgaduj
 }
 function renderStopMarkers(){
  if(!stopLayer)return;
@@ -559,19 +559,23 @@ function chooseLiveEtaCourse(match,v,trips){
  const now=match.now;
  // Znana ostatnia obserwacja na pętli: po zakończeniu kursu szukamy
  // następnego kursu tej samej brygady, nigdy innej brygady.
- if(old?.terminal && Date.now()-old.at<15*60*1000){
+ if(old?.terminal && Date.now()-old.at<15*60*1000 && old.id===String(match.selected.course.course_id)){
   const next=all.filter(c=>c.bounds.start>=old.end-2 && String(c.course.course_id)!==String(old.id))
    .sort((a,b)=>a.bounds.start-b.bounds.start)[0];
-  if(next && (now>=next.bounds.start-8 || now>=old.end+2))match.selected=next;
+  if(next && now>=next.bounds.start && now>=old.end)match.selected=next;
  }
  // Nie wybieraj nowego kursu przed dojazdem na pętlę na podstawie samego czasu.
  const selected=match.selected;
  const position=coursePosition(selected,trips,v);
- if(position?.atTerminal && now>=selected.bounds.end-20){
+ // v72: przy pętli nie zmieniaj kursu na podstawie samej godziny.
+ // Potwierdzenie wymaga rzeczywistego osiągnięcia ostatniego przystanku.
+ const gpsStamp=gpsMs(v.Time);
+ const freshGps=Number.isFinite(gpsStamp)&&Math.abs(Date.now()-gpsStamp)<90000;
+ if(freshGps && position?.atTerminal && now>=selected.bounds.end-3){
   activeCourseByVehicle.set(key,{id:selected.course.course_id,end:selected.bounds.end,terminal:true,at:Date.now()});
   const next=all.filter(c=>c.bounds.start>=selected.bounds.end-2 && String(c.course.course_id)!==String(selected.course.course_id))
    .sort((a,b)=>a.bounds.start-b.bounds.start)[0];
-  if(next && now>=next.bounds.start-5)match.selected=next;
+  if(next && now>=next.bounds.start && position.atTerminal)match.selected=next;
  }else if(position && position.distance<TERMINAL_RADIUS_M){
   activeCourseByVehicle.set(key,{id:selected.course.course_id,end:selected.bounds.end,terminal:false,at:Date.now()});
  }
@@ -733,11 +737,11 @@ function historyEstimate(choice,v,trips){
   const plan=a.time+(b.time-a.time)*match.f;
   const observed=nowWarsaw(new Date(p.stamp));
   let delta=observed-plan;if(delta< -720)delta+=1440;if(delta>720)delta-=1440;
-  if(delta>=-5&&delta<=120)latestDelay=delta;
+  if(delta>=0&&delta<=90)latestDelay=delta;
   if(match.dist<=85){
    for(const pt of [a,b]){
     const d=geoDistance(p.lat,p.lon,pt.lat,pt.lon);
-    if(d<=85&&!events.has(pt.i))events.set(pt.i,{time:observed,stamp:p.stamp,dist:d});
+    if(d<=85&&!events.has(pt.i)&&observed>=pt.time-2&&observed<=pt.time+90)events.set(pt.i,{time:observed,stamp:p.stamp,dist:d});
    }
   }
  }
@@ -749,7 +753,7 @@ function historyEstimate(choice,v,trips){
   const plan=a.time+(b.time-a.time)*live.f;
   let delta=nowWarsaw(new Date(currentStamp))-plan;
   if(delta< -720)delta+=1440;if(delta>720)delta-=1440;
-  if(delta>=-5&&delta<=120)latestDelay=delta;
+  if(delta>=0&&delta<=90)latestDelay=delta;
  }
  return {events,currentIndex,delay:Number.isFinite(latestDelay)?Math.round(latestDelay):null};
 }
@@ -786,7 +790,8 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   const measured=pastEvent&&Number.isFinite(planned)?pastEvent.time:null;
   // Początek kursu: nie traktuj pozycji na pętli jako opóźnionego przyjazdu.
   // Planowy odjazd z pierwszego słupka pozostaje podstawą porównania.
-  const estimate=(i===0 ? null : (measured!==null&&measured!==undefined?measured:(prediction.delay!==null&&Number.isFinite(planned)&&i>=current?planned+prediction.delay:null)));
+  const safeMeasured=Number.isFinite(measured)&&measured>=planned-2&&measured<=planned+90?measured:null;
+  const estimate=(i===0 ? null : (safeMeasured!==null?safeMeasured:(prediction.delay!==null&&prediction.delay>=0&&Number.isFinite(planned)&&i>=current?planned+prediction.delay:null)));
   if(estimate!==null&&Number.isFinite(estimate)&&Number.isFinite(planned)&&Math.abs(estimate-planned)>=1){
    const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=displayClock(planned);
    old.style.cssText='display:block;text-decoration:line-through;color:#9299a0;font-size:12px;line-height:1.2;text-align:right';
@@ -795,7 +800,32 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    time.append(old,next);time.title=measured!==null&&measured!==undefined?'Szacowany czas zaobserwowania pojazdu w poblizu przystanku (GPS)':'Prognoza z postepu GPS na trasie';
   }else time.textContent=displayClock(raw);
   li.append(dot,name,time);list.append(li);
- });body.append(list);
+ });
+ // v72: znacznik pojazdu i kolejny przystanek wzdłuż osi trasy.
+ const projected=prediction.geo&&routeProgressFromTrace(prediction.geo,v);
+ const livePoints=prediction.geo?.points||[];
+ let segment=server?.currentIndex>=0?server.currentIndex:current;
+ if(projected&&projected.i>=0)segment=projected.i;
+ segment=Math.max(0,Math.min(choice.etaStops.length-1,segment));
+ const coords=livePoints.find(p=>p.i===segment),after=livePoints.find(p=>p.i===segment+1);
+ let fraction=0;
+ if(coords&&after){
+  const lat=Number(v.Lat),lon=Number(v.Lon),cos=Math.cos(lat*Math.PI/180);
+  const ax=coords.lon*111195*cos,ay=coords.lat*111195,bx=after.lon*111195*cos,by=after.lat*111195;
+  const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
+  if(den>1)fraction=Math.max(0,Math.min(1,((lon*111195*cos-ax)*dx+(lat*111195-ay)*dy)/den));
+ }
+ if(Number.isFinite(gpsMs(v.Time))&&Date.now()-gpsMs(v.Time)<90000&&segment<list.children.length){
+  const li=list.children[segment];
+  const marker=document.createElement('span');marker.className='wtp-vehicle-on-route';
+  marker.textContent=v.kind===2?'🚋':'🚌';marker.title='Przybliżona pozycja GPS pojazdu';
+  marker.style.top=(50+fraction*100)+'%';li.append(marker);
+  const next=names.names[Math.min(segment+1,names.names.length-1)];
+  const nextLabel=document.createElement('div');nextLabel.className='wtp-next-stop';
+  nextLabel.textContent='Następny przystanek: '+next;
+  li.append(nextLabel);
+ }
+ body.append(list);
  if(current>=0){const active=list.children[current];if(active)requestAnimationFrame(()=>{if(body.contains(active))body.scrollTop=Math.max(0,active.offsetTop-list.offsetTop-body.clientHeight/2)});}
 }
 
