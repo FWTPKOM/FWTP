@@ -1,5 +1,5 @@
 // WTP LIVE — WERSJA: 58
-// WTP LIVE v62 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -206,7 +206,17 @@ const sourceInfo={1:{total:0,fresh:0,newest:0},2:{total:0,fresh:0,newest:0}};
 const fetchedAt={1:0,2:0};
 const SNAPSHOT_KEY='wtp-live-v36-last-good';
 try {const saved=JSON.parse(sessionStorage.getItem(SNAPSHOT_KEY)||'{}');for(const type of [1,2])if(Date.now()-saved[type]?.at<3*60*1000){received[type]=(saved[type].rows||[]).map(normalizeVehicle).filter(v=>Number.isFinite(gpsMs(v.Time))&&Date.now()-gpsMs(v.Time)<15*60000);fetchedAt[type]=saved[type].at}}catch{}
-function publishVehicles(){vehicles=[...received[1].map(v=>({...v,kind:1})),...received[2].map(v=>({...v,kind:2}))];draw()}
+let lastPanelAutoRefresh=0;
+function publishVehicles(){
+ vehicles=[...received[1].map(v=>({...v,kind:1})),...received[2].map(v=>({...v,kind:2}))];draw();
+ if(focusedVehicle && !$('vehiclePanel')?.hidden && Date.now()-lastPanelAutoRefresh>30000){
+  const current=vehicles.find(v=>vehicleKey(v)===vehicleKey(focusedVehicle));
+  if(current && gpsMs(current.Time)>gpsMs(focusedVehicle.Time)){
+   focusedVehicle={...current};lastPanelAutoRefresh=Date.now();
+   void openVehiclePanel(current);
+  }
+ }
+}
 function gpsAgeDescription(){
  const now=Date.now(),times=vehicles.map(v=>gpsMs(v.Time)).filter(Number.isFinite);
  if(!times.length)return 'Brak znacznika czasu GPS';
@@ -396,7 +406,7 @@ function etaMapStops(gtfsStops,etaStops){
  }
  return {mapped:out,exactCount,coverage:n/Math.max(1,gtfsStops.length),error:n?totalError/n:Infinity};
 }
-// WTP LIVE v62 — najpierw dosłowne powiązanie linia + brygada w ETA.
+// WTP LIVE v63 — najpierw dosłowne powiązanie linia + brygada w ETA.
 // GPS i GTFS nie mogą blokować odczytu rozkładu brygady.
 function etaServiceMinutes(raw){
  const m=String(raw??'').match(/(\d{1,3}):(\d{2})/);
@@ -449,9 +459,9 @@ async function etaMatchVehicle(v,gtfsTrips=[]){
  const matches=evaluated.filter(Boolean).sort((a,b)=>a.score-b.score||a.bounds.start-b.bounds.start);
  if(!matches.length)throw Error('Nie udało się pobrać przystanków żadnego kursu brygady. Sprawdź wdrożenie Workera v44: /eta/courses/ID/stops.');
  // Zwracamy także inne kursy tej samej brygady; żadnego kursu innej brygady.
- return {selected:matches[0],alternatives:matches.slice(1,12),line,brigade,now};
+ return {selected:matches[0],alternatives:matches.slice(1,24),line,brigade,now};
 }
-// WTP LIVE v62: nazwy przystanków ETA nie są identyfikatorami GTFS.
+// WTP LIVE v63: nazwy przystanków ETA nie są identyfikatorami GTFS.
 // Mapujemy je po uporządkowanym przebiegu i godzinach, bez fikcyjnego utożsamiania ID.
 function etaNameMatch(etaStops,gtfsTrips,course){
  const eta=etaMonotonicStops(etaStops), candidates=[];
@@ -505,6 +515,48 @@ function etaNamesForCourse(stops,gtfsTrips,course){
   const j=matched?.mapping[i];
   return j>=0?String(matched.trip.stops[j][1]||'Przystanek'):'Przystanek '+String(s.stop_id??'?');
  })};
+}
+// WERSJA 63: dopasowanie postępu pojazdu na trasie i zmiana kursu na pętli.
+// 90 m to próg weryfikacji terminala; 30 m było zbyt małe przy GPS w ruchu.
+const TERMINAL_RADIUS_M=90;
+const activeCourseByVehicle=new Map();
+function coursePosition(choice,trips,v){
+ const named=etaNameMatch(choice.etaStops,trips,choice.course);
+ if(!named)return null;
+ const coords=named.trip.stops;
+ let nearest={distance:Infinity,index:-1};
+ for(let i=0;i<choice.etaStops.length;i++){
+  const j=named.mapping[i],st=j>=0?coords[j]:null;
+  if(!st)continue;
+  const d=geoDistance(Number(v.Lat),Number(v.Lon),Number(st[2]),Number(st[3]));
+  if(Number.isFinite(d)&&d<nearest.distance)nearest={distance:d,index:i};
+ }
+ const last=choice.etaStops.length-1;
+ return {...nearest,atTerminal:nearest.index===last&&nearest.distance<=TERMINAL_RADIUS_M,matched:named};
+}
+function chooseLiveEtaCourse(match,v,trips){
+ const key=vehicleKey(v),old=activeCourseByVehicle.get(key);
+ const all=[match.selected,...match.alternatives];
+ const now=match.now;
+ // Znana ostatnia obserwacja na pętli: po zakończeniu kursu szukamy
+ // następnego kursu tej samej brygady, nigdy innej brygady.
+ if(old?.terminal && Date.now()-old.at<15*60*1000){
+  const next=all.filter(c=>c.bounds.start>=old.end-2 && String(c.course.course_id)!==String(old.id))
+   .sort((a,b)=>a.bounds.start-b.bounds.start)[0];
+  if(next && (now>=next.bounds.start-8 || now>=old.end+2))match.selected=next;
+ }
+ // Nie wybieraj nowego kursu przed dojazdem na pętlę na podstawie samego czasu.
+ const selected=match.selected;
+ const position=coursePosition(selected,trips,v);
+ if(position?.atTerminal && now>=selected.bounds.end-20){
+  activeCourseByVehicle.set(key,{id:selected.course.course_id,end:selected.bounds.end,terminal:true,at:Date.now()});
+  const next=all.filter(c=>c.bounds.start>=selected.bounds.end-2 && String(c.course.course_id)!==String(selected.course.course_id))
+   .sort((a,b)=>a.bounds.start-b.bounds.start)[0];
+  if(next && now>=next.bounds.start-5)match.selected=next;
+ }else if(position && position.distance<TERMINAL_RADIUS_M){
+  activeCourseByVehicle.set(key,{id:selected.course.course_id,end:selected.bounds.end,terminal:false,at:Date.now()});
+ }
+ return match;
 }
 function renderEtaRoute(match,v,body,gtfsTrips=[]){
  const choice=match.selected;
@@ -631,6 +683,7 @@ async function openVehiclePanel(v){
   let trips=[];
   try{const data=await loadGtfs(line);if(data.date===todayWarsaw())trips=data.trips||[]}catch(e){console.warn('GTFS: brak nazw przystanków',e.message)}
   if(serial!==vehiclePanelRequest||panel.hidden)return;
+  chooseLiveEtaCourse(matched,v,trips);
   renderEtaRoute(matched,v,body,trips);
  }catch(e){if(serial===vehiclePanelRequest&&!panel.hidden){body.replaceChildren();const warning=document.createElement('p');warning.className='route-note';warning.textContent='Nie udało się pobrać rozkładu ETA: '+e.message;body.append(warning)}}
 }
