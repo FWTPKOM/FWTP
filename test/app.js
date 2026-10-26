@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 69
+// WTP LIVE — WERSJA: 71
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -124,7 +124,7 @@ function decorateRouteStop(li,lat,lon){
  const request=requestStopNear(Number(lat),Number(lon));
  if(request===true)li.classList.add('request-stop');
  else if(request===false)li.classList.add('fixed-stop');
- else li.classList.add('unknown-stop');
+ else li.classList.add('fixed-stop'); // Brak flagi NŻ: nie oznaczaj przystanku jako NŻ bez dowodu
 }
 function renderStopMarkers(){
  if(!stopLayer)return;
@@ -385,7 +385,7 @@ function etaAbsoluteMinutes(raw){
  const m=String(raw??'').match(/(\d{1,3}):(\d{2})/);
  return m?Number(m[1])*60+Number(m[2]):NaN;
 }
-function etaMinutesAt(st){return etaAbsoluteMinutes(st.arrival||st.departure)}
+function etaMinutesAt(st){return etaAbsoluteMinutes(st.departure||st.arrival)}
 function etaClockDistance(a,b){return etaTimeNear(a,b)}
 function etaMonotonicStops(es){
  let prev=-Infinity;
@@ -432,7 +432,7 @@ function etaServiceMinutes(raw){
  return m?Number(m[1])*60+Number(m[2]):NaN;
 }
 function etaCourseTimeBounds(stops,course){
- const times=stops.map(x=>etaServiceMinutes(x.arrival||x.departure)).filter(Number.isFinite);
+ const times=stops.map((x,i)=>etaServiceMinutes(i===0?(x.departure||x.arrival):(i===stops.length-1?(x.arrival||x.departure):(x.departure||x.arrival)))).filter(Number.isFinite);
  let start=etaServiceMinutes(course.departure);
  if(!Number.isFinite(start))start=times[0];
  let end=times.at(-1);
@@ -620,7 +620,7 @@ function etaGpsObservations(choice,v,trips){
  for(let i=0;i<choice.etaStops.length;i++){
   const j=named.mapping[i];if(j<0)continue;
   const st=named.trip.stops[j],lat=Number(st[2]),lon=Number(st[3]);
-  if(Number.isFinite(lat)&&Number.isFinite(lon))points.push({i,lat,lon,time:etaServiceMinutes(choice.etaStops[i].departure||choice.etaStops[i].arrival)});
+  if(Number.isFinite(lat)&&Number.isFinite(lon))points.push({i,lat,lon,time:etaServiceMinutes(i===choice.etaStops.length-1?(choice.etaStops[i].arrival||choice.etaStops[i].departure):(choice.etaStops[i].departure||choice.etaStops[i].arrival))});
  }
  let near=null;
  for(const pt of points){const d=geoDistance(Number(v.Lat),Number(v.Lon),pt.lat,pt.lon);
@@ -779,12 +779,14 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
 
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=names.names[i];
-  const raw=stop.arrival||stop.departure||'';
+  const raw=(i===0 ? (stop.departure||stop.arrival) : (i===choice.etaStops.length-1 ? (stop.arrival||stop.departure) : (stop.departure||stop.arrival)))||'';
   const time=document.createElement('time');time.className='route-stop-time';
   const planned=etaServiceMinutes(raw);
   const pastEvent=server?.events?.get(i);
   const measured=pastEvent&&Number.isFinite(planned)?pastEvent.time:null;
-  const estimate=measured!==null&&measured!==undefined?measured:(prediction.delay!==null&&Number.isFinite(planned)&&i>=current?planned+prediction.delay:null);
+  // Początek kursu: nie traktuj pozycji na pętli jako opóźnionego przyjazdu.
+  // Planowy odjazd z pierwszego słupka pozostaje podstawą porównania.
+  const estimate=(i===0 ? null : (measured!==null&&measured!==undefined?measured:(prediction.delay!==null&&Number.isFinite(planned)&&i>=current?planned+prediction.delay:null)));
   if(estimate!==null&&Number.isFinite(estimate)&&Number.isFinite(planned)&&Math.abs(estimate-planned)>=1){
    const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=displayClock(planned);
    old.style.cssText='display:block;text-decoration:line-through;color:#9299a0;font-size:12px;line-height:1.2;text-align:right';
@@ -910,17 +912,17 @@ async function openVehiclePanel(v){
   // Nie uzależniaj rozkładu brygady od zgodności GPS/GTFS.
   const gpsFetch=fetchServerGps(v).catch(e=>{console.warn('Historia GPS:',e.message);return null});
   const cached=etaPanelMatches.get(cacheKey);
-  const matched=cached&&Date.now()-cached.at<120000?cached.match:await etaMatchVehicle(v);
+  const matchPromise=cached&&Date.now()-cached.at<120000?Promise.resolve(cached.match):etaMatchVehicle(v);
+  const tripsPromise=ready&&Date.now()-ready.at<120000?Promise.resolve(ready.trips):loadGtfs(line).then(data=>data.date===todayWarsaw()?(data.trips||[]):[]).catch(e=>{console.warn('GTFS: brak nazw przystanków',e.message);return []});
+  const [matched,trips]=await Promise.all([matchPromise,tripsPromise]);
   if(!cached||Date.now()-cached.at>=120000)etaPanelMatches.set(cacheKey,{at:Date.now(),match:matched});
   if(serial!==vehiclePanelRequest||panel.hidden)return;
-  let trips=[];
-  try{if(ready&&Date.now()-ready.at<120000)trips=ready.trips;else{const data=await loadGtfs(line);if(data.date===todayWarsaw())trips=data.trips||[]}}catch(e){console.warn('GTFS: brak nazw przystanków',e.message)}
   if(serial!==vehiclePanelRequest||panel.hidden)return;
   if(serial!==vehiclePanelRequest||panel.hidden)return;
   chooseLiveEtaCourse(matched,v,trips);
   etaPanelReady.set(cacheKey,{match:matched,trips,at:Date.now()});
   renderEtaRoute(matched,v,body,trips);
-  gpsFetch.then(()=>{if(serial===vehiclePanelRequest&&!panel.hidden){chooseLiveEtaCourse(matched,v,trips);renderEtaRoute(matched,v,body,trips)}});
+  gpsFetch.then(positions=>{if(positions?.length && serial===vehiclePanelRequest&&!panel.hidden){chooseLiveEtaCourse(matched,v,trips);renderEtaRoute(matched,v,body,trips)}});
  }catch(e){if(serial===vehiclePanelRequest&&!panel.hidden){body.replaceChildren();const warning=document.createElement('p');warning.className='route-note';warning.textContent='Nie udało się pobrać rozkładu ETA: '+e.message;body.append(warning)}}
 }
 function setTab(tab,record=true){
