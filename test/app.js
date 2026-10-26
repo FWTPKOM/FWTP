@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 72
+// WTP LIVE — WERSJA: 73
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -779,7 +779,11 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  choice.etaStops.forEach((stop,i)=>{
   const li=document.createElement('li');li.className='route-stop'+(i===current?' current':'')+(current>=0&&i<current?' passed':'');
   const j=names.mapping?.[i],mapped=Number.isInteger(j)&&j>=0?names.trip?.stops?.[j]:null;
-  if(mapped)decorateRouteStop(li,mapped[2],mapped[3]);
+  // v73: dla ETA priorytet ma jawna flaga z odcinków tego samego wariantu.
+  // null = nieustalony; nie zastępuj go typem przypadkowego pobliskiego słupka.
+  if(stop.slupek_na_zadanie===1 || stop.slupek_na_zadanie==='1')li.classList.add('request-stop');
+  else if(stop.slupek_na_zadanie===0 || stop.slupek_na_zadanie==='0')li.classList.add('fixed-stop');
+  else li.classList.add('unknown-stop');
 
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=names.names[i];
