@@ -1,4 +1,4 @@
-// WTP LIVE v56 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v57 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -349,66 +349,112 @@ function etaTimeNear(a,b){
  if(!Number.isFinite(a)||!Number.isFinite(b))return Infinity;
  return Math.min(...[-1440,0,1440].map(d=>Math.abs(a+d-b)));
 }
-async function etaMatchVehicle(v,gtfsTrips){
-  const line=String(v.Lines||'').trim(),brigade=normalizeBrigade(v.Brigade);
-  if(!line||!brigade)throw Error('Brak linii lub brygady w GPS');
-  const stamp=gpsMs(v.Time);
-  if(!Number.isFinite(stamp)||Math.abs(Date.now()-stamp)>5*60000)throw Error('GPS pojazdu jest nieaktualny');
-  const health=await etaGet('health');
-  if(!health.ok||etaDay(health.metadata?.date)!==todayWarsaw())throw Error('Baza ETA nie jest na dzisiaj');
-  const data=await etaGet('courses',{line,brigade,limit:5000});
-  const rows=(data.courses||[]).filter(c=>normalizeBrigade(c.brigade)===brigade);
-  if(!rows.length)throw Error('Brak kursów ETA dla brygady '+brigade);
-  const clock=nowWarsaw(new Date(stamp));
-  // Nie wymagamy punktualności: opóźniony pojazd może jechać znacznie
-  // później niż wskazuje rozkład. Najpierw weryfikujemy trasę po GPS.
-  const gpsCandidates=chooseGtfsTrip(gtfsTrips,v).filter(g=>g.distance<450);
-  if(!gpsCandidates.length)throw Error('Brak zgodnej geograficznie trasy GTFS');
-  const plausible=rows.filter(c=>{
-    const t=etaClock(c.departure);
-    return Number.isFinite(t)&&[-1440,0,1440].some(d=>clock+d>=t-30&&clock+d<=t+360);
-  });
-  const candidates=[];
-  // Ograniczenie liczby żądań, ale bez ucinania do 35 pierwszych kursów.
-  const sorted=plausible.sort((a,b)=>etaTimeNear(etaClock(a.departure),clock)-etaTimeNear(etaClock(b.departure),clock));
-  for(const c of sorted.slice(0,65)){
-    let details;
-    try{details=await etaGet('courses/'+encodeURIComponent(c.course_id)+'/stops')}catch{continue}
-    const es=(details.stops||[]).slice().sort((a,b)=>Number(a.seq)-Number(b.seq));
-    if(es.length<2)continue;
-    const first=etaClock(es[0].departure||es[0].arrival||c.departure);
-    const last=etaClock(es.at(-1).arrival||es.at(-1).departure);
-    if(!Number.isFinite(first)||!Number.isFinite(last))continue;
-    for(const gps of gpsCandidates){
-      const trip=gps.trip,ss=trip.stops;
-      const startGap=etaTimeNear(first,minutes(ss[0][4]));
-      const endGap=etaTimeNear(last,minutes(ss.at(-1)[4]));
-      // ETA i GTFS mogą mieć inne ID słupków; zgodność godzin na obu
-      // końcach i zgodność geograficzna są wtedy konieczne.
-      if(startGap>15||endGap>25)continue;
-      const ids=new Set(ss.map(s=>etaStopCode(s[0])).filter(Boolean));
-      const overlap=es.filter(s=>ids.has(etaStopCode(s.stop_id))).length;
-      if(!overlap&&(gps.distance>120||startGap>5||endGap>10))continue;
-      const score=gps.score+startGap*75+endGap*30-Math.min(overlap,12)*25;
-      candidates.push({course:c,etaStops:es,trip,index:gps.index,score,overlap});
-    }
-  }
-  candidates.sort((a,b)=>a.score-b.score);
-  if(!candidates.length)throw Error('ETA i GPS nie potwierdzają tego samego kursu');
-  if(candidates.length>1&&candidates[1].score-candidates[0].score<160&&
-     String(candidates[1].course.course_id)!==String(candidates[0].course.course_id))
-    throw Error('Kilka kursów ETA pozostaje nierozróżnialnych');
-  return candidates[0];
+// v57: ETA jest źródłem brygady i kursu, GTFS dostarcza współrzędnych.
+// Nie wolno podmieniać godzin na podstawie niezgodnych identyfikatorów słupków.
+function etaAbsoluteMinutes(raw){
+ const m=String(raw??'').match(/(\d{1,3}):(\d{2})/);
+ return m?Number(m[1])*60+Number(m[2]):NaN;
 }
-
+function etaMinutesAt(st){return etaAbsoluteMinutes(st.arrival||st.departure)}
+function etaClockDistance(a,b){return etaTimeNear(a,b)}
+function etaMonotonicStops(es){
+ let prev=-Infinity;
+ return es.map(st=>{let t=etaMinutesAt(st);if(Number.isFinite(t)){while(t<prev-180)t+=1440;prev=t}return {...st,_time:t}});
+}
+function etaMapStops(gtfsStops,etaStops){
+ const out=new Array(gtfsStops.length).fill(null);
+ const exact=new Map();
+ etaStops.forEach((s,j)=>{const k=etaStopCode(s.stop_id);if(k){if(!exact.has(k))exact.set(k,[]);exact.get(k).push(j)}});
+ let exactCount=0,last=-1;
+ gtfsStops.forEach((s,i)=>{const possible=exact.get(etaStopCode(s[0]))||[];const j=possible.find(k=>k>last);if(j!==undefined){out[i]=j;last=j;exactCount++}});
+ // Gdy identyfikatory są z innych systemów, uzgadniamy kolejność i czasy
+ // przejazdu. Nie zakładamy, że numer ETA = numer GTFS.
+ if(exactCount<Math.max(2,Math.ceil(gtfsStops.length*.25))){
+  const a=etaStops.map(x=>x._time),b=gtfsStops.map(x=>minutes(x[4]));
+  if(!a.length||!b.length)return {mapped:out,exactCount,coverage:0,error:Infinity};
+  const baseA=a.find(Number.isFinite),baseB=b.find(Number.isFinite);
+  if(!Number.isFinite(baseA)||!Number.isFinite(baseB))return {mapped:out,exactCount,coverage:0,error:Infinity};
+  const used=new Set();let lastJ=-1;
+  for(let i=0;i<b.length;i++){
+   if(!Number.isFinite(b[i]))continue;
+   const target=b[i]-baseB;let best=-1,bestGap=Infinity;
+   for(let j=lastJ+1;j<a.length;j++){
+    if(!Number.isFinite(a[j])||used.has(j))continue;
+    const gap=Math.abs((a[j]-baseA)-target);
+    if(gap<bestGap){bestGap=gap;best=j}
+   }
+   if(best>=0&&bestGap<=4){out[i]=best;used.add(best);lastJ=best}
+  }
+ }else{
+  // Przy potwierdzonych identyfikatorach nie uzupełniamy luk na ślepo.
+ }
+ let n=0,totalError=0;
+ for(let i=0;i<out.length;i++)if(out[i]!==null){
+  const t=etaStops[out[i]]._time,g=minutes(gtfsStops[i][4]);
+  if(Number.isFinite(t)&&Number.isFinite(g)){n++;totalError+=etaClockDistance(t,g)}
+ }
+ return {mapped:out,exactCount,coverage:n/Math.max(1,gtfsStops.length),error:n?totalError/n:Infinity};
+}
+async function etaMatchVehicle(v,gtfsTrips){
+ const line=String(v.Lines||'').trim(),brigade=normalizeBrigade(v.Brigade);
+ if(!line||!brigade)throw Error('Brak linii lub brygady GPS');
+ const stamp=gpsMs(v.Time);
+ if(!Number.isFinite(stamp)||Math.abs(Date.now()-stamp)>5*60000)throw Error('Nieaktualny GPS');
+ const health=await etaGet('health');
+ if(!health.ok||etaDay(health.metadata?.date)!==todayWarsaw())throw Error('Baza ETA nie jest na dzisiaj');
+ const response=await etaGet('courses',{line,brigade,limit:5000});
+ const courses=(response.courses||[]).filter(c=>normalizeBrigade(c.brigade)===brigade);
+ if(!courses.length)throw Error('Brak kursów ETA tej brygady');
+ const gpsCandidates=chooseGtfsTrip(gtfsTrips,v).filter(x=>x.distance<300).slice(0,5);
+ if(!gpsCandidates.length)throw Error('Brak trasy GTFS zgodnej z pozycją GPS');
+ const now=nowWarsaw(new Date(stamp));
+ const relevant=courses.filter(c=>{
+  const t=etaAbsoluteMinutes(c.departure);
+  return Number.isFinite(t)&&[-1440,0,1440].some(d=>now+d>=t-45&&now+d<=t+240);
+ }).sort((a,b)=>etaClockDistance(etaAbsoluteMinutes(a.departure),now)-etaClockDistance(etaAbsoluteMinutes(b.departure),now));
+ const ranked=[];
+ for(const c of relevant.slice(0,90)){
+  let detail;try{detail=await etaGet('courses/'+encodeURIComponent(c.course_id)+'/stops')}catch{continue}
+  const es=etaMonotonicStops((detail.stops||[]).slice().sort((x,y)=>Number(x.seq)-Number(y.seq)));
+  if(es.length<3)continue;
+  for(const gps of gpsCandidates){
+   const ss=gps.trip.stops, mapped=etaMapStops(ss,es);
+   if(mapped.coverage<.55||mapped.error>12)continue;
+   const j=mapped.mapped[gps.index];if(j===null)continue;
+   const planned=es[j]._time;if(!Number.isFinite(planned))continue;
+   const lateness=Math.min(...[-1440,0,1440].map(d=>now+d-planned).filter(x=>x>=-8&&x<=120).concat([Infinity]));
+   if(!Number.isFinite(lateness))continue;
+   const first=etaMinutesAt(es[0]),last=etaMinutesAt(es.at(-1));
+   const gFirst=minutes(ss[0][4]),gLast=minutes(ss.at(-1)[4]);
+   const startGap=etaClockDistance(first,gFirst),endGap=etaClockDistance(last,gLast);
+   // Nie wybieramy innego kursu tylko dlatego, że ma podobny kierunek.
+   const score=gps.distance*.6+mapped.error*15+Math.max(0,lateness)*2+
+     Math.min(startGap,60)*2+Math.min(endGap,60)*2-
+     Math.min(mapped.exactCount,10)*15;
+   ranked.push({course:c,etaStops:es,trip:gps.trip,index:gps.index,
+     score,overlap:mapped.exactCount,mapped:mapped.mapped,delayMinutes:Math.max(0,Math.round(lateness)),
+     coverage:mapped.coverage});
+  }
+ }
+ ranked.sort((a,b)=>a.score-b.score);
+ if(!ranked.length)throw Error('Brak kursu tej brygady zgodnego z GPS i godzinami');
+ const best=ranked[0];
+ const alternative=ranked.find(x=>String(x.course.course_id)!==String(best.course.course_id));
+ if(alternative&&alternative.score-best.score<25)throw Error('Dwa kursy tej brygady są nadal nierozróżnialne');
+ return best;
+}
 function renderEtaRoute(match,v,body){
- const {course,etaStops,trip,index,overlap}=match;
- const etaTimes=new Map();for(const s of etaStops)etaTimes.set(etaStopCode(s.stop_id),s);
- const enhanced={...trip,stops:trip.stops.map(s=>{
-  const eta=overlap?etaTimes.get(etaStopCode(s[0])):null;
-  return eta?[...s.slice(0,4),String(eta.arrival||eta.departure||s[4])]:s;
+ const {course,etaStops,trip,index,mapped,delayMinutes}=match;
+ const enhanced={...trip,stops:trip.stops.map((s,i)=>{
+  const j=mapped[i],eta=j===null?null:etaStops[j];
+  return eta&&Number.isFinite(eta._time)?[...s.slice(0,4),displayClock(eta._time)]:s;
  })};
- renderVehicleRoute(enhanced,index,body,'ETA: dopasowany kurs '+course.course_id+' linii '+course.line+', brygada '+course.brigade+'. '+(overlap?'Godziny ETA dla zgodnych identyfikatorów słupków. ':'Identyfikatory słupków różne — godziny z GTFS. ')+'Godziny planowe; czerwone godziny są szacunkiem GPS, jeśli pojazd jest przy przystanku.',v.kind,v);
+ const delay=delayMinutes>=2&&delayMinutes<=120?{delay:delayMinutes,at:Math.max(0,index-1)}:null;
+ renderVehicleRoute(enhanced,index,body,
+  'ETA: kurs '+course.course_id+' · linia '+course.line+' · brygada '+course.brigade+
+  ' · dopasowanie GPS i przebiegu trasy (szacunkowe). '+
+  (delay?'Opóźnienie ok. +'+delay.delay+' min; godziny czerwone są prognozą.':'Brak potwierdzonego opóźnienia.'),
+  v.kind,v,delay);
 }
 
 // v50: kurs wolno powiązać z brygadą dopiero po potwierdzeniu
@@ -489,8 +535,8 @@ function displayTimeCell(item,i,delayInfo){
  }else{t.textContent=planned}
  return t;
 }
-function renderVehicleRoute(trip,index,body,description,kind,v=null){
- const observed=v?estimateObservedDelay(trip,v):null;
+function renderVehicleRoute(trip,index,body,description,kind,v=null,knownDelay=null){
+ const observed=knownDelay||(v?estimateObservedDelay(trip,v):null);
  body.replaceChildren();
  const note=document.createElement('p');note.className='route-note';note.textContent=description;body.append(note);
  const list=document.createElement('ol');list.className='route-stops kind-'+(kind===2?'tram':'bus');
