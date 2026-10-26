@@ -1,5 +1,5 @@
 // WTP LIVE — WERSJA: 58
-// WTP LIVE v58 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v60 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -396,82 +396,98 @@ function etaMapStops(gtfsStops,etaStops){
  }
  return {mapped:out,exactCount,coverage:n/Math.max(1,gtfsStops.length),error:n?totalError/n:Infinity};
 }
-// WTP LIVE v59 — ETAP 1: rozkład konkretnej brygady z ETA.
-// Nigdy nie zastępuj kursu brygady rozkładem dowolnego kursu GTFS.
-async function etaMatchVehicle(v,gtfsTrips){
+// WTP LIVE v60 — najpierw dosłowne powiązanie linia + brygada w ETA.
+// GPS i GTFS nie mogą blokować odczytu rozkładu brygady.
+function etaServiceMinutes(raw){
+ const m=String(raw??'').match(/(\d{1,3}):(\d{2})/);
+ return m?Number(m[1])*60+Number(m[2]):NaN;
+}
+function etaCourseTimeBounds(stops,course){
+ const times=stops.map(x=>etaServiceMinutes(x.arrival||x.departure)).filter(Number.isFinite);
+ let start=etaServiceMinutes(course.departure);
+ if(!Number.isFinite(start))start=times[0];
+ let end=times.at(-1);
+ if(!Number.isFinite(end))end=start+60;
+ while(end<start)end+=1440;
+ return {start,end};
+}
+function etaCourseDistance(bounds,now){
+ let best=Infinity;
+ for(const shift of [-1440,0,1440]){
+  const t=now+shift;
+  const dist=t<bounds.start?bounds.start-t:t>bounds.end? t-bounds.end:0;
+  best=Math.min(best,dist);
+ }
+ return best;
+}
+async function etaMatchVehicle(v,gtfsTrips=[]){
  const line=String(v.Lines||'').trim(),brigade=normalizeBrigade(v.Brigade);
- if(!line||!brigade)throw Error('Brak linii lub brygady pojazdu');
- const stamp=gpsMs(v.Time);
- if(!Number.isFinite(stamp)||Math.abs(Date.now()-stamp)>15*60000)throw Error('Nieaktualny pomiar GPS');
+ if(!line||!brigade)throw Error('Brak numeru linii lub brygady');
  const health=await etaGet('health');
- if(!health.ok||etaDay(health.metadata?.date)!==todayWarsaw())throw Error('Rozkład ETA nie jest aktualny na dzisiaj');
- // API v57 porównuje brygady dosłownie: "012" != "12". Pobierz kursy
- // linii i normalizuj brygadę po stronie klienta.
+ if(!health.ok||etaDay(health.metadata?.date)!==todayWarsaw())
+  throw Error('Baza ETA nie zawiera rozkładu na dzisiaj: '+(health.metadata?.date||'brak daty'));
  const response=await etaGet('courses',{line,limit:5000});
  const courses=(response.courses||[]).filter(c=>normalizeBrigade(c.brigade)===brigade);
- if(!courses.length)throw Error('ETA nie zawiera kursów linii '+line+' brygady '+brigade);
- const now=nowWarsaw(new Date(stamp));
- const gpsCandidates=chooseGtfsTrip(gtfsTrips,v).filter(g=>g.distance<350);
- // Do identyfikacji kursu używamy wyłącznie kursów tej brygady z ETA.
- const relevant=courses.filter(c=>{
-  const dep=etaAbsoluteMinutes(c.departure);
-  return Number.isFinite(dep)&&[-1440,0,1440].some(d=>now+d>=dep-20&&now+d<=dep+240);
- });
- if(!relevant.length)throw Error('Brak czasowo możliwego kursu tej brygady');
- const ranked=[];
- // Ogranicz liczbę żądań, ale nie wybieraj według najbliższej godziny
- // rozpoczęcia, bo opóźniony kurs może być daleko od startu.
- for(const c of relevant.slice(0,100)){
-  let detail;try{detail=await etaGet('courses/'+encodeURIComponent(c.course_id)+'/stops')}catch{continue}
-  const es=etaMonotonicStops((detail.stops||[]).slice().sort((x,y)=>Number(x.seq)-Number(y.seq)));
-  if(es.length<2)continue;
-  const start=es.find(x=>Number.isFinite(x._time))?._time;
-  const end=es.slice().reverse().find(x=>Number.isFinite(x._time))?._time;
-  if(!Number.isFinite(start)||!Number.isFinite(end))continue;
-  // Okno dopuszcza opóźnienie, lecz nie prognozuje jego wielkości.
-  const age=Math.min(...[-1440,0,1440].map(d=>now+d));
-  let timePenalty=Infinity;
-  for(const shift of [-1440,0,1440]){
-   const current=now+shift;
-   const penalty=current<start-8?(start-8-current):current>end+90?(current-end-90):0;
-   timePenalty=Math.min(timePenalty,penalty);
-  }
-  if(timePenalty>0)continue;
-  let best=null;
-  for(const gps of gpsCandidates){
-   const mapped=etaMapStops(gps.trip.stops,es);
-   // Minimum: co najmniej 3 wspólne słupki w prawidłowej kolejności.
-   // Dopasowanie wyłącznie na podstawie podobnych minut nie jest dowodem.
-   if(mapped.exactCount<3)continue;
-   const j=mapped.mapped[gps.index];
-   if(j===null)continue;
-   const planned=es[j]._time;
-   if(!Number.isFinite(planned))continue;
-   const delay=Math.min(...[-1440,0,1440].map(d=>now+d-planned).filter(d=>d>=-10&&d<=120).concat([Infinity]));
-   if(!Number.isFinite(delay))continue;
-   const score=gps.distance+Math.abs(delay)*1.2-mapped.exactCount*8;
-   if(!best||score<best.score)best={course:c,etaStops:es,trip:gps.trip,index:gps.index,
-     mapped:mapped.mapped,score,exactCount:mapped.exactCount,delay};
-  }
-  if(best)ranked.push(best);
- }
- ranked.sort((a,b)=>a.score-b.score);
- if(!ranked.length)throw Error('Nie udało się potwierdzić przebiegu kursu tej brygady na wspólnych przystankach ETA i GTFS');
- if(ranked.length>1&&String(ranked[0].course.course_id)!==String(ranked[1].course.course_id)&&ranked[1].score-ranked[0].score<45)
-  throw Error('Kilka kursów tej samej brygady pasuje do pozycji; nie wybieram przypadkowego');
- return ranked[0];
+ if(!courses.length)throw Error('Brak kursów ETA dla linii '+line+' i brygady '+brigade+' (API zwróciło '+(response.courses||[]).length+' kursów linii)');
+ const stamp=gpsMs(v.Time),now=nowWarsaw(Number.isFinite(stamp)?new Date(stamp):new Date());
+ // Wyszukaj kursy na podstawie czasu rozkładowego. Opóźnienie nie zmienia brygady.
+ const likely=courses.map(c=>({course:c,departure:etaServiceMinutes(c.departure)}))
+  .filter(x=>Number.isFinite(x.departure))
+  .map(x=>({...x,preDistance:Math.min(...[-1440,0,1440].map(d=>Math.abs(now+d-x.departure-35)))}))
+  .sort((a,b)=>a.preDistance-b.preDistance).slice(0,24);
+ if(!likely.length)throw Error('Kursy brygady nie mają rozpoznawalnych godzin');
+ const evaluated=await Promise.all(likely.map(async x=>{
+  try{
+   const detail=await etaGet('courses/'+encodeURIComponent(x.course.course_id)+'/stops');
+   const stops=(detail.stops||[]).slice().sort((a,b)=>Number(a.seq)-Number(b.seq));
+   if(stops.length<2)return null;
+   const bounds=etaCourseTimeBounds(stops,x.course);
+   const distance=etaCourseDistance(bounds,now);
+   return {course:x.course,etaStops:stops,bounds,distance,score:distance};
+  }catch(e){console.warn('ETA: nie można pobrać przystanków kursu',x.course.course_id,e.message);return null}
+ }));
+ const matches=evaluated.filter(Boolean).sort((a,b)=>a.score-b.score||a.bounds.start-b.bounds.start);
+ if(!matches.length)throw Error('Nie udało się pobrać przystanków żadnego kursu brygady');
+ // Zwracamy także inne kursy tej samej brygady; żadnego kursu innej brygady.
+ return {selected:matches[0],alternatives:matches.slice(1,12),line,brigade,now};
 }
-function renderEtaRoute(match,v,body){
- const {course,etaStops,trip,index,mapped}=match;
- // Godziny pochodzą TYLKO z dopasowanego kursu ETA. Bez podmiany GTFS.
- const enhanced={...trip,stops:trip.stops.map((s,i)=>{
-  const j=mapped[i],eta=j===null?null:etaStops[j];
-  return [...s.slice(0,4),eta&&Number.isFinite(eta._time)?displayClock(eta._time):''];
- })};
- renderVehicleRoute(enhanced,index,body,
-  'Rozkład ETA · linia '+course.line+' · brygada '+course.brigade+' · kurs '+course.course_id+
-  '. Godziny planowe przypisane do tej brygady; prognozy GPS zostaną dodane w następnym etapie.',
-  v.kind,null,null);
+function etaNamesForCourse(stops,gtfsTrips){
+ const names=new Map();
+ for(const trip of gtfsTrips||[])for(const s of trip.stops||[]){
+  const id=etaStopCode(s[0]);if(id&&!names.has(id))names.set(id,String(s[1]||''));
+ }
+ return stops.map(s=>names.get(etaStopCode(s.stop_id))||('Przystanek '+String(s.stop_id??'?')));
+}
+function renderEtaRoute(match,v,body,gtfsTrips=[]){
+ const {selected,alternatives}=match;
+ const all=[selected,...alternatives];
+ function render(choice){
+  body.replaceChildren();
+  const note=document.createElement('p');note.className='route-note';
+  note.textContent='ETA: linia '+choice.course.line+', brygada '+choice.course.brigade+', kurs '+choice.course.course_id+'. Godziny rozkładowe tej brygady; bez prognozy GPS.';
+  body.append(note);
+  if(all.length>1){
+   const label=document.createElement('p');label.className='route-note';
+   label.textContent='Brygada ma kilka kursów. Wybrano kurs najbliższy czasowo; można wybrać inny kurs tej samej brygady:';body.append(label);
+   const options=document.createElement('div');options.className='wtp-route-options';
+   for(const candidate of all){const button=document.createElement('button');
+    button.textContent=displayClock(candidate.course.departure)+' · kurs '+candidate.course.course_id;
+    button.disabled=String(candidate.course.course_id)===String(choice.course.course_id);
+    button.onclick=()=>render(candidate);options.append(button)}
+   body.append(options);
+  }
+  const names=etaNamesForCourse(choice.etaStops,gtfsTrips);
+  const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
+  choice.etaStops.forEach((stop,i)=>{
+   const li=document.createElement('li');li.className='route-stop';
+   const dot=document.createElement('span');dot.className='route-dot';
+   const name=document.createElement('span');name.className='route-stop-name';name.textContent=names[i];
+   const time=document.createElement('time');time.className='route-stop-time';
+   time.textContent=displayClock(stop.arrival||stop.departure||'');
+   li.append(dot,name,time);list.append(li);
+  });body.append(list);
+ }
+ render(selected);
 }
 
 // v50: kurs wolno powiązać z brygadą dopiero po potwierdzeniu
@@ -571,34 +587,16 @@ async function openVehiclePanel(v){
  const line=String(v.Lines||'?'),brigade=String(v.Brigade||'?'),number=String(v.VehicleNumber||'?');
  $('vehicleHeading').textContent=`${line} · ${v.kind===2?'Tramwaj':'Autobus'} · brygada ${brigade} · tabor ${number}`;
  const body=$('vehicleBody');body.replaceChildren();
- const note=document.createElement('p');note.className='route-note';note.textContent='Dopasowywanie kursu do rozkładu GTFS i pozycji GPS…';body.append(note);
+ const note=document.createElement('p');note.className='route-note';note.textContent='Pobieranie rozkładu ETA linii '+line+', brygady '+brigade+'…';body.append(note);
  try{
-  const data=await loadGtfs(line);if(serial!==vehiclePanelRequest||panel.hidden)return;
-  const dateWarsaw=todayWarsaw();
-  if(dateWarsaw!==data.date){note.textContent='Rozkład GTFS pochodzi z '+data.date+'. Automatyczna aktualizacja GTFS jest opóźniona. Nie wyświetlamy nieaktualnych godzin.';return}
-  // ETA ma pierwszeństwo, ale tylko po potwierdzeniu kursu. W razie braku
-  // dopasowania pozostaje dotychczasowy, jawnie orientacyjny widok GTFS.
-  try {
-   note.textContent='Sprawdzanie brygady i kursu w ETA…';
-   const matched=await etaMatchVehicle(v,data.trips);
-   if(serial!==vehiclePanelRequest||panel.hidden)return;
-   renderEtaRoute(matched,v,body);return;
-  } catch(etaError) {
-   if(serial!==vehiclePanelRequest||panel.hidden)return;
-   note.textContent='ETA: '+etaError.message;
-  }
-  // Brak potwierdzenia ETA: nie pokazujemy godzin innego kursu GTFS.
-  const candidates=chooseGtfsTrip(data.trips,v);
-  body.replaceChildren();
-  const warning=document.createElement('p');warning.className='route-note';
-  warning.textContent='Nie udało się ustalić rozkładu tej brygady w ETA. Nie pokazuję godzin przypadkowego kursu GTFS.';
-  body.append(warning);
-  if(candidates.length){
-   const hint=document.createElement('p');hint.className='route-note';
-   hint.textContent='Orientacyjny kierunek z GPS: '+(candidates[0].trip.headsign||'nieznany')+'.';
-   body.append(hint);
-  }
- }catch(e){if(serial===vehiclePanelRequest)note.textContent='Nie udało się wczytać GTFS: '+e.message}
+  // Nie uzależniaj rozkładu brygady od zgodności GPS/GTFS.
+  const matched=await etaMatchVehicle(v);
+  if(serial!==vehiclePanelRequest||panel.hidden)return;
+  let trips=[];
+  try{const data=await loadGtfs(line);if(data.date===todayWarsaw())trips=data.trips||[]}catch(e){console.warn('GTFS: brak nazw przystanków',e.message)}
+  if(serial!==vehiclePanelRequest||panel.hidden)return;
+  renderEtaRoute(matched,v,body,trips);
+ }catch(e){if(serial===vehiclePanelRequest&&!panel.hidden){body.replaceChildren();const warning=document.createElement('p');warning.className='route-note';warning.textContent='Nie udało się pobrać rozkładu ETA: '+e.message;body.append(warning)}}
 }
 function setTab(tab,record=true){
  document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x.dataset.tab===tab));
