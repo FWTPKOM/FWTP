@@ -1,4 +1,5 @@
-// WTP LIVE v57 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE — WERSJA: 58
+// WTP LIVE v58 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -419,17 +420,17 @@ async function etaMatchVehicle(v,gtfsTrips){
   if(es.length<3)continue;
   for(const gps of gpsCandidates){
    const ss=gps.trip.stops, mapped=etaMapStops(ss,es);
-   if(mapped.coverage<.55||mapped.error>12)continue;
+   if(mapped.coverage<.65)continue;
    const j=mapped.mapped[gps.index];if(j===null)continue;
    const planned=es[j]._time;if(!Number.isFinite(planned))continue;
-   const lateness=Math.min(...[-1440,0,1440].map(d=>now+d-planned).filter(x=>x>=-8&&x<=120).concat([Infinity]));
+   const lateness=Math.min(...[-1440,0,1440].map(d=>now+d-planned).filter(x=>x>=-5&&x<=120).concat([Infinity]));
    if(!Number.isFinite(lateness))continue;
    const first=etaMinutesAt(es[0]),last=etaMinutesAt(es.at(-1));
    const gFirst=minutes(ss[0][4]),gLast=minutes(ss.at(-1)[4]);
    const startGap=etaClockDistance(first,gFirst),endGap=etaClockDistance(last,gLast);
    // Nie wybieramy innego kursu tylko dlatego, że ma podobny kierunek.
-   const score=gps.distance*.6+mapped.error*15+Math.max(0,lateness)*2+
-     Math.min(startGap,60)*2+Math.min(endGap,60)*2-
+   const score=gps.distance*1.2+Math.max(0,lateness)*.45+
+     Math.min(startGap,60)*.3+Math.min(endGap,60)*.3-
      Math.min(mapped.exactCount,10)*15;
    ranked.push({course:c,etaStops:es,trip:gps.trip,index:gps.index,
      score,overlap:mapped.exactCount,mapped:mapped.mapped,delayMinutes:Math.max(0,Math.round(lateness)),
@@ -449,7 +450,7 @@ function renderEtaRoute(match,v,body){
   const j=mapped[i],eta=j===null?null:etaStops[j];
   return eta&&Number.isFinite(eta._time)?[...s.slice(0,4),displayClock(eta._time)]:s;
  })};
- const delay=delayMinutes>=2&&delayMinutes<=120?{delay:delayMinutes,at:Math.max(0,index-1)}:null;
+ const delay=delayMinutes>=2&&delayMinutes<=120?{delay:delayMinutes,at:index-1,source:"GPS + ETA"}:null;
  renderVehicleRoute(enhanced,index,body,
   'ETA: kurs '+course.course_id+' · linia '+course.line+' · brygada '+course.brigade+
   ' · dopasowanie GPS i przebiegu trasy (szacunkowe). '+
@@ -527,11 +528,11 @@ function displayClock(t){const m=typeof t==='number'?t:minutes(t);if(!Number.isF
 function displayTimeCell(item,i,delayInfo){
  const t=document.createElement('time');t.className='route-stop-time';
  const planned=displayClock(item[4]);
- if(delayInfo&&i>delayInfo.at){
-  const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=planned;
+ if(delayInfo&&i>delayInfo.at&&Number.isFinite(minutes(item[4]))){
+  const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=planned;old.style.cssText='display:block;text-decoration:line-through;color:#91979d;font-size:12px;line-height:1.15;text-align:right';
   const next=document.createElement('strong');next.className='wtp-estimated-time';
-  next.textContent=displayClock(minutes(item[4])+delayInfo.delay);
-  t.append(old,next);t.title='Szacowany czas (+ '+delayInfo.delay+' min) na podstawie GPS przy wcześniejszym przystanku; nie jest to oficjalna prognoza';
+  next.textContent=displayClock(minutes(item[4])+delayInfo.delay);next.style.cssText='display:block;color:#cf271e;font-weight:750;line-height:1.3;text-align:right';
+  t.append(old,next);t.title='Prognoza +'+Math.round(delayInfo.delay)+' min na podstawie '+(delayInfo.source||'GPS')+'; nie jest to oficjalny odjazd';
  }else{t.textContent=planned}
  return t;
 }
@@ -584,8 +585,8 @@ async function openVehiclePanel(v){
    const match={choice:best,ambiguous};
 const {trip,index,distance}=match.choice;
   body.replaceChildren();
-  const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · '+(match.ambiguous?'automatycznie wybrany najbardziej prawdopodobny wariant (kilka tras pasuje); ':'')+'wariant orientacyjny według GPS; brak potwierdzonego kursu brygady '+brigade+'. Godziny planowe, nie prognoza.';body.append(heading);
-  const delayInfo=estimateObservedDelay(trip,v);
+  const heading=document.createElement('p');heading.className='route-note';heading.textContent='Kierunek: '+(trip.headsign||'nieustalony')+' · '+(match.ambiguous?'automatycznie wybrany najbardziej prawdopodobny wariant (kilka tras pasuje); ':'')+'wariant orientacyjny według GPS; nie potwierdzono kursu brygady '+brigade+'. Poniższe godziny pochodzą z GTFS i mogą należeć do innego kursu.';body.append(heading);
+  const delayInfo=null; // v58: nie wyliczaj opóźnienia z niepotwierdzonego kursu GTFS
   if(delayInfo){heading.textContent+=' · Szacowane opóźnienie: +'+delayInfo.delay+' min, na podstawie GPS przy przystanku (nieoficjalne).';}
   const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
   trip.stops.forEach((item,i)=>{
