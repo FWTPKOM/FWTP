@@ -1,4 +1,4 @@
-// WTP LIVE v53 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v54 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -330,7 +330,7 @@ async function loadGtfs(line){
  return gtfsCache.get(line).promise;
 }
 
-// WTP LIVE v53: ETA z Mikrusa przez chroniony Cloudflare Worker.
+// WTP LIVE v54: ETA z Mikrusa przez chroniony Cloudflare Worker.
 // Dopasowanie kursu: linia + brygada + czas + zgodność przystanków.
 const etaCache=new Map();
 async function etaGet(path,params={}) {
@@ -343,50 +343,63 @@ async function etaGet(path,params={}) {
 function etaDay(s){const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[1]+m[2]+m[3]:String(s||'').replace(/\D/g,'').slice(0,8)}
 function etaClock(t){const m=String(t??'').match(/(\d{1,2}):(\d{2})/);return m?Number(m[1])*60+Number(m[2]):NaN}
 function etaStopCode(x){return String(x??'').replace(/\D/g,'').replace(/^0+(?=\d)/,'')}
+// v54: dopasowanie kursu ETA do brygady, czasu i GPS.
+// Identyfikatory słupków ETA i GTFS nie są automatycznie utożsamiane.
+function etaTimeNear(a,b){
+ if(!Number.isFinite(a)||!Number.isFinite(b))return Infinity;
+ return Math.min(...[-1440,0,1440].map(d=>Math.abs(a+d-b)));
+}
 async function etaMatchVehicle(v,gtfsTrips){
  const line=String(v.Lines||'').trim(),brigade=normalizeBrigade(v.Brigade);
  if(!line||!brigade)throw Error('Brak linii lub brygady w GPS');
  const stamp=gpsMs(v.Time);
  if(!Number.isFinite(stamp)||Math.abs(Date.now()-stamp)>180000)throw Error('GPS pojazdu jest nieaktualny');
  const health=await etaGet('health');
- if(!health.ok||etaDay(health.metadata?.date)!==todayWarsaw())throw Error('Rozkład ETA nie dotyczy dzisiejszego dnia ('+(health.metadata?.date||'brak daty')+')');
- // Nie filtrujemy po brygadzie w SQL, bo format brygady może zawierać zera wiodące.
- const data=await etaGet('courses',{line,limit:500});
+ if(!health.ok||etaDay(health.metadata?.date)!==todayWarsaw())throw Error('Baza ETA nie jest na dzisiaj ('+(health.metadata?.date||'brak daty')+')');
+ const data=await etaGet('courses',{line,limit:5000});
  const rows=(data.courses||[]).filter(c=>normalizeBrigade(c.brigade)===brigade);
- if(!rows.length)throw Error('Brak kursu ETA dla brygady '+brigade);
+ if(!rows.length)throw Error('Brak kursów ETA dla brygady '+brigade);
  const clock=nowWarsaw(new Date(stamp));
- const plausible=rows.filter(c=>{const t=etaClock(c.departure);return Number.isFinite(t)&&clock>=t-20&&clock<=t+240});
- if(!plausible.length)throw Error('Nie ma kursu ETA tej brygady w odpowiednim przedziale czasu');
+ const gpsCandidates=chooseGtfsTrip(gtfsTrips,v).filter(g=>g.distance<350);
+ if(!gpsCandidates.length)throw Error('GPS nie potwierdza trasy GTFS w odległości 350 m');
+ const plausible=rows.filter(c=>{const t=etaClock(c.departure);return Number.isFinite(t)&&[-1440,0,1440].some(d=>clock+d>=t-20&&clock+d<=t+240)});
  const candidates=[];
- for(const c of plausible.slice(0,15)){
+ for(const c of plausible.slice(0,35)){
   const details=await etaGet('courses/'+encodeURIComponent(c.course_id)+'/stops');
   const es=(details.stops||[]).sort((a,b)=>Number(a.seq)-Number(b.seq));
   if(es.length<2)continue;
-  const active=es.filter(s=>{const t=etaClock(s.arrival||s.departure);return Number.isFinite(t)&&t>=clock-60&&t<=clock+90});
-  if(!active.length)continue;
-  // Identyfikatory słupków ETA i GTFS nie muszą być zgodne; bez potwierdzenia nie łączymy tras.
-  for(const trip of gtfsTrips){
-   const ids=new Set(trip.stops.map(s=>etaStopCode(s[0])));
+  const first=etaClock(es[0].departure||es[0].arrival||c.departure);
+  const last=etaClock(es.at(-1).arrival||es.at(-1).departure);
+  if(!Number.isFinite(first)||!Number.isFinite(last))continue;
+  for(const gps of gpsCandidates){
+   const trip=gps.trip, ss=trip.stops;
+   const startGap=etaTimeNear(first,minutes(ss[0][4]));
+   const endGap=etaTimeNear(last,minutes(ss.at(-1)[4]));
+   if(startGap>12||endGap>20)continue;
+   const ids=new Set(ss.map(s=>etaStopCode(s[0])).filter(Boolean));
    const overlap=es.filter(s=>ids.has(etaStopCode(s.stop_id))).length;
-   if(overlap<Math.min(3,es.length))continue;
-   const gps=chooseGtfsTrip([trip],v)[0];if(!gps)continue;
-   const score=gps.score-overlap*30;
+   // Gdy słupki nie mają wspólnych ID, nie kopiujemy godzin ETA do GTFS.
+   // Kurs jest uznawany tylko po silnym potwierdzeniu GPS i czasu.
+   if(overlap===0 && (gps.distance>110||startGap>4||endGap>8))continue;
+   const score=gps.score+startGap*90+endGap*35-Math.min(overlap,12)*25;
    candidates.push({course:c,etaStops:es,trip,index:gps.index,score,overlap});
   }
  }
  candidates.sort((a,b)=>a.score-b.score);
- if(!candidates.length)throw Error('Brygada jest w ETA, ale nie potwierdzono zgodności jej trasy z GTFS i GPS');
- if(candidates.length>1&&candidates[1].score-candidates[0].score<180&&String(candidates[1].course.course_id)!==String(candidates[0].course.course_id))throw Error('Kilka kursów ETA pasuje do GPS — brak jednoznacznego przypisania');
+ if(!candidates.length)throw Error('Nie potwierdzono kursu ETA: brygada, czas lub GPS nie pasują');
+ if(candidates.length>1 && candidates[1].score-candidates[0].score<160 &&
+    String(candidates[1].course.course_id)!==String(candidates[0].course.course_id))
+   throw Error('Kilka kursów ETA pasuje — brak jednoznacznego przypisania');
  return candidates[0];
 }
 function renderEtaRoute(match,v,body){
- const {course,etaStops,trip,index}=match;
+ const {course,etaStops,trip,index,overlap}=match;
  const etaTimes=new Map();for(const s of etaStops)etaTimes.set(etaStopCode(s.stop_id),s);
  const enhanced={...trip,stops:trip.stops.map(s=>{
   const eta=etaTimes.get(etaStopCode(s[0]));
   return eta?[...s.slice(0,4),String(eta.arrival||eta.departure||s[4])]:s;
  })};
- renderVehicleRoute(enhanced,index,body,'ETA: potwierdzona linia '+course.line+', brygada '+course.brigade+', kurs '+course.course_id+'. Godziny rozkładowe ETA, nie prognoza opóźnień.',v.kind);
+ renderVehicleRoute(enhanced,index,body,'ETA: dopasowany kurs '+course.course_id+' linii '+course.line+', brygada '+course.brigade+'. '+(overlap?'Godziny ETA dla zgodnych identyfikatorów słupków. ':'Identyfikatory słupków różne — godziny z GTFS. ')+'Godziny planowe, nie prognoza.',v.kind);
 }
 
 // v50: kurs wolno powiązać z brygadą dopiero po potwierdzeniu
