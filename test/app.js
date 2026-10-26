@@ -1,5 +1,5 @@
 // WTP LIVE — WERSJA: 58
-// WTP LIVE v60 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
+// WTP LIVE v61 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -396,7 +396,7 @@ function etaMapStops(gtfsStops,etaStops){
  }
  return {mapped:out,exactCount,coverage:n/Math.max(1,gtfsStops.length),error:n?totalError/n:Infinity};
 }
-// WTP LIVE v60 — najpierw dosłowne powiązanie linia + brygada w ETA.
+// WTP LIVE v61 — najpierw dosłowne powiązanie linia + brygada w ETA.
 // GPS i GTFS nie mogą blokować odczytu rozkładu brygady.
 function etaServiceMinutes(raw){
  const m=String(raw??'').match(/(\d{1,3}):(\d{2})/);
@@ -447,7 +447,7 @@ async function etaMatchVehicle(v,gtfsTrips=[]){
   }catch(e){console.warn('ETA: nie można pobrać przystanków kursu',x.course.course_id,e.message);return null}
  }));
  const matches=evaluated.filter(Boolean).sort((a,b)=>a.score-b.score||a.bounds.start-b.bounds.start);
- if(!matches.length)throw Error('Nie udało się pobrać przystanków żadnego kursu brygady');
+ if(!matches.length)throw Error('Nie udało się pobrać przystanków żadnego kursu brygady. Sprawdź wdrożenie Workera v44: /eta/courses/ID/stops.');
  // Zwracamy także inne kursy tej samej brygady; żadnego kursu innej brygady.
  return {selected:matches[0],alternatives:matches.slice(1,12),line,brigade,now};
 }
