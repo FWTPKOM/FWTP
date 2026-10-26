@@ -1,3 +1,4 @@
+// WTP LIVE — WERSJA: 67
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -671,7 +672,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   const raw=stop.arrival||stop.departure||'';
   const time=document.createElement('time');time.className='route-stop-time';
   const planned=etaServiceMinutes(raw);
-  if(prediction.delay!==null && Number.isFinite(planned) && i>prediction.confirmedIndex){
+  if(prediction.delay!==null && Number.isFinite(planned) && (i>prediction.confirmedIndex || (i===current && i===prediction.confirmedIndex))){
    const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=displayClock(planned);
    old.style.cssText='display:block;text-decoration:line-through;color:#9299a0;font-size:12px;line-height:1.2;text-align:right';
    const next=document.createElement('strong');next.className='wtp-estimated-time';next.textContent=displayClock(planned+prediction.delay);
