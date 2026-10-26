@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 76
+// WTP LIVE — WERSJA: 77
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -641,7 +641,7 @@ function etaGpsPrediction(choice,v,trips){
  const progress=routeProgressFromTrace(geo,v);
  const closest=geo.near,inside=closest.distance<=GPS_STOP_RADIUS_M;
  let history=old&&old.courseId===courseId&&stamp>=old.stamp&&stamp-old.stamp<25*60000?old:null;
- let delay=history?.delay??null,confirmedIndex=history?.confirmedIndex??-1;
+ let delay=null,confirmedIndex=-1;
  let currentIndex=progress?.i??-1;
  if(history&&history.currentIndex>=0&&currentIndex>=0)currentIndex=Math.max(history.currentIndex,currentIndex);
  if(currentIndex<0&&history?.currentIndex>=0)currentIndex=history.currentIndex;
@@ -666,7 +666,9 @@ function etaGpsPrediction(choice,v,trips){
     if(delta< -720)delta+=1440;if(delta>720)delta-=1440;
     // Odjazd rozpoznany pomiędzy dwoma pomiarami, dokładność ograniczona
     // interwałem GPS. Ujemne i skrajne wartości pozostają bez prognozy.
-    if(Number.isFinite(plan)&&delta>=2&&delta<=90){delay=delta;confirmedIndex=history.nearIndex;}
+    // Samo oddalenie od słupka nie dowodzi faktycznego odjazdu ani spóźnienia.
+    // Nie naliczaj opóźnienia z przybliżonego GPS.
+    if(false && Number.isFinite(plan)&&delta>=2&&delta<=90){delay=delta;confirmedIndex=history.nearIndex;}
    }
   }
  }
@@ -680,7 +682,7 @@ function etaGpsPrediction(choice,v,trips){
  // Jeżeli GPS wskazuje przystanek, opóźnienie obejmuje także TEN przystanek.
  // Przy przejściowym braku świeżego potwierdzenia użyj poprzedniej prognozy
  // tego samego kursu (nigdy innej brygady ani innego kursu).
- if(inside && Number.isFinite(delay)) confirmedIndex=Math.max(confirmedIndex,closest.i);
+ // Wjazd w promień przystanku nie jest potwierdzeniem jego obsłużenia.
  const result={geo,delay:Number.isFinite(delay)?delay:null,confirmedIndex,currentIndex,reason:inside?'GPS w pobliżu przystanku':'Prognoza z ostatniego potwierdzonego przystanku'};
  if(result.delay!==null)etaRenderedCache.set(key,{courseId,delay:result.delay,confirmedIndex:result.confirmedIndex,currentIndex:result.currentIndex,stamp,at:Date.now()});
  return result;
@@ -761,7 +763,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  // v76: Nie nadpisuj opóźnienia wyliczeniem z interpolacji historii między przystankami.
  // Historia GPS służy do lokalizacji, a nie do potwierdzania odjazdu z następnego przystanku.
  const previous=etaRenderedCache.get(vehicleKey(v));
- if(prediction.delay===null && previous && previous.confirmedIndex>=0 && previous.courseId===String(choice.course.course_id) && Date.now()-previous.at<120000 && gpsMs(v.Time)>=previous.stamp-90000){
+ if(false && prediction.delay===null && previous && previous.confirmedIndex>=0 && previous.courseId===String(choice.course.course_id) && Date.now()-previous.at<120000 && gpsMs(v.Time)>=previous.stamp-90000){
   prediction={...prediction,delay:previous.delay,confirmedIndex:previous.confirmedIndex,currentIndex:Math.max(prediction.currentIndex??-1,previous.currentIndex??-1),reason:'Ostatnia prognoza GPS'};
  }
  const note=document.createElement('p');note.className='route-note';
@@ -771,7 +773,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  body.append(note);
  const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
  const nearest=prediction.geo.near;
- const current=nearest&&nearest.distance<=GPS_STOP_RADIUS_M&&prediction.currentIndex===nearest.i?nearest.i:-1;
+ const current=-1; // status przystanku wyznaczamy dopiero z położenia na odcinku
  choice.etaStops.forEach((stop,i)=>{
   const li=document.createElement('li');li.className='route-stop'+(i===current?' current':'')+(current>=0&&i<current?' passed':'');
   const j=names.mapping?.[i],mapped=Number.isInteger(j)&&j>=0?names.trip?.stops?.[j]:null;
@@ -788,7 +790,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   const raw=(i===0 ? (stop.departure||stop.arrival) : (i===choice.etaStops.length-1 ? (stop.arrival||stop.departure) : (stop.departure||stop.arrival)))||'';
   const time=document.createElement('time');time.className='route-stop-time';
   const planned=etaServiceMinutes(raw);
-  const pastEvent=(prediction.confirmedIndex>=i && i>=0)?server?.events?.get(i):null;
+  const pastEvent=null; // v77: brak potwierdzonego przejazdu, nie generuj fikcyjnej godziny
   const measured=pastEvent&&Number.isFinite(planned)?pastEvent.time:null;
   // Początek kursu: nie traktuj pozycji na pętli jako opóźnionego przyjazdu.
   // Planowy odjazd z pierwszego słupka pozostaje podstawą porównania.
@@ -822,7 +824,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    // Chronologia kursu rozstrzyga powtarzające się odcinki i słupki.
    const t=nowWarsaw(new Date(gpsMs(v.Time)));
    const mid=(a.time+b.time)/2;
-   const timePenalty=Number.isFinite(mid)?Math.min(400,Math.abs(t-mid)*7):0;
+   const timePenalty=Number.isFinite(mid)?Math.min(900,Math.abs(t-mid)*18):0;
    const progressPenalty=prediction.currentIndex>=0&&a.i+1<prediction.currentIndex?250:0;
    candidates.push({a,b,f,distance,score:distance+timePenalty+progressPenalty});
   }
@@ -834,15 +836,17 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   const nearA=geoDistance(gpsLat,gpsLon,a.lat,a.lon)<=GPS_STOP_RADIUS_M;
   const nearB=geoDistance(gpsLat,gpsLon,b.lat,b.lon)<=GPS_STOP_RADIUS_M;
   // Przed dojazdem do B pojazd jest na odcinku A–B, a nie za B.
-  const atB=nearB && f>=0.92;
-  const atA=nearA && f<=0.08;
-  const targetIndex=atB?b.i:atA?a.i:b.i;
+  // v77: GPS w pobliżu punktu nie dowodzi, że autobus go obsłużył.
+  // Dopóki nie mamy potwierdzenia minięcia A, etykieta pozostaje przy A.
+  // Dopiero wyraźne przesunięcie w kierunku B pozwala wskazać B.
+  const hasPassedA=f>=0.55 && !nearA;
+  const targetIndex=hasPassedA?b.i:a.i;
+  const atTarget=hasPassedA && nearB && f>=0.97;
   const label=document.createElement('span');label.className='wtp-next-stop';
-  label.textContent=(atB||atA?'Przystanek: ':'Następny przystanek: ')+names.names[targetIndex];
+  label.textContent=(atTarget?'Przystanek: ':'Następny przystanek: ')+names.names[targetIndex];
   list.children[targetIndex]?.querySelector('.wtp-route-stop-text')?.append(label);
-  // Usuń błędne wyróżnienie poprzedniego przystanku, gdy pojazd jest w drodze.
   for(const el of list.children)el.classList.remove('current');
-  if(atB||atA)list.children[targetIndex]?.classList.add('current');
+  if(atTarget)list.children[targetIndex]?.classList.add('current');
   // SVG umieszczany bezpośrednio na wspólnej osi listy, na wysokości pomiędzy kropkami.
   const marker=document.createElement('span');marker.className='wtp-vehicle-on-route';
   const img=document.createElement('img');img.src=v.kind===2?'icons/WTP-tramwaj.svg':'icons/WTP-autobus.svg';
@@ -854,7 +858,12 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    if(!first||!second)return;
    const y1=first.offsetTop+first.offsetHeight/2;
    const y2=second.offsetTop+second.offsetHeight/2;
-   marker.style.top=(y1+(y2-y1)*f)+'px';
+   // Dla jeszcze nieobsłużonego A pokazuj pojazd przed jego kropką.
+   if(!hasPassedA && a.i>0){
+    const prev=list.children[a.i-1];
+    const yp=prev.offsetTop+prev.offsetHeight/2;
+    marker.style.top=(yp+(y1-yp)*Math.max(0.15,Math.min(0.90,0.55+f*0.35)))+'px';
+   }else marker.style.top=(y1+(y2-y1)*Math.max(0.08,Math.min(0.92,f)))+'px';
   };
   requestAnimationFrame(positionMarker);
  }
