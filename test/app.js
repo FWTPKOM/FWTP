@@ -108,6 +108,24 @@ function isRequestStop(row,meta){
  const name=String(value(row,'nazwa_zespolu')||'');
  return /(?:\(|\[|\s)(?:NŻ|NZ|na żądanie)(?:\)|\]|$)/i.test(name);
 }
+// WERSJA 70: typ przystanku pobierany wyłącznie z jawnych danych źródłowych.
+function requestStopNear(lat,lon){
+ if(!Array.isArray(stops)||!stops.length||!Number.isFinite(lat)||!Number.isFinite(lon))return null;
+ let closest=null,best=35;
+ for(const row of stops){
+  const p=stopCoordinates(row);if(!p||Math.abs(p[0]-lat)>.0004||Math.abs(p[1]-lon)>.0006)continue;
+  const d=geoDistance(lat,lon,p[0],p[1]);
+  if(d<best){best=d;closest=row;}
+ }
+ if(!closest)return null;
+ return isRequestStop(closest,stopMetaAt(lat,lon));
+}
+function decorateRouteStop(li,lat,lon){
+ const request=requestStopNear(Number(lat),Number(lon));
+ if(request===true)li.classList.add('request-stop');
+ else if(request===false)li.classList.add('fixed-stop');
+ else li.classList.add('unknown-stop');
+}
 function renderStopMarkers(){
  if(!stopLayer)return;
  stopLayer.clearLayers();if(!showStopMarkers)return;
@@ -512,7 +530,7 @@ function etaNameMatch(etaStops,gtfsTrips,course){
 }
 function etaNamesForCourse(stops,gtfsTrips,course){
  const matched=etaNameMatch(stops,gtfsTrips,course);
- return {matched:!!matched,names:stops.map((s,i)=>{
+ return {matched:!!matched,mapping:matched?.mapping,trip:matched?.trip,names:stops.map((s,i)=>{
   const j=matched?.mapping[i];
   return j>=0?String(matched.trip.stops[j][1]||'Przystanek'):'Przystanek '+String(s.stop_id??'?');
  })};
@@ -623,6 +641,14 @@ function etaGpsPrediction(choice,v,trips){
  let currentIndex=progress?.i??-1;
  if(history&&history.currentIndex>=0&&currentIndex>=0)currentIndex=Math.max(history.currentIndex,currentIndex);
  if(currentIndex<0&&history?.currentIndex>=0)currentIndex=history.currentIndex;
+ // v70: rozpoznaj dojazd już w promieniu 110 m, nie dopiero po minięciu.
+ // Dopuszczamy tylko następny przystanek w kolejności kursu.
+ const nextPoint=geo.points.find(pt=>pt.i===currentIndex+1);
+ if(nextPoint){
+  const d=geoDistance(Number(v.Lat),Number(v.Lon),nextPoint.lat,nextPoint.lon);
+  if(Number.isFinite(d)&&d<=110)currentIndex=nextPoint.i;
+ }
+
  // Zaliczenie postoju wymaga zbliżenia do przystanku, a najlepiej kolejnego
  // odczytu wskazującego odjazd. Pojedynczy GPS oznacza tylko obserwację.
  if(history?.nearIndex>=0 && history.nearIndex<geo.points.length+100){
@@ -748,6 +774,9 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  const current=Number.isInteger(prediction.currentIndex)&&prediction.currentIndex>=0?prediction.currentIndex:(nearest&&nearest.distance<=GPS_STOP_RADIUS_M?nearest.i:-1);
  choice.etaStops.forEach((stop,i)=>{
   const li=document.createElement('li');li.className='route-stop'+(i===current?' current':'')+(current>=0&&i<current?' passed':'');
+  const j=names.mapping?.[i],mapped=Number.isInteger(j)&&j>=0?names.trip?.stops?.[j]:null;
+  if(mapped)decorateRouteStop(li,mapped[2],mapped[3]);
+
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=names.names[i];
   const raw=stop.arrival||stop.departure||'';
@@ -853,6 +882,7 @@ function renderVehicleRoute(trip,index,body,description,kind,v=null,knownDelay=n
  const list=document.createElement('ol');list.className='route-stops kind-'+(kind===2?'tram':'bus');
  trip.stops.forEach((item,i)=>{
   const li=document.createElement('li');li.className='route-stop'+(i===index?' current':'')+(i<index?' passed':'');
+  decorateRouteStop(li,item[2],item[3]);
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=item[1];
   const t=displayTimeCell(item,i,observed);
