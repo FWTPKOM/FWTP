@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 77
+// WTP LIVE — WERSJA: 78
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -833,37 +833,39 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  }
  if(location){
   const {a,b,f}=location;
-  const nearA=geoDistance(gpsLat,gpsLon,a.lat,a.lon)<=GPS_STOP_RADIUS_M;
-  const nearB=geoDistance(gpsLat,gpsLon,b.lat,b.lon)<=GPS_STOP_RADIUS_M;
-  // Przed dojazdem do B pojazd jest na odcinku A–B, a nie za B.
-  // v77: GPS w pobliżu punktu nie dowodzi, że autobus go obsłużył.
-  // Dopóki nie mamy potwierdzenia minięcia A, etykieta pozostaje przy A.
-  // Dopiero wyraźne przesunięcie w kierunku B pozwala wskazać B.
-  const hasPassedA=f>=0.55 && !nearA;
-  const targetIndex=hasPassedA?b.i:a.i;
-  const atTarget=hasPassedA && nearB && f>=0.97;
+  // v78: rozdziel dwa stany: przy słupku i w drodze do następnego.
+  // Promień 35 m ogranicza fałszywe zaliczenia przystanku z odległości 65 m.
+  const distanceA=geoDistance(gpsLat,gpsLon,a.lat,a.lon);
+  const distanceB=geoDistance(gpsLat,gpsLon,b.lat,b.lon);
+  const STOP_AT_RADIUS=35;
+  // Przy skrzyżowaniach i powtórzonych słupkach rozstrzygaj chronologią kursu.
+  const nearA=distanceA<=STOP_AT_RADIUS && (distanceA<=distanceB || f<0.5);
+  const nearB=distanceB<=STOP_AT_RADIUS && (distanceB<distanceA || f>=0.5);
+  const stopIndex=nearB?b.i:(nearA?a.i:-1);
+  const fromIndex=a.i;
+  const nextIndex=b.i;
   const label=document.createElement('span');label.className='wtp-next-stop';
-  label.textContent=(atTarget?'Przystanek: ':'Następny przystanek: ')+names.names[targetIndex];
-  list.children[targetIndex]?.querySelector('.wtp-route-stop-text')?.append(label);
-  for(const el of list.children)el.classList.remove('current');
-  if(atTarget)list.children[targetIndex]?.classList.add('current');
-  // SVG umieszczany bezpośrednio na wspólnej osi listy, na wysokości pomiędzy kropkami.
+  if(stopIndex>=0){
+   label.textContent='Przystanek: '+names.names[stopIndex];
+   list.children[stopIndex]?.querySelector('.wtp-route-stop-text')?.append(label);
+   list.children[stopIndex]?.classList.add('current');
+  }else{
+   // Opis następnego przystanku zawsze POD PRZYSTANKIEM WYJAZDOWYM.
+   label.textContent='Następny przystanek: '+names.names[nextIndex];
+   list.children[fromIndex]?.querySelector('.wtp-route-stop-text')?.append(label);
+  }
   const marker=document.createElement('span');marker.className='wtp-vehicle-on-route';
   const img=document.createElement('img');img.src=v.kind===2?'icons/WTP-tramwaj.svg':'icons/WTP-autobus.svg';
   img.alt=v.kind===2?'Tramwaj':'Autobus';marker.append(img);
-  marker.title='Przybliżona pozycja GPS między przystankami';
+  marker.title=stopIndex>=0?'Pojazd przy przystanku (GPS)':'Przybliżona pozycja GPS między przystankami';
   list.append(marker);
   const positionMarker=()=>{
    const first=list.children[a.i],second=list.children[b.i];
    if(!first||!second)return;
    const y1=first.offsetTop+first.offsetHeight/2;
    const y2=second.offsetTop+second.offsetHeight/2;
-   // Dla jeszcze nieobsłużonego A pokazuj pojazd przed jego kropką.
-   if(!hasPassedA && a.i>0){
-    const prev=list.children[a.i-1];
-    const yp=prev.offsetTop+prev.offsetHeight/2;
-    marker.style.top=(yp+(y1-yp)*Math.max(0.15,Math.min(0.90,0.55+f*0.35)))+'px';
-   }else marker.style.top=(y1+(y2-y1)*Math.max(0.08,Math.min(0.92,f)))+'px';
+   const y=stopIndex===a.i?y1:stopIndex===b.i?y2:y1+(y2-y1)*Math.max(0.06,Math.min(0.94,f));
+   marker.style.top=y+'px';
   };
   requestAnimationFrame(positionMarker);
  }
