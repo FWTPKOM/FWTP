@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 92
+// WTP LIVE — WERSJA: 93
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -993,7 +993,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  note.textContent='ETA: linia '+choice.course.line+', brygada '+choice.course.brigade+'. '+
   (names.matched?'Nazwy przystanków według dopasowanego GTFS. ':'Brak pewnego dopasowania nazw GTFS. ')+
   (prediction.delay!==null?'Szacowane odchylenie '+(prediction.delay>=0?'+':'')+prediction.delay+' min; '+prediction.reason+'.':'Godziny rozkładowe; '+prediction.reason+'.'+(server?' GPS: '+server.samples+' próbek w ostatnich 5 min.':' Brak dostępnej historii GPS dla tego przebiegu.'))+' Historia GPS jest zbierana na serwerze.';
- body.append(note);
+ note.classList.add('wtp-route-diagnostics');note.hidden=true;body.append(note);
  const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
  const nearest=prediction.geo.near;
  const current=-1; // status przystanku wyznaczamy dopiero z położenia na odcinku
@@ -1009,7 +1009,8 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
 
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=names.names[i];
-  const stopText=document.createElement('span');stopText.className='wtp-route-stop-text';stopText.append(name);
+  const number=document.createElement('small');number.className='wtp-stop-number';number.textContent='Nr '+String(stop.stop_id??'—');number.title='Identyfikator słupka z danych rozkładowych ETA';
+  const stopText=document.createElement('span');stopText.className='wtp-route-stop-text';stopText.append(name,number);
   const raw=(i===0 ? (stop.departure||stop.arrival) : (i===choice.etaStops.length-1 ? (stop.arrival||stop.departure) : (stop.departure||stop.arrival)))||'';
   const time=document.createElement('time');time.className='route-stop-time';
   const planned=etaServiceMinutes(raw);
@@ -1078,6 +1079,8 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  }
  if(location){
   const {a,b,f}=location;
+  // Wcześniejsze słupki są już za pozycją pojazdu na trasie.
+  for(let i=0;i<a.i;i++)list.children[i]?.classList.add('passed');
   // v78: rozdziel dwa stany: przy słupku i w drodze do następnego.
   // Promień 35 m ogranicza fałszywe zaliczenia przystanku z odległości 65 m.
   const distanceA=geoDistance(gpsLat,gpsLon,a.lat,a.lon);
@@ -1092,6 +1095,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   // Między przystankami umieszczamy samą etykietę na odcinku osi.
   let nextLabel=null;
   if(stopIndex>=0){
+   for(let i=0;i<stopIndex;i++)list.children[i]?.classList.add('passed');
    list.children[stopIndex]?.classList.add('current');
   }else{
    nextLabel=document.createElement('span');
@@ -1293,8 +1297,9 @@ function wtpApplyServerState(body,data,choice){
    const old=document.createElement('span');old.className='wtp-server-planned';old.textContent=planned;cell.append(old);
   }
   const real=document.createElement('strong');real.className=actual?'wtp-server-actual':'wtp-server-forecast';real.textContent=newClock;
+  if(newClock===planned)real.classList.add('wtp-on-time');
   cell.append(real);cell.title=actual?'Przejazd oszacowany z zapisanej historii GPS':'Prognoza GPS zapisana na serwerze';
-  if(actual)row.classList.add('wtp-server-passed');
+  if(actual)row.classList.add('wtp-server-passed','passed');
   changed++;
  });
  if(changed){
@@ -1337,10 +1342,16 @@ async function openVehiclePanel(v){
   const cached=etaPanelMatches.get(cacheKey);
   const matchPromise=cached&&Date.now()-cached.at<45000?Promise.resolve(cached.match):etaMatchVehicle(v);
   const tripsPromise=ready&&Date.now()-ready.at<45000?Promise.resolve(ready.trips):loadGtfs(line).then(data=>data.date===todayWarsaw()?(data.trips||[]):[]).catch(e=>{console.warn('GTFS: brak nazw przystanków',e.message);return []});
-  const [matched,trips,serverState]=await Promise.all([matchPromise,tripsPromise,statePromise]);
+  // Wyświetl rozkład jak najszybciej: GTFS i historia GPS nie blokują otwarcia panelu.
+  const [matched,serverState]=await Promise.all([matchPromise,statePromise]);
+  if(serial!==vehiclePanelRequest||panel.hidden)return;
+  const fastTrips=ready?.trips||[];
+  wtpPreferServerCourse(matched,serverState);
+  chooseLiveEtaCourse(matched,v,fastTrips);
+  renderEtaRoute(matched,v,body,fastTrips);
+  wtpApplyServerState(body,serverState,matched.selected);
+  const trips=await tripsPromise;
   if(!cached||Date.now()-cached.at>=45000)etaPanelMatches.set(cacheKey,{at:Date.now(),match:matched});
-  if(serial!==vehiclePanelRequest||panel.hidden)return;
-  if(serial!==vehiclePanelRequest||panel.hidden)return;
   if(serial!==vehiclePanelRequest||panel.hidden)return;
   wtpPreferServerCourse(matched,serverState);
   chooseLiveEtaCourse(matched,v,trips);
