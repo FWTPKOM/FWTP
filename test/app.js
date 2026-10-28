@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 79
+// WTP LIVE — WERSJA: 80
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -450,36 +450,85 @@ function etaCourseDistance(bounds,now){
  }
  return best;
 }
+// v80: kandydaci tej samej brygady oceniani po przebiegu GPS i czasie.
+// Nie zakładamy, że najnowszy planowo kurs jest wykonywany przy opóźnieniu.
 async function etaMatchVehicle(v,gtfsTrips=[]){
  const line=String(v.Lines||'').trim(),brigade=normalizeBrigade(v.Brigade);
- if(!line||!brigade)throw Error('Brak numeru linii lub brygady');
+ if(!line||!brigade)throw Error('Brak linii lub brygady');
  const health=await etaGet('health');
- if(!health.ok||etaDay(health.metadata?.date)!==todayWarsaw())
-  throw Error('Baza ETA nie zawiera rozkładu na dzisiaj: '+(health.metadata?.date||'brak daty'));
+ if(!health.ok||etaDay(health.metadata?.date)!==todayWarsaw())throw Error('Nieaktualna baza ETA: '+(health.metadata?.date||'brak'));
  const response=await etaGet('courses',{line,limit:5000});
  const courses=(response.courses||[]).filter(c=>normalizeBrigade(c.brigade)===brigade);
- if(!courses.length)throw Error('Brak kursów ETA dla linii '+line+' i brygady '+brigade+' (API zwróciło '+(response.courses||[]).length+' kursów linii)');
+ if(!courses.length)throw Error('Brak kursów ETA tej brygady');
  const stamp=gpsMs(v.Time),now=nowWarsaw(Number.isFinite(stamp)?new Date(stamp):new Date());
- // Wyszukaj kursy na podstawie czasu rozkładowego. Opóźnienie nie zmienia brygady.
- const likely=courses.map(c=>({course:c,departure:etaServiceMinutes(c.departure)}))
+ // Zakres obejmuje kursy planowo rozpoczęte do 120 min temu i zbliżające się kursy.
+ const likely=courses.map(course=>({course,departure:etaServiceMinutes(course.departure)}))
   .filter(x=>Number.isFinite(x.departure))
   .map(x=>({...x,preDistance:Math.min(...[-1440,0,1440].map(d=>Math.abs(now+d-x.departure-35)))}))
-  .sort((a,b)=>a.preDistance-b.preDistance).slice(0,8);
- if(!likely.length)throw Error('Kursy brygady nie mają rozpoznawalnych godzin');
- const evaluated=[];for(let batch=0;batch<likely.length;batch+=4){const results=await Promise.all(likely.slice(batch,batch+4).map(async x=>{
-  try{
-   const detail=await etaGet('courses/'+encodeURIComponent(x.course.course_id)+'/stops');
-   const stops=(detail.stops||[]).slice().sort((a,b)=>Number(a.seq)-Number(b.seq));
-   if(stops.length<2)return null;
-   const bounds=etaCourseTimeBounds(stops,x.course);
-   const distance=etaCourseDistance(bounds,now);
-   return {course:x.course,etaStops:stops,bounds,distance,score:distance};
-  }catch(e){console.warn('ETA: nie można pobrać przystanków kursu',x.course.course_id,e.message);return null}
- }));evaluated.push(...results);}
+  .sort((a,b)=>a.preDistance-b.preDistance).slice(0,24);
+ const evaluated=[];
+ for(let batch=0;batch<likely.length;batch+=6){
+  const results=await Promise.all(likely.slice(batch,batch+6).map(async x=>{
+   try{const detail=await etaGet('courses/'+encodeURIComponent(x.course.course_id)+'/stops');
+    const stops=(detail.stops||[]).slice().sort((a,b)=>Number(a.seq)-Number(b.seq));
+    if(stops.length<2)return null;
+    const bounds=etaCourseTimeBounds(stops,x.course),distance=etaCourseDistance(bounds,now);
+    return {course:x.course,etaStops:stops,bounds,distance,score:distance};
+   }catch(e){console.warn('ETA kurs',x.course.course_id,e.message);return null}
+  }));evaluated.push(...results);
+ }
  const matches=evaluated.filter(Boolean).sort((a,b)=>a.score-b.score||a.bounds.start-b.bounds.start);
- if(!matches.length)throw Error('Nie udało się pobrać przystanków żadnego kursu brygady. Sprawdź wdrożenie Workera v44: /eta/courses/ID/stops.');
- // Zwracamy także inne kursy tej samej brygady; żadnego kursu innej brygady.
- return {selected:matches[0],alternatives:matches.slice(1,24),line,brigade,now};
+ if(!matches.length)throw Error('Brak dostępnych szczegółów kursów ETA');
+ return {selected:matches[0],alternatives:matches.slice(1),line,brigade,now};
+}
+// Najbliższy odcinek polilinii przystanków dla danego kursu.
+function etaSpatialFit(choice,v,trips){
+ const named=etaNameMatch(choice.etaStops,trips,choice.course);
+ if(!named||!Number.isFinite(Number(v.Lat))||!Number.isFinite(Number(v.Lon)))return null;
+ const points=[];
+ for(let i=0;i<choice.etaStops.length;i++){
+  const j=named.mapping[i],st=j>=0?named.trip.stops[j]:null;
+  if(st&&Number.isFinite(Number(st[2]))&&Number.isFinite(Number(st[3])))points.push({i,lat:Number(st[2]),lon:Number(st[3]),time:etaServiceMinutes(choice.etaStops[i].departure||choice.etaStops[i].arrival)});
+ }
+ if(points.length<3)return null;
+ const lat=Number(v.Lat),lon=Number(v.Lon),cos=Math.cos(lat*Math.PI/180);
+ let best=null;
+ for(let k=0;k<points.length-1;k++){
+  const a=points[k],b=points[k+1];const ax=a.lon*111195*cos,ay=a.lat*111195,bx=b.lon*111195*cos,by=b.lat*111195;
+  const px=lon*111195*cos,py=lat*111195,dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
+  if(den<1)continue;
+  const f=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/den));
+  const distance=Math.hypot(px-ax-f*dx,py-ay-f*dy);
+  const result={distance,index:a.i,f,time:Number.isFinite(a.time)&&Number.isFinite(b.time)?a.time+(b.time-a.time)*f:NaN};
+  if(!best||distance<best.distance)best=result;
+ }
+ return best;
+}
+function etaSelectCourse(match,v,trips){
+ const key=vehicleKey(v),old=activeCourseByVehicle.get(key),now=match.now;
+ const candidates=[match.selected,...match.alternatives];
+ const scored=candidates.map(choice=>{
+  const fit=etaSpatialFit(choice,v,trips);
+  if(!fit||fit.distance>180)return null;
+  // Dopuszczamy do 120 minut opóźnienia, ale nie kurs w przyszłości.
+  let lateness=Infinity;
+  if(Number.isFinite(fit.time))for(const shift of [-1440,0,1440]){
+   const delta=now+shift-fit.time;
+   if(delta>=-3&&delta<=120)lateness=Math.min(lateness,delta);
+  }
+  if(!Number.isFinite(lateness))return null;
+  const continuity=old?.id===String(choice.course.course_id)?-90:0;
+  return {choice,fit,score:fit.distance+lateness*1.8+continuity,lateness};
+ }).filter(Boolean).sort((a,b)=>a.score-b.score);
+ if(!scored.length){match.gpsVerified=false;match.matchWarning='Nie potwierdzono kursu położeniem GPS';return match;}
+ const first=scored[0],second=scored[1];
+ // Bliskie wyniki nie dają pewności identyfikacji; nie pokazuj wtedy prognoz.
+ match.gpsVerified=first.fit.distance<=100&&(!second||second.score-first.score>=15||old?.id===String(first.choice.course.course_id));
+ match.selected=first.choice;
+ match.alternatives=candidates.filter(c=>String(c.course.course_id)!==String(first.choice.course.course_id));
+ match.matchWarning=match.gpsVerified?'':'Dopasowanie kursu niejednoznaczne';
+ if(match.gpsVerified)activeCourseByVehicle.set(key,{id:String(first.choice.course.course_id),end:first.choice.bounds.end,terminal:false,at:Date.now()});
+ return match;
 }
 // WTP LIVE v63: nazwy przystanków ETA nie są identyfikatorami GTFS.
 // Mapujemy je po uporządkowanym przebiegu i godzinach, bez fikcyjnego utożsamiania ID.
@@ -555,32 +604,7 @@ function coursePosition(choice,trips,v){
  return {...nearest,atTerminal:nearest.index===last&&nearest.distance<=TERMINAL_RADIUS_M,matched:named};
 }
 function chooseLiveEtaCourse(match,v,trips){
- const key=vehicleKey(v),old=activeCourseByVehicle.get(key);
- const all=[match.selected,...match.alternatives];
- const now=match.now;
- // Znana ostatnia obserwacja na pętli: po zakończeniu kursu szukamy
- // następnego kursu tej samej brygady, nigdy innej brygady.
- if(old?.terminal && Date.now()-old.at<15*60*1000 && old.id===String(match.selected.course.course_id)){
-  const next=all.filter(c=>c.bounds.start>=old.end-2 && String(c.course.course_id)!==String(old.id))
-   .sort((a,b)=>a.bounds.start-b.bounds.start)[0];
-  if(next && now>=next.bounds.start && now>=old.end)match.selected=next;
- }
- // Nie wybieraj nowego kursu przed dojazdem na pętlę na podstawie samego czasu.
- const selected=match.selected;
- const position=coursePosition(selected,trips,v);
- // v72: przy pętli nie zmieniaj kursu na podstawie samej godziny.
- // Potwierdzenie wymaga rzeczywistego osiągnięcia ostatniego przystanku.
- const gpsStamp=gpsMs(v.Time);
- const freshGps=Number.isFinite(gpsStamp)&&Math.abs(Date.now()-gpsStamp)<90000;
- if(freshGps && position?.atTerminal && now>=selected.bounds.end-3){
-  activeCourseByVehicle.set(key,{id:selected.course.course_id,end:selected.bounds.end,terminal:true,at:Date.now()});
-  const next=all.filter(c=>c.bounds.start>=selected.bounds.end-2 && String(c.course.course_id)!==String(selected.course.course_id))
-   .sort((a,b)=>a.bounds.start-b.bounds.start)[0];
-  if(next && now>=next.bounds.start && position.atTerminal)match.selected=next;
- }else if(position && position.distance<TERMINAL_RADIUS_M){
-  activeCourseByVehicle.set(key,{id:selected.course.course_id,end:selected.bounds.end,terminal:false,at:Date.now()});
- }
- return match;
+ return etaSelectCourse(match,v,trips);
 }
 // WTP LIVE v68: natychmiastowa prognoza i cache panelu
 // WTP LIVE v66: ciągła obserwacja GPS, stan kursu i prognoza ETA.
@@ -735,11 +759,11 @@ function historyEstimate(choice,v,trips){
   const plan=a.time+(b.time-a.time)*match.f;
   const observed=nowWarsaw(new Date(p.stamp));
   let delta=observed-plan;if(delta< -720)delta+=1440;if(delta>720)delta-=1440;
-  if(delta>=0&&delta<=90)latestDelay=delta;
-  if(match.dist<=85){
+  if(delta>=0&&delta<=90&&events.size>0)latestDelay=delta;
+  if(match.dist<=35){
    for(const pt of [a,b]){
     const d=geoDistance(p.lat,p.lon,pt.lat,pt.lon);
-    if(d<=85&&!events.has(pt.i)&&observed>=pt.time-2&&observed<=pt.time+90)events.set(pt.i,{time:observed,stamp:p.stamp,dist:d});
+    if(d<=25&&!events.has(pt.i)&&observed>=pt.time-2&&observed<=pt.time+90)events.set(pt.i,{time:observed,stamp:p.stamp,dist:d});
    }
   }
  }
@@ -751,7 +775,7 @@ function historyEstimate(choice,v,trips){
   const plan=a.time+(b.time-a.time)*live.f;
   let delta=nowWarsaw(new Date(currentStamp))-plan;
   if(delta< -720)delta+=1440;if(delta>720)delta-=1440;
-  if(delta>=0&&delta<=90)latestDelay=delta;
+  if(delta>=0&&delta<=90&&events.size>0)latestDelay=delta;
  }
  return {events,currentIndex,delay:Number.isFinite(latestDelay)?Math.round(latestDelay):null};
 }
@@ -760,10 +784,15 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  body.replaceChildren();
  const names=etaNamesForCourse(choice.etaStops,gtfsTrips,choice.course);
  let prediction=etaGpsPrediction(choice,v,gtfsTrips);
- const server=historyEstimate(choice,v,gtfsTrips);
+ if(!match.gpsVerified)prediction={...prediction,delay:null,confirmedIndex:-1,reason:match.matchWarning||"Kurs niepotwierdzony"};
+ const server=match.gpsVerified?historyEstimate(choice,v,gtfsTrips):null;
  // v76: Nie nadpisuj opóźnienia wyliczeniem z interpolacji historii między przystankami.
  // Historia GPS służy do lokalizacji, a nie do potwierdzania odjazdu z następnego przystanku.
  const previous=etaRenderedCache.get(vehicleKey(v));
+ if(match.gpsVerified&&server&&Number.isFinite(server.delay)&&server.events.size>0){
+  const confirmedIndex=Math.max(...server.events.keys());
+  prediction={...prediction,delay:server.delay,confirmedIndex,reason:"Historia GPS potwierdzonych przystanków"};
+ }
  if(false && prediction.delay===null && previous && previous.confirmedIndex>=0 && previous.courseId===String(choice.course.course_id) && Date.now()-previous.at<120000 && gpsMs(v.Time)>=previous.stamp-90000){
   prediction={...prediction,delay:previous.delay,confirmedIndex:previous.confirmedIndex,currentIndex:Math.max(prediction.currentIndex??-1,previous.currentIndex??-1),reason:'Ostatnia prognoza GPS'};
  }
@@ -791,7 +820,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   const raw=(i===0 ? (stop.departure||stop.arrival) : (i===choice.etaStops.length-1 ? (stop.arrival||stop.departure) : (stop.departure||stop.arrival)))||'';
   const time=document.createElement('time');time.className='route-stop-time';
   const planned=etaServiceMinutes(raw);
-  const pastEvent=null; // v77: brak potwierdzonego przejazdu, nie generuj fikcyjnej godziny
+  const pastEvent=match.gpsVerified?server?.events?.get(i):null; // v80: tylko zdarzenia z historii GPS
   const measured=pastEvent&&Number.isFinite(planned)?pastEvent.time:null;
   // Początek kursu: nie traktuj pozycji na pętli jako opóźnionego przyjazdu.
   // Planowy odjazd z pierwszego słupka pozostaje podstawą porównania.
@@ -975,9 +1004,9 @@ async function openVehiclePanel(v){
  const line=String(v.Lines||'?'),brigade=String(v.Brigade||'?'),number=String(v.VehicleNumber||'?');
  $('vehicleHeading').textContent=`${line} · ${v.kind===2?'Tramwaj':'Autobus'} · brygada ${brigade} · tabor ${number}`;
  const body=$('vehicleBody');body.replaceChildren();
- const cacheKey=String(v.Lines)+':'+normalizeBrigade(v.Brigade);
+ const cacheKey=vehicleKey(v);
  const ready=etaPanelReady.get(cacheKey);
- if(ready && Date.now()-ready.at<120000){
+ if(ready && Date.now()-ready.at<45000){
   // Pokaż ostatnio znany rozkład od razu, bez czekania na sieć.
   chooseLiveEtaCourse(ready.match,v,ready.trips);
   renderEtaRoute(ready.match,v,body,ready.trips);
@@ -988,10 +1017,10 @@ async function openVehiclePanel(v){
   // Nie uzależniaj rozkładu brygady od zgodności GPS/GTFS.
   const gpsFetch=fetchServerGps(v).catch(e=>{console.warn('Historia GPS:',e.message);return null});
   const cached=etaPanelMatches.get(cacheKey);
-  const matchPromise=cached&&Date.now()-cached.at<120000?Promise.resolve(cached.match):etaMatchVehicle(v);
-  const tripsPromise=ready&&Date.now()-ready.at<120000?Promise.resolve(ready.trips):loadGtfs(line).then(data=>data.date===todayWarsaw()?(data.trips||[]):[]).catch(e=>{console.warn('GTFS: brak nazw przystanków',e.message);return []});
+  const matchPromise=cached&&Date.now()-cached.at<45000?Promise.resolve(cached.match):etaMatchVehicle(v);
+  const tripsPromise=ready&&Date.now()-ready.at<45000?Promise.resolve(ready.trips):loadGtfs(line).then(data=>data.date===todayWarsaw()?(data.trips||[]):[]).catch(e=>{console.warn('GTFS: brak nazw przystanków',e.message);return []});
   const [matched,trips]=await Promise.all([matchPromise,tripsPromise]);
-  if(!cached||Date.now()-cached.at>=120000)etaPanelMatches.set(cacheKey,{at:Date.now(),match:matched});
+  if(!cached||Date.now()-cached.at>=45000)etaPanelMatches.set(cacheKey,{at:Date.now(),match:matched});
   if(serial!==vehiclePanelRequest||panel.hidden)return;
   if(serial!==vehiclePanelRequest||panel.hidden)return;
   if(serial!==vehiclePanelRequest||panel.hidden)return;
