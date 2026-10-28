@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 80
+// WTP LIVE — WERSJA: 81
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -788,12 +788,32 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  const server=match.gpsVerified?historyEstimate(choice,v,gtfsTrips):null;
  // v76: Nie nadpisuj opóźnienia wyliczeniem z interpolacji historii między przystankami.
  // Historia GPS służy do lokalizacji, a nie do potwierdzania odjazdu z następnego przystanku.
+ // v81: wylicz opóźnienie tylko z zarejestrowanego przejazdu przez słupek.
+ // Pojedyncza interpolowana pozycja na trasie nie jest potwierdzeniem opóźnienia.
+ if(match.gpsVerified && server?.events?.size){
+  const verified=[...server.events.entries()].filter(([i,e])=>{
+   const st=choice.etaStops[i];
+   const plan=etaServiceMinutes(st?.departure||st?.arrival);
+   return Number.isFinite(plan)&&Number.isFinite(e.time)&&e.dist<=25;
+  }).sort((a,b)=>b[0]-a[0]);
+  if(verified.length){
+   const [i,e]=verified[0],st=choice.etaStops[i];
+   const plan=etaServiceMinutes(st.departure||st.arrival);
+   let diff=e.time-plan;
+   if(diff< -720)diff+=1440;
+   if(diff>720)diff-=1440;
+   if(diff>=1&&diff<=120){
+    prediction={...prediction,delay:Math.round(diff),confirmedIndex:i,reason:'Potwierdzona obserwacja GPS przy przystanku'};
+    etaRenderedCache.set(vehicleKey(v),{courseId:String(choice.course.course_id),delay:Math.round(diff),confirmedIndex:i,currentIndex:prediction.currentIndex,stamp:gpsMs(v.Time),at:Date.now()});
+   }
+  }
+ }
  const previous=etaRenderedCache.get(vehicleKey(v));
- if(match.gpsVerified&&server&&Number.isFinite(server.delay)&&server.events.size>0){
+ if(match.gpsVerified&&prediction.delay===null&&server&&Number.isFinite(server.delay)&&server.events.size>0){
   const confirmedIndex=Math.max(...server.events.keys());
   prediction={...prediction,delay:server.delay,confirmedIndex,reason:"Historia GPS potwierdzonych przystanków"};
  }
- if(false && prediction.delay===null && previous && previous.confirmedIndex>=0 && previous.courseId===String(choice.course.course_id) && Date.now()-previous.at<120000 && gpsMs(v.Time)>=previous.stamp-90000){
+ if(match.gpsVerified && prediction.delay===null && previous && previous.confirmedIndex>=0 && previous.courseId===String(choice.course.course_id) && Date.now()-previous.at<120000 && gpsMs(v.Time)>=previous.stamp-90000){
   prediction={...prediction,delay:previous.delay,confirmedIndex:previous.confirmedIndex,currentIndex:Math.max(prediction.currentIndex??-1,previous.currentIndex??-1),reason:'Ostatnia prognoza GPS'};
  }
  const note=document.createElement('p');note.className='route-note';
@@ -897,7 +917,14 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    const y=stopIndex===a.i?y1:stopIndex===b.i?y2:y1+(y2-y1)*Math.max(0.06,Math.min(0.94,f));
    marker.style.top=y+'px';
   };
-  requestAnimationFrame(positionMarker);
+  requestAnimationFrame(()=>{
+   positionMarker();
+   // v81: otwieraj panel w miejscu pojazdu; również po odświeżeniu GPS.
+   if(body.contains(marker)){
+    const target=marker.offsetTop + marker.offsetHeight/2;
+    body.scrollTop=Math.max(0,target-body.clientHeight/2);
+   }
+  });
  }
 
  body.append(list);
