@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 84
+// WTP LIVE — WERSJA: 85
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -871,6 +871,22 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
     reason:'Prognoza z dwoch zgodnych pomiarow GPS'};
   }
  }
+ // v85: awaryjna, jawnie oznaczona estymacja z aktualnej pozycji GPS.
+ // Nie udajemy potwierdzonego przejazdu przez przystanek: to prognoza,
+ // tylko gdy kurs jest wiarygodny, GPS swiezy i blisko przebiegu.
+ if(coursePlausible && prediction.delay===null && fit &&
+    fit.distance<=55 && Number.isFinite(fit.time) &&
+    Number.isFinite(gpsMs(v.Time)) &&
+    Math.abs(Date.now()-gpsMs(v.Time))<=90000){
+  const observed=etaObservedMinutes(gpsMs(v.Time),fit.time);
+  const delta=observed-fit.time;
+  if(delta>=-2 && delta<=120){
+   const geoIndex=prediction.geo?.points?.findLast(p=>p.i<=fit.index)?.i ?? fit.index;
+   prediction={...prediction,delay:Math.max(0,Math.round(delta)),
+    confirmedIndex:Math.max(0,geoIndex),
+    reason:'Szacunkowa prognoza z aktualnego położenia GPS (bez potwierdzenia przejazdu)'};
+  }
+ }
  // Potwierdzony postoj jako dodatkowe zrodlo, kiedy serwerowa historia
  // jeszcze nie zawiera wystarczajacych obserwacji.
  if(coursePlausible && prediction.delay===null){
@@ -893,7 +909,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  const note=document.createElement('p');note.className='route-note';
  note.textContent='ETA: linia '+choice.course.line+', brygada '+choice.course.brigade+'. '+
   (names.matched?'Nazwy przystanków według dopasowanego GTFS. ':'Brak pewnego dopasowania nazw GTFS. ')+
-  (prediction.delay!==null?'Szacowane opóźnienie '+(prediction.delay>=0?'+':'')+prediction.delay+' min z GPS; nieoficjalna prognoza.':'Godziny rozkładowe; '+prediction.reason+'.'+(server?' GPS: '+server.samples+' próbek w ostatnich 5 min.':' Brak dostępnej historii GPS dla tego przebiegu.'))+' Historia GPS jest zbierana na serwerze.';
+  (prediction.delay!==null?'Szacowane odchylenie '+(prediction.delay>=0?'+':'')+prediction.delay+' min; '+prediction.reason+'.':'Godziny rozkładowe; '+prediction.reason+'.'+(server?' GPS: '+server.samples+' próbek w ostatnich 5 min.':' Brak dostępnej historii GPS dla tego przebiegu.'))+' Historia GPS jest zbierana na serwerze.';
  body.append(note);
  const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
  const nearest=prediction.geo.near;
@@ -920,12 +936,19 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   // Planowy odjazd z pierwszego słupka pozostaje podstawą porównania.
   const safeMeasured=Number.isFinite(measured)&&measured>=planned-2&&measured<=planned+90?measured:null;
   const estimate=(i===0 ? null : (safeMeasured!==null?safeMeasured:(prediction.delay!==null&&prediction.confirmedIndex>=0&&prediction.delay>=0&&Number.isFinite(planned)&&i>=prediction.confirmedIndex?planned+prediction.delay:null)));
-  if(estimate!==null&&Number.isFinite(estimate)&&Number.isFinite(planned)&&Math.abs(estimate-planned)>=1){
+  if(estimate!==null&&Number.isFinite(estimate)&&Number.isFinite(planned)){
    const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=displayClock(planned);
    old.style.cssText='display:block;text-decoration:line-through;color:#9299a0;font-size:12px;line-height:1.2;text-align:right';
    const next=document.createElement('strong');next.className='wtp-estimated-time';next.textContent=displayClock(estimate);
    next.style.cssText='display:block;color:#c9221c;font-weight:750;line-height:1.3;text-align:right';
-   time.append(old,next);time.title=measured!==null&&measured!==undefined?'Szacowany czas zaobserwowania pojazdu w poblizu przystanku (GPS)':'Prognoza z postepu GPS na trasie';
+   if(Math.abs(estimate-planned)<1){
+    next.style.color='#19734b';
+    time.append(next);
+    time.title='Szacowany czas zgodny z rozkładem (GPS)';
+   }else{
+    time.append(old,next);
+    time.title=safeMeasured!==null?'Zaobserwowany czas GPS przy przystanku':'Szacowana godzina przyjazdu z GPS';
+   }
   }else time.textContent=displayClock(raw);
   li.append(dot,stopText,time);list.append(li);
  });
