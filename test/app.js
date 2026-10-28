@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 90
+// WTP LIVE — WERSJA: 92
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -1082,17 +1082,10 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   // Promień 35 m ogranicza fałszywe zaliczenia przystanku z odległości 65 m.
   const distanceA=geoDistance(gpsLat,gpsLon,a.lat,a.lon);
   const distanceB=geoDistance(gpsLat,gpsLon,b.lat,b.lon);
-  const STOP_AT_RADIUS=14; // v91: samo zbliżenie na 35 m nie oznacza dojazdu
-  // Przy skrzyżowaniach i powtórzonych słupkach rozstrzygaj chronologią kursu.
+  const STOP_AT_RADIUS=35; // v92: zachowanie rozpoznawania przystanku z v89
   const nearA=distanceA<=STOP_AT_RADIUS && (distanceA<=distanceB || f<0.5);
   const nearB=distanceB<=STOP_AT_RADIUS && (distanceB<distanceA || f>=0.5);
-  // Przystanek jest bieżący dopiero przy bardzo bliskim GPS i drugim
-  // zgodnym pomiarze. Samo zbliżanie się nie zalicza przystanku.
-  const fixes=(gpsTraces.get(vehicleKey(v))||[]);
-  const prevFix=fixes.length>1?fixes[fixes.length-2]:null;
-  const stableFix=prevFix && gpsMs(v.Time)-prevFix.t<=120000 &&
-   geoDistance(prevFix.lat,prevFix.lon,gpsLat,gpsLon)<=22;
-  const stopIndex=stableFix?(nearB?b.i:(nearA?a.i:-1)):-1;
+  const stopIndex=nearB?b.i:(nearA?a.i:-1);
   const fromIndex=a.i;
   const nextIndex=b.i;
   // v89: przy przystanku pokazujemy wyłącznie pogrubioną nazwę.
@@ -1131,9 +1124,9 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    marker.style.setProperty('left',(x-marker.offsetWidth/2)+'px','important');
    marker.style.top=y+'px';
    if(nextLabel){
-    // Etykieta przy pojeździe, nie w połowie odcinka.
-    nextLabel.style.top=y+'px';
-    nextLabel.style.left=(x+20)+'px';
+    // v92: jak w v89 — napis w połowie odcinka, niezależnie od znacznika.
+    nextLabel.style.top=((y1+y2)/2)+'px';
+    nextLabel.style.left='29px';
    }
   };
   requestAnimationFrame(()=>{
