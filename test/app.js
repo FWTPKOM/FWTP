@@ -1076,7 +1076,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    candidates.push({a,b,f,distance,score:distance+timePenalty+progressPenalty});
   }
   candidates.sort((a,b)=>a.score-b.score);
-  if(candidates[0]&&candidates[0].distance<=125)location=candidates[0];
+  if(candidates[0]&&candidates[0].distance<=220)location=candidates[0]; // v90: tolerancja GPS na długich odcinkach; nadal wymaga bliskości geometrii
  }
  if(location){
   const {a,b,f}=location;
@@ -1120,7 +1120,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
     marker.style.left=(axis-marker.offsetWidth/2)+'px';}
    if(nextLabel){
     nextLabel.style.top=((y1+y2)/2)+'px';
-    nextLabel.style.left='29px';
+    nextLabel.style.left='30px';
    }
   };
   requestAnimationFrame(()=>{
