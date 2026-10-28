@@ -1082,11 +1082,17 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   // Promień 35 m ogranicza fałszywe zaliczenia przystanku z odległości 65 m.
   const distanceA=geoDistance(gpsLat,gpsLon,a.lat,a.lon);
   const distanceB=geoDistance(gpsLat,gpsLon,b.lat,b.lon);
-  const STOP_AT_RADIUS=35;
+  const STOP_AT_RADIUS=14; // v91: samo zbliżenie na 35 m nie oznacza dojazdu
   // Przy skrzyżowaniach i powtórzonych słupkach rozstrzygaj chronologią kursu.
   const nearA=distanceA<=STOP_AT_RADIUS && (distanceA<=distanceB || f<0.5);
   const nearB=distanceB<=STOP_AT_RADIUS && (distanceB<distanceA || f>=0.5);
-  const stopIndex=nearB?b.i:(nearA?a.i:-1);
+  // Przystanek jest bieżący dopiero przy bardzo bliskim GPS i drugim
+  // zgodnym pomiarze. Samo zbliżanie się nie zalicza przystanku.
+  const fixes=(gpsTraces.get(vehicleKey(v))||[]);
+  const prevFix=fixes.length>1?fixes[fixes.length-2]:null;
+  const stableFix=prevFix && gpsMs(v.Time)-prevFix.t<=120000 &&
+   geoDistance(prevFix.lat,prevFix.lon,gpsLat,gpsLon)<=22;
+  const stopIndex=stableFix?(nearB?b.i:(nearA?a.i:-1)):-1;
   const fromIndex=a.i;
   const nextIndex=b.i;
   // v89: przy przystanku pokazujemy wyłącznie pogrubioną nazwę.
@@ -1108,17 +1114,26 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   const positionMarker=()=>{
    const first=list.children[a.i],second=list.children[b.i];
    if(!first||!second)return;
-   const y1=first.offsetTop+first.offsetHeight/2;
-   const y2=second.offsetTop+second.offsetHeight/2;
-   const y=stopIndex===a.i?y1:stopIndex===b.i?y2:y1+(y2-y1)*Math.max(0.06,Math.min(0.94,f));
+   // Wszystkie współrzędne względem tego samego kontenera <ol>.
+   // offsetTop i offsetLeft są zawodne przy zagnieżdżonych elementach.
+   const bounds=list.getBoundingClientRect();
+   const dotA=first.querySelector('.route-dot');
+   const dotB=second.querySelector('.route-dot');
+   if(!dotA||!dotB)return;
+   const rectA=dotA.getBoundingClientRect(),rectB=dotB.getBoundingClientRect();
+   const x1=(rectA.left+rectA.right)/2-bounds.left;
+   const x2=(rectB.left+rectB.right)/2-bounds.left;
+   const y1=(rectA.top+rectA.bottom)/2-bounds.top;
+   const y2=(rectB.top+rectB.bottom)/2-bounds.top;
+   const ratio=stopIndex===a.i?0:stopIndex===b.i?1:Math.max(0,Math.min(1,f));
+   const y=y1+(y2-y1)*ratio;
+   const x=x1+(x2-x1)*ratio;
+   marker.style.setProperty('left',(x-marker.offsetWidth/2)+'px','important');
    marker.style.top=y+'px';
-   // Dokładnie wspólna oś kropki i znacznika, niezależnie od ekranu.
-   const dot=first.querySelector('.route-dot');
-   if(dot){const axis=first.offsetLeft+dot.offsetLeft+dot.offsetWidth/2;
-    marker.style.left=(axis-marker.offsetWidth/2)+'px';}
    if(nextLabel){
-    nextLabel.style.top=((y1+y2)/2)+'px';
-    nextLabel.style.left='29px';
+    // Etykieta przy pojeździe, nie w połowie odcinka.
+    nextLabel.style.top=y+'px';
+    nextLabel.style.left=(x+20)+'px';
    }
   };
   requestAnimationFrame(()=>{
