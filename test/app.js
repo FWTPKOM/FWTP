@@ -525,26 +525,34 @@ function etaSelectCourse(match,v,trips){
  }).filter(Boolean).sort((a,b)=>a.score-b.score);
  if(!scored.length){match.gpsVerified=false;match.matchWarning='Nie potwierdzono kursu położeniem GPS';return match;}
  let first=scored[0],second=scored[1];
- // v88: dopóki poprzedni kurs nie dotarł do końca, NIE wolno
- // przełączyć brygady na kolejny przebieg tylko dlatego, że jest bliżej w czasie.
- // Weryfikacja: poprzedni kurs musi być nadal wśród kandydatów, a GPS
- // powinien potwierdzać postęp do końcowego przystanku lub upływ czasu.
- const previous=old&&Date.now()-old.at<3*3600000
-   ?scored.find(s=>String(s.choice.course.course_id)===old.id):null;
- if(previous&&String(first.choice.course.course_id)!==old.id){
-  const oldPos=coursePosition(previous.choice,trips,v);
-  const lastIndex=previous.choice.etaStops.length-1;
-  const endReached=!!oldPos&&oldPos.atTerminal&&oldPos.index===lastIndex;
-  // Dwie kolejne obserwacje przy końcowym, oddzielone co najmniej 20 s.
-  // Pierwsza obserwacja uzbraja przełączenie, druga je potwierdza.
-  if(endReached){
-   if(!old.terminalSeenAt)old.terminalSeenAt=Date.now();
-  }else old.terminalSeenAt=0;
-  const terminalConfirmed=endReached&&old.terminalSeenAt&&Date.now()-old.terminalSeenAt>=20000;
-  // Nie odcinaj trasy podczas opóźnienia; ogranicz blokadę do 45 min
-  // po planowanym zakończeniu, aby odzyskać stan po utracie GPS.
-  const timedOut=Number.isFinite(old.end)&&now>old.end+45;
-  if(!terminalConfirmed&&!timedOut){first=previous;second=scored.find(s=>s!==previous)||null;}
+ // v89: terminal jest obserwowany także wtedy, gdy aktualny kurs nadal
+ // wygrywa punktacją. Poprzednio licznik postoju uruchamiał się dopiero
+ // po pojawieniu się konkurencyjnego kursu, więc mógł nigdy nie zadziałać.
+ const previousChoice=old&&Date.now()-old.at<3*3600000
+   ?candidates.find(c=>String(c.course.course_id)===old.id):null;
+ const previous=previousChoice?scored.find(s=>String(s.choice.course.course_id)===old.id):null;
+ if(previousChoice){
+  const pos=coursePosition(previousChoice,trips,v);
+  const atEnd=!!pos&&pos.atTerminal&&pos.index===previousChoice.etaStops.length-1;
+  if(atEnd){if(!old.terminalSeenAt)old.terminalSeenAt=Date.now();}
+  else old.terminalSeenAt=0;
+  const dwell=old.terminalSeenAt?Date.now()-old.terminalSeenAt:0;
+  const oldEnd=Number.isFinite(old.end)?old.end:previousChoice.bounds.end;
+  const afterEnd=now>=oldEnd-2;
+  const next=scored.filter(x=>String(x.choice.course.course_id)!==old.id)
+   .filter(x=>x.choice.bounds.start>=previousChoice.bounds.start-2)
+   .sort((x,y)=>x.choice.bounds.start-y.choice.bounds.start)[0];
+  // Sam postój na końcowym nie uruchamia kolejnego kursu przed jego
+  // planowanym odjazdem. Po >=90 s postoju i rozpoczęciu kolejnego kursu
+  // pozwalamy zmienić przypisanie; po wyjeździe kierunek rozstrzyga GPS.
+  const nextStarted=next&&now>=next.choice.bounds.start-1;
+  const terminalReady=atEnd&&dwell>=90000&&afterEnd&&nextStarted;
+  const departedTerminal=!atEnd&&old.terminalSeenAt===0&&now>oldEnd+2;
+  const timedOut=now>oldEnd+45;
+  if(terminalReady&&next){first=next;second=previous||scored.find(x=>x!==next)||null;}
+  else if(previous&&String(first.choice.course.course_id)!==old.id&&!timedOut){
+   first=previous;second=scored.find(x=>x!==previous)||null;
+  }
  }
  match.gpsVerified=first.fit.distance<=110&&(!second||second.score-first.score>=15||old?.id===String(first.choice.course.course_id));
  match.selected=first.choice;
@@ -1083,15 +1091,16 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   const stopIndex=nearB?b.i:(nearA?a.i:-1);
   const fromIndex=a.i;
   const nextIndex=b.i;
-  const label=document.createElement('span');label.className='wtp-next-stop';
+  // v89: przy przystanku pokazujemy wyłącznie pogrubioną nazwę.
+  // Między przystankami umieszczamy samą etykietę na odcinku osi.
+  let nextLabel=null;
   if(stopIndex>=0){
-   label.textContent='Przystanek: '+names.names[stopIndex];
-   list.children[stopIndex]?.querySelector('.wtp-route-stop-text')?.append(label);
    list.children[stopIndex]?.classList.add('current');
   }else{
-   // Opis następnego przystanku zawsze POD PRZYSTANKIEM WYJAZDOWYM.
-   label.textContent='Następny przystanek: '+names.names[nextIndex];
-   list.children[fromIndex]?.querySelector('.wtp-route-stop-text')?.append(label);
+   nextLabel=document.createElement('span');
+   nextLabel.className='wtp-next-stop wtp-between-stops';
+   nextLabel.textContent='Następny przystanek:';
+   list.append(nextLabel);
   }
   const marker=document.createElement('span');marker.className='wtp-vehicle-on-route';
   const img=document.createElement('img');img.src=v.kind===2?'icons/WTP-tramwaj.svg':'icons/WTP-autobus.svg';
@@ -1105,19 +1114,28 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    const y2=second.offsetTop+second.offsetHeight/2;
    const y=stopIndex===a.i?y1:stopIndex===b.i?y2:y1+(y2-y1)*Math.max(0.06,Math.min(0.94,f));
    marker.style.top=y+'px';
+   // Dokładnie wspólna oś kropki i znacznika, niezależnie od ekranu.
+   const dot=first.querySelector('.route-dot');
+   if(dot){const axis=first.offsetLeft+dot.offsetLeft+dot.offsetWidth/2;
+    marker.style.left=(axis-marker.offsetWidth/2)+'px';}
+   if(nextLabel){
+    nextLabel.style.top=((y1+y2)/2)+'px';
+    nextLabel.style.left='29px';
+   }
   };
   requestAnimationFrame(()=>{
    positionMarker();
-   // v81: otwieraj panel w miejscu pojazdu; również po odświeżeniu GPS.
    if(body.contains(marker)){
-    const target=marker.offsetTop + marker.offsetHeight/2;
-    body.scrollTop=Math.max(0,target-body.clientHeight/2);
+    const mobile=window.matchMedia('(max-width:700px)').matches;
+    const anchor=mobile?Math.max(0,a.i-1):Math.max(0,(stopIndex>=0?stopIndex:a.i)-1);
+    const row=list.children[anchor];
+    if(row)body.scrollTop=Math.max(0,list.offsetTop+row.offsetTop-body.offsetTop);
    }
   });
  }
 
  body.append(list);
- if(current>=0&&list.children[current]?.classList.contains('current')){const active=list.children[current];if(active)requestAnimationFrame(()=>{if(body.contains(active))body.scrollTop=Math.max(0,active.offsetTop-list.offsetTop-body.clientHeight/2)});}
+
 }
 
 // v50: kurs wolno powiązać z brygadą dopiero po potwierdzeniu
