@@ -1009,7 +1009,13 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
 
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=names.names[i];
-  const number=document.createElement('small');number.className='wtp-stop-number';number.textContent='Nr '+String(stop.stop_id??'—');number.title='Identyfikator słupka z danych rozkładowych ETA';
+  // Numer peronu pochodzi z identyfikatora GTFS, np. 114006 -> 06.
+  // ETA stop_id jest wewnętrznym identyfikatorem, a NIE numerem peronu.
+  const gtfsStopId=String(mapped?.[0]??'');
+  const platform=/^\d{6}$/.test(gtfsStopId)?gtfsStopId.slice(-2):null;
+  const number=document.createElement('small');number.className='wtp-stop-number';
+  if(platform){number.textContent=platform;number.title='Numer słupka według GTFS';}
+  else{number.hidden=true;}
   const stopText=document.createElement('span');stopText.className='wtp-route-stop-text';stopText.append(name,number);
   const raw=(i===0 ? (stop.departure||stop.arrival) : (i===choice.etaStops.length-1 ? (stop.arrival||stop.departure) : (stop.departure||stop.arrival)))||'';
   const time=document.createElement('time');time.className='route-stop-time';
@@ -1342,24 +1348,29 @@ async function openVehiclePanel(v){
   const cached=etaPanelMatches.get(cacheKey);
   const matchPromise=cached&&Date.now()-cached.at<45000?Promise.resolve(cached.match):etaMatchVehicle(v);
   const tripsPromise=ready&&Date.now()-ready.at<45000?Promise.resolve(ready.trips):loadGtfs(line).then(data=>data.date===todayWarsaw()?(data.trips||[]):[]).catch(e=>{console.warn('GTFS: brak nazw przystanków',e.message);return []});
-  // Wyświetl rozkład jak najszybciej: GTFS i historia GPS nie blokują otwarcia panelu.
-  const [matched,serverState]=await Promise.all([matchPromise,statePromise]);
+  // v94: żądanie stanu serwera NIE blokuje pierwszego wyświetlenia trasy.
+  const matched=await matchPromise;
   if(serial!==vehiclePanelRequest||panel.hidden)return;
   const fastTrips=ready?.trips||[];
-  wtpPreferServerCourse(matched,serverState);
   chooseLiveEtaCourse(matched,v,fastTrips);
   renderEtaRoute(matched,v,body,fastTrips);
-  wtpApplyServerState(body,serverState,matched.selected);
-  const trips=await tripsPromise;
   if(!cached||Date.now()-cached.at>=45000)etaPanelMatches.set(cacheKey,{at:Date.now(),match:matched});
-  if(serial!==vehiclePanelRequest||panel.hidden)return;
-  wtpPreferServerCourse(matched,serverState);
-  chooseLiveEtaCourse(matched,v,trips);
-  wtpPreferServerCourse(matched,serverState);
-  etaPanelReady.set(cacheKey,{match:matched,trips,at:Date.now()});
-  renderEtaRoute(matched,v,body,trips);
-  wtpApplyServerState(body,serverState,matched.selected);
-  gpsFetch.then(positions=>{if(positions?.length && serial===vehiclePanelRequest&&!panel.hidden){chooseLiveEtaCourse(matched,v,trips);wtpPreferServerCourse(matched,serverState);renderEtaRoute(matched,v,body,trips);wtpApplyServerState(body,serverState,matched.selected)}});
+  let serverState=null,fullTrips=fastTrips;
+  const redraw=()=>{
+   if(serial!==vehiclePanelRequest||panel.hidden)return;
+   if(serverState)wtpPreferServerCourse(matched,serverState);
+   chooseLiveEtaCourse(matched,v,fullTrips);
+   if(serverState)wtpPreferServerCourse(matched,serverState);
+   renderEtaRoute(matched,v,body,fullTrips);
+   wtpApplyServerState(body,serverState,matched.selected);
+  };
+  void statePromise.then(data=>{serverState=data;redraw()});
+  void tripsPromise.then(trips=>{
+   fullTrips=trips;
+   etaPanelReady.set(cacheKey,{match:matched,trips,at:Date.now()});
+   redraw();
+  });
+  void gpsFetch.then(positions=>{if(positions?.length)redraw()});
  }catch(e){if(serial===vehiclePanelRequest&&!panel.hidden){body.replaceChildren();const warning=document.createElement('p');warning.className='route-note';warning.textContent='Nie udało się pobrać rozkładu ETA: '+e.message;body.append(warning)}}
 }
 function setTab(tab,record=true){
