@@ -545,9 +545,15 @@ function etaSelectCourse(match,v,trips){
   // pozwalamy zmienić przypisanie; po wyjeździe kierunek rozstrzyga GPS.
   const nextStarted=next&&now>=next.choice.bounds.start-1;
   const terminalReady=atEnd&&dwell>=90000&&afterEnd&&nextStarted;
-  const departedTerminal=!atEnd&&old.terminalSeenAt===0&&now>oldEnd+2;
+  const departedTerminal=!atEnd&&now>oldEnd+2;
   const timedOut=now>oldEnd+45;
-  if(terminalReady&&next){first=next;second=previous||scored.find(x=>x!==next)||null;}
+  // Po planowym końcu, jeśli pojazd fizycznie jedzie trasą następnego
+  // kursu i oddalił się od końcowego starego kursu, nie blokuj zmiany.
+  // Wymagamy wyraźnie lepszego dopasowania przestrzennego nowego kursu.
+  const movingOnNext=departedTerminal&&nextStarted&&next&&
+    next.fit.distance<=85&&(!previous||next.fit.distance+35<previous.fit.distance)&&
+    (next.fit.index>0||next.fit.f>0.15);
+  if((terminalReady||movingOnNext)&&next){first=next;second=previous||scored.find(x=>x!==next)||null;}
   else if(previous&&String(first.choice.course.course_id)!==old.id&&!timedOut){
    first=previous;second=scored.find(x=>x!==previous)||null;
   }
@@ -1055,6 +1061,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
     time.title=safeMeasured!==null?'Historyczna godzina przejazdu oszacowana z GPS (nie jest odczytem drzwi)':(currentEstimate===null?'Zachowana wcześniejsza prognoza; brak potwierdzenia GPS':'Szacowana godzina przyjazdu z GPS');
    }
   }else time.textContent=displayClock(raw);
+  if(i===choice.etaStops.length-1)li.classList.add('wtp-terminal-stop');
   li.append(dot,stopText,time);list.append(li);
  });
  // v76: ustalaj położenie na ODCINKU między kolejnymi słupkami, nie na podstawie
@@ -1136,7 +1143,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    if(nextLabel){
     // v92: jak w v89 — napis w połowie odcinka, niezależnie od znacznika.
     nextLabel.style.top=((y1+y2)/2)+'px';
-    nextLabel.style.left='29px';
+    nextLabel.style.left='44px';
    }
   };
   requestAnimationFrame(()=>{
