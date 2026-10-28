@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 78
+// WTP LIVE — WERSJA: 79
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -167,26 +167,27 @@ function updateHeadings(rows){
  const now=Date.now();
  for(const v of rows){
   const key=vehicleKey(v),lat=Number(v.Lat),lon=Number(v.Lon),stamp=gpsMs(v.Time);
-  if(Number.isFinite(v._bearing)){lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:v._bearing});continue;}
   if(!Number.isFinite(lat)||!Number.isFinite(lon)||!Number.isFinite(stamp))continue;
   const prev=lastLocations.get(key);
-  if(prev && Number.isFinite(prev.bearing) && now-prev.seen<3*60*1000 && stamp-prev.stamp<3*60*1000)v._bearing=prev.bearing;
-  // Stare lub przyszłe GPS nie jest dowodem aktualnego kierunku.
-  if(stamp<now-15*60*1000 || stamp>now+5*60*1000)continue;
-  if(!prev){lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:null});continue}
-  if(stamp<=prev.stamp)continue;
-  const meters=Math.hypot((lat-prev.lat)*111000,(lon-prev.lon)*68000);
-  if(meters>=10 && meters<1800 && stamp-prev.stamp<=15*60*1000){
-    v._bearing=direction(prev.lat,prev.lon,lat,lon);
-    lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:v._bearing});
-  }else if(meters>=1800 || stamp-prev.stamp>15*60*1000){
-    lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:null});
-    delete v._bearing;
-  }else{prev.seen=now}
+  // Zachowuj ostatni wiarygodny kierunek również podczas postoju.
+  let bearing=Number.isFinite(v._bearing)?v._bearing:(prev&&Number.isFinite(prev.bearing)?prev.bearing:null);
+  if(prev&&stamp>prev.stamp){
+   const metres=geoDistance(prev.lat,prev.lon,lat,lon);
+   const seconds=(stamp-prev.stamp)/1000;
+   if(metres>=7&&metres<=1200&&seconds>0&&seconds<=600){
+    bearing=direction(prev.lat,prev.lon,lat,lon);
+   }else if(metres>1200){bearing=null;}
+  }
+  if(Number.isFinite(bearing))v._bearing=bearing;
+  // Nie zastępuj nowszej pozycji starszą odpowiedzią API.
+  if(!prev||stamp>=prev.stamp){
+   lastLocations.set(key,{lat,lon,stamp,seen:now,bearing:Number.isFinite(bearing)?bearing:null});
+  }
  }
- for(const [key,p] of lastLocations)if(now-p.seen>30*60*1000)lastLocations.delete(key);
+ for(const [key,p] of lastLocations)if(now-p.seen>6*60*60*1000)lastLocations.delete(key);
  if(now-historySave>10000){historySave=now;try{localStorage.setItem(HISTORY_KEY,JSON.stringify([...lastLocations]))}catch{}}
 }
+
 function draw(){
   if(!layer)return;
   layer.clearLayers();let count=0;
@@ -1120,7 +1121,7 @@ async function openStopPanel(z,n,name,color){
  }catch(e){if(serial===stopPaneRequest)status.textContent='Nie udało się pobrać linii: '+e.message}
 }
 
-window.addEventListener('DOMContentLoaded',()=>{if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);map.createPane('stopsPane');map.getPane('stopsPane').style.zIndex='410';map.createPane('vehiclesPane');map.getPane('vehiclesPane').style.zIndex='650';L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{renderStopMarkers();draw()});map.on('click',()=>{if(!$('vehiclePanel').hidden){stopPaneRequest++;vehiclePanelRequest++;$('vehiclePanel').hidden=true;hoveredStopLine='';draw();}})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;stopPaneRequest++;hoveredStopLine='';pinnedStopLine='';pinnedStopVehicle=null;$('vehiclePanel').hidden=true;draw()};$('refresh').onclick=refresh;$('showStops').checked=true;$('showStops').onchange=toggleStopMap;toggleStopMap();for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY && !document.hidden)refresh()},8000)});
+window.addEventListener('DOMContentLoaded',()=>{const mobileToggle=$('mobileFilters');if(mobileToggle){mobileToggle.onclick=()=>{const panel=document.querySelector('#mapa > aside');const open=panel?.classList.toggle('wtp-mobile-open');mobileToggle.setAttribute('aria-expanded',String(!!open));mobileToggle.textContent=open?'Zamknij filtry':'Filtry mapy';setTimeout(()=>map?.invalidateSize(),100);};}if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);map.createPane('stopsPane');map.getPane('stopsPane').style.zIndex='410';map.createPane('vehiclesPane');map.getPane('vehiclesPane').style.zIndex='650';L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{renderStopMarkers();draw()});map.on('click',()=>{if(!$('vehiclePanel').hidden){stopPaneRequest++;vehiclePanelRequest++;$('vehiclePanel').hidden=true;hoveredStopLine='';draw();}})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;stopPaneRequest++;hoveredStopLine='';pinnedStopLine='';pinnedStopVehicle=null;$('vehiclePanel').hidden=true;draw()};$('refresh').onclick=refresh;$('showStops').checked=true;$('showStops').onchange=toggleStopMap;toggleStopMap();for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY && !document.hidden)refresh()},8000)});
 
 // Trasa wymaga kolejności przystanków z wiarygodnego źródła.
 // /route jest opcjonalnym rozszerzeniem Workera, nie częścią dotychczasowych 4 endpointów.
