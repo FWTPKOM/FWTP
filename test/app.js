@@ -1015,7 +1015,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
 
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=names.names[i];
-  // Numer peronu pochodzi z identyfikatora GTFS, np. 114006 -> 06.
+  // Numer slupka pochodzi z dopasowanego GTFS; wewnetrzne ETA ID nie jest numerem slupka.
   // ETA stop_id jest wewnętrznym identyfikatorem, a NIE numerem peronu.
   const gtfsStopId=String(mapped?.[0]??'');
   const platform=/^\d{6}$/.test(gtfsStopId)?gtfsStopId.slice(-2):null;
@@ -1143,7 +1143,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    if(nextLabel){
     // v92: jak w v89 — napis w połowie odcinka, niezależnie od znacznika.
     nextLabel.style.top=((y1+y2)/2)+'px';
-    nextLabel.style.left='44px';
+    nextLabel.style.left=(first.querySelector('.wtp-route-stop-text')?.getBoundingClientRect().left-bounds.left||44)+'px';
    }
   };
   requestAnimationFrame(()=>{
@@ -1365,9 +1365,9 @@ async function openVehiclePanel(v){
   let serverState=null,fullTrips=fastTrips;
   const redraw=()=>{
    if(serial!==vehiclePanelRequest||panel.hidden)return;
-   if(serverState)wtpPreferServerCourse(matched,serverState);
    chooseLiveEtaCourse(matched,v,fullTrips);
-   if(serverState)wtpPreferServerCourse(matched,serverState);
+   // Stan serwera moze byc opozniony; nie nadpisuj dopasowania GPS starym kursem.
+   if(serverState && !matched.gpsVerified)wtpPreferServerCourse(matched,serverState);
    renderEtaRoute(matched,v,body,fullTrips);
    wtpApplyServerState(body,serverState,matched.selected);
   };
