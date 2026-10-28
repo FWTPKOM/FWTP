@@ -760,7 +760,7 @@ function historyEstimate(choice,v,trips){
   const plan=a.time+(b.time-a.time)*match.f;
   const observed=nowWarsaw(new Date(p.stamp));
   let delta=observed-plan;if(delta< -720)delta+=1440;if(delta>720)delta-=1440;
-  // WERSJA 82: interpolacja miedzy przystankami wymaga kilku zgodnych pomiarow.
+  // WERSJA 83: interpolacja miedzy przystankami wymaga kilku zgodnych pomiarow.
   // Nie uznajemy pojedynczego punktu GPS za dowod opoznienia.
   if(delta>=-2&&delta<=120&&match.dist<=55)
    projectedSamples.push({stamp:p.stamp,delta,progress,dist:match.dist});
@@ -797,6 +797,28 @@ function historyEstimate(choice,v,trips){
  return {events,currentIndex,delay:Number.isFinite(latestDelay)?latestDelay:null,
   samples:recent.length,source:Number.isFinite(latestDelay)?'Dwa zgodne pomiary GPS':'Brak dwoch zgodnych pomiarow'};
 }
+// v83: potwierdzony postoj GPS: co najmniej dwa niezalezne pomiary
+// przy tym samym slupku, bez zgadywania z samego rozkladu.
+const etaLiveStopEvidence=new Map();
+function etaObservedStopDelay(choice,v,geo){
+ const stamp=gpsMs(v.Time),now=Date.now();
+ if(!Number.isFinite(stamp)||Math.abs(now-stamp)>GPS_MAX_AGE_MS||!geo?.near)return null;
+ const pt=geo.near;
+ if(pt.distance>32||!Number.isFinite(pt.time))return null;
+ const key=vehicleKey(v),courseId=String(choice.course.course_id);
+ let record=etaLiveStopEvidence.get(key);
+ if(!record||record.courseId!==courseId||record.stopIndex!==pt.i||stamp-record.lastStamp>180000||stamp<record.lastStamp){
+  record={courseId,stopIndex:pt.i,firstStamp:stamp,lastStamp:stamp,count:1};
+ }else if(stamp>record.lastStamp){record.lastStamp=stamp;record.count++;}
+ etaLiveStopEvidence.set(key,record);
+ if(record.count<2||record.lastStamp-record.firstStamp<8000)return null;
+ const observed=nowWarsaw(new Date(record.firstStamp));
+ let delta=observed-pt.time;
+ if(delta< -720)delta+=1440;
+ if(delta>720)delta-=1440;
+ if(delta<1||delta>120)return null;
+ return {delay:Math.round(delta),confirmedIndex:pt.i,reason:'Postoj potwierdzony kolejnymi pomiarami GPS'};
+}
 function renderEtaRoute(match,v,body,gtfsTrips=[]){
  const choice=match.selected;
  body.replaceChildren();
@@ -806,14 +828,16 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  const fit=etaSpatialFit(choice,v,gtfsTrips);
  const courseId=String(choice.course.course_id);
  const oldCourse=activeCourseByVehicle.get(vehicleKey(v));
- // WERSJA 82: brak gpsVerified nie moze bezwarunkowo zerowac prognozy.
+ // WERSJA 83: brak gpsVerified nie moze bezwarunkowo zerowac prognozy.
  // Dopuszczamy estymacje dla dopasowania GPS albo stabilnego kursu,
  // ktorego pozycja lezy blisko trasy. Bez geometrii nie zgadujemy.
- const coursePlausible=!!fit && fit.distance<=65 &&
+ // Stabilny kurs dopasowany do brygady i przebiegu trasy.
+ // Nie wymagamy niezaimplementowanego w API v58 verified_by_gps.
+ const coursePlausible=!!fit && fit.distance<=100 &&
   (match.gpsVerified || oldCourse?.id===courseId ||
    (match.alternatives||[]).every(other=>{
     const otherFit=etaSpatialFit(other,v,gtfsTrips);
-    return !otherFit || otherFit.distance>fit.distance+35;
+    return !otherFit || otherFit.distance>fit.distance+20;
    }));
  if(!coursePlausible){
   prediction={...prediction,delay:null,confirmedIndex:-1,
@@ -842,9 +866,15 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
     reason:'Prognoza z dwoch zgodnych pomiarow GPS'};
   }
  }
+ // Potwierdzony postoj jako dodatkowe zrodlo, kiedy serwerowa historia
+ // jeszcze nie zawiera wystarczajacych obserwacji.
+ if(coursePlausible && prediction.delay===null){
+  const live=etaObservedStopDelay(choice,v,prediction.geo);
+  if(live)prediction={...prediction,...live};
+ }
  const previous=etaRenderedCache.get(vehicleKey(v));
  if(coursePlausible&&prediction.delay===null&&previous&&previous.courseId===courseId&&
-    previous.confirmedIndex>=0&&Date.now()-previous.at<120000&&
+    previous.confirmedIndex>=0&&Date.now()-previous.at<300000&&
     gpsMs(v.Time)>=previous.stamp-90000){
   prediction={...prediction,delay:previous.delay,confirmedIndex:previous.confirmedIndex,
    reason:'Ostatnia wiarygodna prognoza GPS'};
