@@ -735,6 +735,14 @@ function etaObservedMinutes(stamp,planned){
 // v86: utrwalone obserwacje odjazdow dla konkretnego kursu i slupka.
 // Zdarzenia sa wyznaczane z serwerowej historii GPS, nie z prognoz.
 const WTP_ACTUAL_KEY='wtp-live-v86-actual-departures';
+const WTP_FORECAST_KEY='wtp-live-v87-last-forecasts';
+let wtpLastForecasts={};
+try{wtpLastForecasts=JSON.parse(localStorage.getItem(WTP_FORECAST_KEY)||'{}')||{}}catch{}
+function wtpSaveForecasts(){
+ const keys=Object.keys(wtpLastForecasts);
+ if(keys.length>600){for(const k of keys.slice(0,keys.length-600))delete wtpLastForecasts[k]}
+ try{localStorage.setItem(WTP_FORECAST_KEY,JSON.stringify(wtpLastForecasts))}catch{}
+}
 let wtpActualDepartures={};
 try{wtpActualDepartures=JSON.parse(localStorage.getItem(WTP_ACTUAL_KEY)||'{}')||{}}catch{}
 function wtpActualKey(v,choice){return [todayWarsaw(),v.kind,v.VehicleNumber,choice.course.course_id].join(':')}
@@ -743,7 +751,7 @@ function wtpPersistActual(v,choice,events){
  for(const [i,event] of events){
   if(!Number.isFinite(event.time)||!Number.isFinite(event.stamp))continue;
   const previous=existing[i];
-  if(!previous||event.dist<previous.dist)existing[i]={time:event.time,stamp:event.stamp,dist:event.dist};
+  if(!previous || (event.stamp<previous.stamp && event.dist<=previous.dist+20))existing[i]={time:event.time,stamp:event.stamp,dist:event.dist};
  }
  wtpActualDepartures[key]=existing;
  const keys=Object.keys(wtpActualDepartures);
@@ -759,6 +767,7 @@ function historyEstimate(choice,v,trips){
  const points=geo.points,history=saved.positions;
  const events=new Map();let currentIndex=-1,latestDelay=null;
  const projectedSamples=[];
+ const traversals=[];
  const currentStamp=gpsMs(v.Time);
  // Przyporzadkuj GPS do odcinka trasy, takze miedzy przystankami.
  // Punkt najblizszy jest wiarygodny tylko, gdy pojazd lezy blisko przebiegu.
@@ -784,6 +793,7 @@ function historyEstimate(choice,v,trips){
   // Nie dopuszczaj cofania po trasie wskutek niedokladnosci GPS.
   if(lastProgress>=0&&progress<lastProgress-0.65)continue;
   lastProgress=Math.max(lastProgress,progress);
+  traversals.push({stamp:p.stamp,progress,dist:match.dist,lat:p.lat,lon:p.lon});
   const a=points[match.j],b=points[match.j+1];
   if(!Number.isFinite(a.time)||!Number.isFinite(b.time))continue;
   const plan=a.time+(b.time-a.time)*match.f;
@@ -798,6 +808,27 @@ function historyEstimate(choice,v,trips){
     const d=geoDistance(p.lat,p.lon,pt.lat,pt.lon);
     if(d<=35&&!events.has(pt.i)&&observed>=pt.time-3&&observed<=pt.time+120)events.set(pt.i,{time:observed,stamp:p.stamp,dist:d});
    }
+  }
+ }
+ // v87: wykrywanie minięcia przystanku z dwóch kolejnych punktów GPS.
+ // Nie traktujemy prognozy jako rzeczywistego przejazdu. Dwa punkty muszą
+ // przecinać pozycję przystanku w kolejności kursu i w krótkim odstępie.
+ for(let k=1;k<traversals.length;k++){
+  const before=traversals[k-1],after=traversals[k];
+  const gap=after.stamp-before.stamp;
+  if(gap<=0||gap>150000||after.progress<before.progress+0.015)continue;
+  if(before.dist>70||after.dist>70)continue;
+  for(let j=Math.ceil(before.progress);j<=Math.floor(after.progress);j++){
+   const pt=points[j];
+   if(!pt||events.has(pt.i)||!Number.isFinite(pt.time))continue;
+   const fraction=(j-before.progress)/(after.progress-before.progress);
+   if(fraction<0||fraction>1)continue;
+   const distance=Math.min(geoDistance(before.lat,before.lon,pt.lat,pt.lon),geoDistance(after.lat,after.lon,pt.lat,pt.lon));
+   if(distance>160)continue;
+   const crossingStamp=Math.round(before.stamp+fraction*gap);
+   const crossingTime=etaObservedMinutes(crossingStamp,pt.time);
+   if(crossingTime<pt.time-3||crossingTime>pt.time+120)continue;
+   events.set(pt.i,{time:crossingTime,stamp:crossingStamp,dist:Math.min(35,distance),method:'crossing'});
   }
  }
  const live=project({lat:Number(v.Lat),lon:Number(v.Lon)});
@@ -950,24 +981,39 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   const raw=(i===0 ? (stop.departure||stop.arrival) : (i===choice.etaStops.length-1 ? (stop.arrival||stop.departure) : (stop.departure||stop.arrival)))||'';
   const time=document.createElement('time');time.className='route-stop-time';
   const planned=etaServiceMinutes(raw);
-  const pastEvent=coursePlausible?actualEvents.get(i):null; // v82: zdarzenia tylko dla wiarygodnie dopasowanego kursu
+  const pastEvent=coursePlausible?actualEvents.get(i):null;
+  const forecastKey=wtpActualKey(v,choice)+':'+i;
+  const previousForecast=wtpLastForecasts[forecastKey];
   const measured=pastEvent&&Number.isFinite(planned)?pastEvent.time:null;
   // Początek kursu: nie traktuj pozycji na pętli jako opóźnionego przyjazdu.
   // Planowy odjazd z pierwszego słupka pozostaje podstawą porównania.
   const safeMeasured=Number.isFinite(measured)&&measured>=planned-2&&measured<=planned+90?measured:null;
-  const estimate=(i===0 ? null : (safeMeasured!==null?safeMeasured:(prediction.delay!==null&&prediction.confirmedIndex>=0&&prediction.delay>=0&&Number.isFinite(planned)&&i>=prediction.confirmedIndex?planned+prediction.delay:null)));
+  // v87: prognoza nie znika natychmiast po przejechaniu przystanku.
+  // Dopóki nie ma obserwacji GPS, pozostaje jawnie oznaczoną prognozą,
+  // NIGDY nie jest przedstawiana jako potwierdzony rzeczywisty odjazd.
+  const currentEstimate=(i===0?null:(prediction.delay!==null&&prediction.confirmedIndex>=0&&prediction.delay>=0&&Number.isFinite(planned)&&i>=prediction.confirmedIndex?planned+prediction.delay:null));
+  const forecastIsFresh=previousForecast&&Date.now()-previousForecast.savedAt<4*3600000;
+  const estimate=safeMeasured!==null?safeMeasured:(currentEstimate!==null?currentEstimate:(forecastIsFresh?previousForecast.time:null));
+  if(currentEstimate!==null&&Number.isFinite(currentEstimate)&&safeMeasured===null){
+   const old=wtpLastForecasts[forecastKey];
+   if(!old||Math.abs(old.time-currentEstimate)>0.1||Date.now()-old.savedAt>60000){
+    wtpLastForecasts[forecastKey]={time:currentEstimate,savedAt:Date.now()};wtpSaveForecasts();
+   }
+  }
+  if(safeMeasured!==null&&wtpLastForecasts[forecastKey]){delete wtpLastForecasts[forecastKey];wtpSaveForecasts();}
   if(estimate!==null&&Number.isFinite(estimate)&&Number.isFinite(planned)){
    const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=displayClock(planned);
    old.style.cssText='display:block;text-decoration:line-through;color:#9299a0;font-size:12px;line-height:1.2;text-align:right';
    const next=document.createElement('strong');next.className='wtp-estimated-time';next.textContent=displayClock(estimate);
    next.style.cssText='display:block;color:#c9221c;font-weight:750;line-height:1.3;text-align:right';
+   if(safeMeasured===null&&currentEstimate===null)next.style.color='#ad6512';
    if(Math.abs(estimate-planned)<1){
     next.style.color='#19734b';
     time.append(next);
     time.title='Szacowany czas zgodny z rozkładem (GPS)';
    }else{
     time.append(old,next);
-    time.title=safeMeasured!==null?'Godzina zaobserwowania GPS przy przystanku (niepotwierdzony odjazd)':'Szacowana godzina przyjazdu z GPS';
+    time.title=safeMeasured!==null?'Historyczna godzina przejazdu oszacowana z GPS (nie jest odczytem drzwi)':(currentEstimate===null?'Zachowana wcześniejsza prognoza; brak potwierdzenia GPS':'Szacowana godzina przyjazdu z GPS');
    }
   }else time.textContent=displayClock(raw);
   li.append(dot,stopText,time);list.append(li);
