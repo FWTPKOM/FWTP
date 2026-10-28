@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 81
+// WTP LIVE — WERSJA: 82
 // WTP LIVE — WERSJA: 58
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -729,6 +729,7 @@ function historyEstimate(choice,v,trips){
  if(!geo.named||geo.points.length<2)return null;
  const points=geo.points,history=saved.positions;
  const events=new Map();let currentIndex=-1,latestDelay=null;
+ const projectedSamples=[];
  const currentStamp=gpsMs(v.Time);
  // Przyporzadkuj GPS do odcinka trasy, takze miedzy przystankami.
  // Punkt najblizszy jest wiarygodny tylko, gdy pojazd lezy blisko przebiegu.
@@ -759,7 +760,10 @@ function historyEstimate(choice,v,trips){
   const plan=a.time+(b.time-a.time)*match.f;
   const observed=nowWarsaw(new Date(p.stamp));
   let delta=observed-plan;if(delta< -720)delta+=1440;if(delta>720)delta-=1440;
-  if(delta>=0&&delta<=90&&events.size>0)latestDelay=delta;
+  // WERSJA 82: interpolacja miedzy przystankami wymaga kilku zgodnych pomiarow.
+  // Nie uznajemy pojedynczego punktu GPS za dowod opoznienia.
+  if(delta>=-2&&delta<=120&&match.dist<=55)
+   projectedSamples.push({stamp:p.stamp,delta,progress,dist:match.dist});
   if(match.dist<=35){
    for(const pt of [a,b]){
     const d=geoDistance(p.lat,p.lon,pt.lat,pt.lon);
@@ -775,46 +779,81 @@ function historyEstimate(choice,v,trips){
   const plan=a.time+(b.time-a.time)*live.f;
   let delta=nowWarsaw(new Date(currentStamp))-plan;
   if(delta< -720)delta+=1440;if(delta>720)delta-=1440;
-  if(delta>=0&&delta<=90&&events.size>0)latestDelay=delta;
+  if(delta>=-2&&delta<=120&&live.dist<=55)
+   projectedSamples.push({stamp:currentStamp,delta,progress:live.j+live.f,dist:live.dist});
  }
- return {events,currentIndex,delay:Number.isFinite(latestDelay)?Math.round(latestDelay):null};
+ // Potwierdz prognoze tylko gdy co najmniej 2 odczyty GPS sa zgodne
+ // (rozstep minimum 12 s, rozbieznosc <= 4 min). To takze dziala
+ // miedzy przystankami i po polnocy (plan ETA moze miec godziny >24).
+ const recent=projectedSamples.filter(p=>currentStamp-p.stamp<=180000 && currentStamp-p.stamp>=-30000)
+  .sort((a,b)=>a.stamp-b.stamp);
+ const last=recent.at(-1);
+ if(last){
+  const pair=recent.slice(0,-1).reverse().find(p=>last.stamp-p.stamp>=12000 &&
+   last.stamp-p.stamp<=180000 && Math.abs(last.delta-p.delta)<=4 &&
+   last.progress>=p.progress-0.20);
+  if(pair)latestDelay=Math.round((last.delta+pair.delta)/2);
+ }
+ return {events,currentIndex,delay:Number.isFinite(latestDelay)?latestDelay:null,
+  samples:recent.length,source:Number.isFinite(latestDelay)?'Dwa zgodne pomiary GPS':'Brak dwoch zgodnych pomiarow'};
 }
 function renderEtaRoute(match,v,body,gtfsTrips=[]){
  const choice=match.selected;
  body.replaceChildren();
  const names=etaNamesForCourse(choice.etaStops,gtfsTrips,choice.course);
  let prediction=etaGpsPrediction(choice,v,gtfsTrips);
- if(!match.gpsVerified)prediction={...prediction,delay:null,confirmedIndex:-1,reason:match.matchWarning||"Kurs niepotwierdzony"};
- const server=match.gpsVerified?historyEstimate(choice,v,gtfsTrips):null;
- // v76: Nie nadpisuj opóźnienia wyliczeniem z interpolacji historii między przystankami.
- // Historia GPS służy do lokalizacji, a nie do potwierdzania odjazdu z następnego przystanku.
- // v81: wylicz opóźnienie tylko z zarejestrowanego przejazdu przez słupek.
- // Pojedyncza interpolowana pozycja na trasie nie jest potwierdzeniem opóźnienia.
- if(match.gpsVerified && server?.events?.size){
+ const server=historyEstimate(choice,v,gtfsTrips);
+ const fit=etaSpatialFit(choice,v,gtfsTrips);
+ const courseId=String(choice.course.course_id);
+ const oldCourse=activeCourseByVehicle.get(vehicleKey(v));
+ // WERSJA 82: brak gpsVerified nie moze bezwarunkowo zerowac prognozy.
+ // Dopuszczamy estymacje dla dopasowania GPS albo stabilnego kursu,
+ // ktorego pozycja lezy blisko trasy. Bez geometrii nie zgadujemy.
+ const coursePlausible=!!fit && fit.distance<=65 &&
+  (match.gpsVerified || oldCourse?.id===courseId ||
+   (match.alternatives||[]).every(other=>{
+    const otherFit=etaSpatialFit(other,v,gtfsTrips);
+    return !otherFit || otherFit.distance>fit.distance+35;
+   }));
+ if(!coursePlausible){
+  prediction={...prediction,delay:null,confirmedIndex:-1,
+   reason:match.matchWarning||'Brak pewnego dopasowania kursu i GPS'};
+ }else if(server){
+  // Zdarzenia na slupkach maja pierwszenstwo przed interpolacja.
   const verified=[...server.events.entries()].filter(([i,e])=>{
    const st=choice.etaStops[i];
    const plan=etaServiceMinutes(st?.departure||st?.arrival);
    return Number.isFinite(plan)&&Number.isFinite(e.time)&&e.dist<=25;
   }).sort((a,b)=>b[0]-a[0]);
-  if(verified.length){
-   const [i,e]=verified[0],st=choice.etaStops[i];
-   const plan=etaServiceMinutes(st.departure||st.arrival);
+  let confirmed=null;
+  for(const [i,e] of verified){
+   const st=choice.etaStops[i],plan=etaServiceMinutes(st.departure||st.arrival);
    let diff=e.time-plan;
    if(diff< -720)diff+=1440;
    if(diff>720)diff-=1440;
-   if(diff>=1&&diff<=120){
-    prediction={...prediction,delay:Math.round(diff),confirmedIndex:i,reason:'Potwierdzona obserwacja GPS przy przystanku'};
-    etaRenderedCache.set(vehicleKey(v),{courseId:String(choice.course.course_id),delay:Math.round(diff),confirmedIndex:i,currentIndex:prediction.currentIndex,stamp:gpsMs(v.Time),at:Date.now()});
-   }
+   if(diff>=1&&diff<=120){confirmed={delay:Math.round(diff),confirmedIndex:i};break;}
+  }
+  if(confirmed){
+   prediction={...prediction,...confirmed,reason:'Pomiar GPS przy przystanku'};
+  }else if(Number.isFinite(server.delay)&&server.delay>=1&&server.delay<=120){
+   // Wczesniej ten wynik byl kasowany przez !match.gpsVerified i events.size.
+   prediction={...prediction,delay:server.delay,
+    confirmedIndex:Math.max(-1,server.currentIndex),
+    reason:'Prognoza z dwoch zgodnych pomiarow GPS'};
   }
  }
  const previous=etaRenderedCache.get(vehicleKey(v));
- if(match.gpsVerified&&prediction.delay===null&&server&&Number.isFinite(server.delay)&&server.events.size>0){
-  const confirmedIndex=Math.max(...server.events.keys());
-  prediction={...prediction,delay:server.delay,confirmedIndex,reason:"Historia GPS potwierdzonych przystanków"};
+ if(coursePlausible&&prediction.delay===null&&previous&&previous.courseId===courseId&&
+    previous.confirmedIndex>=0&&Date.now()-previous.at<120000&&
+    gpsMs(v.Time)>=previous.stamp-90000){
+  prediction={...prediction,delay:previous.delay,confirmedIndex:previous.confirmedIndex,
+   reason:'Ostatnia wiarygodna prognoza GPS'};
  }
- if(match.gpsVerified && prediction.delay===null && previous && previous.confirmedIndex>=0 && previous.courseId===String(choice.course.course_id) && Date.now()-previous.at<120000 && gpsMs(v.Time)>=previous.stamp-90000){
-  prediction={...prediction,delay:previous.delay,confirmedIndex:previous.confirmedIndex,currentIndex:Math.max(prediction.currentIndex??-1,previous.currentIndex??-1),reason:'Ostatnia prognoza GPS'};
+ if(coursePlausible&&Number.isFinite(prediction.delay)&&prediction.delay>=1&&
+    prediction.confirmedIndex>=0){
+  etaRenderedCache.set(vehicleKey(v),{courseId,delay:prediction.delay,
+   confirmedIndex:prediction.confirmedIndex,currentIndex:prediction.currentIndex,
+   stamp:gpsMs(v.Time),at:Date.now()});
  }
  const note=document.createElement('p');note.className='route-note';
  note.textContent='ETA: linia '+choice.course.line+', brygada '+choice.course.brigade+'. '+
@@ -840,7 +879,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   const raw=(i===0 ? (stop.departure||stop.arrival) : (i===choice.etaStops.length-1 ? (stop.arrival||stop.departure) : (stop.departure||stop.arrival)))||'';
   const time=document.createElement('time');time.className='route-stop-time';
   const planned=etaServiceMinutes(raw);
-  const pastEvent=match.gpsVerified?server?.events?.get(i):null; // v80: tylko zdarzenia z historii GPS
+  const pastEvent=coursePlausible?server?.events?.get(i):null; // v82: zdarzenia tylko dla wiarygodnie dopasowanego kursu
   const measured=pastEvent&&Number.isFinite(planned)?pastEvent.time:null;
   // Początek kursu: nie traktuj pozycji na pętli jako opóźnionego przyjazdu.
   // Planowy odjazd z pierwszego słupka pozostaje podstawą porównania.
