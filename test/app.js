@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 93
+// WTP LIVE — WERSJA: 97
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -1018,7 +1018,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   // Numer slupka pochodzi z dopasowanego GTFS; wewnetrzne ETA ID nie jest numerem slupka.
   // ETA stop_id jest wewnętrznym identyfikatorem, a NIE numerem peronu.
   const gtfsStopId=String(mapped?.[0]??'');
-  const platform=/^\d{6}$/.test(gtfsStopId)?gtfsStopId.slice(-2):null;
+  const platform=/^\d{6}$/.test(gtfsStopId)?gtfsStopId.slice(-2):(/^\d{4}[-_/](\d{2})$/.exec(gtfsStopId)?.[1]||null);
   const number=document.createElement('small');number.className='wtp-stop-number';
   if(platform){number.textContent=platform;number.title='Numer słupka według GTFS';}
   else{number.hidden=true;}
@@ -1138,12 +1138,13 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    const ratio=stopIndex===a.i?0:stopIndex===b.i?1:Math.max(0,Math.min(1,f));
    const y=y1+(y2-y1)*ratio;
    const x=x1+(x2-x1)*ratio;
-   marker.style.setProperty('left',(x-marker.offsetWidth/2)+'px','important');
+   marker.style.setProperty('left',x+'px','important');
    marker.style.top=y+'px';
    if(nextLabel){
     // v92: jak w v89 — napis w połowie odcinka, niezależnie od znacznika.
     nextLabel.style.top=((y1+y2)/2)+'px';
-    nextLabel.style.left=(first.querySelector('.wtp-route-stop-text')?.getBoundingClientRect().left-bounds.left||44)+'px';
+    const textRect=first.querySelector('.wtp-route-stop-text')?.getBoundingClientRect();
+    nextLabel.style.setProperty('left',((textRect?.left??(bounds.left+44))-bounds.left)+'px','important');
    }
   };
   requestAnimationFrame(()=>{
@@ -1324,6 +1325,9 @@ function wtpApplyServerState(body,data,choice){
 function wtpPreferServerCourse(match,data){
  const cid=wtpStateCourseId(data);
  if(!cid||!match?.selected)return;
+ const state=data?.state||data?.tracker_state||{};
+ const last=Number(state.last_stamp||0);
+ if(last && Math.abs(Date.now()-last)>180000)return;
  const choices=[match.selected,...(match.alternatives||[])];
  const candidate=choices.find(c=>String(c.course?.course_id)===cid);
  if(candidate){match.selected=candidate;match.alternatives=choices.filter(c=>c!==candidate);}
