@@ -1,6 +1,4 @@
-// WTP LIVE — WERSJA: 88
-// WTP LIVE — WERSJA: 86
-// WTP LIVE — WERSJA: 58
+// WTP LIVE — WERSJA: 90
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -1076,7 +1074,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    candidates.push({a,b,f,distance,score:distance+timePenalty+progressPenalty});
   }
   candidates.sort((a,b)=>a.score-b.score);
-  if(candidates[0]&&candidates[0].distance<=220)location=candidates[0]; // v90: tolerancja GPS na długich odcinkach; nadal wymaga bliskości geometrii
+  if(candidates[0]&&candidates[0].distance<=125)location=candidates[0];
  }
  if(location){
   const {a,b,f}=location;
@@ -1120,7 +1118,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
     marker.style.left=(axis-marker.offsetWidth/2)+'px';}
    if(nextLabel){
     nextLabel.style.top=((y1+y2)/2)+'px';
-    nextLabel.style.left='30px';
+    nextLabel.style.left='29px';
    }
   };
   requestAnimationFrame(()=>{
@@ -1230,6 +1228,81 @@ function renderVehicleRoute(trip,index,body,description,kind,v=null,knownDelay=n
   li.append(dot,name,t);list.append(li);
  });body.append(list);
 }
+
+// WTP LIVE v90: wspolny stan pojazdu z Mikrusa (GPS Tracker v60).
+const wtpServerStateCache=new Map();
+async function wtpLoadVehicleState(v){
+ const key=vehicleKey(v),old=wtpServerStateCache.get(key);
+ if(old&&Date.now()-old.at<12000)return old.promise;
+ const params={type:String(v.kind),vehicle:String(v.VehicleNumber)};
+ const promise=request('/eta/vehicle-state',params).catch(err=>{
+  wtpServerStateCache.delete(key);console.warn('WTP GPS Tracker:',err.message);return null;
+ });
+ wtpServerStateCache.set(key,{at:Date.now(),promise});return promise;
+}
+function wtpStateCourseId(data){
+ const state=data?.state||data?.tracker_state||data?.vehicle||{};
+ return String(state.course_id??data?.course_id??data?.assignment?.course_id??'');
+}
+function wtpServerClock(stamp){
+ const ms=Number(stamp);if(!Number.isFinite(ms)||ms<=0)return null;
+ const date=new Date(ms<1e11?ms*1000:ms);
+ if(!Number.isFinite(date.getTime()))return null;
+ return new Intl.DateTimeFormat('pl-PL',{timeZone:'Europe/Warsaw',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(date);
+}
+function wtpApplyServerState(body,data,choice){
+ if(!data||!choice?.course||!body)return;
+ const cid=String(choice.course.course_id),serverCid=wtpStateCourseId(data);
+ if(!serverCid||serverCid!==cid)return;
+ const rawEvents=Array.isArray(data.events)?data.events:Array.isArray(data.stop_events)?data.stop_events:[];
+ const rawPredictions=Array.isArray(data.predictions)?data.predictions:Array.isArray(data.vehicle_predictions)?data.vehicle_predictions:[];
+ const events=new Map(),predictions=new Map();
+ for(const e of rawEvents){
+  if(e.course_id!=null&&String(e.course_id)!==cid)continue;
+  const seq=Number(e.stop_seq),clock=wtpServerClock(e.stamp??e.event_stamp);
+  if(!Number.isFinite(seq)||!clock)continue;
+  const previous=events.get(seq);
+  if(!previous||String(e.event)==='departure')events.set(seq,{clock,event:String(e.event||'arrival')});
+ }
+ for(const p of rawPredictions){
+  if(p.course_id!=null&&String(p.course_id)!==cid)continue;
+  const seq=Number(p.stop_seq),clock=wtpServerClock(p.predicted_stamp??p.prediction_stamp);
+  if(Number.isFinite(seq)&&clock)predictions.set(seq,clock);
+ }
+ const rows=[...body.querySelectorAll('ol.route-stops > li.route-stop')];
+ if(!rows.length)return;
+ let changed=0;
+ rows.forEach((row,index)=>{
+  const stop=choice.etaStops[index];if(!stop)return;
+  const seq=Number(stop.seq),actual=events.get(seq),forecast=predictions.get(seq);
+  if(!actual&&!forecast)return;
+  const cell=row.querySelector('.route-stop-time');if(!cell)return;
+  const raw=index===0?(stop.departure||stop.arrival):index===rows.length-1?(stop.arrival||stop.departure):(stop.departure||stop.arrival);
+  const planned=displayClock(raw),newClock=actual?.clock||forecast;
+  if(!newClock)return;
+  cell.replaceChildren();
+  if(newClock!==planned){
+   const old=document.createElement('span');old.className='wtp-server-planned';old.textContent=planned;cell.append(old);
+  }
+  const real=document.createElement('strong');real.className=actual?'wtp-server-actual':'wtp-server-forecast';real.textContent=newClock;
+  cell.append(real);cell.title=actual?'Przejazd oszacowany z zapisanej historii GPS':'Prognoza GPS zapisana na serwerze';
+  if(actual)row.classList.add('wtp-server-passed');
+  changed++;
+ });
+ if(changed){
+  const note=document.createElement('p');note.className='wtp-server-note';
+  note.textContent='Dane wspolne z serwera GPS: '+events.size+' zdarzen, '+predictions.size+' prognoz. Godziny rzeczywiste sa szacowane na podstawie GPS.';
+  body.prepend(note);
+ }
+}
+function wtpPreferServerCourse(match,data){
+ const cid=wtpStateCourseId(data);
+ if(!cid||!match?.selected)return;
+ const choices=[match.selected,...(match.alternatives||[])];
+ const candidate=choices.find(c=>String(c.course?.course_id)===cid);
+ if(candidate){match.selected=candidate;match.alternatives=choices.filter(c=>c!==candidate);}
+}
+
 let vehiclePanelRequest=0;
 const etaPanelMatches=new Map();
 const etaPanelReady=new Map();
@@ -1251,19 +1324,23 @@ async function openVehiclePanel(v){
  }
  try{
   // Nie uzależniaj rozkładu brygady od zgodności GPS/GTFS.
+  const statePromise=wtpLoadVehicleState(v);
   const gpsFetch=fetchServerGps(v).catch(e=>{console.warn('Historia GPS:',e.message);return null});
   const cached=etaPanelMatches.get(cacheKey);
   const matchPromise=cached&&Date.now()-cached.at<45000?Promise.resolve(cached.match):etaMatchVehicle(v);
   const tripsPromise=ready&&Date.now()-ready.at<45000?Promise.resolve(ready.trips):loadGtfs(line).then(data=>data.date===todayWarsaw()?(data.trips||[]):[]).catch(e=>{console.warn('GTFS: brak nazw przystanków',e.message);return []});
-  const [matched,trips]=await Promise.all([matchPromise,tripsPromise]);
+  const [matched,trips,serverState]=await Promise.all([matchPromise,tripsPromise,statePromise]);
   if(!cached||Date.now()-cached.at>=45000)etaPanelMatches.set(cacheKey,{at:Date.now(),match:matched});
   if(serial!==vehiclePanelRequest||panel.hidden)return;
   if(serial!==vehiclePanelRequest||panel.hidden)return;
   if(serial!==vehiclePanelRequest||panel.hidden)return;
+  wtpPreferServerCourse(matched,serverState);
   chooseLiveEtaCourse(matched,v,trips);
+  wtpPreferServerCourse(matched,serverState);
   etaPanelReady.set(cacheKey,{match:matched,trips,at:Date.now()});
   renderEtaRoute(matched,v,body,trips);
-  gpsFetch.then(positions=>{if(positions?.length && serial===vehiclePanelRequest&&!panel.hidden){chooseLiveEtaCourse(matched,v,trips);renderEtaRoute(matched,v,body,trips)}});
+  wtpApplyServerState(body,serverState,matched.selected);
+  gpsFetch.then(positions=>{if(positions?.length && serial===vehiclePanelRequest&&!panel.hidden){chooseLiveEtaCourse(matched,v,trips);wtpPreferServerCourse(matched,serverState);renderEtaRoute(matched,v,body,trips);wtpApplyServerState(body,serverState,matched.selected)}});
  }catch(e){if(serial===vehiclePanelRequest&&!panel.hidden){body.replaceChildren();const warning=document.createElement('p');warning.className='route-note';warning.textContent='Nie udało się pobrać rozkładu ETA: '+e.message;body.append(warning)}}
 }
 function setTab(tab,record=true){
