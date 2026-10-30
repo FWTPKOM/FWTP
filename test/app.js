@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 98
+// WTP LIVE — WERSJA: 100
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -1357,6 +1357,29 @@ function wtpPreferServerCourse(match,data){
  if(candidate){match.selected=candidate;match.alternatives=choices.filter(c=>c!==candidate);}
 }
 
+let wtpCourseMapLayer=null;
+function wtpClearCourseMap(){
+ if(wtpCourseMapLayer&&map){map.removeLayer(wtpCourseMapLayer)}
+ wtpCourseMapLayer=null;
+}
+async function wtpShowCourseMap(match,vehicle,serial){
+ const id=match?.selected?.course?.course_id;
+ if(!id)return;
+ try{
+  const data=await etaGet('courses/'+encodeURIComponent(id)+'/geometry');
+  if(serial!==vehiclePanelRequest || $('vehiclePanel')?.hidden)return;
+  if(data.status!=='ok'||!Array.isArray(data.points)||data.points.length<2)return;
+  wtpClearCourseMap();
+  const color=vehicle.kind===2?'#ec0000':'#820082';
+  const route=L.polyline(data.points,{color,weight:5,opacity:.9,smoothFactor:0.5});
+  const group=L.layerGroup([route]);
+  for(const stop of data.stops||[]){
+   L.circleMarker([stop.lat,stop.lon],{radius:4,color,weight:2,fillColor:'#fff',fillOpacity:1}).addTo(group);
+  }
+  group.addTo(map);wtpCourseMapLayer=group;
+  // Nie przestawiaj mapy na siłę: pojazd pozostaje w obecnym kadrze.
+ }catch(e){console.warn('Geometria kursu:',e.message)}
+}
 let vehiclePanelRequest=0;
 const etaPanelMatches=new Map();
 const etaPanelReady=new Map();
@@ -1366,6 +1389,7 @@ async function openVehiclePanel(v){
  const toggle=document.getElementById('mobileFilters');if(toggle){toggle.setAttribute('aria-expanded','false');toggle.textContent='Filtry mapy';}
  const line=String(v.Lines||'?'),brigade=String(v.Brigade||'?'),number=String(v.VehicleNumber||'?');
  $('vehicleHeading').textContent=`${line} · ${v.kind===2?'Tramwaj':'Autobus'} · brygada ${brigade} · tabor ${number}`;
+ wtpClearCourseMap();
  const body=$('vehicleBody');body.replaceChildren();
  const cacheKey=vehicleKey(v);
  const ready=etaPanelReady.get(cacheKey);
@@ -1389,6 +1413,7 @@ async function openVehiclePanel(v){
   const fastTrips=ready?.trips||[];
   chooseLiveEtaCourse(matched,v,fastTrips);
   renderEtaRoute(matched,v,body,fastTrips);
+  void wtpShowCourseMap(matched,v,serial);
   if(!cached||Date.now()-cached.at>=45000)etaPanelMatches.set(cacheKey,{at:Date.now(),match:matched});
   let serverState=null,fullTrips=fastTrips;
   const redraw=()=>{
@@ -1397,6 +1422,7 @@ async function openVehiclePanel(v){
    // Stan serwera moze byc opozniony; nie nadpisuj dopasowania GPS starym kursem.
    if(serverState && !matched.gpsVerified)wtpPreferServerCourse(matched,serverState);
    renderEtaRoute(matched,v,body,fullTrips);
+   void wtpShowCourseMap(matched,v,serial);
    wtpApplyServerState(body,serverState,matched.selected);
   };
   void statePromise.then(data=>{serverState=data;redraw()});
@@ -1569,3 +1595,6 @@ function selectedVehicleKind(line){
  const n=Number(focusedVehicle.kind??focusedVehicle.Kind??focusedVehicle.type);
  return n===2?'tram':'bus';
 }
+// v100: usuń trasę po zamknięciu panelu, także gdy panel jest zamykany innym przyciskiem.
+const wtpPanelObserver=new MutationObserver(()=>{if($('vehiclePanel')?.hidden)wtpClearCourseMap()});
+if($('vehiclePanel'))wtpPanelObserver.observe($('vehiclePanel'),{attributes:true,attributeFilter:['hidden']});
