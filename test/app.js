@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 103
+// WTP LIVE — WERSJA: 104
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -1081,8 +1081,8 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=displayClock(planned);
    old.style.cssText='display:block;text-decoration:line-through;color:#9299a0;font-size:12px;line-height:1.2;text-align:right';
    const next=document.createElement('strong');next.className='wtp-estimated-time';next.textContent=displayClock(estimate);
-   next.style.cssText='display:block;color:#c9221c;font-weight:750;line-height:1.3;text-align:right';
-   if(safeMeasured===null&&currentEstimate===null)next.style.color='#ad6512';
+   next.style.cssText='display:block;color:#16834b;font-weight:750;line-height:1.3;text-align:right';
+   if(safeMeasured===null&&currentEstimate===null)next.style.color='#16834b';
    if(Math.abs(estimate-planned)<1){
     next.style.color='#19734b';
     time.append(next);
@@ -1383,7 +1383,7 @@ async function wtpShowCourseMap(match,vehicle,serial){
   if(data.status!=='ok'||!Array.isArray(data.points)||data.points.length<2)return;
   wtpClearCourseMap();
   const color=vehicle.kind===2?'#ec0000':'#820082';
-  const route=L.polyline(data.points,{color,weight:5,opacity:.9,smoothFactor:0.5});
+  const route=L.polyline(data.points,{color,weight:5,opacity:.9,smoothFactor:0,interactive:false,lineCap:'round',lineJoin:'round'});
   const group=L.layerGroup([route]);
   const orderedStops=match?.selected?.etaStops||[];
   for(const stop of data.stops||[]){
@@ -1391,7 +1391,7 @@ async function wtpShowCourseMap(match,vehicle,serial){
    if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
    const index=orderedStops.findIndex(s=>Number(s.seq)===Number(stop.seq));
    if(index>=0)wtpRouteStopCoords.set(index,[lat,lon]);
-   L.circleMarker([lat,lon],{radius:4,color,weight:2,fillColor:'#fff',fillOpacity:1}).addTo(group);
+   L.circleMarker([lat,lon],{radius:5.5,color,weight:2,fillColor:color,fillOpacity:1,interactive:false}).addTo(group);
   }
   group.addTo(map);wtpCourseMapLayer=group;
   // Nie przestawiaj mapy na siłę: pojazd pozostaje w obecnym kadrze.
