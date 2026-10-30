@@ -1,11 +1,11 @@
-// WTP LIVE — WERSJA: 102
+// WTP LIVE — WERSJA: 103
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
 const escapeHTML=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let map,layer,vehicles=[],stops=[];
 let stopPaneRequest=0, hoveredStopLine="", pinnedStopLine="", pinnedStopVehicle=null;
-let focusedVehicle=null; let wtpSelectedVehicleOnly=false; let wtpRouteStopCoords=new Map(); let wtpHoveredRouteStop=null; const ROUTE_API='/route';
+let focusedVehicle=null; let wtpSelectedVehicleOnly=false; let wtpMapUserExploring=false; let wtpRouteStopCoords=new Map(); let wtpHoveredRouteStop=null; const ROUTE_API='/route';
 function unpack(payload){
   // API Warszawy może zwrócić result jako tablicę, obiekt albo tekst JSON.
   let data=payload;
@@ -127,7 +127,7 @@ function decorateRouteStop(li,lat,lon){
 }
 function renderStopMarkers(){
  if(!stopLayer)return;
- stopLayer.clearLayers();if(!showStopMarkers)return;
+ stopLayer.clearLayers();if(!showStopMarkers || wtpSelectedVehicleOnly)return;
  const zoom=map.getZoom();
  if(zoom<STOP_DOT_ZOOM){$('stopStatus').textContent='Przystanki ukryte — przybliż mapę.';return}
  if(!stops.length){if(!stopMapLoading)void toggleStopMap();return}
@@ -238,7 +238,7 @@ function draw(){
     const marker=L.marker([lat,lon],{icon,pane:'vehiclesPane',zIndexOffset:1000});
     if(hoveredStopLine||pinnedStopLine)marker.getElement()?.classList.toggle('wtp-line-highlight',line===(hoveredStopLine||pinnedStopLine));
     const gps=String(v.Time??'');
-    marker.on('click',()=>{selectedLine=line;selectedBrigade=brigade;focusedVehicle={...v};wtpSelectedVehicleOnly=true;draw();openVehiclePanel(v);});
+    marker.on('click',()=>{selectedLine=line;selectedBrigade=brigade;focusedVehicle={...v};wtpSelectedVehicleOnly=true;wtpMapUserExploring=false;renderStopMarkers();draw();openVehiclePanel(v);});
     marker.addTo(layer);
     if(hoveredStopLine||pinnedStopLine){const active=hoveredStopLine||pinnedStopLine;const el=marker.getElement();if(el)el.classList.toggle('wtp-line-highlight',line===active);if(el)el.classList.toggle('wtp-line-dimmed',line!==active)}
     count++;
@@ -259,7 +259,10 @@ function publishVehicles(){
   const current=vehicles.find(v=>vehicleKey(v)===vehicleKey(focusedVehicle));
   if(current && gpsMs(current.Time)>gpsMs(focusedVehicle.Time)){
    focusedVehicle={...current};lastPanelAutoRefresh=Date.now();
-   void openVehiclePanel(current);
+   // Aktualizacja GPS nie może odbierać przewinięcia listy ani widoku mapy.
+   const body=$('vehicleBody');const scroll=body?.scrollTop||0;
+   const center=map?.getCenter(),zoom=map?.getZoom();
+   void openVehiclePanel(current,{preserveScroll:scroll,preserveMap:{center,zoom}});
   }
  }
 }
@@ -1282,7 +1285,7 @@ function renderVehicleRoute(trip,index,body,description,kind,v=null,knownDelay=n
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=item[1];
   const t=displayTimeCell(item,i,observed);
-  li.tabIndex=0;li.addEventListener("mouseenter",()=>{if(Number.isFinite(Number(item[2]))&&Number.isFinite(Number(item[3])))map?.flyTo([Number(item[2]),Number(item[3])],Math.max(16,map.getZoom()),{duration:.55})});
+  li.tabIndex=0;li.addEventListener("mouseenter",()=>{if(Number.isFinite(Number(item[2]))&&Number.isFinite(Number(item[3])))wtpFocusRouteStop(i,li)});
   li.append(dot,name,t);list.append(li);
  });body.append(list);
 }
@@ -1400,17 +1403,23 @@ function wtpFocusRouteStop(index,row){
  if(!coords)return;
  document.querySelectorAll('#vehicleBody .route-stop.wtp-hovered-stop').forEach(el=>el.classList.remove('wtp-hovered-stop'));
  row?.classList.add('wtp-hovered-stop');
- if(wtpHoveredRouteStop)map.removeLayer(wtpHoveredRouteStop);
- wtpHoveredRouteStop=L.circleMarker(coords,{radius:12,color:'#ffd800',weight:4,fillColor:'#ffffff',fillOpacity:.7,pane:'vehiclesPane',interactive:false}).addTo(map);
- const targetZoom=Math.max(16,map.getZoom());
- // Centruj w widocznym obszarze ponad dolnym panelem.
- map.flyTo(coords,targetZoom,{animate:true,duration:.55});
+ // Wyróżnienie wyłącznie w liście; na mapie pozostaje zwykła kropka przystanku.
+ if(wtpHoveredRouteStop){map.removeLayer(wtpHoveredRouteStop);wtpHoveredRouteStop=null;}
+ const targetZoom=Math.max(17,map.getZoom());
+ // Punkt na środku WIDOCZNEJ części mapy, a nie pod dolnym panelem.
+ const panel=$('vehiclePanel');const rect=panel?.getBoundingClientRect();
+ const mapRect=map.getContainer().getBoundingClientRect();
+ const overlap=rect?Math.max(0,Math.min(mapRect.bottom,rect.bottom)-Math.max(mapRect.top,rect.top)):0;
+ const offset=overlap/2;
+ const projected=map.project(coords,targetZoom);
+ const target=map.unproject([projected.x,projected.y+offset],targetZoom);
+ wtpMapUserExploring=true;map.flyTo(target,targetZoom,{animate:true,duration:.45});
 }
 let vehiclePanelRequest=0;
 const etaPanelMatches=new Map();
 const etaPanelReady=new Map();
-async function openVehiclePanel(v){
- focusedVehicle={...v};wtpSelectedVehicleOnly=true;draw();
+async function openVehiclePanel(v,options={}){
+ focusedVehicle={...v};wtpSelectedVehicleOnly=true;renderStopMarkers();draw();
  const serial=++vehiclePanelRequest,panel=$('vehiclePanel');panel.hidden=false;
  document.getElementById('mapFilters')?.classList.remove('wtp-mobile-open');
  const toggle=document.getElementById('mobileFilters');if(toggle){toggle.setAttribute('aria-expanded','false');toggle.textContent='Filtry mapy';}
@@ -1418,12 +1427,14 @@ async function openVehiclePanel(v){
  $('vehicleHeading').textContent=`${line} · ${v.kind===2?'Tramwaj':'Autobus'} · brygada ${brigade} · tabor ${number}`;
  wtpClearCourseMap();
  const body=$('vehicleBody');body.replaceChildren();
+ const keepScroll=Number.isFinite(options.preserveScroll)?options.preserveScroll:null;
+ const restoreScroll=()=>{if(keepScroll!==null)body.scrollTop=keepScroll};
  const cacheKey=vehicleKey(v);
  const ready=etaPanelReady.get(cacheKey);
  if(ready && Date.now()-ready.at<45000){
   // Pokaż ostatnio znany rozkład od razu, bez czekania na sieć.
   chooseLiveEtaCourse(ready.match,v,ready.trips);
-  renderEtaRoute(ready.match,v,body,ready.trips);
+  renderEtaRoute(ready.match,v,body,ready.trips);restoreScroll();
  }else{
   const note=document.createElement('p');note.className='route-note';note.textContent='Pobieranie rozkładu ETA linii '+line+', brygady '+brigade+'…';body.append(note);
  }
@@ -1439,7 +1450,7 @@ async function openVehiclePanel(v){
   if(serial!==vehiclePanelRequest||panel.hidden)return;
   const fastTrips=ready?.trips||[];
   chooseLiveEtaCourse(matched,v,fastTrips);
-  renderEtaRoute(matched,v,body,fastTrips);
+  renderEtaRoute(matched,v,body,fastTrips);restoreScroll();
   void wtpShowCourseMap(matched,v,serial);
   if(!cached||Date.now()-cached.at>=45000)etaPanelMatches.set(cacheKey,{at:Date.now(),match:matched});
   let serverState=null,fullTrips=fastTrips;
@@ -1448,7 +1459,7 @@ async function openVehiclePanel(v){
    chooseLiveEtaCourse(matched,v,fullTrips);
    // Stan serwera moze byc opozniony; nie nadpisuj dopasowania GPS starym kursem.
    if(serverState && !matched.gpsVerified)wtpPreferServerCourse(matched,serverState);
-   renderEtaRoute(matched,v,body,fullTrips);
+   const position=body.scrollTop;renderEtaRoute(matched,v,body,fullTrips);body.scrollTop=keepScroll!==null?keepScroll:position;
    void wtpShowCourseMap(matched,v,serial);
    wtpApplyServerState(body,serverState,matched.selected);
   };
@@ -1501,7 +1512,7 @@ function stopDepartureMinutes(raw){
  return delta;
 }
 async function openStopPanel(z,n,name,color){
- focusedVehicle=null;wtpSelectedVehicleOnly=false;wtpClearCourseMap();
+ focusedVehicle=null;wtpSelectedVehicleOnly=false;wtpClearCourseMap();renderStopMarkers();
  const serial=++stopPaneRequest;vehiclePanelRequest++;
  hoveredStopLine='';pinnedStopLine='';pinnedStopVehicle=null;draw();
  const panel=$('vehiclePanel'),body=$('vehicleBody');panel.hidden=false;
@@ -1582,7 +1593,7 @@ async function openStopPanel(z,n,name,color){
  }catch(e){if(serial===stopPaneRequest)status.textContent='Nie udało się pobrać linii: '+e.message}
 }
 
-window.addEventListener('DOMContentLoaded',()=>{const mobileToggle=$('mobileFilters');if(mobileToggle){mobileToggle.onclick=()=>{const panel=document.querySelector('#mapa > aside');const open=panel?.classList.toggle('wtp-mobile-open');mobileToggle.setAttribute('aria-expanded',String(!!open));mobileToggle.textContent=open?'Zamknij filtry':'Filtry mapy';setTimeout(()=>map?.invalidateSize(),100);};}if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);map.createPane('stopsPane');map.getPane('stopsPane').style.zIndex='410';map.createPane('vehiclesPane');map.getPane('vehiclesPane').style.zIndex='650';L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{renderStopMarkers();draw()});map.on('click',()=>{if(!$('vehiclePanel').hidden){stopPaneRequest++;vehiclePanelRequest++;$('vehiclePanel').hidden=true;focusedVehicle=null;wtpSelectedVehicleOnly=false;wtpClearCourseMap();hoveredStopLine='';draw();}})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;stopPaneRequest++;hoveredStopLine='';pinnedStopLine='';pinnedStopVehicle=null;$('vehiclePanel').hidden=true;focusedVehicle=null;wtpSelectedVehicleOnly=false;wtpClearCourseMap();draw()};$('refresh').onclick=refresh;$('showStops').checked=true;$('showStops').onchange=toggleStopMap;toggleStopMap();for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY && !document.hidden)refresh()},window.matchMedia('(max-width:700px)').matches?15000:8000)});
+window.addEventListener('DOMContentLoaded',()=>{const mobileToggle=$('mobileFilters');if(mobileToggle){mobileToggle.onclick=()=>{const panel=document.querySelector('#mapa > aside');const open=panel?.classList.toggle('wtp-mobile-open');mobileToggle.setAttribute('aria-expanded',String(!!open));mobileToggle.textContent=open?'Zamknij filtry':'Filtry mapy';setTimeout(()=>map?.invalidateSize(),100);};}if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);map.createPane('stopsPane');map.getPane('stopsPane').style.zIndex='410';map.createPane('vehiclesPane');map.getPane('vehiclesPane').style.zIndex='650';L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{renderStopMarkers();draw()});map.on('click',()=>{if(!$('vehiclePanel').hidden){stopPaneRequest++;vehiclePanelRequest++;$('vehiclePanel').hidden=true;focusedVehicle=null;wtpSelectedVehicleOnly=false;wtpClearCourseMap();renderStopMarkers();hoveredStopLine='';draw();}})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;stopPaneRequest++;hoveredStopLine='';pinnedStopLine='';pinnedStopVehicle=null;$('vehiclePanel').hidden=true;focusedVehicle=null;wtpSelectedVehicleOnly=false;wtpClearCourseMap();renderStopMarkers();draw()};$('refresh').onclick=refresh;$('showStops').checked=true;$('showStops').onchange=toggleStopMap;toggleStopMap();for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(PROXY && !document.hidden)refresh()},window.matchMedia('(max-width:700px)').matches?15000:8000)});
 
 // Trasa wymaga kolejności przystanków z wiarygodnego źródła.
 // /route jest opcjonalnym rozszerzeniem Workera, nie częścią dotychczasowych 4 endpointów.
