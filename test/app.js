@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 105
+// WTP LIVE — WERSJA: 106
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -1376,27 +1376,75 @@ function wtpClearCourseMap(){
  if(wtpCourseMapLayer&&map){map.removeLayer(wtpCourseMapLayer)}
  wtpCourseMapLayer=null;
 }
-async function wtpShowCourseMap(match,vehicle,serial){
+// v106: niezależny katalog geometrii GTFS (shapes.txt) z dokładnymi słupkami stops.txt.
+// Geometria jest pokazywana wyłącznie po dopasowaniu kursu GTFS do ETA po godzinach.
+const wtpShapeCache=new Map();
+async function wtpLoadShapeCatalog(line){
+ const key=String(line).replaceAll('/','_');
+ if(!wtpShapeCache.has(key))wtpShapeCache.set(key,fetch('gtfs/shapes/'+encodeURIComponent(key)+'.json',{cache:'no-cache'}).then(r=>r.ok?r.json():null).catch(()=>null));
+ return wtpShapeCache.get(key);
+}
+function wtpChooseShape(catalog,choice,trips,vehicle){
+ if(!catalog?.shapes||!choice?.etaStops?.length||!trips?.length)return null;
+ const named=etaNameMatch(choice.etaStops,trips,choice.course);
+ if(!named?.matched||!named.trip)return null;
+ const trip=named.trip;
+ // Katalog ma mapowanie trip_id -> shape_id. Bez tego nie wybieramy losowej trasy.
+ const tripId=String(trip.trip_id??trip.tripId??trip.id??'');
+ let shapeId=tripId?catalog.trip_shapes?.[tripId]:null;
+ // Alternatywa: jednoznaczne dopasowanie sekwencji identyfikatorów słupków.
+ if(!shapeId){
+  const ids=(trip.stops||[]).map(st=>String(st?.[0]??'')).filter(Boolean);
+  const candidates=(catalog.patterns||[]).filter(p=>p.stop_ids?.length===ids.length&&p.stop_ids.every((id,i)=>String(id)===ids[i]));
+  const shapes=[...new Set(candidates.map(p=>p.shape_id))];
+  if(shapes.length===1)shapeId=shapes[0];
+ }
+ if(!shapeId||!catalog.shapes[shapeId])return null;
+ const shape=catalog.shapes[shapeId];
+ if(!Array.isArray(shape)||shape.length<2)return null;
+ // Odrzuć przebieg odległy od pojazdu, aby nie rysować niezgodnego wariantu.
+ const lat=Number(vehicle.Lat),lon=Number(vehicle.Lon);
+ if(Number.isFinite(lat)&&Number.isFinite(lon)){
+  let best=Infinity;
+  for(let i=0;i<shape.length;i+=Math.max(1,Math.floor(shape.length/600))){const pt=shape[i];best=Math.min(best,geoDistance(lat,lon,pt[0],pt[1]));}
+  if(best>1200)return null;
+ }
+ return {shape,trip,named,shapeId};
+}
+async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
  const id=match?.selected?.course?.course_id;
  if(!id)return;
  try{
-  const data=await etaGet('courses/'+encodeURIComponent(id)+'/geometry');
-  if(serial!==vehiclePanelRequest || $('vehiclePanel')?.hidden)return;
-  if(data.status!=='ok'||!Array.isArray(data.points)||data.points.length<2)return;
+  const line=String(vehicle.Lines||match.selected.course.line||'');
+  const [catalog,eta]=await Promise.all([wtpLoadShapeCatalog(line),etaGet('courses/'+encodeURIComponent(id)+'/geometry').catch(()=>null)]);
+  if(serial!==vehiclePanelRequest||$('vehiclePanel')?.hidden)return;
+  const selected=wtpChooseShape(catalog,match.selected,trips,vehicle);
+  // ETA jest wyłącznie wariantem awaryjnym, gdy brak potwierdzonego GTFS.
+  const etaValid=eta?.status==='ok'&&Array.isArray(eta.points)&&eta.points.length>=2;
+  if(!selected&&!etaValid){wtpClearCourseMap();return;}
   wtpClearCourseMap();
   const color=vehicle.kind===2?'#ec0000':'#820082';
-  const route=L.polyline(data.points,{color,weight:5,opacity:.9,smoothFactor:0,interactive:false,lineCap:'round',lineJoin:'round'});
-  const group=L.layerGroup([route]);
-  const orderedStops=match?.selected?.etaStops||[];
-  for(const stop of data.stops||[]){
-   const lat=Number(stop.lat),lon=Number(stop.lon);
-   if(!Number.isFinite(lat)||!Number.isFinite(lon))continue;
-   const index=orderedStops.findIndex(s=>Number(s.seq)===Number(stop.seq));
-   if(index>=0)wtpRouteStopCoords.set(index,[lat,lon]);
-   L.circleMarker([lat,lon],{radius:5.5,color,weight:2,fillColor:color,fillOpacity:1,interactive:false}).addTo(group);
+  const points=selected?selected.shape:eta.points;
+  const group=L.layerGroup();
+  L.polyline(points,{color,weight:5,opacity:.9,smoothFactor:0,interactive:false,lineCap:'round',lineJoin:'round'}).addTo(group);
+  const orderedStops=match.selected.etaStops||[];
+  if(selected){
+   const mapping=selected.named.mapping||[];
+   orderedStops.forEach((stop,i)=>{
+    const j=mapping[i],st=Number.isInteger(j)&&j>=0?selected.trip.stops?.[j]:null;
+    const sid=String(st?.[0]??'');const coords=catalog.stops?.[sid];
+    if(!Array.isArray(coords)||coords.length<2)return;
+    const lat=Number(coords[0]),lon=Number(coords[1]);
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
+    wtpRouteStopCoords.set(i,[lat,lon]);
+    L.circleMarker([lat,lon],{radius:5.5,color,weight:2,fillColor:color,fillOpacity:1,interactive:false}).addTo(group);
+   });
+  }else{
+   // Punkty ETA są punktami geometrii, a nie potwierdzonymi lokalizacjami słupków.
+   // Nie wyświetlamy ich jako znaczników przystanków.
+   console.info('WTP LIVE: brak potwierdzonej geometrii GTFS; rysuję trasę ETA bez słupków.');
   }
   group.addTo(map);wtpCourseMapLayer=group;
-  // Nie przestawiaj mapy na siłę: pojazd pozostaje w obecnym kadrze.
  }catch(e){console.warn('Geometria kursu:',e.message)}
 }
 function wtpFocusRouteStop(index,row){
@@ -1453,7 +1501,7 @@ async function openVehiclePanel(v,options={}){
   const fastTrips=ready?.trips||[];
   chooseLiveEtaCourse(matched,v,fastTrips);
   renderEtaRoute(matched,v,body,fastTrips);restoreScroll();
-  void wtpShowCourseMap(matched,v,serial);
+  void wtpShowCourseMap(matched,v,serial,fastTrips);
   if(!cached||Date.now()-cached.at>=45000)etaPanelMatches.set(cacheKey,{at:Date.now(),match:matched});
   let serverState=null,fullTrips=fastTrips;
   const redraw=()=>{
@@ -1462,7 +1510,7 @@ async function openVehiclePanel(v,options={}){
    // Stan serwera moze byc opozniony; nie nadpisuj dopasowania GPS starym kursem.
    if(serverState && !matched.gpsVerified)wtpPreferServerCourse(matched,serverState);
    const position=body.scrollTop;renderEtaRoute(matched,v,body,fullTrips);body.scrollTop=keepScroll!==null?keepScroll:position;
-   void wtpShowCourseMap(matched,v,serial);
+   void wtpShowCourseMap(matched,v,serial,fullTrips);
    wtpApplyServerState(body,serverState,matched.selected);
   };
   void statePromise.then(data=>{serverState=data;redraw()});
