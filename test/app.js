@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 106
+// WTP LIVE — WERSJA: 107
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -1371,6 +1371,21 @@ function wtpPreferServerCourse(match,data){
 }
 
 let wtpCourseMapLayer=null;
+// Przystanki wybranego kursu pozostają widoczne także po ukryciu przystanków ogólnych.
+function wtpOfficialStopNear(lat,lon,limit=55){
+ if(!Number.isFinite(lat)||!Number.isFinite(lon)||!Array.isArray(stops))return null;
+ let best=null,bestDistance=limit,second=Infinity;
+ for(const row of stops){
+  const p=stopCoordinates(row);if(!p)continue;
+  if(Math.abs(p[0]-lat)>.001||Math.abs(p[1]-lon)>.0015)continue;
+  const d=geoDistance(lat,lon,p[0],p[1]);
+  if(d<bestDistance){second=bestDistance;bestDistance=d;best=p;}
+  else if(d<second)second=d;
+ }
+ // Przy blisko położonych słupkach po przeciwnych stronach ulicy nie zgaduj.
+ return best && (second-bestDistance>8 || bestDistance<9)?best:null;
+}
+
 function wtpClearCourseMap(){
  wtpRouteStopCoords.clear();if(wtpHoveredRouteStop){map?.removeLayer(wtpHoveredRouteStop);wtpHoveredRouteStop=null;}
  if(wtpCourseMapLayer&&map){map.removeLayer(wtpCourseMapLayer)}
@@ -1416,6 +1431,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
  if(!id)return;
  try{
   const line=String(vehicle.Lines||match.selected.course.line||'');
+  if(!stops.length){try{stops=normalizedRows(await request('/stops'))}catch(e){console.warn('Słupki kursu:',e.message)}}
   const [catalog,eta]=await Promise.all([wtpLoadShapeCatalog(line),etaGet('courses/'+encodeURIComponent(id)+'/geometry').catch(()=>null)]);
   if(serial!==vehiclePanelRequest||$('vehiclePanel')?.hidden)return;
   const selected=wtpChooseShape(catalog,match.selected,trips,vehicle);
@@ -1426,24 +1442,46 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   const color=vehicle.kind===2?'#ec0000':'#820082';
   const points=selected?selected.shape:eta.points;
   const group=L.layerGroup();
-  L.polyline(points,{color,weight:5,opacity:.9,smoothFactor:0,interactive:false,lineCap:'round',lineJoin:'round'}).addTo(group);
+  // Nie udawaj przebiegu po jezdni, jeśli posiadamy wyłącznie przybliżone punkty ETA.
+  L.polyline(points,{color,weight:selected?5:3,opacity:selected?.95:.65,
+   dashArray:selected?null:'8 8',smoothFactor:0,interactive:false,
+   lineCap:'round',lineJoin:'round'}).addTo(group);
   const orderedStops=match.selected.etaStops||[];
-  if(selected){
-   const mapping=selected.named.mapping||[];
-   orderedStops.forEach((stop,i)=>{
-    const j=mapping[i],st=Number.isInteger(j)&&j>=0?selected.trip.stops?.[j]:null;
-    const sid=String(st?.[0]??'');const coords=catalog.stops?.[sid];
-    if(!Array.isArray(coords)||coords.length<2)return;
-    const lat=Number(coords[0]),lon=Number(coords[1]);
-    if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
-    wtpRouteStopCoords.set(i,[lat,lon]);
-    L.circleMarker([lat,lon],{radius:5.5,color,weight:2,fillColor:color,fillOpacity:1,interactive:false}).addTo(group);
+  const mapping=selected?.named?.mapping||[];
+  // Słupki GTFS są źródłem głównym. Gdy nie ma potwierdzonego GTFS,
+  // wykorzystaj jedynie jednoznacznie rozpoznany oficjalny słupek z /stops.
+  const addStop=(i,coords)=>{
+   if(!Array.isArray(coords)||coords.length<2)return;
+   const lat=Number(coords[0]),lon=Number(coords[1]);
+   if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
+   wtpRouteStopCoords.set(i,[lat,lon]);
+   const marker=L.circleMarker([lat,lon],{radius:7,color:'#fff',weight:2.5,
+    fillColor:color,fillOpacity:1,pane:'stopsPane'});
+   marker.bindTooltip(escapeHTML(String(orderedStops[i]?.name||orderedStops[i]?.nazwa||'Przystanek')),
+    {direction:'top',className:'wtp-stop-tooltip'});
+   marker.on('click',()=>{
+    const row=document.querySelector('#vehicleBody .route-stop[data-route-stop-index="'+i+'"]');
+    row?.scrollIntoView({block:'nearest',behavior:'smooth'});
+    wtpFocusRouteStop(i,row);
    });
-  }else{
-   // Punkty ETA są punktami geometrii, a nie potwierdzonymi lokalizacjami słupków.
-   // Nie wyświetlamy ich jako znaczników przystanków.
-   console.info('WTP LIVE: brak potwierdzonej geometrii GTFS; rysuję trasę ETA bez słupków.');
-  }
+   marker.addTo(group);
+  };
+  orderedStops.forEach((stop,i)=>{
+   let coords=null;
+   if(selected){
+    const j=mapping[i],st=Number.isInteger(j)&&j>=0?selected.trip.stops?.[j]:null;
+    const sid=String(st?.[0]??'');coords=catalog.stops?.[sid]||null;
+   }
+   if(!coords&&eta?.status==='ok'&&Array.isArray(eta.stops)){
+    const anchor=eta.stops.find(x=>String(x.seq)===String(stop.seq??i+1));
+    if(anchor){
+     const lat=Number(anchor.lat),lon=Number(anchor.lon);
+     coords=wtpOfficialStopNear(lat,lon);
+    }
+   }
+   addStop(i,coords);
+  });
+  if(!selected)console.info('WTP LIVE: geometria ETA jest przybliżona (linia przerywana). Przystanki: wyłącznie potwierdzone słupki.');
   group.addTo(map);wtpCourseMapLayer=group;
  }catch(e){console.warn('Geometria kursu:',e.message)}
 }
@@ -1455,7 +1493,7 @@ function wtpFocusRouteStop(index,row){
  row?.classList.add('wtp-hovered-stop');
  // Wyróżnienie wyłącznie w liście; na mapie pozostaje zwykła kropka przystanku.
  if(wtpHoveredRouteStop){map.removeLayer(wtpHoveredRouteStop);wtpHoveredRouteStop=null;}
- const targetZoom=Math.max(17,map.getZoom());
+ const targetZoom=Math.max(16,map.getZoom());
  // Punkt na środku WIDOCZNEJ części mapy, a nie pod dolnym panelem.
  const panel=$('vehiclePanel');const rect=panel?.getBoundingClientRect();
  const mapRect=map.getContainer().getBoundingClientRect();
