@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 104
+// WTP LIVE — WERSJA: 105
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -1081,13 +1081,14 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=displayClock(planned);
    old.style.cssText='display:block;text-decoration:line-through;color:#9299a0;font-size:12px;line-height:1.2;text-align:right';
    const next=document.createElement('strong');next.className='wtp-estimated-time';next.textContent=displayClock(estimate);
-   next.style.cssText='display:block;color:#16834b;font-weight:750;line-height:1.3;text-align:right';
-   if(safeMeasured===null&&currentEstimate===null)next.style.color='#16834b';
+   next.style.cssText='display:block;color:'+(safeMeasured!==null?'#137044':'#c9221c')+';font-weight:750;line-height:1.3;text-align:right';
+   if(safeMeasured===null&&currentEstimate===null)next.style.color=Math.abs(estimate-planned)<1?'#16834b':'#c9221c';
    if(Math.abs(estimate-planned)<1){
     next.style.color='#19734b';
     time.append(next);
     time.title='Szacowany czas zgodny z rozkładem (GPS)';
    }else{
+    if(safeMeasured===null)next.style.color='#c9221c';
     time.append(old,next);
     time.title=safeMeasured!==null?'Historyczna godzina przejazdu oszacowana z GPS (nie jest odczytem drzwi)':(currentEstimate===null?'Zachowana wcześniejsza prognoza; brak potwierdzenia GPS':'Szacowana godzina przyjazdu z GPS');
    }
@@ -1143,8 +1144,9 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   let nextLabel=null;
   if(stopIndex>=0){
    for(let i=0;i<stopIndex;i++)list.children[i]?.classList.add('passed');
-   list.children[stopIndex]?.classList.add('current');
+   list.children[stopIndex]?.classList.add('current','wtp-next-row');
   }else{
+   list.children[nextIndex]?.classList.add('wtp-next-row');
    nextLabel=document.createElement('span');
    nextLabel.className='wtp-next-stop wtp-between-stops';
    nextLabel.textContent='Następny przystanek:';
