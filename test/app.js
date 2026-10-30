@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 97
+// WTP LIVE — WERSJA: 98
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -162,6 +162,30 @@ function gpsMs(raw){const s=String(raw||'').trim().replace(' ','T');return Date.
 function direction(lat1,lon1,lat2,lon2){const r=Math.PI/180,y=Math.sin((lon2-lon1)*r)*Math.cos(lat2*r),x=Math.cos(lat1*r)*Math.sin(lat2*r)-Math.sin(lat1*r)*Math.cos(lat2*r)*Math.cos((lon2-lon1)*r);return(Math.atan2(y,x)*180/Math.PI+360)%360}
 function vehicleKey(v){return String(v.kind)+':'+String(v.VehicleNumber??'')}
 let historySave=0;
+// v98: kierunki z Cloudflare KV są źródłem głównym; lokalne GPS to awaryjny fallback.
+let serverHeadings={};
+let serverHeadingsAt=0;
+async function fetchServerHeadings(){
+ try{
+  const data=await request('/headings');
+  if(data&&data.headings&&typeof data.headings==='object'){
+   serverHeadings=data.headings;
+   serverHeadingsAt=Date.now();
+  }
+ }catch(e){console.warn('Kierunki z serwera niedostępne:',e.message)}
+}
+function applyServerHeadings(rows,type){
+ if(Date.now()-serverHeadingsAt>120000)return;
+ for(const v of rows){
+  const key=String(type)+':'+String(v.VehicleNumber);
+  const hit=serverHeadings[key]||serverHeadings[key+':'+String(v.Lines)+':'+String(v.Brigade||'')];
+  const bearing=Number(hit?.bearing);
+  if(hit&&Number.isFinite(bearing)&&bearing>=0&&bearing<360){
+   v._bearing=bearing;
+   v._serverBearing=true;
+  }
+ }
+}
 function updateHeadings(rows){
  const now=Date.now();
  for(const v of rows){
