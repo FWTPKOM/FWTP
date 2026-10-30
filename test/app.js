@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 100
+// WTP LIVE — WERSJA: 101
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -275,6 +275,8 @@ async function refresh(){
  const status=$('status');status.classList.remove('error');
  if(!vehicles.length)status.textContent='Pobieranie pojazdów…';
  const errors=[];let ok=0;
+ // Pobierz kierunki z KV zanim zostaną narysowane pojazdy.
+ await fetchServerHeadings();
  const fetchType=async type=>{
   try{
    const data=unpack(await request('/live',{type}));
@@ -282,6 +284,7 @@ async function refresh(){
     const rows=all.filter(v=>{const ms=gpsMs(v.Time);return Number.isFinite(ms)&&Date.now()-ms<=15*60000&&ms-Date.now()<=5*60000});
     sourceInfo[type]={total:all.length,fresh:rows.length,newest:all.reduce((a,v)=>Math.max(a,gpsMs(v.Time)||0),0)};
    updateHeadings(rows.map(v=>Object.assign(v,{kind:type})));
+   applyServerHeadings(rows,type);
    received[type]=rows;fetchedAt[type]=Date.now();ok++;
    try{sessionStorage.setItem(SNAPSHOT_KEY,JSON.stringify({1:{rows:received[1],at:fetchedAt[1]},2:{rows:received[2],at:fetchedAt[2]}}))}catch{}
    publishVehicles();
