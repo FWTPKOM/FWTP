@@ -1399,16 +1399,55 @@ async function wtpLoadShapeCatalog(line){
  if(!wtpShapeCache.has(key))wtpShapeCache.set(key,fetch('gtfs/shapes/'+encodeURIComponent(key)+'.json',{cache:'no-cache'}).then(r=>r.ok?r.json():null).catch(()=>null));
  return wtpShapeCache.get(key);
 }
-function wtpChooseShape(catalog,choice,trips,vehicle){
- if(!catalog?.shapes||!choice?.etaStops?.length||!trips?.length)return null;
- const named=etaNameMatch(choice.etaStops,trips,choice.course);
- if(!named?.matched||!named.trip)return null;
- const trip=named.trip;
- // Katalog ma mapowanie trip_id -> shape_id. Bez tego nie wybieramy losowej trasy.
- const tripId=String(trip.trip_id??trip.tripId??trip.id??'');
- let shapeId=tripId?catalog.trip_shapes?.[tripId]:null;
+// v108: odległość punktu od polilinii (metry, rzut lokalny) — do dopasowania kształtu.
+function wtpDistToShape(lat,lon,shape){
+ const kx=111320*Math.cos(lat*Math.PI/180),ky=110540;let best=Infinity,bestIdx=-1;
+ for(let i=0;i<shape.length-1;i++){
+  const a=shape[i],b=shape[i+1];
+  const ax=(a[1]-lon)*kx,ay=(a[0]-lat)*ky,bx=(b[1]-lon)*kx,by=(b[0]-lat)*ky;
+  const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
+  const t=den>0?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/den)):0;
+  const x=ax+t*dx,y=ay+t*dy,d=x*x+y*y;
+  if(d<best){best=d;bestIdx=i+t}
+ }
+ return {d:Math.sqrt(best),pos:bestIdx};
+}
+// v108: gdy nie udało się dopasować kursu po godzinach, wybierz kształt GTFS,
+// po którym faktycznie przebiegają przystanki kursu ETA (w tej samej kolejności).
+function wtpShapeFromEtaStops(catalog,etaStops){
+ const pts=(etaStops||[]).map(s=>[Number(s.lat),Number(s.lon)]).filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1]));
+ if(pts.length<2)return null;
+ let best=null;
+ for(const [id,shape] of Object.entries(catalog.shapes||{})){
+  if(!Array.isArray(shape)||shape.length<2)continue;
+  let sum=0,far=0,back=0,prev=-1;
+  for(const p of pts){
+   const r=wtpDistToShape(p[0],p[1],shape);
+   sum+=Math.min(r.d,150);if(r.d>60)far++;
+   if(r.pos<prev-1)back++;prev=Math.max(prev,r.pos);
+  }
+  if(far>Math.max(1,pts.length*.1)||back>1)continue;
+  // Kara za fragmenty kształtu przed pierwszym / po ostatnim przystanku (inny wariant).
+  const s=wtpDistToShape(shape[0][0],shape[0][1],[pts[0],pts[0]]).d,e=wtpDistToShape(shape.at(-1)[0],shape.at(-1)[1],[pts.at(-1),pts.at(-1)]).d;
+  const score=sum/pts.length+Math.min(s,2000)/20+Math.min(e,2000)/20;
+  if(!best||score<best.score)best={id,score};
+ }
+ return best?.id||null;
+}
+function wtpChooseShape(catalog,choice,trips,vehicle,eta){
+ if(!catalog?.shapes)return null;
+ const named=choice?.etaStops?.length&&trips?.length?etaNameMatch(choice.etaStops,trips,choice.course):null;
+ const trip=named?.matched?named.trip:null;
+ const tripId=String(trip?.trip_id??trip?.tripId??trip?.id??'');
+ // shape_id zapisany w pliku linii (update_gtfs v108) albo mapowanie z katalogu.
+ let shapeId=trip?.shape_id||(tripId?catalog.trip_shapes?.[tripId]:null);
+ if(!trip){
+  // Brak potwierdzonego kursu: dopasuj geometrię do słupków kursu ETA.
+  shapeId=wtpShapeFromEtaStops(catalog,eta?.status==='ok'?eta.stops:null);
+  if(!shapeId)return null;
+ }
  // Alternatywa: jednoznaczne dopasowanie sekwencji identyfikatorów słupków.
- if(!shapeId){
+ if(!shapeId&&trip){
   const ids=(trip.stops||[]).map(st=>String(st?.[0]??'')).filter(Boolean);
   const candidates=(catalog.patterns||[]).filter(p=>p.stop_ids?.length===ids.length&&p.stop_ids.every((id,i)=>String(id)===ids[i]));
   const shapes=[...new Set(candidates.map(p=>p.shape_id))];
@@ -1434,7 +1473,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   if(!stops.length){try{stops=normalizedRows(await request('/stops'))}catch(e){console.warn('Słupki kursu:',e.message)}}
   const [catalog,eta]=await Promise.all([wtpLoadShapeCatalog(line),etaGet('courses/'+encodeURIComponent(id)+'/geometry').catch(()=>null)]);
   if(serial!==vehiclePanelRequest||$('vehiclePanel')?.hidden)return;
-  const selected=wtpChooseShape(catalog,match.selected,trips,vehicle);
+  const selected=wtpChooseShape(catalog,match.selected,trips,vehicle,eta);
   // ETA jest wyłącznie wariantem awaryjnym, gdy brak potwierdzonego GTFS.
   const etaValid=eta?.status==='ok'&&Array.isArray(eta.points)&&eta.points.length>=2;
   if(!selected&&!etaValid){wtpClearCourseMap();return;}
@@ -1469,7 +1508,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   orderedStops.forEach((stop,i)=>{
    let coords=null;
    if(selected){
-    const j=mapping[i],st=Number.isInteger(j)&&j>=0?selected.trip.stops?.[j]:null;
+    const j=mapping[i],st=Number.isInteger(j)&&j>=0?selected.trip?.stops?.[j]:null;
     const sid=String(st?.[0]??'');coords=catalog.stops?.[sid]||null;
    }
    if(!coords&&eta?.status==='ok'&&Array.isArray(eta.stops)){
