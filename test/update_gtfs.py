@@ -87,7 +87,10 @@ def main():
         def flush():
             if previous is None or len(sequence)<2:return
             line,headsign,block=trips[previous]
-            result.setdefault(line,[]).append({'id':previous,'headsign':headsign,'block_id':block,'stops':sequence.copy()})
+            item={'id':previous,'headsign':headsign,'block_id':block,'stops':sequence.copy()}
+            # v108: shape_id pozwala stronie narysować dokładny przebieg po drogach (shapes.txt).
+            if trip_shapes.get(previous):item['shape_id']=trip_shapes[previous]
+            result.setdefault(line,[]).append(item)
         for trip,seq,sid,tm in conn.execute('SELECT trip,seq,stop,tm FROM times ORDER BY trip,seq'):
             if trip!=previous:flush();previous=trip;sequence=[]
             if sid in stops:
@@ -199,6 +202,47 @@ def main():
         protected={'stops_meta.json','status.json'}
         for old in OUT.glob('*.json'):
             if old.name not in desired and old.name not in protected:old.unlink()
+        # v108: katalogi geometrii tras (gtfs/shapes/<linia>.json) czytane przez app.js.
+        # Zawierają WYŁĄCZNIE dane stabilne między dniami (geometria, wzorce słupków),
+        # więc plik zmienia się tylko przy realnej zmianie trasy — repozytorium nie puchnie.
+        SHAPES_OUT=OUT/'shapes'
+        SHAPES_OUT.mkdir(exist_ok=True)
+        def clean_shape(pts):
+            out=[]
+            for lat,lon in pts:
+                p=[round(lat,6),round(lon,6)]
+                if not out or out[-1]!=p:out.append(p)
+            return out
+        shape_files={}
+        for line,items in result.items():
+            patterns={}
+            for trip in items:
+                sid=trip.get('shape_id')
+                if not sid or len(shape_points.get(sid) or [])<2:continue
+                ids=tuple(x[0] for x in trip['stops'])
+                patterns.setdefault((sid,ids),None)
+            if not patterns:continue
+            used=sorted({sid for sid,_ in patterns})
+            stop_ids=sorted({s for _,ids in patterns for s in ids if s in stops})
+            catalog={
+                'version':1,
+                'line':line,
+                'shapes':{sid:clean_shape(shape_points[sid]) for sid in used},
+                'patterns':[{'shape_id':sid,'stop_ids':list(ids)} for sid,ids in sorted(patterns)],
+                'stops':{s:[stops[s][1],stops[s][2],stops[s][0]] for s in stop_ids},
+            }
+            filename=''.join(c if c.isalnum() or c in '-_' else '_' for c in line)+'.json'
+            shape_files[filename]=json.dumps(catalog,ensure_ascii=False,separators=(',',':'),sort_keys=True)+'\n'
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            stage=pathlib.Path(tmp)
+            for name,content in shape_files.items():
+                target=SHAPES_OUT/name
+                # Nie przepisuj identycznego pliku (brak zbędnych commitów).
+                if target.is_file() and target.read_text(encoding='utf-8')==content:continue
+                (stage/name).write_text(content,encoding='utf-8');os.replace(stage/name,target)
+        for old in SHAPES_OUT.glob('*.json'):
+            if old.name not in shape_files:old.unlink()
+        print('Geometrie tras:',len(shape_files),'linii',flush=True)
         (OUT/'stops_meta.json').write_text(json.dumps({'version':45,'date':day,'stops':stop_meta},ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
         (OUT/'status.json').write_text(json.dumps({'date':day,'source':source,'updated_at':dt.datetime.now(dt.timezone.utc).isoformat(),'lines':len(result)},ensure_ascii=False)+'\n',encoding='utf-8')
         print('Gotowe:',day,len(result),'linii',sum(map(len,result.values())),'kursów')
