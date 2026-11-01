@@ -3,6 +3,7 @@
 import csv, datetime as dt, hashlib, io, json, os, pathlib, sqlite3, tempfile, urllib.request, zipfile
 from zoneinfo import ZoneInfo
 
+
 ROOT = pathlib.Path(__file__).resolve().parent
 OUT = ROOT / 'gtfs'
 SOURCES = [os.environ.get('GTFS_URL', 'https://gtfs.ztm.waw.pl/last'), 'https://mkuran.pl/gtfs/warsaw.zip']
