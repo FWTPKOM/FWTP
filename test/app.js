@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 109
+// WTP LIVE — WERSJA: 113
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -1386,7 +1386,51 @@ function wtpOfficialStopNear(lat,lon,limit=55){
  return best && (second-bestDistance>8 || bestDistance<9)?best:null;
 }
 
+// WTP LIVE v113: geometryczny offset po prawej stronie kierunku jazdy.
+// Wspolrzedne GTFS pozostaja bez zmian; przesuwamy jedynie wizualizacje.
+let wtpOffsetZoomHandler=null;
+function wtpRightSideOffset(points, meters=3.5){
+ if(!map||!Array.isArray(points)||points.length<2)return points;
+ // Stały zoom obliczeń daje fizyczne przesuniecie w metrach niezależne od skali mapy.
+ const zoom=18, latitude=Number(points[0][0]);
+ const pxPerMeter=256*Math.pow(2,zoom)/(40075016.686*Math.max(.2,Math.cos(latitude*Math.PI/180)));
+ const offset=meters*pxPerMeter;
+ const xy=points.map(p=>map.project(L.latLng(p[0],p[1]),zoom));
+ const normals=[];
+ for(let i=0;i<xy.length-1;i++){
+  const dx=xy[i+1].x-xy[i].x,dy=xy[i+1].y-xy[i].y,dist=Math.hypot(dx,dy);
+  normals.push(dist>.001?{x:-dy/dist,y:dx/dist}:null);
+ }
+ const shifted=[];
+ for(let i=0;i<xy.length;i++){
+  let before=null,after=null;
+  for(let j=i-1;j>=0&&!before;j--)before=normals[j];
+  for(let j=i;j<normals.length&&!after;j++)after=normals[j];
+  let nx=0,ny=0;
+  if(before&&after){
+   // Na ostrych zakretach ogranicz wysuniecie naroznika (miter limit).
+   const sumX=before.x+after.x,sumY=before.y+after.y,mag=Math.hypot(sumX,sumY);
+   if(mag>.15){
+    const ux=sumX/mag,uy=sumY/mag,dot=ux*after.x+uy*after.y;
+    const scale=Math.min(1.7,1/Math.max(.5,dot));
+    nx=ux*scale;ny=uy*scale;
+   }else{nx=after.x;ny=after.y;}
+  }else if(before){nx=before.x;ny=before.y;}
+  else if(after){nx=after.x;ny=after.y;}
+  const latlng=map.unproject(L.point(xy[i].x+nx*offset,xy[i].y+ny*offset),zoom);
+  shifted.push([latlng.lat,latlng.lng]);
+ }
+ return shifted;
+}
+function wtpDrawDirectionalRoute(group,points,color){
+ const shifted=wtpRightSideOffset(points,3.5);
+ const layer=L.polyline(shifted,{color,weight:5,opacity:.95,smoothFactor:0,
+  interactive:false,lineCap:'round',lineJoin:'round'}).addTo(group);
+ // Nie nadpisujemy geometrii i nie tworzymy osobnej linii po srodku ulicy.
+ return layer;
+}
 function wtpClearCourseMap(){
+ if(wtpOffsetZoomHandler&&map){map.off('zoomend',wtpOffsetZoomHandler);wtpOffsetZoomHandler=null;}
  wtpRouteStopCoords.clear();if(wtpHoveredRouteStop){map?.removeLayer(wtpHoveredRouteStop);wtpHoveredRouteStop=null;}
  if(wtpCourseMapLayer&&map){map.removeLayer(wtpCourseMapLayer)}
  wtpCourseMapLayer=null;
@@ -1557,8 +1601,10 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   const points=selected?.shape||null;
   const group=L.layerGroup();
   // Nie udawaj przebiegu po jezdni, jeśli posiadamy wyłącznie przybliżone punkty ETA.
-  if(points)L.polyline(points,{color,weight:5,opacity:.95,
-   smoothFactor:0,interactive:false,lineCap:'round',lineJoin:'round'}).addTo(group);
+  if(points){
+   wtpDrawDirectionalRoute(group,points,color);
+   console.info('[WTP v113] Trasa przesunieta na prawa strone jezdni',{line,shape_id:selected?.id||selected?.shape_id||null,meters:3.5});
+  }
   else if(etaValid){
    for(const segment of wtpEtaSafeSegments(eta.points))L.polyline(segment,{color,weight:3,opacity:.7,dashArray:'5 9',smoothFactor:0,interactive:false}).addTo(group);
    console.info('[WTP v111] ETA — tylko krótkie odcinki orientacyjne; brak pełnego GTFS',{line,course_id:id});
