@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Automatyczna aktualizacja rozkładów WTP LIVE z GTFS (bez klucza API)."""
+"""WTP LIVE v112: rozkłady dzienne i pełny katalog geometrii GTFS."""
 import csv, datetime as dt, hashlib, io, json, os, pathlib, sqlite3, tempfile, urllib.request, zipfile
 from zoneinfo import ZoneInfo
 
 
 ROOT = pathlib.Path(__file__).resolve().parent
 OUT = ROOT / 'gtfs'
-SOURCES = [os.environ.get('GTFS_URL', 'https://gtfs.ztm.waw.pl/last'), 'https://mkuran.pl/gtfs/warsaw.zip']
+SOURCES = [os.environ.get('GTFS_URL', 'https://mkuran.pl/gtfs/warsaw.zip'), 'https://gtfs.ztm.waw.pl/last']
 
 def download():
     for url in dict.fromkeys(SOURCES):
@@ -21,7 +21,7 @@ def download():
                 name=tmp.name
             with zipfile.ZipFile(name) as z:
                 names={p.split('/')[-1] for p in z.namelist()}
-                if not {'stops.txt','trips.txt','stop_times.txt','routes.txt'}.issubset(names):raise ValueError('Brak wymaganych tabel GTFS')
+                if not {'stops.txt','trips.txt','stop_times.txt','routes.txt','shapes.txt'}.issubset(names):raise ValueError('Brak wymaganych tabel GTFS, w tym shapes.txt')
             print('Pobrano z',url)
             return name,url
         except Exception as e:
@@ -65,19 +65,21 @@ def main():
             if r.get('date')==day:
                 (services.add if r.get('exception_type')=='1' else services.discard)(r['service_id'])
         trips={}
+        all_trips={}  # Wszystkie kursy, niezależnie od dnia; katalog geometrii nie może znikać.
+        for r in rows('trips.txt'):
+            if r.get('route_id') in routes and r.get('trip_id'):
+                all_trips[r['trip_id']]=(routes[r['route_id']],r.get('shape_id') or '')
         for r in rows('trips.txt'):
             if r.get('service_id') in services and r.get('route_id') in routes:
                 line=routes[r['route_id']]
                 if line:trips[r['trip_id']]=(line,r.get('trip_headsign') or '',r.get('block_id') or '')
-        trip_shapes={}
-        for r in rows('trips.txt'):
-            if r.get('trip_id') in trips and r.get('shape_id'):trip_shapes[r['trip_id']]=r['shape_id']
+        trip_shapes={tid:shape for tid,(_,shape) in all_trips.items() if tid in trips and shape}
         if not trips:raise RuntimeError('Brak aktywnych kursów na '+day+'; nie nadpisuję danych')
         conn=sqlite3.connect(':memory:')
         conn.execute('CREATE TABLE times(trip TEXT, seq INT, stop TEXT, tm TEXT)')
         batch=[]
         for r in rows('stop_times.txt'):
-            if r.get('trip_id') not in trips:continue
+            if r.get('trip_id') not in all_trips:continue
             tm=r.get('arrival_time') or r.get('departure_time') or ''
             if not tm:continue
             batch.append((r['trip_id'],int(r.get('stop_sequence') or 0),r['stop_id'],tm[:5]))
@@ -92,7 +94,8 @@ def main():
             # v108: shape_id pozwala stronie narysować dokładny przebieg po drogach (shapes.txt).
             if trip_shapes.get(previous):item['shape_id']=trip_shapes[previous]
             result.setdefault(line,[]).append(item)
-        for trip,seq,sid,tm in conn.execute('SELECT trip,seq,stop,tm FROM times ORDER BY trip,seq'):
+        for trip,seq,sid,tm in conn.execute('SELECT trip,seq,stop,tm FROM times WHERE trip IN (SELECT trip FROM times) ORDER BY trip,seq'):
+            if trip not in trips:continue
             if trip!=previous:flush();previous=trip;sequence=[]
             if sid in stops:
                 name,lat,lon,*additional=stops[sid]
@@ -114,13 +117,25 @@ def main():
             center=max(angles,key=lambda a:sum(abs((a-b+180)%360-180)<=35 for b in angles))
             cluster=[a for a in angles if abs((a-center+180)%360-180)<=35]
             return round((math.degrees(math.atan2(sum(math.sin(math.radians(a)) for a in cluster),sum(math.cos(math.radians(a)) for a in cluster)))+360)%360,1)
-        # Reprezentatywne przebiegi: jeden kurs na kombinację linii i shape_id.
+        # Wszystkie wzorce, także nieaktywne dziś. Przechowujemy je w SQLite,
+        # aby nie trzymać całej sieci kursów w pamięci Mikrusa.
         representative={}
-        for line,items in result.items():
-            for trip in items:
-                shape=trip_shapes.get(trip['id'])
-                if shape and (line,shape) not in representative:
-                    representative[line,shape]=[x[0] for x in trip['stops']]
+        all_patterns=collections.defaultdict(set)
+        last_trip=None
+        last_stops=[]
+        def save_pattern(tid, ids):
+            if tid not in all_trips or len(ids)<2:return
+            line,shape=all_trips[tid]
+            if not line or not shape:return
+            pattern=(shape,tuple(ids))
+            all_patterns[line].add(pattern)
+            representative.setdefault((line,shape),list(ids))
+        for tid, sid in conn.execute('SELECT trip,stop FROM times ORDER BY trip,seq'):
+            if tid!=last_trip:
+                if last_trip is not None:save_pattern(last_trip,last_stops)
+                last_trip=tid;last_stops=[]
+            if sid in stops:last_stops.append(sid)
+        if last_trip is not None:save_pattern(last_trip,last_stops)
         shape_ids={shape for _,shape in representative}
         shape_points=collections.defaultdict(list)
         if 'shapes.txt' in members:
@@ -215,22 +230,17 @@ def main():
                 if not out or out[-1]!=p:out.append(p)
             return out
         shape_files={}
-        for line,items in result.items():
-            patterns={}
-            for trip in items:
-                sid=trip.get('shape_id')
-                if not sid or len(shape_points.get(sid) or [])<2:continue
-                ids=tuple(x[0] for x in trip['stops'])
-                patterns.setdefault((sid,ids),None)
-            if not patterns:continue
-            used=sorted({sid for sid,_ in patterns})
-            stop_ids=sorted({s for _,ids in patterns for s in ids if s in stops})
+        for line,patterns in all_patterns.items():
+            valid={(sid,ids) for sid,ids in patterns if len(shape_points.get(sid) or [])>=2}
+            if not valid:continue
+            used=sorted({sid for sid,_ in valid})
+            stop_ids=sorted({s for _,ids in valid for s in ids if s in stops})
             catalog={
-                'version':1,
+                'version':2,
                 'line':line,
                 'shapes':{sid:clean_shape(shape_points[sid]) for sid in used},
-                'patterns':[{'shape_id':sid,'stop_ids':list(ids)} for sid,ids in sorted(patterns)],
-                'stops':{s:[stops[s][1],stops[s][2],stops[s][0]] for s in stop_ids},
+                'patterns':[{'shape_id':sid,'stop_ids':list(ids)} for sid,ids in sorted(valid)],
+                'stops':{sid:[stops[sid][1],stops[sid][2],stops[sid][0]] for sid in stop_ids},
             }
             filename=''.join(c if c.isalnum() or c in '-_' else '_' for c in line)+'.json'
             shape_files[filename]=json.dumps(catalog,ensure_ascii=False,separators=(',',':'),sort_keys=True)+'\n'
@@ -241,9 +251,9 @@ def main():
                 # Nie przepisuj identycznego pliku (brak zbędnych commitów).
                 if target.is_file() and target.read_text(encoding='utf-8')==content:continue
                 (stage/name).write_text(content,encoding='utf-8');os.replace(stage/name,target)
-        for old in SHAPES_OUT.glob('*.json'):
-            if old.name not in shape_files:old.unlink()
-        print('Geometrie tras:',len(shape_files),'linii',flush=True)
+        # Nie usuwamy katalogów, których brak w bieżącym źródle;
+        # inne źródło może mieć mniej linii, np. cmentarne.
+        print('Geometrie tras (wszystkie dni):',len(shape_files),'linii',flush=True)
         (OUT/'stops_meta.json').write_text(json.dumps({'version':45,'date':day,'stops':stop_meta},ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
         (OUT/'status.json').write_text(json.dumps({'date':day,'source':source,'updated_at':dt.datetime.now(dt.timezone.utc).isoformat(),'lines':len(result)},ensure_ascii=False)+'\n',encoding='utf-8')
         print('Gotowe:',day,len(result),'linii',sum(map(len,result.values())),'kursów')
