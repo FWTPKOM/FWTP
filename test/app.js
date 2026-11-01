@@ -1478,6 +1478,8 @@ function wtpShapeScore(shape,stops,trace){
   stopFar:orderedStops.far,traceFar:orderedTrace.far,
   stopCount:stops.length,traceCount:trace.length};
 }
+// v111: wybór warstwowy: potwierdzony kurs -> kolejność przystanków ->
+// bliskość pojazdu -> bezpieczny GTFS. Nie odrzucamy wszystkich tras przy braku ETA.
 function wtpChooseShape(catalog,choice,trips,vehicle,eta){
  if(!catalog?.shapes)return null;
  const named=choice?.etaStops?.length&&trips?.length?etaNameMatch(choice.etaStops,trips,choice.course):null;
@@ -1485,24 +1487,38 @@ function wtpChooseShape(catalog,choice,trips,vehicle,eta){
  const tripId=String(trip?.trip_id??trip?.tripId??trip?.id??'');
  const confirmedId=trip?.shape_id||(tripId?catalog.trip_shapes?.[tripId]:null);
  const stops=wtpEtaStopPoints(eta),trace=wtpRouteTrace(eta?.status==='ok'?eta.points:[]);
- const ids=new Set(Object.keys(catalog.shapes));
+ const gpsLat=Number(vehicle?.Lat),gpsLon=Number(vehicle?.Lon);
+ const hasGps=Number.isFinite(gpsLat)&&Number.isFinite(gpsLon)&&gpsLat>50&&gpsLat<55&&gpsLon>18&&gpsLon<24;
+ const patterns=Array.isArray(catalog.patterns)?catalog.patterns:[];
  const candidates=[];
- for(const id of ids){
-  const shape=catalog.shapes[id],metrics=wtpShapeScore(shape,stops,trace);
-  if(!metrics)continue;
-  if(stops.length<2&&trace.length<5&&!confirmedId)continue;
-  // Wiarygodny identyfikator kursu ma pierwszeństwo, lecz nadal weryfikujemy przebieg.
-  const priority=String(id)===String(confirmedId)?-25:0;
-  candidates.push({shapeId:id,shape,metrics,rank:metrics.score+priority});
+ for(const [id,raw] of Object.entries(catalog.shapes)){
+  const shape=wtpValidPoints(raw);if(shape.length<2)continue;
+  const metrics=wtpShapeScore(shape,stops,trace);
+  const pattern=patterns.find(p=>String(p.shape_id)===String(id));
+  const gpsDistance=hasGps?wtpDistToShape(gpsLat,gpsLon,shape).d:null;
+  // Nie wolno dopasować obcego wariantu oddalonego od pojazdu o kilometry.
+  if(hasGps&&gpsDistance>1400&&String(id)!==String(confirmedId))continue;
+  let rank=metrics?metrics.score:250;
+  if(String(id)===String(confirmedId))rank-=450;
+  if(gpsDistance!==null)rank+=Math.min(gpsDistance,1500)*.24;
+  // Porównaj sekwencję słupków z kursu GTFS, jeśli istnieje.
+  if(trip?.stops?.length&&pattern?.stop_ids?.length){
+   const seq=trip.stops.map(x=>String(x?.[0]??''));
+   const ref=pattern.stop_ids.map(String);
+   let j=0;for(const stop of seq)if(stop===ref[j])j++;
+   if(j>=Math.min(3,seq.length))rank-=Math.round(100*j/Math.max(1,seq.length));
+  }
+  // Jeśli brak ETA, geometria GTFS pozostaje dostępna (np. linie C).
+  candidates.push({shapeId:id,shape,metrics,rank,gpsDistance,pattern});
  }
  candidates.sort((a,b)=>a.rank-b.rank);
  const best=candidates[0];
- if(!best){console.info('[WTP v110] Brak dopasowanego GTFS',{line:vehicle.Lines,tripId,confirmedId,stops:stops.length,trace:trace.length});return null;}
+ if(!best){console.warn('[WTP v111] Brak geometrii GTFS',{line:vehicle.Lines,tripId,confirmedId,stops:stops.length,trace:trace.length});return null;}
  const runner=candidates[1];
- const ambiguous=!!runner&&runner.rank-best.rank<Math.max(8,best.rank*.12);
- // Nie ukrywamy całej trasy tylko z powodu podobieństwa dwóch wariantów;
- // niejednoznaczność jest jawnie raportowana do diagnostyki.
- console.info('[WTP v110] Geometria GTFS',{line:vehicle.Lines,shape_id:best.shapeId,trip_id:tripId||null,ambiguous,metrics:best.metrics,other:runner?.shapeId||null});
+ const ambiguous=!!runner&&runner.rank-best.rank<15;
+ console.info('[WTP v111] GTFS',{line:vehicle.Lines,shape_id:best.shapeId,trip_id:tripId||null,
+  confirmedId,ambiguous,gpsDistance:best.gpsDistance,metrics:best.metrics,
+  other:runner?.shapeId||null,reason:best.metrics?'ETA+GTFS':'GTFS fallback'});
  return {shape:best.shape,trip,named,shapeId:best.shapeId,metrics:best.metrics,ambiguous};
 }
 // Przy braku GTFS nie łączymy dalekich punktów ETA przez budynki.
@@ -1534,7 +1550,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   if(!selected){
    // Surowe ETA to punkty kontrolne, a nie geometria ulic. Nie rysujemy
    // połączeń prostych przez ronda, budynki i drogi jednokierunkowe.
-   console.info('[WTP v110] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
+   console.info('[WTP v111] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
   }
   wtpClearCourseMap();
   const color=vehicle.kind===2?'#ec0000':'#820082';
@@ -1545,7 +1561,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    smoothFactor:0,interactive:false,lineCap:'round',lineJoin:'round'}).addTo(group);
   else if(etaValid){
    for(const segment of wtpEtaSafeSegments(eta.points))L.polyline(segment,{color,weight:3,opacity:.7,dashArray:'5 9',smoothFactor:0,interactive:false}).addTo(group);
-   console.info('[WTP v110] ETA — tylko krótkie odcinki orientacyjne; brak pełnego GTFS',{line,course_id:id});
+   console.info('[WTP v111] ETA — tylko krótkie odcinki orientacyjne; brak pełnego GTFS',{line,course_id:id});
   }
   const orderedStops=match.selected.etaStops||[];
   const mapping=selected?.named?.mapping||[];
@@ -1582,7 +1598,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    }
    addStop(i,coords);
   });
-  if(!selected)console.info('[WTP v110] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
+  if(!selected)console.info('[WTP v111] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
   group.addTo(map);wtpCourseMapLayer=group;
  }catch(e){console.warn('Geometria kursu:',e.message)}
 }
