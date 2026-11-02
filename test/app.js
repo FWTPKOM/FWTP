@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 125
+// WTP LIVE — WERSJA: 132
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -179,7 +179,7 @@ function renderStopMarkers(){
   // Stała nazwa na zwykłym przybliżeniu. Siatka ogranicza nakładanie etykiet.
   const px=map.latLngToContainerPoint(coords),gridX=Math.floor(px.x/115),gridY=Math.floor(px.y/46);
   const labelKey=gridX+':'+gridY;
-  const showName=zoom>=STOP_NAME_ZOOM&&!labelGrid.has(labelKey);
+  const showName=false; // v132: bez stale wyswietlanych nazw na mapie ogolnej
   if(showName)labelGrid.add(labelKey);
   marker.bindTooltip(escapeHTML(name)+' '+escapeHTML(n),{
    direction:'top',permanent:showName,opacity:showName?.92:1,offset:[0,-6],
@@ -433,13 +433,41 @@ async function loadGtfs(line){
 // WTP LIVE v56: ETA z Mikrusa przez chroniony Cloudflare Worker.
 // Dopasowanie kursu: linia + brygada + czas + zgodność przystanków.
 const etaCache=new Map();
+// v132: krótkie awarie Workera nie powinny od razu kasować ETA.
+// Retry dotyczy tylko błędów przejściowych; błędy 4xx nie są ponawiane.
+const etaLastGood=new Map();
+const etaDelay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function etaGet(path,params={}) {
  const key=path+'?'+new URLSearchParams(params);
  const old=etaCache.get(key);
- if(old&&Date.now()-old.at<(path==='health'?60000:path==='courses'?180000:600000))return old.promise;
- const promise=request('/eta/'+path,params).catch(e=>{etaCache.delete(key);throw e});
- etaCache.set(key,{at:Date.now(),promise});return promise;
+ const ttl=path==='health'?60000:path==='courses'?180000:600000;
+ if(old&&Date.now()-old.at<ttl)return old.promise;
+ const promise=(async()=>{
+  let error;
+  for(let attempt=0;attempt<3;attempt++){
+   try{
+    const data=await request('/eta/'+path,params);
+    etaLastGood.set(key,{at:Date.now(),data});
+    return data;
+   }catch(e){
+    error=e;
+    const msg=String(e?.message||e);
+    if(!/HTTP (502|503|504)|Failed to fetch|NetworkError|abort|timeout/i.test(msg))break;
+    if(attempt<2)await etaDelay(attempt===0?1200:2800);
+   }
+  }
+  const previous=etaLastGood.get(key);
+  // Rozkład z tego samego dnia jest lepszy od pustego panelu.
+  if(previous&&Date.now()-previous.at<10*60*1000){
+   console.warn('ETA: używam ostatniej odpowiedzi po błędzie',error);
+   return previous.data;
+  }
+  throw error;
+ })().catch(e=>{etaCache.delete(key);throw e});
+ etaCache.set(key,{at:Date.now(),promise});
+ return promise;
 }
+
 function etaDay(s){const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[1]+m[2]+m[3]:String(s||'').replace(/\D/g,'').slice(0,8)}
 function etaClock(t){const m=String(t??'').match(/(\d{1,2}):(\d{2})/);return m?Number(m[1])*60+Number(m[2]):NaN}
 function etaStopCode(x){return String(x??'').replace(/\D/g,'').replace(/^0+(?=\d)/,'')}
@@ -1938,7 +1966,7 @@ async function openVehiclePanel(v,options={}){
    redraw();
   });
   void gpsFetch.then(positions=>{if(positions?.length)redraw()});
- }catch(e){if(serial===vehiclePanelRequest&&!panel.hidden){body.replaceChildren();const warning=document.createElement('p');warning.className='route-note';warning.textContent='Nie udało się pobrać rozkładu ETA: '+e.message;body.append(warning)}}
+ }catch(e){if(serial===vehiclePanelRequest&&!panel.hidden){if(ready?.match){console.warn('ETA chwilowo niedostępne; zachowuję ostatni rozkład',e);return;}body.replaceChildren();const warning=document.createElement('p');warning.className='route-note';warning.textContent='ETA chwilowo niedostępne (ponowiono 3 razy): '+e.message;body.append(warning)}}
 }
 function setTab(tab,record=true){
  document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('selected',x.dataset.tab===tab));
