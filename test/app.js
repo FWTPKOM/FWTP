@@ -748,6 +748,8 @@ const GPS_STOP_EXIT_M=95;         // histereza wyjazdu z przystanku
 const GPS_MAX_AGE_MS=90000;
 const gpsProgress=new Map();
 const etaRenderedCache=new Map();
+// v137: dane do etykiet wybranego kursu, pochodzą z tego samego obliczenia co lista.
+const wtpCourseStopDisplay=new Map();
 const GPS_TRACE_KEY='wtp-live-v88-gps-traces';
 const gpsTraces=new Map();
 try{const saved=JSON.parse(localStorage.getItem(GPS_TRACE_KEY)||'{}');for(const [k,arr] of Object.entries(saved))if(Array.isArray(arr))gpsTraces.set(k,arr.filter(p=>Date.now()-p.t<24*60*60000).slice(-100));}catch{}
@@ -1099,6 +1101,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  const list=document.createElement('ol');list.className='route-stops kind-'+(v.kind===2?'tram':'bus');
  const nearest=prediction.geo.near;
  const current=-1; // status przystanku wyznaczamy dopiero z położenia na odcinku
+ wtpCourseStopDisplay.clear();
  choice.etaStops.forEach((stop,i)=>{
   const li=document.createElement('li');li.className='route-stop'+(i===current?' current':'')+(current>=0&&i<current?' passed':'');
   const j=names.mapping?.[i],mapped=Number.isInteger(j)&&j>=0?names.trip?.stops?.[j]:null;
@@ -1158,6 +1161,17 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
     time.title=safeMeasured!==null?'Historyczna godzina przejazdu oszacowana z GPS (nie jest odczytem drzwi)':(currentEstimate===null?'Zachowana wcześniejsza prognoza; brak potwierdzenia GPS':'Szacowana godzina przyjazdu z GPS');
    }
   }else time.textContent=displayClock(raw);
+  // Dane wyłącznie informacyjne; ETA jest szacunkiem, nie potwierdzonym przejazdem.
+  const expected=Number.isFinite(estimate)?estimate:planned;
+  const nowMinutes=nowWarsaw(new Date());
+  const remaining=Number.isFinite(expected)?Math.ceil(expected-nowMinutes):null;
+  wtpCourseStopDisplay.set(i,{
+   planned:Number.isFinite(planned)?displayClock(planned):displayClock(raw),
+   expected:Number.isFinite(expected)?displayClock(expected):null,
+   delayed:Number.isFinite(estimate)&&Number.isFinite(planned)&&Math.abs(estimate-planned)>=1,
+   remaining:remaining!==null&&remaining>=0&&remaining<24*60?remaining:null,
+   estimated:Number.isFinite(estimate)
+  });
   if(i===choice.etaStops.length-1)li.classList.add('wtp-terminal-stop');
   li.dataset.routeStopIndex=String(i);li.tabIndex=0;li.title="Najedź, aby przybliżyć przystanek na mapie";
   li.addEventListener("mouseenter",()=>wtpFocusRouteStop(i,li));
@@ -1853,7 +1867,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   if(!selected){
    // Surowe ETA to punkty kontrolne, a nie geometria ulic. Nie rysujemy
    // połączeń prostych przez ronda, budynki i drogi jednokierunkowe.
-   console.info('[WTP v129] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
+   console.info('[WTP v137] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
   }
   const newRouteKey=[vehicleKey(vehicle),String(id),String(selected?.shapeId||'')].join('|');
   if(wtpCourseMapLayer&&wtpCourseMapLayer._wtpRouteKey===newRouteKey)return;
@@ -1863,10 +1877,10 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   // Nie udawaj przebiegu po jezdni, jeśli posiadamy wyłącznie przybliżone punkty ETA.
   if(points){
    wtpDrawDirectionalRoute(group,points,color,selected?.shapeId);
-   console.info('[WTP v129] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
+   console.info('[WTP v137] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
   }
   else if(etaValid){
-   console.warn('[WTP v129] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
+   console.warn('[WTP v137] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
   }
   const orderedStops=match.selected.etaStops||[];
   const mapping=selected?.named?.mapping||[];
@@ -1883,23 +1897,19 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    const onRequest=requestFlag===true||requestFlag===1||requestFlag==='1'||
      (requestFlag==null&&nearby===true);
    const unknown=requestFlag==null&&nearby==null;
-   // Krótkie dojście do słupka tylko przy potwierdzonym wariancie GTFS.
-   // Maks. 14 m: bez sztucznych skrótów przez skrzyżowania i bez
-   // przyciągania do przypadkowego słupka po drugiej stronie jezdni.
-   if(points&&selected?.trip?.stops?.length&&Number.isInteger(mapping[i])&&mapping[i]>=0){
-    const projection=wtpStopRouteProjection(lat,lon,points);
-    if(projection&&projection.distance>2&&projection.distance<=14){
-     L.polyline([projection.coords,[lat,lon]],{color,weight:3,opacity:.82,
-      interactive:false,lineCap:'round',smoothFactor:0}).addTo(group);
-    }
-   }
+   // v137: brak łącznika od przystanku do osi jezdni. Lokalizacja słupka pozostaje rzeczywista.
    const marker=L.circleMarker([lat,lon],{className:'wtp-course-stop',radius:7,color:color,weight:2.5,
     fillColor:onRequest?'#fff':color,fillOpacity:1,pane:'stopsPane'});
    const poleName=String(stop.slupek||stop.stop_no||stop.nr_slupka||stop.stop_number||'').trim();
    const official=Array.isArray(stops)?stops.find(r=>{const p=stopCoordinates(r);return p&&geoDistance(lat,lon,p[0],p[1])<7;}):null;
    const routeName=String(stop.name||stop.nazwa||wtpStopGroupName(official||{})||'Przystanek');
-   marker.bindTooltip(escapeHTML(routeName+(poleName?' '+poleName:'')),
-    {direction:'top',permanent:true,className:'wtp-stop-tooltip wtp-course-stop-name'});
+   const info=wtpCourseStopDisplay.get(i);
+   const timeLine=info&&info.remaining!==null
+    ?'<span class="wtp-course-stop-eta">'+(info.remaining===0?'Teraz':'Za '+info.remaining+' min')+
+      ' · '+(info.delayed?'<s>'+escapeHTML(info.planned)+'</s> <b>'+escapeHTML(info.expected)+'</b>':escapeHTML(info.expected))+
+      (info.estimated?' <em>ETA</em>':' <em>plan</em>')+'</span>':'';
+   marker.bindTooltip('<span class="wtp-course-stop-title">'+escapeHTML(routeName+(poleName?' '+poleName:''))+'</span>'+timeLine,
+    {direction:'top',permanent:true,className:'wtp-stop-tooltip wtp-course-stop-name '+(vehicle.kind===2?'wtp-course-tram':'wtp-course-bus')});
    marker.on('click',()=>{
     const row=document.querySelector('#vehicleBody .route-stop[data-route-stop-index="'+i+'"]');
     row?.scrollIntoView({block:'nearest',behavior:'smooth'});
@@ -1955,7 +1965,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    }
    addStop(i,coords);
   });
-  if(!selected)console.info('[WTP v129] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
+  if(!selected)console.info('[WTP v137] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
   group._wtpRouteKey=newRouteKey;
   group.addTo(map);
   wtpUpdateCourseLabelZoom();
