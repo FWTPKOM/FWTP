@@ -1,2 +1,2 @@
-/* WTP LIVE — WERSJA: 130 */
+/* WTP LIVE — WERSJA: 136 */
 window.WTP_API_PROXY = "https://wtp-live-api.woj-warszawa.workers.dev";
