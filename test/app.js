@@ -153,55 +153,42 @@ function wtpStopMarkerIcon(color,request,bearings,zoom){
  return L.divIcon({className:'wtp-stop-icon wtp-v130-stop',html,iconSize:[size,size],iconAnchor:[size/2,size/2]});
 }
 function renderStopMarkers(){
- if(!stopLayer||!map)return;
- stopLayer.clearLayers();
- if(!showStopMarkers||wtpSelectedVehicleOnly)return;
+ if(!stopLayer)return;
+ stopLayer.clearLayers();if(!showStopMarkers || wtpSelectedVehicleOnly)return;
  const zoom=map.getZoom();
- if(zoom<STOP_DOT_ZOOM){$('stopStatus').textContent='Przystanki ukryte — przybliż mapę.';return;}
- if(!stops.length){if(!stopMapLoading)void toggleStopMap();return;}
- const bounds=map.getBounds().pad(.12),groups=new Map();
- // Zawsze grupuj z całej bazy, żeby obrys nie zmieniał się przy przesuwaniu mapy.
+ if(zoom<STOP_DOT_ZOOM){$('stopStatus').textContent='Przystanki ukryte — przybliż mapę.';return}
+ if(!stops.length){if(!stopMapLoading)void toggleStopMap();return}
+ const bounds=map.getBounds();let shown=0,withDirection=0;
+ const labelGrid=new Set();
  for(const row of stops){
-  const coords=stopCoordinates(row);if(!coords)continue;
-  const id=String(value(row,'zespol')||'').trim();
-  const pole=String(value(row,'slupek')||'').trim();
-  if(!id||!pole)continue;
-  if(!groups.has(id))groups.set(id,{id,name:wtpStopGroupName(row),rows:[]});
-  groups.get(id).rows.push({coords,row,pole});
+  const coords=stopCoordinates(row);if(!coords||!bounds.contains(coords))continue;
+  const z=String(value(row,'zespol')),n=String(value(row,'slupek')),name=String(value(row,'nazwa_zespolu'));
+  if(!z||!n)continue;
+  const meta=stopMetaAt(coords[0],coords[1]);
+  const bus=meta&&Number.isFinite(meta[2]),tram=meta&&Number.isFinite(meta[3]);
+  const color=bus&&tram?'#ed8b00':tram?'#e00000':bus?'#820082':'#64748b';
+  const bearing=zoom>=STOP_ARROW_ZOOM?(bus&&tram?(meta[2]??meta[3]):tram?meta[3]:bus?meta[2]:null):null;
+  const requestStop=isRequestStop(row,meta);
+  const fill=requestStop?'#fff':color;
+  const arrowColor=requestStop?color:'#fff';
+  let marker;
+  if(Number.isFinite(bearing)){
+   marker=L.marker(coords,{pane:'stopsPane',icon:L.divIcon({className:'wtp-stop-icon',html:`<span class="wtp-stop-arrow" style="border-color:${color};background:${fill}">${stopDirectionSvg(bearing,arrowColor)}</span>`,iconSize:[25,25],iconAnchor:[12.5,12.5]})});withDirection++;
+  }else marker=L.circleMarker(coords,{pane:'stopsPane',radius:zoom>=STOP_ARROW_ZOOM?6:4.5,color,weight:2,fillColor:fill,fillOpacity:1});
+  const mode=bus&&tram?'Autobusowo-tramwajowy':tram?'Tramwajowy':bus?'Autobusowy':'Rodzaj nieustalony';
+  // Stała nazwa na zwykłym przybliżeniu. Siatka ogranicza nakładanie etykiet.
+  const px=map.latLngToContainerPoint(coords),gridX=Math.floor(px.x/115),gridY=Math.floor(px.y/46);
+  const labelKey=gridX+':'+gridY;
+  const showName=zoom>=STOP_NAME_ZOOM&&!labelGrid.has(labelKey);
+  if(showName)labelGrid.add(labelKey);
+  marker.bindTooltip(escapeHTML(name)+' '+escapeHTML(n),{
+   direction:'top',permanent:showName,opacity:showName?.92:1,offset:[0,-6],
+   className:'wtp-stop-tooltip wtp-stop-name '+(bus&&tram?'wtp-stop-tip-mixed':tram?'wtp-stop-tip-tram':bus?'wtp-stop-tip-bus':'wtp-stop-tip-unknown')
+  });
+  marker.on('click',()=>openStopPanel(z,n,name,color));
+  marker.addTo(stopLayer);shown++;
  }
- let shown=0,visibleGroups=0;const occupied=[];
- for(const group of groups.values()){
-  const all=group.rows;
-  if(!all.some(x=>bounds.contains(x.coords)))continue;
-  const center=[all.reduce((n,x)=>n+x.coords[0],0)/all.length,all.reduce((n,x)=>n+x.coords[1],0)/all.length];
-  const groupColors=all.map(x=>wtpStopColor(stopMetaAt(x.coords[0],x.coords[1])));
-  const color=groupColors.includes('#ed8b00')?'#ed8b00':groupColors.includes('#e00000')&&groupColors.includes('#820082')?'#ed8b00':groupColors.find(x=>x!=='#64748b')||'#64748b';
-  let radius=10;
-  for(const x of all)radius=Math.max(radius,geoDistance(center[0],center[1],x.coords[0],x.coords[1])+8);
-  // Tylko obrys, nie twórz dodatkowej kropki/markera na środku ZP.
-  L.circle(center,{radius,color:'#64748b',weight:1.35,opacity:.75,fill:false,interactive:false,pane:'stopsPane'}).addTo(stopLayer);
-  visibleGroups++;
-  for(const x of all){
-   if(!bounds.contains(x.coords))continue;
-   const meta=stopMetaAt(x.coords[0],x.coords[1]);
-   const stopColor=wtpStopColor(meta);
-   const request=isRequestStop(x.row,meta);
-   const bearings=wtpStopMetaHeadings(meta);
-   const marker=L.marker(x.coords,{pane:'stopsPane',icon:wtpStopMarkerIcon(stopColor,request,bearings,zoom)});
-   marker.bindTooltip(escapeHTML(group.name+(x.pole?' '+x.pole:'')),{direction:'top',className:'wtp-stop-tooltip'});
-   marker.on('click',()=>openStopPanel(group.id,x.pole,group.name,stopColor));
-   marker.addTo(stopLayer);shown++;
-  }
-  // Nazwa ZP bez numeru, niewidoczny punkt kotwiczenia (bez kropki).
-  const px=map.latLngToContainerPoint(center),label=group.name||('ZP '+group.id);
-  const half=Math.min(100,Math.max(32,label.length*3.5));
-  if(zoom>=STOP_NAME_ZOOM&&!occupied.some(p=>Math.abs(p.x-px.x)<half+p.h&&Math.abs(p.y-px.y)<26)){
-   const anchor=L.marker(center,{pane:'stopsPane',interactive:false,icon:L.divIcon({className:'wtp-zp-name-anchor',html:'',iconSize:[0,0],iconAnchor:[0,0]})});
-   anchor.bindTooltip(escapeHTML(label),{permanent:true,direction:'top',offset:[0,-12],className:'wtp-stop-tooltip wtp-zp-label'});
-   anchor.addTo(stopLayer);occupied.push({x:px.x,y:px.y,h:half});
-  }
- }
- $('stopStatus').textContent=`Zespoły: ${visibleGroups}; przystanki: ${shown}.`;
+ $('stopStatus').textContent=`Przystanki: ${shown}; strzałki: ${withDirection}. Fioletowy: autobus · czerwony: tramwaj · pomarańczowy: oba.`+(stopMetaReady?'':' Trwa wczytywanie danych GTFS.');
 }
 // WTP LIVE v42: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
 const lastLocations=new Map();
