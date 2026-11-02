@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: 133
+// WTP LIVE — WERSJA: 135
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -1510,86 +1510,75 @@ function wtpOffsetRight(points,meters=WTP_ROUTE_OFFSET_METERS){
  });
 }
 // Zaokrąglanie wyłącznie geometrii wyświetlania; nie poprawia brakujących zawrotek GTFS.
-// v133: usuń drobne zygzaki po offsetowaniu i łagodnie zaokrąglaj narożniki.
-// Nie interpolujemy długich odcinków, nie skracamy nawrotów ani nie poprawiamy
-// brakujących ulic w źródłowej geometrii GTFS.
 function wtpSoftRoute(points){
  if(!Array.isArray(points)||points.length<3)return points;
- const xy=points.map(p=>[p[1]*111320*Math.cos(p[0]*Math.PI/180),p[0]*110540]);
- // Krótkie uskoki wynikające z kolejnych niemal identycznych wierzchołków.
- const filtered=[points[0]];
+ const out=[points[0]];
  for(let i=1;i<points.length-1;i++){
-  const a=xy[i-1],b=xy[i],c=xy[i+1];
-  const ab=Math.hypot(b[0]-a[0],b[1]-a[1]),bc=Math.hypot(c[0]-b[0],c[1]-b[1]);
-  const ac=Math.hypot(c[0]-a[0],c[1]-a[1]);
-  const cross=ac>.01?Math.abs((b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]))/ac:Infinity;
-  // Wyłącznie mikrouskoki: żadnych zawrotek ani ciasnych rond.
-  if(ab<3.5&&bc<3.5&&ac>Math.max(ab,bc)*1.25&&cross<1.35)continue;
-  filtered.push(points[i]);
- }
- filtered.push(points[points.length-1]);
- const out=[filtered[0]];
- for(let i=1;i<filtered.length-1;i++){
-  const p=filtered[i],a=filtered[i-1],b=filtered[i+1];
+  const p=points[i],a=points[i-1],b=points[i+1];
   const kx=111320*Math.cos(p[0]*Math.PI/180),ky=110540;
   const ax=(a[1]-p[1])*kx,ay=(a[0]-p[0])*ky,bx=(b[1]-p[1])*kx,by=(b[0]-p[0])*ky;
   const la=Math.hypot(ax,ay),lb=Math.hypot(bx,by);
-  if(la<2||lb<2){out.push(p);continue;}
+  if(la<4||lb<4){out.push(p);continue;}
   const cosine=Math.max(-1,Math.min(1,(ax*bx+ay*by)/(la*lb)));
   const angle=Math.acos(cosine)*180/Math.PI;
-  if(angle>165||angle<38){out.push(p);continue;}
-  // Krzywa pozostaje blisko drogi: maksymalnie 6 m od narożnika.
-  const r=Math.min(6,la*.30,lb*.30);
+  if(angle>160||angle<42){out.push(p);continue;}
+  const r=Math.min(5,la*.28,lb*.28);
   const from=[p[0]+ay/la*r/ky,p[1]+ax/la*r/kx];
   const to=[p[0]+by/lb*r/ky,p[1]+bx/lb*r/kx];
   out.push(from);
   for(const t of [.2,.4,.6,.8]){const u=1-t;out.push([u*u*from[0]+2*u*t*p[0]+t*t*to[0],u*u*from[1]+2*u*t*p[1]+t*t*to[1]]);}
   out.push(to);
  }
- out.push(filtered[filtered.length-1]);return out;
+ out.push(points[points.length-1]);return out;
 }
+// v135: SVG overlay przeliczany tylko przy zmianie skali, nie podczas odświeżania GPS.
+// Odległość grotów jest liczona po geometrii trasy, nie po liczbie segmentów.
 let wtpRouteArrowSerial=0;
 function wtpDrawDirectionalRoute(group,points,color,shapeId){
- const renderPoints=wtpSoftRoute(wtpOffsetRight(points));
- const route=L.polyline(renderPoints,{color,weight:6,opacity:.96,smoothFactor:0,interactive:false,lineCap:'round',lineJoin:'round'});
+ const renderPoints=wtpSoftRoute(wtpOffsetRight(points,2.5));
+ const route=L.polyline(renderPoints,{color,weight:5,opacity:.96,smoothFactor:0,interactive:false,lineCap:'round',lineJoin:'round'});
  const ns='http://www.w3.org/2000/svg';
  const arrowId='wtp-route-arrow-'+(++wtpRouteArrowSerial);
  let overlay=null;
  const detach=()=>{if(overlay){overlay.remove();overlay=null;}};
  const refreshArrows=()=>{
-  const path=route._path;if(!path||!path.parentNode)return;
-  path.id=arrowId;
-  detach();
+  const path=route._path;if(!path||!path.parentNode||!map)return;
+  path.id=arrowId;detach();
   const zoom=map.getZoom();
-  // Odstęp 50 m mierzony na trasie; przy dalekim zoomie min. 18 px
-  // zapobiega nakładaniu się grotów, bez skokowego przestawiania ich kierunku.
-  const metresPerPixel=40075016.686*Math.cos(map.getCenter().lat*Math.PI/180)/(256*Math.pow(2,zoom));
-  const spacing=Math.max(18,50/metresPerPixel);
-  const length=path.getTotalLength?.()||0;if(length<12)return;
-  const count=Math.min(2500,Math.ceil(length/spacing)+3);
+  route.setStyle({weight:zoom<=11?2.6:zoom<=13?3.4:zoom<=15?4.3:5.2});
+  const mpp=40075016.686*Math.cos(map.getCenter().lat*Math.PI/180)/(256*Math.pow(2,zoom));
+  // W oddaleniu minimalny odstęp ekranowy, żeby groty nie tworzyły plamy.
+  const spacing=Math.max(18,50/mpp);
+  const length=path.getTotalLength?.()||0;
+  if(length<3)return;
+  const count=Math.min(2400,Math.ceil(length/spacing)+3);
   const text=document.createElementNS(ns,'text');
-  text.setAttribute('class','wtp-route-moving-arrows');
+  text.setAttribute('class','wtp-route-moving-arrows wtp-route-arrows-v135');
   text.setAttribute('aria-hidden','true');
   text.setAttribute('dominant-baseline','central');
-  text.setAttribute('font-size','11');
+  text.setAttribute('font-size',zoom<=12?'8':'10');
   const tp=document.createElementNS(ns,'textPath');
   tp.setAttribute('href','#'+arrowId);
   tp.setAttributeNS('http://www.w3.org/1999/xlink','href','#'+arrowId);
   tp.setAttribute('startOffset','0');
+  // Tspan z dx: nie korzystamy ze spacji SVG, które są zwijane.
   for(let i=0;i<count;i++){
    const span=document.createElementNS(ns,'tspan');
    span.textContent='›';
-   span.setAttribute('dx',i===0?'0':String(Math.max(0,spacing-5.8)));
+   span.setAttribute('dx',i===0?'0':String(Math.max(0,spacing-5.5)));
    tp.appendChild(span);
   }
   const anim=document.createElementNS(ns,'animate');
   anim.setAttribute('attributeName','startOffset');
-  anim.setAttribute('from',String(-spacing));anim.setAttribute('to','0');
-  anim.setAttribute('dur','4s');anim.setAttribute('repeatCount','indefinite');
+  anim.setAttribute('from',String(-spacing));
+  anim.setAttribute('to','0');
+  anim.setAttribute('dur','5s');
+  anim.setAttribute('repeatCount','indefinite');
   tp.appendChild(anim);text.appendChild(tp);path.parentNode.appendChild(text);overlay=text;
  };
- route.on('add',()=>{refreshArrows();map.on('zoomend',refreshArrows);map.on('moveend',refreshArrows)});
- route.on('remove',()=>{map.off('zoomend',refreshArrows);map.off('moveend',refreshArrows);detach()});
+ // Leaflet sam przesuwa SVG wraz z mapą; ponowne tworzenie przy GPS niepotrzebne.
+ route.on('add',()=>{refreshArrows();map.on('zoomend',refreshArrows)});
+ route.on('remove',()=>{map.off('zoomend',refreshArrows);detach()});
  route.addTo(group);return route;
 }
 // Rzut przystanku na najbliższy fragment rzeczywistej trasy. Nie zmieniamy
@@ -1847,7 +1836,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    const official=Array.isArray(stops)?stops.find(r=>{const p=stopCoordinates(r);return p&&geoDistance(lat,lon,p[0],p[1])<7;}):null;
    const routeName=String(stop.name||stop.nazwa||wtpStopGroupName(official||{})||'Przystanek');
    marker.bindTooltip(escapeHTML(routeName+(poleName?' '+poleName:'')),
-    {direction:'top',permanent:map.getZoom()>=15,className:'wtp-stop-tooltip wtp-course-stop-name'});
+    {direction:'top',permanent:true,className:'wtp-stop-tooltip wtp-course-stop-name'});
    marker.on('click',()=>{
     const row=document.querySelector('#vehicleBody .route-stop[data-route-stop-index="'+i+'"]');
     row?.scrollIntoView({block:'nearest',behavior:'smooth'});
