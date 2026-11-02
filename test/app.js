@@ -150,14 +150,14 @@ function renderStopMarkers(){
   const mode=bus&&tram?'Autobusowo-tramwajowy':tram?'Tramwajowy':bus?'Autobusowy':'Rodzaj nieustalony';
   marker.bindTooltip(escapeHTML(name)+' '+escapeHTML(n),{direction:'top',className:'wtp-stop-tooltip '+(bus&&tram?'wtp-stop-tip-mixed':tram?'wtp-stop-tip-tram':bus?'wtp-stop-tip-bus':'wtp-stop-tip-unknown')});
   marker.on('click',()=>openStopPanel(z,n,name,color));
-  marker.addTo(stopLayer);shown++;if(shown>=650)break;
+  marker.addTo(stopLayer);shown++;
  }
  $('stopStatus').textContent=`Przystanki: ${shown}; strzałki: ${withDirection}. Fioletowy: autobus · czerwony: tramwaj · pomarańczowy: oba.`+(stopMetaReady?'':' Trwa wczytywanie danych GTFS.');
 }
 // WTP LIVE v42: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
 const lastLocations=new Map();
 const HISTORY_KEY='wtp-live-v45-gps';
-try { const saved=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]'); for(const [k,v] of saved){if(Date.now()-v.seen<30*60*1000)lastLocations.set(k,v)} }catch{}
+try { const saved=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]'); for(const [k,v] of saved){if(Date.now()-v.seen<24*60*60*1000)lastLocations.set(k,v)} }catch{}
 function gpsMs(raw){const s=String(raw||'').trim().replace(' ','T');return Date.parse(s+(/(?:Z|[+-]\d\d:?\d\d)$/.test(s)?'':'Z'))}
 function direction(lat1,lon1,lat2,lon2){const r=Math.PI/180,y=Math.sin((lon2-lon1)*r)*Math.cos(lat2*r),x=Math.cos(lat1*r)*Math.sin(lat2*r)-Math.sin(lat1*r)*Math.cos(lat2*r)*Math.cos((lon2-lon1)*r);return(Math.atan2(y,x)*180/Math.PI+360)%360}
 function vehicleKey(v){return String(v.kind)+':'+String(v.VehicleNumber??'')}
@@ -541,18 +541,18 @@ function etaSelectCourse(match,v,trips){
  const candidates=[match.selected,...match.alternatives];
  const scored=candidates.map(choice=>{
   const fit=etaSpatialFit(choice,v,trips);
-  if(!fit||fit.distance>180)return null;
+  if(!fit||fit.distance>240)return null;
   // Dopuszczamy do 120 minut opóźnienia, ale nie kurs w przyszłości.
   let lateness=Infinity;
   if(Number.isFinite(fit.time))for(const shift of [-1440,0,1440]){
    const delta=now+shift-fit.time;
-   if(delta>=-3&&delta<=120)lateness=Math.min(lateness,delta);
+   if(delta>=-5&&delta<=180)lateness=Math.min(lateness,delta);
   }
   if(!Number.isFinite(lateness))return null;
   const continuity=old?.id===String(choice.course.course_id)?-90:0;
   return {choice,fit,score:fit.distance+lateness*1.8+continuity,lateness};
  }).filter(Boolean).sort((a,b)=>a.score-b.score);
- if(!scored.length){match.gpsVerified=false;match.matchWarning='Nie potwierdzono kursu położeniem GPS';return match;}
+ if(!scored.length){match.gpsVerified=false;match.matchWarning='Brak pewnego dopasowania GPS — historia pomiarów pozostaje zachowana';return match;}
  let first=scored[0],second=scored[1];
  // v89: terminal jest obserwowany także wtedy, gdy aktualny kurs nadal
  // wygrywa punktacją. Poprzednio licznik postoju uruchamiał się dopiero
@@ -685,7 +685,7 @@ const gpsProgress=new Map();
 const etaRenderedCache=new Map();
 const GPS_TRACE_KEY='wtp-live-v88-gps-traces';
 const gpsTraces=new Map();
-try{const saved=JSON.parse(localStorage.getItem(GPS_TRACE_KEY)||'{}');for(const [k,arr] of Object.entries(saved))if(Array.isArray(arr))gpsTraces.set(k,arr.filter(p=>Date.now()-p.t<90*60000).slice(-100));}catch{}
+try{const saved=JSON.parse(localStorage.getItem(GPS_TRACE_KEY)||'{}');for(const [k,arr] of Object.entries(saved))if(Array.isArray(arr))gpsTraces.set(k,arr.filter(p=>Date.now()-p.t<24*60*60000).slice(-100));}catch{}
 let gpsTraceSaveAt=0;
 function rememberGps(v){
  const t=gpsMs(v.Time),lat=Number(v.Lat),lon=Number(v.Lon),key=vehicleKey(v);
@@ -695,7 +695,7 @@ function rememberGps(v){
  arr.push({t,lat,lon,line:String(v.Lines||''),brigade:normalizeBrigade(v.Brigade)});
  while(arr.length>100||arr.length&&t-arr[0].t>90*60000)arr.shift();
  gpsTraces.set(key,arr);
- if(Date.now()-gpsTraceSaveAt>30000){gpsTraceSaveAt=Date.now();try{const entries=[...gpsTraces].filter(([k,a])=>a.length&&Date.now()-a.at(-1).t<90*60000).slice(-400);localStorage.setItem(GPS_TRACE_KEY,JSON.stringify(Object.fromEntries(entries)));}catch{}}
+ if(Date.now()-gpsTraceSaveAt>30000){gpsTraceSaveAt=Date.now();try{const entries=[...gpsTraces].filter(([k,a])=>a.length&&Date.now()-a.at(-1).t<24*60*60000).slice(-400);localStorage.setItem(GPS_TRACE_KEY,JSON.stringify(Object.fromEntries(entries)));}catch{}}
 }
 function routeProgressFromTrace(geo,v){
  if(!geo.points.length)return null;
@@ -1042,7 +1042,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   const stopFlag=stop.slupek_na_zadanie??stop.na_zadanie??stop.request_stop??mapped?.slupek_na_zadanie??null;
   if(stopFlag===1 || stopFlag==='1' || stopFlag===true)li.classList.add('request-stop');
   else if(stopFlag===0 || stopFlag==='0' || stopFlag===false)li.classList.add('fixed-stop');
-  else li.classList.add('unknown-stop');
+  else {const known=requestStopNear(Number(stop.lat),Number(stop.lon));li.classList.add(known===true?'request-stop':known===false?'fixed-stop':'unknown-stop');}
 
   const dot=document.createElement('span');dot.className='route-dot';
   const name=document.createElement('span');name.className='route-stop-name';name.textContent=names.names[i];
@@ -1388,8 +1388,42 @@ function wtpOfficialStopNear(lat,lon,limit=55){
 
 // v115: pełna geometria źródłowa, bez sztucznego przesuwania i strzałek.
 // Nie wolno rysować obcego wariantu tylko dlatego, że jest blisko GPS.
+// v116: łagodne narożniki bez przesuwania całej trasy.
+// Zaokrąglamy tylko pojedyncze ostre załamania (maks. 2.8 m od wierzchołka).
+// To efekt wizualny, NIE korekta błędnej geometrii GTFS/OSM.
+const wtpRoundedCache=new Map();
+function wtpRoundCorners(points){
+ if(!Array.isArray(points)||points.length<3)return points;
+ const out=[points[0]];
+ for(let i=1;i<points.length-1;i++){
+  const p=points[i],prev=points[i-1],next=points[i+1];
+  const ky=110540,kx=111320*Math.cos(p[0]*Math.PI/180);
+  const ax=(prev[1]-p[1])*kx,ay=(prev[0]-p[0])*ky;
+  const bx=(next[1]-p[1])*kx,by=(next[0]-p[0])*ky;
+  const la=Math.hypot(ax,ay),lb=Math.hypot(bx,by);
+  if(la<5||lb<5){out.push(p);continue;}
+  const cosine=Math.max(-1,Math.min(1,(ax*bx+ay*by)/(la*lb)));
+  const angle=Math.acos(cosine)*180/Math.PI;
+  // Wewnątrz prostego odcinka kąt ~180°, nawrotu 0° nie wolno wygładzać.
+  if(angle>145||angle<48){out.push(p);continue;}
+  const radius=Math.min(2.8,la*.20,lb*.20);
+  const from=[p[0]+ay/la*radius/ky,p[1]+ax/la*radius/kx];
+  const to=[p[0]+by/lb*radius/ky,p[1]+bx/lb*radius/kx];
+  out.push(from);
+  // Kwadratowa krzywa Béziera, 3 próbki w obrębie kilku metrów.
+  for(const t of [.25,.5,.75]){
+   const s=1-t;
+   out.push([s*s*from[0]+2*s*t*p[0]+t*t*to[0],s*s*from[1]+2*s*t*p[1]+t*t*to[1]]);
+  }
+  out.push(to);
+ }
+ out.push(points.at(-1));return out;
+}
 function wtpDrawDirectionalRoute(group,points,color,shapeId){
- return L.polyline(points,{color,weight:4,opacity:.95,smoothFactor:0,
+ const key=shapeId?String(shapeId):null;
+ let route=key?wtpRoundedCache.get(key):null;
+ if(!route){route=wtpRoundCorners(points);if(key){if(wtpRoundedCache.size>100)wtpRoundedCache.clear();wtpRoundedCache.set(key,route);}}
+ return L.polyline(route,{color,weight:4,opacity:.95,smoothFactor:0,
   interactive:false,lineCap:'round',lineJoin:'round'}).addTo(group);
 }
 function wtpClearCourseMap(){
@@ -1517,12 +1551,12 @@ function wtpChooseShape(catalog,choice,trips,vehicle,eta){
  }
  candidates.sort((a,b)=>a.rank-b.rank);
  const best=candidates[0],runner=candidates[1];
- if(!best){console.warn('[WTP v115] Brak potwierdzonej geometrii kursu',{line:vehicle?.Lines,tripId,confirmedId});return null;}
+ if(!best){console.warn('[WTP v116] Brak potwierdzonej geometrii kursu',{line:vehicle?.Lines,tripId,confirmedId});return null;}
  // Bliskie oceny oznaczają różne możliwe przebiegi — nie zgadujemy.
  if(!best.confirmed&&runner&&runner.rank-best.rank<20){
-  console.warn('[WTP v115] Niejednoznaczny wariant — pominięto trasę',{line:vehicle?.Lines,shapeIds:[best.shapeId,runner.shapeId]});return null;
+  console.warn('[WTP v116] Niejednoznaczny wariant — pominięto trasę',{line:vehicle?.Lines,shapeIds:[best.shapeId,runner.shapeId]});return null;
  }
- console.info('[WTP v115] Wybrano geometrię',{line:vehicle?.Lines,shape_id:best.shapeId,trip_id:tripId||null,confirmed:best.confirmed,metrics:best.metrics});
+ console.info('[WTP v116] Wybrano geometrię',{line:vehicle?.Lines,shape_id:best.shapeId,trip_id:tripId||null,confirmed:best.confirmed,metrics:best.metrics});
  return {shape:best.shape,trip,named,shapeId:best.shapeId,metrics:best.metrics,ambiguous:false};
 }
 // Przy braku GTFS nie łączymy dalekich punktów ETA przez budynki.
@@ -1563,10 +1597,10 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   // Nie udawaj przebiegu po jezdni, jeśli posiadamy wyłącznie przybliżone punkty ETA.
   if(points){
    wtpDrawDirectionalRoute(group,points,color,selected?.shapeId);
-   console.info('[WTP v115] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
+   console.info('[WTP v116] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
   }
   else if(etaValid){
-   console.warn('[WTP v115] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
+   console.warn('[WTP v116] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
   }
   const orderedStops=match.selected.etaStops||[];
   const mapping=selected?.named?.mapping||[];
@@ -1577,8 +1611,14 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    const lat=Number(coords[0]),lon=Number(coords[1]);
    if(!Number.isFinite(lat)||!Number.isFinite(lon))return;
    wtpRouteStopCoords.set(i,[lat,lon]);
-   const marker=L.circleMarker([lat,lon],{radius:7,color:'#fff',weight:2.5,
-    fillColor:color,fillOpacity:1,pane:'stopsPane'});
+   const stop=orderedStops[i]||{};
+   const requestFlag=stop.slupek_na_zadanie??stop.na_zadanie??stop.request_stop;
+   const nearby=requestStopNear(lat,lon);
+   const onRequest=requestFlag===true||requestFlag===1||requestFlag==='1'||
+     (requestFlag==null&&nearby===true);
+   const unknown=requestFlag==null&&nearby==null;
+   const marker=L.circleMarker([lat,lon],{radius:7,color:color,weight:2.5,
+    fillColor:onRequest||unknown?'#fff':color,fillOpacity:1,pane:'stopsPane'});
    marker.bindTooltip(escapeHTML(String(orderedStops[i]?.name||orderedStops[i]?.nazwa||'Przystanek')),
     {direction:'top',className:'wtp-stop-tooltip'});
    marker.on('click',()=>{
