@@ -133,8 +133,25 @@ function decorateRouteStop(li,lat,lon){
  else if(request===false)li.classList.add('fixed-stop');
  else li.classList.add('unknown-stop'); // GTFS nie zawiera typu NŻ: nie zgaduj
 }
-// v129: każdy słupek jest osobną kropką, zespół ma jeden obrys i jedną nazwę.
+// v130: rzeczywiste słupki z kierunkiem + obrys ZP, bez znacznika środka.
 function wtpStopGroupName(row){return String(value(row,'nazwa_zespolu')||value(row,'nazwa')||'').trim();}
+function wtpStopMetaHeadings(meta){
+ if(!meta)return [];
+ return [Number(meta[2]),Number(meta[3])].filter(x=>Number.isFinite(x)&&x>=0&&x<360);
+}
+function wtpStopColor(meta){
+ const bus=meta&&Number.isFinite(Number(meta[2]))&&meta[2]!==null;
+ const tram=meta&&Number.isFinite(Number(meta[3]))&&meta[3]!==null;
+ return bus&&tram?'#ed8b00':tram?'#e00000':bus?'#820082':'#64748b';
+}
+function wtpStopMarkerIcon(color,request,bearings,zoom){
+ const size=zoom>=17?26:22;
+ const heading=bearings.length?bearings[0]:null;
+ // Kierunek jest na środku słupka, nie w środku zespołu.
+ const arrow=heading===null?'':`<svg class="wtp-stop-heading" viewBox="0 0 24 24" style="transform:rotate(${heading}deg)" aria-hidden="true"><path d="M12 2 L20 20 L12 16 L4 20 Z" fill="${request?color:'#fff'}" stroke="${request?'#fff':color}" stroke-width="1.3"/></svg>`;
+ const html=`<span class="wtp-stop-point" style="--stop-color:${color};--stop-fill:${request?'#fff':color};width:${size}px;height:${size}px">${arrow}</span>`;
+ return L.divIcon({className:'wtp-stop-icon wtp-v130-stop',html,iconSize:[size,size],iconAnchor:[size/2,size/2]});
+}
 function renderStopMarkers(){
  if(!stopLayer||!map)return;
  stopLayer.clearLayers();
@@ -143,48 +160,48 @@ function renderStopMarkers(){
  if(zoom<STOP_DOT_ZOOM){$('stopStatus').textContent='Przystanki ukryte — przybliż mapę.';return;}
  if(!stops.length){if(!stopMapLoading)void toggleStopMap();return;}
  const bounds=map.getBounds().pad(.12),groups=new Map();
- // Najpierw wszystkie słupki: okrąg nie może się zmieniać po przesunięciu mapy.
+ // Zawsze grupuj z całej bazy, żeby obrys nie zmieniał się przy przesuwaniu mapy.
  for(const row of stops){
   const coords=stopCoordinates(row);if(!coords)continue;
   const id=String(value(row,'zespol')||'').trim();
   const pole=String(value(row,'slupek')||'').trim();
-  if(!id)continue;
+  if(!id||!pole)continue;
   if(!groups.has(id))groups.set(id,{id,name:wtpStopGroupName(row),rows:[]});
   groups.get(id).rows.push({coords,row,pole});
  }
- let shown=0;const occupied=[];
+ let shown=0,visibleGroups=0;const occupied=[];
  for(const group of groups.values()){
   const all=group.rows;
   if(!all.some(x=>bounds.contains(x.coords)))continue;
   const center=[all.reduce((n,x)=>n+x.coords[0],0)/all.length,all.reduce((n,x)=>n+x.coords[1],0)/all.length];
-  const meta=stopMetaAt(center[0],center[1]);
-  const bus=meta&&Number.isFinite(meta[2]),tram=meta&&Number.isFinite(meta[3]);
-  const color=bus&&tram?'#ed8b00':tram?'#e00000':bus?'#820082':'#64748b';
-  let radius=12;
-  for(const x of all)radius=Math.max(radius,geoDistance(center[0],center[1],x.coords[0],x.coords[1])+6);
-  // Obrys całego zespołu, bez sztucznego znacznika w środku.
-  L.circle(center,{radius,color,weight:1.4,opacity:.75,fillColor:color,fillOpacity:.035,interactive:false,pane:'stopsPane'}).addTo(stopLayer);
+  const groupColors=all.map(x=>wtpStopColor(stopMetaAt(x.coords[0],x.coords[1])));
+  const color=groupColors.includes('#ed8b00')?'#ed8b00':groupColors.includes('#e00000')&&groupColors.includes('#820082')?'#ed8b00':groupColors.find(x=>x!=='#64748b')||'#64748b';
+  let radius=10;
+  for(const x of all)radius=Math.max(radius,geoDistance(center[0],center[1],x.coords[0],x.coords[1])+8);
+  // Tylko obrys, nie twórz dodatkowej kropki/markera na środku ZP.
+  L.circle(center,{radius,color:'#64748b',weight:1.35,opacity:.75,fill:false,interactive:false,pane:'stopsPane'}).addTo(stopLayer);
+  visibleGroups++;
   for(const x of all){
    if(!bounds.contains(x.coords))continue;
-   const sm=stopMetaAt(x.coords[0],x.coords[1]);
-   const request=isRequestStop(x.row,sm);
-   const marker=L.circleMarker(x.coords,{pane:'stopsPane',radius:zoom>=17?6:5,color,weight:2.2,
-    fillColor:request?'#fff':color,fillOpacity:1});
+   const meta=stopMetaAt(x.coords[0],x.coords[1]);
+   const stopColor=wtpStopColor(meta);
+   const request=isRequestStop(x.row,meta);
+   const bearings=wtpStopMetaHeadings(meta);
+   const marker=L.marker(x.coords,{pane:'stopsPane',icon:wtpStopMarkerIcon(stopColor,request,bearings,zoom)});
    marker.bindTooltip(escapeHTML(group.name+(x.pole?' '+x.pole:'')),{direction:'top',className:'wtp-stop-tooltip'});
-   marker.on('click',()=>openStopPanel(group.id,x.pole||all[0].pole,group.name,color));
+   marker.on('click',()=>openStopPanel(group.id,x.pole,group.name,stopColor));
    marker.addTo(stopLayer);shown++;
   }
-  // Jedna stała etykieta na zespół, tylko gdy nie nachodzi na inną.
-  const px=map.latLngToContainerPoint(center);
-  const label=group.name||('ZP '+group.id);
-  const half=Math.min(95,Math.max(30,label.length*3.1));
-  if(zoom>=STOP_NAME_ZOOM&&!occupied.some(p=>Math.abs(p.x-px.x)<half+p.h&&Math.abs(p.y-px.y)<24)){
-   const marker=L.marker(center,{pane:'stopsPane',interactive:false,icon:L.divIcon({className:'wtp-zp-name-anchor',html:'',iconSize:[1,1]})});
-   marker.bindTooltip(escapeHTML(label),{permanent:true,direction:'top',offset:[0,-11],className:'wtp-stop-tooltip wtp-zp-label'});
-   marker.addTo(stopLayer);occupied.push({x:px.x,y:px.y,h:half});
+  // Nazwa ZP bez numeru, niewidoczny punkt kotwiczenia (bez kropki).
+  const px=map.latLngToContainerPoint(center),label=group.name||('ZP '+group.id);
+  const half=Math.min(100,Math.max(32,label.length*3.5));
+  if(zoom>=STOP_NAME_ZOOM&&!occupied.some(p=>Math.abs(p.x-px.x)<half+p.h&&Math.abs(p.y-px.y)<26)){
+   const anchor=L.marker(center,{pane:'stopsPane',interactive:false,icon:L.divIcon({className:'wtp-zp-name-anchor',html:'',iconSize:[0,0],iconAnchor:[0,0]})});
+   anchor.bindTooltip(escapeHTML(label),{permanent:true,direction:'top',offset:[0,-12],className:'wtp-stop-tooltip wtp-zp-label'});
+   anchor.addTo(stopLayer);occupied.push({x:px.x,y:px.y,h:half});
   }
  }
- $('stopStatus').textContent=`Przystanki: ${shown} słupków. Nazwy zespołów bez numerów.`;
+ $('stopStatus').textContent=`Zespoły: ${visibleGroups}; przystanki: ${shown}.`;
 }
 // WTP LIVE v42: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
 const lastLocations=new Map();
