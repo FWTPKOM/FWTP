@@ -133,46 +133,58 @@ function decorateRouteStop(li,lat,lon){
  else if(request===false)li.classList.add('fixed-stop');
  else li.classList.add('unknown-stop'); // GTFS nie zawiera typu NŻ: nie zgaduj
 }
+// v129: każdy słupek jest osobną kropką, zespół ma jeden obrys i jedną nazwę.
+function wtpStopGroupName(row){return String(value(row,'nazwa_zespolu')||value(row,'nazwa')||'').trim();}
 function renderStopMarkers(){
  if(!stopLayer||!map)return;
  stopLayer.clearLayers();
  if(!showStopMarkers||wtpSelectedVehicleOnly)return;
  const zoom=map.getZoom();
- if(zoom<STOP_DOT_ZOOM){$('stopStatus').textContent='Zespoły przystankowe ukryte — przybliż mapę.';return;}
+ if(zoom<STOP_DOT_ZOOM){$('stopStatus').textContent='Przystanki ukryte — przybliż mapę.';return;}
  if(!stops.length){if(!stopMapLoading)void toggleStopMap();return;}
- const bounds=map.getBounds().pad(.08),groups=new Map();
+ const bounds=map.getBounds().pad(.12),groups=new Map();
+ // Najpierw wszystkie słupki: okrąg nie może się zmieniać po przesunięciu mapy.
  for(const row of stops){
-  const coords=stopCoordinates(row);if(!coords||!bounds.contains(coords))continue;
+  const coords=stopCoordinates(row);if(!coords)continue;
   const id=String(value(row,'zespol')||'').trim();
-  const name=String(value(row,'nazwa_zespolu')||'').trim();
   const pole=String(value(row,'slupek')||'').trim();
-  if(!id||!pole)continue;
-  if(!groups.has(id))groups.set(id,{id,name,rows:[]});
+  if(!id)continue;
+  if(!groups.has(id))groups.set(id,{id,name:wtpStopGroupName(row),rows:[]});
   groups.get(id).rows.push({coords,row,pole});
  }
- const occupied=new Set();let shown=0;
+ let shown=0;const occupied=[];
  for(const group of groups.values()){
   const all=group.rows;
-  const center=[all.reduce((sum,x)=>sum+x.coords[0],0)/all.length,all.reduce((sum,x)=>sum+x.coords[1],0)/all.length];
-  const px=map.latLngToContainerPoint(center),cell=Math.floor(px.x/120)+':'+Math.floor(px.y/40);
+  if(!all.some(x=>bounds.contains(x.coords)))continue;
+  const center=[all.reduce((n,x)=>n+x.coords[0],0)/all.length,all.reduce((n,x)=>n+x.coords[1],0)/all.length];
   const meta=stopMetaAt(center[0],center[1]);
   const bus=meta&&Number.isFinite(meta[2]),tram=meta&&Number.isFinite(meta[3]);
   const color=bus&&tram?'#ed8b00':tram?'#e00000':bus?'#820082':'#64748b';
-  // Okrąg obejmuje słupki ZP. Leaflet mierzy promień w metrach.
   let radius=12;
-  for(const x of all)radius=Math.max(radius,geoDistance(center[0],center[1],x.coords[0],x.coords[1])+7);
-  radius=Math.min(radius,250);
-  const circle=L.circle(center,{radius,color,weight:1.7,fillColor:color,fillOpacity:.055,interactive:true,pane:'stopsPane'});
-  circle.bindTooltip(escapeHTML(group.name),{permanent:false,className:'wtp-stop-tooltip'});
-  circle.on('click',()=>openStopPanel(group.id,all[0].pole,group.name,color));
-  circle.addTo(stopLayer);
-  const icon=L.divIcon({className:'wtp-zp-icon',html:`<span class="wtp-zp-dot" style="--zp-color:${color}"></span>`,iconSize:[16,16],iconAnchor:[8,8]});
-  const marker=L.marker(center,{pane:'stopsPane',icon});
-  marker.bindTooltip(escapeHTML(group.name),{permanent:zoom>=STOP_NAME_ZOOM&&!occupied.has(cell),direction:'top',offset:[0,-9],className:'wtp-stop-tooltip wtp-zp-label'});
-  marker.on('click',()=>openStopPanel(group.id,all[0].pole,group.name,color));
-  marker.addTo(stopLayer);occupied.add(cell);shown++;
+  for(const x of all)radius=Math.max(radius,geoDistance(center[0],center[1],x.coords[0],x.coords[1])+6);
+  // Obrys całego zespołu, bez sztucznego znacznika w środku.
+  L.circle(center,{radius,color,weight:1.4,opacity:.75,fillColor:color,fillOpacity:.035,interactive:false,pane:'stopsPane'}).addTo(stopLayer);
+  for(const x of all){
+   if(!bounds.contains(x.coords))continue;
+   const sm=stopMetaAt(x.coords[0],x.coords[1]);
+   const request=isRequestStop(x.row,sm);
+   const marker=L.circleMarker(x.coords,{pane:'stopsPane',radius:zoom>=17?6:5,color,weight:2.2,
+    fillColor:request?'#fff':color,fillOpacity:1});
+   marker.bindTooltip(escapeHTML(group.name+(x.pole?' '+x.pole:'')),{direction:'top',className:'wtp-stop-tooltip'});
+   marker.on('click',()=>openStopPanel(group.id,x.pole||all[0].pole,group.name,color));
+   marker.addTo(stopLayer);shown++;
+  }
+  // Jedna stała etykieta na zespół, tylko gdy nie nachodzi na inną.
+  const px=map.latLngToContainerPoint(center);
+  const label=group.name||('ZP '+group.id);
+  const half=Math.min(95,Math.max(30,label.length*3.1));
+  if(zoom>=STOP_NAME_ZOOM&&!occupied.some(p=>Math.abs(p.x-px.x)<half+p.h&&Math.abs(p.y-px.y)<24)){
+   const marker=L.marker(center,{pane:'stopsPane',interactive:false,icon:L.divIcon({className:'wtp-zp-name-anchor',html:'',iconSize:[1,1]})});
+   marker.bindTooltip(escapeHTML(label),{permanent:true,direction:'top',offset:[0,-11],className:'wtp-stop-tooltip wtp-zp-label'});
+   marker.addTo(stopLayer);occupied.push({x:px.x,y:px.y,h:half});
+  }
  }
- $('stopStatus').textContent=`Zespoły przystankowe: ${shown}. Kliknij zespół, aby zobaczyć przystanki.`;
+ $('stopStatus').textContent=`Przystanki: ${shown} słupków. Nazwy zespołów bez numerów.`;
 }
 // WTP LIVE v42: historia pomiarów GPS; nie myli czasu GPS z czasem pobrania.
 const lastLocations=new Map();
@@ -1494,34 +1506,41 @@ function wtpDrawDirectionalRoute(group,points,color,shapeId){
  const ns='http://www.w3.org/2000/svg';
  const arrowId='wtp-route-arrow-'+(++wtpRouteArrowSerial);
  let overlay=null;
- const attach=()=>{
-  const path=route._path;
-  if(!path||!path.parentNode||overlay)return;
+ const detach=()=>{if(overlay){overlay.remove();overlay=null;}};
+ const refreshArrows=()=>{
+  const path=route._path;if(!path||!path.parentNode)return;
   path.id=arrowId;
+  detach();
+  const zoom=map.getZoom();
+  // 50 m na mapie, ale minimum 25 px na małym zoomie, żeby groty nie zlewały się.
+  const metresPerPixel=40075016.686*Math.cos(map.getCenter().lat*Math.PI/180)/(256*Math.pow(2,zoom));
+  const spacing=Math.max(25,Math.min(110,50/metresPerPixel));
+  const length=path.getTotalLength?.()||0;if(length<spacing*.6)return;
+  const count=Math.min(1800,Math.ceil(length/spacing)+3);
   const text=document.createElementNS(ns,'text');
   text.setAttribute('class','wtp-route-moving-arrows');
-  text.style.display=map.getZoom()<14?'none':'';
   text.setAttribute('aria-hidden','true');
-  text.setAttribute('dominant-baseline','middle');
+  text.setAttribute('dominant-baseline','central');
+  text.setAttribute('font-size',zoom<=13?'9':'10');
   const tp=document.createElementNS(ns,'textPath');
   tp.setAttribute('href','#'+arrowId);
   tp.setAttributeNS('http://www.w3.org/1999/xlink','href','#'+arrowId);
   tp.setAttribute('startOffset','0');
-  // Odstęp trzykrotnie większy niż poprzednio: z ~28 px do ~84 px.
-  // NBSP jest istotne: zwykłe spacje w SVG textPath są zwijane do jednej.
-  // Odstęp ~3 razy większy niż w v126 na ekranie.
-  tp.textContent=('›'+String.fromCharCode(160).repeat(24)).repeat(350);
+  // Dokładny odstęp w jednostkach ekranu zamiast zwijanych spacji SVG.
+  for(let i=0;i<count;i++){
+   const span=document.createElementNS(ns,'tspan');
+   span.textContent='›';span.setAttribute('dx',i===0?'0':String(Math.max(0,spacing-6)));
+   tp.appendChild(span);
+  }
   const anim=document.createElementNS(ns,'animate');
   anim.setAttribute('attributeName','startOffset');
-  anim.setAttribute('from','-96');anim.setAttribute('to','0');
-  anim.setAttribute('dur','5.5s');anim.setAttribute('repeatCount','indefinite');
+  anim.setAttribute('from',String(-spacing));anim.setAttribute('to','0');
+  anim.setAttribute('dur','4s');anim.setAttribute('repeatCount','indefinite');
   tp.appendChild(anim);text.appendChild(tp);path.parentNode.appendChild(text);overlay=text;
  };
- const detach=()=>{if(overlay){overlay.remove();overlay=null;}};
- const onZoom=()=>{if(overlay)overlay.style.display=map.getZoom()<14?'none':'';};
- route.on('add',()=>{attach();map.on('zoomend',onZoom)});
- route.on('remove',()=>{map.off('zoomend',onZoom);detach()});route.addTo(group);
- return route;
+ route.on('add',()=>{refreshArrows();map.on('zoomend',refreshArrows)});
+ route.on('remove',()=>{map.off('zoomend',refreshArrows);detach()});
+ route.addTo(group);return route;
 }
 // Rzut przystanku na najbliższy fragment rzeczywistej trasy. Nie zmieniamy
 // geometrii jezdni ani nie łączymy punktów odległych od siebie.
@@ -1732,7 +1751,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   if(!selected){
    // Surowe ETA to punkty kontrolne, a nie geometria ulic. Nie rysujemy
    // połączeń prostych przez ronda, budynki i drogi jednokierunkowe.
-   console.info('[WTP v128] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
+   console.info('[WTP v129] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
   }
   const newRouteKey=[vehicleKey(vehicle),String(id),String(selected?.shapeId||'')].join('|');
   if(wtpCourseMapLayer&&wtpCourseMapLayer._wtpRouteKey===newRouteKey)return;
@@ -1742,10 +1761,10 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   // Nie udawaj przebiegu po jezdni, jeśli posiadamy wyłącznie przybliżone punkty ETA.
   if(points){
    wtpDrawDirectionalRoute(group,points,color,selected?.shapeId);
-   console.info('[WTP v128] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
+   console.info('[WTP v129] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
   }
   else if(etaValid){
-   console.warn('[WTP v128] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
+   console.warn('[WTP v129] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
   }
   const orderedStops=match.selected.etaStops||[];
   const mapping=selected?.named?.mapping||[];
@@ -1775,7 +1794,8 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    const marker=L.circleMarker([lat,lon],{className:'wtp-course-stop',radius:7,color:color,weight:2.5,
     fillColor:onRequest?'#fff':color,fillOpacity:1,pane:'stopsPane'});
    const poleName=String(stop.slupek||stop.stop_no||stop.nr_slupka||stop.stop_number||'').trim();
-   const routeName=String(stop.name||stop.nazwa||'Przystanek');
+   const official=Array.isArray(stops)?stops.find(r=>{const p=stopCoordinates(r);return p&&geoDistance(lat,lon,p[0],p[1])<7;}):null;
+   const routeName=String(stop.name||stop.nazwa||wtpStopGroupName(official||{})||'Przystanek');
    marker.bindTooltip(escapeHTML(routeName+(poleName?' '+poleName:'')),
     {direction:'top',permanent:map.getZoom()>=15,className:'wtp-stop-tooltip wtp-course-stop-name'});
    marker.on('click',()=>{
@@ -1821,9 +1841,19 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
       coords=wtpOfficialStopNear(Number(anchor.lat),Number(anchor.lon),30);
     }
    }
+   // Fallback: pełna nazwa zespołu + numer słupka z oficjalnego API.
+   // Nigdy nie dobieramy tylko najbliższego słupka (może być po przeciwnej stronie).
+   if(!coords&&Array.isArray(stops)){
+    const nm=String(stop.name||stop.nazwa||'').trim().toLocaleLowerCase('pl');
+    const pole=String(stop.slupek||stop.stop_no||stop.nr_slupka||stop.stop_number||'').trim();
+    if(nm&&pole){
+     const found=stops.find(r=>wtpStopGroupName(r).toLocaleLowerCase('pl')===nm&&String(value(r,'slupek')||'').trim()===pole);
+     if(found)coords=stopCoordinates(found);
+    }
+   }
    addStop(i,coords);
   });
-  if(!selected)console.info('[WTP v128] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
+  if(!selected)console.info('[WTP v129] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
   group._wtpRouteKey=newRouteKey;
   group.addTo(map);
   const previous=wtpCourseMapLayer;
