@@ -1419,10 +1419,64 @@ function wtpRoundCorners(points){
  }
  out.push(points.at(-1));return out;
 }
+// v121: groty wyśrodkowane na osi linii, nie nad nią.
+// v120: prawdziwe groty (nie kreski), animowane wzdłuż krzywizny SVG.
+// SVG textPath orientuje każdy grot według stycznej do przebiegu kursu.
+// Nie przesuwamy geometrii ani nie tworzymy osobnych markerów.
+let wtpRouteArrowSerial=0;
 function wtpDrawDirectionalRoute(group,points,color,shapeId){
- // Brak sztucznych łuków: GTFS/OSM musi zawierać rzeczywiste punkty jezdni.
- return L.polyline(points,{color,weight:4,opacity:.96,smoothFactor:0,
-  interactive:false,lineCap:'round',lineJoin:'round'}).addTo(group);
+ const route=L.polyline(points,{color,weight:6,opacity:.96,smoothFactor:0,
+  interactive:false,lineCap:'round',lineJoin:'round'});
+ const ns='http://www.w3.org/2000/svg';
+ const arrowId='wtp-route-arrow-'+(++wtpRouteArrowSerial);
+ let overlay=null;
+ const attach=()=>{
+  const path=route._path;
+  if(!path||!path.parentNode||overlay)return;
+  path.id=arrowId;
+  const text=document.createElementNS(ns,'text');
+  text.setAttribute('class','wtp-route-moving-arrows');
+  text.setAttribute('aria-hidden','true');
+  // Wyrównanie do osi ścieżki: textPath ma środek znaku na geometrii.
+  text.setAttribute('dominant-baseline','middle');
+  text.setAttribute('dy','0.02em');
+  const tp=document.createElementNS(ns,'textPath');
+  tp.setAttribute('href','#'+arrowId);
+  tp.setAttributeNS('http://www.w3.org/1999/xlink','href','#'+arrowId);
+  tp.setAttribute('startOffset','0');
+  tp.setAttribute('dominant-baseline','middle');
+  // Niewielkie groty, oddzielone odstępami; powtarzają się wzdłuż całej trasy.
+  tp.textContent=('›     ').repeat(950);
+  const anim=document.createElementNS(ns,'animate');
+  anim.setAttribute('attributeName','startOffset');
+  anim.setAttribute('from','-28');
+  anim.setAttribute('to','0');
+  anim.setAttribute('dur','1.45s');
+  anim.setAttribute('repeatCount','indefinite');
+  tp.appendChild(anim);text.appendChild(tp);
+  path.parentNode.appendChild(text);overlay=text;
+ };
+ const detach=()=>{if(overlay){overlay.remove();overlay=null;}};
+ route.on('add',attach);route.on('remove',detach);
+ route.addTo(group);
+ return route;
+}
+// Rzut przystanku na najbliższy fragment rzeczywistej trasy. Nie zmieniamy
+// geometrii jezdni ani nie łączymy punktów odległych od siebie.
+function wtpStopRouteProjection(lat,lon,shape){
+ if(!Array.isArray(shape)||shape.length<2)return null;
+ const kx=111320*Math.cos(lat*Math.PI/180),ky=110540;
+ let best=Infinity,result=null;
+ for(let i=0;i<shape.length-1;i++){
+  const a=shape[i],b=shape[i+1];
+  const ax=(a[1]-lon)*kx,ay=(a[0]-lat)*ky;
+  const dx=(b[1]-a[1])*kx,dy=(b[0]-a[0])*ky;
+  const d2=dx*dx+dy*dy;
+  const t=d2?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/d2)):0;
+  const x=ax+t*dx,y=ay+t*dy,dist=x*x+y*y;
+  if(dist<best){best=dist;result=[lat+y/ky,lon+x/kx];}
+ }
+ return result?{coords:result,distance:Math.sqrt(best)}:null;
 }
 function wtpClearCourseMap(){
  
@@ -1616,7 +1670,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   if(!selected){
    // Surowe ETA to punkty kontrolne, a nie geometria ulic. Nie rysujemy
    // połączeń prostych przez ronda, budynki i drogi jednokierunkowe.
-   console.info('[WTP v118] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
+   console.info('[WTP v120] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
   }
   wtpClearCourseMap();
   const color=vehicle.kind===2?'#ec0000':'#820082';
@@ -1625,10 +1679,10 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   // Nie udawaj przebiegu po jezdni, jeśli posiadamy wyłącznie przybliżone punkty ETA.
   if(points){
    wtpDrawDirectionalRoute(group,points,color,selected?.shapeId);
-   console.info('[WTP v118] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
+   console.info('[WTP v120] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
   }
   else if(etaValid){
-   console.warn('[WTP v118] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
+   console.warn('[WTP v120] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
   }
   const orderedStops=match.selected.etaStops||[];
   const mapping=selected?.named?.mapping||[];
@@ -1645,6 +1699,16 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    const onRequest=requestFlag===true||requestFlag===1||requestFlag==='1'||
      (requestFlag==null&&nearby===true);
    const unknown=requestFlag==null&&nearby==null;
+   // Krótkie dojście do słupka tylko przy potwierdzonym wariancie GTFS.
+   // Maks. 14 m: bez sztucznych skrótów przez skrzyżowania i bez
+   // przyciągania do przypadkowego słupka po drugiej stronie jezdni.
+   if(points&&selected?.trip?.stops?.length&&Number.isInteger(mapping[i])&&mapping[i]>=0){
+    const projection=wtpStopRouteProjection(lat,lon,points);
+    if(projection&&projection.distance>2&&projection.distance<=14){
+     L.polyline([projection.coords,[lat,lon]],{color,weight:3,opacity:.82,
+      interactive:false,lineCap:'round',smoothFactor:0}).addTo(group);
+    }
+   }
    const marker=L.circleMarker([lat,lon],{radius:7,color:color,weight:2.5,
     fillColor:onRequest?'#fff':color,fillOpacity:1,pane:'stopsPane'});
    marker.bindTooltip(escapeHTML(String(orderedStops[i]?.name||orderedStops[i]?.nazwa||'Przystanek')),
@@ -1694,7 +1758,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    }
    addStop(i,coords);
   });
-  if(!selected)console.info('[WTP v118] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
+  if(!selected)console.info('[WTP v120] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
   group.addTo(map);wtpCourseMapLayer=group;
  }catch(e){console.warn('Geometria kursu:',e.message)}
 }
