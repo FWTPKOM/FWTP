@@ -329,6 +329,7 @@ async function refresh(){
    received[type]=rows;fetchedAt[type]=Date.now();ok++;
    try{sessionStorage.setItem(SNAPSHOT_KEY,JSON.stringify({1:{rows:received[1],at:fetchedAt[1]},2:{rows:received[2],at:fetchedAt[2]}}))}catch{}
    publishVehicles();
+   wtpRefreshCourseStopTimes();
    status.textContent='Pobrano '+new Date().toLocaleTimeString('pl-PL')+' · '+gpsAgeDescription();
   }catch(e){errors.push((type===1?'Autobusy':'Tramwaje')+': '+e.message)}
  };
@@ -1459,14 +1460,44 @@ function wtpCurrentVehicle(){
  const key=wtpActiveCourseVehicle;
  return key?vehicles.find(v=>vehicleKey(v)===key)||focusedVehicle:null;
 }
+// Status jest oparty na rzeczywistym GPS oraz czasie. Sam zegar nie jest
+// dowodem przejazdu: gdy GPS jest blisko, pokazujemy migające >>>.
 function wtpCourseStopStatus(index,coords,expected){
  const v=wtpCurrentVehicle();
  const lat=Number(v?.Lat),lon=Number(v?.Lon);
- const distance=Number.isFinite(lat)&&Number.isFinite(lon)&&coords?geoDistance(lat,lon,coords[0],coords[1]):Infinity;
+ const stamp=gpsMs(v?.Time);
+ const gpsFresh=Number.isFinite(stamp)&&Math.abs(Date.now()-stamp)<180000&&
+   Number.isFinite(lat)&&Number.isFinite(lon)&&lat>0&&lon>0;
+ const distance=gpsFresh&&coords?geoDistance(lat,lon,coords[0],coords[1]):Infinity;
  const now=nowWarsaw(new Date());
- const passedBySequence=wtpActiveCourseProgress>=0&&index<wtpActiveCourseProgress;
- const expired=Number.isFinite(expected)&&expected<now-2;
- return {distance,passed:passedBySequence||expired,approaching:!passedBySequence&&!expired&&distance<=200};
+ const near=gpsFresh&&distance<=200;
+ // Bez potwierdzonej sekwencji GPS nie oznaczamy mijania na podstawie
+ // indeksu wyliczonego raz przy otwieraniu panelu.
+ const passedByGPS=wtpGpsPassedStop(index,v,gpsFresh);
+ const pastTime=Number.isFinite(expected)&&expected<now-1;
+ return {distance,gpsFresh,passed:passedByGPS||(!near&&pastTime),approaching:near&&!passedByGPS};
+}
+function wtpGpsPassedStop(index,v,fresh){
+ if(!fresh||!Array.isArray(wtpActiveCourseStopMarkers)||wtpActiveCourseStopMarkers.length<2)return false;
+ const lat=Number(v.Lat),lon=Number(v.Lon);
+ // Wyznaczamy najbliższy punkt z listy przyszłych przystanków, a nie
+ // z całej trasy (ta sama ulica może być przejeżdżana dwukrotnie).
+ let best=null;
+ const now=nowWarsaw(new Date());
+ for(const item of wtpActiveCourseStopMarkers){
+  const el=item.marker.getTooltip()?.getElement()?.querySelector('.wtp-course-stop-eta');
+  const when=Number(el?.dataset.expectedMinutes);
+  if(!Number.isFinite(when)||when<now-5)continue;
+  const d=geoDistance(lat,lon,item.coords[0],item.coords[1]);
+  if(d<450&&(!best||d<best.d))best={index:item.index,d};
+ }
+ // Nie usuwamy przystanków na podstawie bliskości, gdy trasa zawraca:
+ // status musi być wsparty chronologią przejazdu.
+ if(!best||best.index<=index)return false;
+ const thisItem=wtpActiveCourseStopMarkers.find(x=>x.index===index);
+ const el=thisItem?.marker.getTooltip()?.getElement()?.querySelector('.wtp-course-stop-eta');
+ const when=Number(el?.dataset.expectedMinutes);
+ return Number.isFinite(when)&&when<=now;
 }
 
 function wtpUpdateCourseLabelZoom(){
@@ -1891,7 +1922,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   if(!selected){
    // Surowe ETA to punkty kontrolne, a nie geometria ulic. Nie rysujemy
    // połączeń prostych przez ronda, budynki i drogi jednokierunkowe.
-   console.info('[WTP v139] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
+   console.info('[WTP v140] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
   }
   const newRouteKey=[vehicleKey(vehicle),String(id),String(selected?.shapeId||'')].join('|');
   if(wtpCourseMapLayer&&wtpCourseMapLayer._wtpRouteKey===newRouteKey){wtpActiveCourseVehicle=vehicleKey(vehicle);wtpRefreshCourseStopTimes();return;}
@@ -1903,10 +1934,10 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   // Nie udawaj przebiegu po jezdni, jeśli posiadamy wyłącznie przybliżone punkty ETA.
   if(points){
    wtpDrawDirectionalRoute(group,points,color,selected?.shapeId);
-   console.info('[WTP v139] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
+   console.info('[WTP v140] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
   }
   else if(etaValid){
-   console.warn('[WTP v139] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
+   console.warn('[WTP v140] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
   }
   const orderedStops=match.selected.etaStops||[];
   const mapping=selected?.named?.mapping||[];
@@ -1991,7 +2022,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    }
    addStop(i,coords);
   });
-  if(!selected)console.info('[WTP v139] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
+  if(!selected)console.info('[WTP v140] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
   group._wtpRouteKey=newRouteKey;
   group.addTo(map);
   wtpUpdateCourseLabelZoom();
@@ -2003,40 +2034,35 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
 }
 // v139: odświeżanie zegara bez ponownego tworzenia markerów i całej trasy.
 function wtpRefreshCourseStopTimes(){
- const root=map?.getContainer();if(!root)return;
+ if(!map||!wtpCourseMapLayer||!map.hasLayer(wtpCourseMapLayer))return;
  const now=nowWarsaw(new Date());
- // Aktualizujemy również pozycję pojazdu bez usuwania warstwy kursu.
  for(const item of wtpActiveCourseStopMarkers){
-  if(!map?.hasLayer(wtpCourseMapLayer))break;
   const tooltip=item.marker.getTooltip()?.getElement();
-  if(!tooltip)continue;
-  const el=tooltip.querySelector('.wtp-course-stop-eta[data-expected-minutes]');
+  const el=tooltip?.querySelector('.wtp-course-stop-eta[data-expected-minutes]');
+  // Przystanek bez godziny nie jest usuwany automatycznie.
   if(!el)continue;
   const expected=Number(el.dataset.expectedMinutes);
   if(!Number.isFinite(expected))continue;
   const status=wtpCourseStopStatus(item.index,item.coords,expected);
-  // Po minięciu przystanku nie pokazuj ani etykiety, ani kropki.
-  const passed=status.passed;
-  const markerEl=item.marker.getElement();
-  if(markerEl)markerEl.style.display=passed?'none':'';
-  tooltip.style.display=passed?'none':'';
-  if(passed)continue;
+  if(status.passed){
+   if(wtpCourseMapLayer.hasLayer(item.marker))wtpCourseMapLayer.removeLayer(item.marker);
+   continue;
+  }
   const diff=expected-now;
   const mins=Math.max(0,Math.ceil(diff));
   const planned=el.dataset.planned||'';
   const actual=el.dataset.expected||'';
   const delayed=el.dataset.delayed==='1';
-  const gps=wtpCurrentVehicle();
-  const recent=Number.isFinite(gpsMs(gps?.Time))&&Math.abs(Date.now()-gpsMs(gps.Time))<180000;
-  const onTime=recent&&!delayed;
-  const near=status.approaching;
-  const text=near?'<span class="wtp-arrival-flash" aria-label="Pojazd blisko przystanku">&gt;&gt;&gt;</span>':(diff<=0?'Teraz':'Za '+mins+' min');
+  const onTime=status.gpsFresh&&!delayed;
+  const text=status.approaching?'<span class="wtp-arrival-flash" aria-label="Pojazd blisko przystanku">&gt;&gt;&gt;</span>':
+   (diff<=0?'Za chwilę':'Za '+mins+' min');
   const clock=delayed?'<s>'+escapeHTML(planned)+'</s> <b>'+escapeHTML(actual)+'</b>':
    '<span class="'+(onTime?'wtp-on-time':'')+'">'+escapeHTML(actual)+'</span>';
   const html=text+' · '+clock;
   if(el.innerHTML!==html)el.innerHTML=html;
  }
 }
+
 function wtpFocusRouteStop(index,row){
  if(!map)return;
  const coords=wtpRouteStopCoords.get(index);
