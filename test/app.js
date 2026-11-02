@@ -1423,10 +1423,53 @@ function wtpRoundCorners(points){
 // v120: prawdziwe groty (nie kreski), animowane wzdłuż krzywizny SVG.
 // SVG textPath orientuje każdy grot według stycznej do przebiegu kursu.
 // Nie przesuwamy geometrii ani nie tworzymy osobnych markerów.
+// v126: odsunięcie o 2,5 m po prawej stronie jazdy w układzie metrycznym.
+// Wspólne wierzchołki są uśredniane, a przesunięcie na ciasnych łukach ograniczane.
+const WTP_ROUTE_OFFSET_METERS=2.5;
+function wtpOffsetRight(points,meters=WTP_ROUTE_OFFSET_METERS){
+ if(!Array.isArray(points)||points.length<2)return points;
+ const lat0=points.reduce((v,p)=>v+p[0],0)/points.length;
+ const kx=111320*Math.cos(lat0*Math.PI/180),ky=110540;
+ const normals=[];
+ for(let i=0;i<points.length-1;i++){
+  const dx=(points[i+1][1]-points[i][1])*kx,dy=(points[i+1][0]-points[i][0])*ky;
+  const len=Math.hypot(dx,dy);normals.push(len>.01?[dy/len,-dx/len]:null);
+ }
+ return points.map((p,i)=>{
+  const n0=normals[i-1],n1=normals[i];let nx=0,ny=0,scale=1;
+  if(n0&&n1){nx=n0[0]+n1[0];ny=n0[1]+n1[1];const len=Math.hypot(nx,ny);
+   if(len>.2){nx/=len;ny/=len;const dot=nx*n1[0]+ny*n1[1];scale=Math.min(1.35,1/Math.max(.75,dot));}
+   else{nx=n1[0];ny=n1[1];}
+  }else{const n=n0||n1;if(!n)return p;nx=n[0];ny=n[1];}
+  return [p[0]+ny*meters*scale/ky,p[1]+nx*meters*scale/kx];
+ });
+}
+// Zaokrąglanie wyłącznie geometrii wyświetlania; nie poprawia brakujących zawrotek GTFS.
+function wtpSoftRoute(points){
+ if(!Array.isArray(points)||points.length<3)return points;
+ const out=[points[0]];
+ for(let i=1;i<points.length-1;i++){
+  const p=points[i],a=points[i-1],b=points[i+1];
+  const kx=111320*Math.cos(p[0]*Math.PI/180),ky=110540;
+  const ax=(a[1]-p[1])*kx,ay=(a[0]-p[0])*ky,bx=(b[1]-p[1])*kx,by=(b[0]-p[0])*ky;
+  const la=Math.hypot(ax,ay),lb=Math.hypot(bx,by);
+  if(la<4||lb<4){out.push(p);continue;}
+  const cosine=Math.max(-1,Math.min(1,(ax*bx+ay*by)/(la*lb)));
+  const angle=Math.acos(cosine)*180/Math.PI;
+  if(angle>160||angle<42){out.push(p);continue;}
+  const r=Math.min(5,la*.28,lb*.28);
+  const from=[p[0]+ay/la*r/ky,p[1]+ax/la*r/kx];
+  const to=[p[0]+by/lb*r/ky,p[1]+bx/lb*r/kx];
+  out.push(from);
+  for(const t of [.2,.4,.6,.8]){const u=1-t;out.push([u*u*from[0]+2*u*t*p[0]+t*t*to[0],u*u*from[1]+2*u*t*p[1]+t*t*to[1]]);}
+  out.push(to);
+ }
+ out.push(points[points.length-1]);return out;
+}
 let wtpRouteArrowSerial=0;
 function wtpDrawDirectionalRoute(group,points,color,shapeId){
- const route=L.polyline(points,{color,weight:6,opacity:.96,smoothFactor:0,
-  interactive:false,lineCap:'round',lineJoin:'round'});
+ const renderPoints=wtpSoftRoute(wtpOffsetRight(points));
+ const route=L.polyline(renderPoints,{color,weight:6,opacity:.96,smoothFactor:0,interactive:false,lineCap:'round',lineJoin:'round'});
  const ns='http://www.w3.org/2000/svg';
  const arrowId='wtp-route-arrow-'+(++wtpRouteArrowSerial);
  let overlay=null;
@@ -1437,28 +1480,21 @@ function wtpDrawDirectionalRoute(group,points,color,shapeId){
   const text=document.createElementNS(ns,'text');
   text.setAttribute('class','wtp-route-moving-arrows');
   text.setAttribute('aria-hidden','true');
-  // Wyrównanie do osi ścieżki: textPath ma środek znaku na geometrii.
   text.setAttribute('dominant-baseline','middle');
-  text.setAttribute('dy','0.02em');
   const tp=document.createElementNS(ns,'textPath');
   tp.setAttribute('href','#'+arrowId);
   tp.setAttributeNS('http://www.w3.org/1999/xlink','href','#'+arrowId);
   tp.setAttribute('startOffset','0');
-  tp.setAttribute('dominant-baseline','middle');
-  // Niewielkie groty, oddzielone odstępami; powtarzają się wzdłuż całej trasy.
-  tp.textContent=('›     ').repeat(950);
+  // Odstęp trzykrotnie większy niż poprzednio: z ~28 px do ~84 px.
+  tp.textContent=('›                 ').repeat(550);
   const anim=document.createElementNS(ns,'animate');
   anim.setAttribute('attributeName','startOffset');
-  anim.setAttribute('from','-28');
-  anim.setAttribute('to','0');
-  anim.setAttribute('dur','1.45s');
-  anim.setAttribute('repeatCount','indefinite');
-  tp.appendChild(anim);text.appendChild(tp);
-  path.parentNode.appendChild(text);overlay=text;
+  anim.setAttribute('from','-84');anim.setAttribute('to','0');
+  anim.setAttribute('dur','4.35s');anim.setAttribute('repeatCount','indefinite');
+  tp.appendChild(anim);text.appendChild(tp);path.parentNode.appendChild(text);overlay=text;
  };
  const detach=()=>{if(overlay){overlay.remove();overlay=null;}};
- route.on('add',attach);route.on('remove',detach);
- route.addTo(group);
+ route.on('add',attach);route.on('remove',detach);route.addTo(group);
  return route;
 }
 // Rzut przystanku na najbliższy fragment rzeczywistej trasy. Nie zmieniamy
@@ -1670,7 +1706,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   if(!selected){
    // Surowe ETA to punkty kontrolne, a nie geometria ulic. Nie rysujemy
    // połączeń prostych przez ronda, budynki i drogi jednokierunkowe.
-   console.info('[WTP v120] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
+   console.info('[WTP v126] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
   }
   wtpClearCourseMap();
   const color=vehicle.kind===2?'#ec0000':'#820082';
@@ -1679,10 +1715,10 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   // Nie udawaj przebiegu po jezdni, jeśli posiadamy wyłącznie przybliżone punkty ETA.
   if(points){
    wtpDrawDirectionalRoute(group,points,color,selected?.shapeId);
-   console.info('[WTP v120] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
+   console.info('[WTP v126] Pełna geometria bez przesunięcia',{line,shape_id:selected?.shapeId||null});
   }
   else if(etaValid){
-   console.warn('[WTP v120] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
+   console.warn('[WTP v126] Nie rysuję przybliżonej trasy ETA bez potwierdzenia',{line,course_id:id});
   }
   const orderedStops=match.selected.etaStops||[];
   const mapping=selected?.named?.mapping||[];
@@ -1758,7 +1794,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    }
    addStop(i,coords);
   });
-  if(!selected)console.info('[WTP v120] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
+  if(!selected)console.info('[WTP v126] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
   group.addTo(map);wtpCourseMapLayer=group;
  }catch(e){console.warn('Geometria kursu:',e.message)}
 }
