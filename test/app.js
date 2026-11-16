@@ -1,4 +1,5 @@
-// WTP LIVE — WERSJA: 135
+// WTP LIVE — WERSJA: v151 — dynamiczne etykiety, minięte przystanki, nazwy ETA
+// WTP LIVE — WERSJA: 150
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
 const PROXY=String(window.WTP_API_PROXY||'').replace(/\/$/,'');
@@ -216,7 +217,7 @@ function applyServerHeadings(rows,type){
   const key=String(type)+':'+String(v.VehicleNumber);
   const hit=serverHeadings[key]||serverHeadings[key+':'+String(v.Lines)+':'+String(v.Brigade||'')];
   const bearing=Number(hit?.bearing);
-  if(hit&&Number.isFinite(bearing)&&bearing>=0&&bearing<360){
+  if(hit&&Number.isFinite(bearing)&&bearing>=0&&bearing<360 && !Number.isFinite(v._bearing)){
    v._bearing=bearing;
    v._serverBearing=true;
   }
@@ -233,9 +234,9 @@ function updateHeadings(rows){
   if(prev&&stamp>prev.stamp){
    const metres=geoDistance(prev.lat,prev.lon,lat,lon);
    const seconds=(stamp-prev.stamp)/1000;
-   if(metres>=7&&metres<=1200&&seconds>0&&seconds<=600){
+   if(metres>=9&&metres<=350&&seconds>0&&seconds<=240){
     bearing=direction(prev.lat,prev.lon,lat,lon);
-   }else if(metres>1200){bearing=null;}
+   }else if(metres>1200){/* pojedynczy skok GPS nie kasuje kierunku */}
   }
   if(Number.isFinite(bearing))v._bearing=bearing;
   // Nie zastępuj nowszej pozycji starszą odpowiedzią API.
@@ -297,9 +298,14 @@ function publishVehicles(){
    focusedVehicle={...current};lastPanelAutoRefresh=Date.now();
    // v128: GPS aktualizuje tylko marker. Nie otwieraj panelu ponownie,
    // nie kasuj geometrii i nie pobieraj ponownie ETA przy każdym ruchu.
-   // Zmiana kursu jest obsługiwana po ponownym wyborze pojazdu.
+   // v153: aktualizuj panel również po zmianie GPS, bez ciągłego restartu ETA.
    const heading=$('vehicleHeading');
    if(heading)heading.textContent=`${current.Lines} · ${current.kind===2?'Tramwaj':'Autobus'} · brygada ${current.Brigade} · tabor ${current.VehicleNumber}`;
+   if(Date.now()-(window.wtpLastFullPanelUpdate||0)>45000){
+    window.wtpLastFullPanelUpdate=Date.now();
+    const scroll=$('vehicleBody')?.scrollTop||0;
+    void openVehiclePanel(current,{keepScroll:scroll});
+   }
   }
  }
 }
@@ -445,7 +451,7 @@ async function etaGet(path,params={}) {
  if(old&&Date.now()-old.at<ttl)return old.promise;
  const promise=(async()=>{
   let error;
-  for(let attempt=0;attempt<3;attempt++){
+  for(let attempt=0;attempt<2;attempt++){
    try{
     const data=await request('/eta/'+path,params);
     etaLastGood.set(key,{at:Date.now(),data});
@@ -454,7 +460,7 @@ async function etaGet(path,params={}) {
     error=e;
     const msg=String(e?.message||e);
     if(!/HTTP (502|503|504)|Failed to fetch|NetworkError|abort|timeout/i.test(msg))break;
-    if(attempt<2)await etaDelay(attempt===0?1200:2800);
+    if(attempt<1)await etaDelay(450);
    }
   }
   const previous=etaLastGood.get(key);
@@ -553,9 +559,8 @@ function etaCourseDistance(bounds,now){
 async function etaMatchVehicle(v,gtfsTrips=[]){
  const line=String(v.Lines||'').trim(),brigade=normalizeBrigade(v.Brigade);
  if(!line||!brigade)throw Error('Brak linii lub brygady');
- const health=await etaGet('health');
+ const [health,response]=await Promise.all([etaGet('health'),etaGet('courses',{line,limit:5000})]);
  if(!health.ok||etaDay(health.metadata?.date)!==todayWarsaw())throw Error('Nieaktualna baza ETA: '+(health.metadata?.date||'brak'));
- const response=await etaGet('courses',{line,limit:5000});
  const courses=(response.courses||[]).filter(c=>normalizeBrigade(c.brigade)===brigade);
  if(!courses.length)throw Error('Brak kursów ETA tej brygady');
  const stamp=gpsMs(v.Time),now=nowWarsaw(Number.isFinite(stamp)?new Date(stamp):new Date());
@@ -563,10 +568,10 @@ async function etaMatchVehicle(v,gtfsTrips=[]){
  const likely=courses.map(course=>({course,departure:etaServiceMinutes(course.departure)}))
   .filter(x=>Number.isFinite(x.departure))
   .map(x=>({...x,preDistance:Math.min(...[-1440,0,1440].map(d=>Math.abs(now+d-x.departure-35)))}))
-  .sort((a,b)=>a.preDistance-b.preDistance).slice(0,24);
+  .sort((a,b)=>a.preDistance-b.preDistance).slice(0,8);
  const evaluated=[];
- for(let batch=0;batch<likely.length;batch+=6){
-  const results=await Promise.all(likely.slice(batch,batch+6).map(async x=>{
+ for(let batch=0;batch<likely.length;batch+=18){
+  const results=await Promise.all(likely.slice(batch,batch+18).map(async x=>{
    try{const detail=await etaGet('courses/'+encodeURIComponent(x.course.course_id)+'/stops');
     const stops=(detail.stops||[]).slice().sort((a,b)=>Number(a.seq)-Number(b.seq));
     if(stops.length<2)return null;
@@ -713,11 +718,39 @@ function etaNameMatch(etaStops,gtfsTrips,course){
    candidates[0].trip.stops.map(s=>s[0]).join()!==candidates[1].trip.stops.map(s=>s[0]).join())return null;
  return candidates[0]||null;
 }
+// v151: ETA stop_id is an internal ID, not a stop name. Never display it as a name.
+function wtpResolveEtaStopName(stop, matchedStop, tripList){
+ const direct=String(stop?.name||stop?.nazwa||stop?.stop_name||'').trim();
+ if(direct&&!/^Przystanek\s+\d+$/i.test(direct))return direct;
+ const gtfs=String(matchedStop?.[1]||'').trim();
+ if(gtfs)return gtfs;
+ const sid=String(stop?.stop_id??stop?.stopId??'').trim();
+ const pole=String(stop?.slupek??stop?.stop_no??stop?.nr_slupka??'').trim();
+ // A six-digit official stop identifier may be resolved by group + pole.
+ const officialCandidates=[];
+ if(Array.isArray(stopsGlobalForEtaNames()))for(const r of stopsGlobalForEtaNames()){
+  const group=String(value(r,'zespol')||value(r,'id_zespolu')||'').trim();
+  const platform=String(value(r,'slupek')||'').trim();
+  const combined=group.padStart(4,'0')+platform.padStart(2,'0');
+  if((sid.length===6&&combined===sid)||(pole&&sid.length===4&&group===sid&&platform===pole)){
+   const nm=wtpStopGroupName(r);if(nm)officialCandidates.push(nm);
+  }
+ }
+ if(officialCandidates.length&&officialCandidates.every(n=>n===officialCandidates[0]))return officialCandidates[0];
+ // Match GTFS by exact stop ID only; a similar time alone is not a reliable name.
+ const gtfsCandidates=[];
+ for(const t of tripList||[])for(const s of t.stops||[]){
+  if(String(s[0]??'')===sid&&String(s[1]||'').trim())gtfsCandidates.push(String(s[1]).trim());
+ }
+ if(gtfsCandidates.length&&gtfsCandidates.every(n=>n===gtfsCandidates[0]))return gtfsCandidates[0];
+ return 'Nieustalona nazwa przystanku';
+}
+function stopsGlobalForEtaNames(){return typeof stops!=='undefined'&&Array.isArray(stops)?stops:[];}
 function etaNamesForCourse(stops,gtfsTrips,course){
  const matched=etaNameMatch(stops,gtfsTrips,course);
  return {matched:!!matched,mapping:matched?.mapping,trip:matched?.trip,names:stops.map((s,i)=>{
   const j=matched?.mapping[i];
-  return j>=0?String(matched.trip.stops[j][1]||'Przystanek'):'Przystanek '+String(s.stop_id??'?');
+  return wtpResolveEtaStopName(s,j>=0?matched.trip.stops[j]:null,gtfsTrips);
  })};
 }
 // WERSJA 65: dopasowanie postępu pojazdu na trasie i zmiana kursu na pętli.
@@ -1137,7 +1170,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
   // v87: prognoza nie znika natychmiast po przejechaniu przystanku.
   // Dopóki nie ma obserwacji GPS, pozostaje jawnie oznaczoną prognozą,
   // NIGDY nie jest przedstawiana jako potwierdzony rzeczywisty odjazd.
-  const currentEstimate=(i===0?null:(prediction.delay!==null&&prediction.confirmedIndex>=0&&prediction.delay>=0&&Number.isFinite(planned)&&i>=prediction.confirmedIndex?planned+prediction.delay:null));
+  const currentEstimate=(i===0?null:(prediction.delay!==null&&prediction.confirmedIndex>=0&&prediction.delay>=-30&&Number.isFinite(planned)&&i>=prediction.confirmedIndex?planned+prediction.delay:null));
   const forecastIsFresh=previousForecast&&Date.now()-previousForecast.savedAt<4*3600000;
   const estimate=safeMeasured!==null?safeMeasured:(currentEstimate!==null?currentEstimate:(forecastIsFresh?previousForecast.time:null));
   if(currentEstimate!==null&&Number.isFinite(currentEstimate)&&safeMeasured===null){
@@ -1151,14 +1184,14 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=displayClock(planned);
    old.style.cssText='display:block;text-decoration:line-through;color:#9299a0;font-size:12px;line-height:1.2;text-align:right';
    const next=document.createElement('strong');next.className='wtp-estimated-time';next.textContent=displayClock(estimate);
-   next.style.cssText='display:block;color:'+(safeMeasured!==null?'#137044':'#c9221c')+';font-weight:750;line-height:1.3;text-align:right';
-   if(safeMeasured===null&&currentEstimate===null)next.style.color=Math.abs(estimate-planned)<1?'#16834b':'#c9221c';
+   next.style.cssText='display:block;color:'+(safeMeasured!==null?'#137044':(estimate<planned?'#1976d2':'#c9221c'))+';font-weight:750;line-height:1.3;text-align:right';
+   if(safeMeasured===null&&currentEstimate===null)next.style.color=Math.abs(estimate-planned)<1?'#16834b':(estimate<planned?'#1976d2':'#c9221c');
    if(Math.abs(estimate-planned)<1){
     next.style.color='#19734b';
     time.append(next);
     time.title='Szacowany czas zgodny z rozkładem (GPS)';
    }else{
-    if(safeMeasured===null)next.style.color='#c9221c';
+    if(safeMeasured===null)next.style.color=estimate<planned?'#1976d2':'#c9221c';
     time.append(old,next);
     time.title=safeMeasured!==null?'Historyczna godzina przejazdu oszacowana z GPS (nie jest odczytem drzwi)':(currentEstimate===null?'Zachowana wcześniejsza prognoza; brak potwierdzenia GPS':'Szacowana godzina przyjazdu z GPS');
    }
@@ -1171,6 +1204,7 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
    planned:Number.isFinite(planned)?displayClock(planned):displayClock(raw),
    expected:Number.isFinite(expected)?displayClock(expected):null,
    delayed:Number.isFinite(estimate)&&Number.isFinite(planned)&&Math.abs(estimate-planned)>=1,
+   deltaMinutes:Number.isFinite(estimate)&&Number.isFinite(planned)?estimate-planned:0,
    remaining:remaining!==null&&remaining>=0&&remaining<24*60?remaining:null,
    estimated:Number.isFinite(estimate),
    expectedMinutes:Number.isFinite(expected)?expected:null
@@ -1353,7 +1387,7 @@ function displayTimeCell(item,i,delayInfo){
  if(delayInfo&&i>delayInfo.at&&Number.isFinite(minutes(item[4]))){
   const old=document.createElement('span');old.className='wtp-planned-time';old.textContent=planned;old.style.cssText='display:block;text-decoration:line-through;color:#91979d;font-size:12px;line-height:1.15;text-align:right';
   const next=document.createElement('strong');next.className='wtp-estimated-time';
-  next.textContent=displayClock(minutes(item[4])+delayInfo.delay);next.style.cssText='display:block;color:#cf271e;font-weight:750;line-height:1.3;text-align:right';
+  next.textContent=displayClock(minutes(item[4])+delayInfo.delay);next.style.cssText='display:block;color:'+(delayInfo.delay<0?'#1976d2':'#cf271e')+';font-weight:750;line-height:1.3;text-align:right';
   t.append(old,next);t.title='Prognoza +'+Math.round(delayInfo.delay)+' min na podstawie '+(delayInfo.source||'GPS')+'; nie jest to oficjalny odjazd';
  }else{t.textContent=planned}
  return t;
@@ -1430,7 +1464,12 @@ function wtpApplyServerState(body,data,choice){
    const old=document.createElement('span');old.className='wtp-server-planned';old.textContent=planned;cell.append(old);
   }
   const real=document.createElement('strong');real.className=actual?'wtp-server-actual':'wtp-server-forecast';real.textContent=newClock;
-  if(newClock===planned)real.classList.add('wtp-on-time');
+  const toMin=t=>{const m=/^(\d{1,2}):(\d{2})$/.exec(String(t));return m?Number(m[1])*60+Number(m[2]):NaN;};
+  let delta=toMin(newClock)-toMin(planned);
+  if(delta>720)delta-=1440;if(delta< -720)delta+=1440;
+  if(delta<0)real.classList.add('wtp-time-early');
+  else if(delta>0)real.classList.add('wtp-time-late');
+  else real.classList.add('wtp-on-time');
   cell.append(real);cell.title=actual?'Przejazd oszacowany z zapisanej historii GPS':'Prognoza GPS zapisana na serwerze';
   if(actual)row.classList.add('wtp-server-passed','passed');
   changed++;
@@ -1438,7 +1477,7 @@ function wtpApplyServerState(body,data,choice){
  if(changed){
   const note=document.createElement('p');note.className='wtp-server-note';
   note.textContent='Dane wspolne z serwera GPS: '+events.size+' zdarzen, '+predictions.size+' prognoz. Godziny rzeczywiste sa szacowane na podstawie GPS.';
-  body.prepend(note);
+  body.querySelectorAll('.wtp-server-note').forEach(n=>n.remove());body.prepend(note);
  }
 }
 function wtpPreferServerCourse(match,data){
@@ -1500,8 +1539,61 @@ function wtpGpsPassedStop(index,v,fresh){
  return Number.isFinite(when)&&when<=now;
 }
 
+// v154: wszystkie etykiety widocznych przystanków, bez pomijania co N-ty.
+// Pozycje przeliczane w pikselach Leaflet przy każdej zmianie widoku.
+let wtpCourseLabelLayoutQueued=false;
+let wtpLabelConnectors=null;
+function wtpScheduleCourseLabelLayout(){
+ if(wtpCourseLabelLayoutQueued)return;
+ wtpCourseLabelLayoutQueued=true;
+ requestAnimationFrame(()=>{wtpCourseLabelLayoutQueued=false;wtpLayoutCourseLabels();});
+}
+// v154: chmurka zawsze styka się z kropką własnym trójkątem.
+// Przesuwamy ją tylko w poziomie; grot jest przesuwany wewnątrz jej szerokości.
+function wtpLayoutCourseLabels(){
+ if(!map||!wtpCourseMapLayer||!map.hasLayer(wtpCourseMapLayer))return;
+ const size=map.getSize(),occupied=[];
+ const items=wtpActiveCourseStopMarkers.filter(x=>map.hasLayer(x.marker));
+ if(wtpLabelConnectors){wtpLabelConnectors.remove();wtpLabelConnectors=null;}
+ for(const item of items){
+  const tip=item.marker.getTooltip();if(!tip)continue;
+  if(!item.marker.isTooltipOpen())item.marker.openTooltip();
+  const el=tip.getElement();if(!el)continue;
+  el.style.display='';tip.options.offset=L.point(0,-9);tip.setLatLng(item.marker.getLatLng());
+ }
+ const candidates=items.map(item=>({item,p:map.latLngToContainerPoint(item.marker.getLatLng())}));
+ candidates.sort((a,b)=>a.p.y-b.p.y||a.p.x-b.p.x);
+ for(const {item,p} of candidates){
+  const tip=item.marker.getTooltip(),el=tip?.getElement();if(!el)continue;
+  if(p.x<0||p.x>size.x||p.y<0||p.y>size.y){el.style.display='none';continue;}
+  const w=el.offsetWidth,h=el.offsetHeight;
+  // Grot trójkąta nie może wyjść poza krawędź chmurki.
+  const maxShift=Math.max(0,w/2-13);
+  const minDx=Math.max(-maxShift,8+w/2-p.x);
+  const maxDx=Math.min(maxShift,size.x-8-w/2-p.x);
+  const shifts=[0,12,-12,24,-24,36,-36,48,-48,64,-64,80,-80,100,-100];
+  let best=null;
+  for(const proposed of shifts){
+   const dx=minDx<=maxDx?Math.max(minDx,Math.min(maxDx,proposed)):Math.max(-maxShift,Math.min(maxShift,proposed));
+   const box={left:p.x+dx-w/2,right:p.x+dx+w/2,top:p.y-9-h,bottom:p.y-9};
+   const overlap=occupied.reduce((sum,b)=>sum+Math.max(0,Math.min(box.right,b.right+3)-Math.max(box.left,b.left-3))*Math.max(0,Math.min(box.bottom,b.bottom+3)-Math.max(box.top,b.top-3)),0);
+   const score=overlap*100+Math.abs(dx);
+   if(!best||score<best.score)best={dx,box,score};
+   if(overlap===0)break;
+  }
+  if(!best)continue;
+  occupied.push(best.box);
+  tip.options.offset=L.point(best.dx,-9);
+  tip.setLatLng(item.marker.getLatLng());
+  const node=tip.getElement();if(node){
+   node.style.display='';
+   node.style.setProperty('--wtp-arrow-shift',(-best.dx)+'px');
+   node.classList.toggle('wtp-label-displaced',Math.abs(best.dx)>2);
+  }
+ }
+}
 function wtpUpdateCourseLabelZoom(){
- if(map)map.getContainer().classList.toggle('wtp-course-labels-far',map.getZoom()<14);
+ if(map)map.getContainer().classList.remove('wtp-course-labels-far');
 }
 
 // Przystanki wybranego kursu pozostają widoczne także po ukryciu przystanków ogólnych.
@@ -1674,10 +1766,10 @@ function wtpDrawDirectionalRoute(group,points,color,shapeId){
   route.setStyle({weight:zoom<=11?2.6:zoom<=13?3.4:zoom<=15?4.3:5.2});
   const mpp=40075016.686*Math.cos(map.getCenter().lat*Math.PI/180)/(256*Math.pow(2,zoom));
   // W oddaleniu minimalny odstęp ekranowy, żeby groty nie tworzyły plamy.
-  const spacing=Math.max(14,50/mpp);
+  const spacing=zoom<=11?64:zoom<=13?58:zoom<=15?51:46;
   const length=path.getTotalLength?.()||0;
   if(length<3){return;}
-  const count=Math.min(2400,Math.ceil(length/spacing)+3);
+  const count=Math.min(1500,Math.ceil(length/spacing)+2);
   const text=document.createElementNS(ns,'text');
   text.setAttribute('class','wtp-route-moving-arrows wtp-route-arrows-v136');
   text.setAttribute('aria-hidden','true');
@@ -1908,13 +2000,34 @@ function wtpEtaSafeSegments(points){
  if(current.length>1)segments.push(current);
  return segments;
 }
+let wtpStopCatalogPromise=null;
 async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
  const id=match?.selected?.course?.course_id;
  if(!id)return;
  try{
   const line=String(vehicle.Lines||match.selected.course.line||'');
-  if(!stops.length){try{stops=normalizedRows(await request('/stops'))}catch(e){console.warn('Słupki kursu:',e.message)}}
-  const [catalog,eta]=await Promise.all([wtpLoadShapeCatalog(line),etaGet('courses/'+encodeURIComponent(id)+'/geometry').catch(()=>null)]);
+  if(!stops.length){
+   // Wspólne pobranie katalogu: bez wyścigu, który wcześniej pomijał słupki.
+   if(!wtpStopCatalogPromise){
+    wtpStopCatalogPromise=request('/stops').then(rows=>{
+     const result=normalizedRows(rows);
+     if(result.length)stops=result;
+     return stops;
+    }).catch(e=>{console.warn('Katalog przystanków:',e.message);return stops;})
+     .finally(()=>{wtpStopCatalogPromise=null;});
+   }
+   // Krótkie oczekiwanie: jeśli API jest wolne, rysuj trasę bez blokowania.
+   await Promise.race([wtpStopCatalogPromise,new Promise(resolve=>setTimeout(resolve,900))]);
+   if(!stops.length){
+    // Gdy API skończy później, automatycznie odtwórz komplet znaczników.
+    wtpStopCatalogPromise?.then(rows=>{
+     if(!rows?.length||serial!==vehiclePanelRequest||$('vehiclePanel')?.hidden)return;
+     if(wtpCourseMapLayer)wtpCourseMapLayer._wtpRouteKey='';
+     void wtpShowCourseMap(match,vehicle,serial,trips);
+    });
+   }
+  }
+  const [catalog,eta]=await Promise.all([wtpLoadShapeCatalog(line),Promise.race([etaGet('courses/'+encodeURIComponent(id)+'/geometry').catch(()=>null),new Promise(resolve=>setTimeout(()=>resolve(null),1800))])]);
   if(serial!==vehiclePanelRequest||$('vehiclePanel')?.hidden)return;
   const selected=wtpChooseShape(catalog,match.selected,trips,vehicle,eta);
   // ETA jest wyłącznie wariantem awaryjnym, gdy brak potwierdzonego GTFS.
@@ -1924,10 +2037,22 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    // połączeń prostych przez ronda, budynki i drogi jednokierunkowe.
    console.info('[WTP v140] Brak wiarygodnej trasy po ulicach; pominięto linię ETA',{line,course_id:id,etaValid});
   }
-  const newRouteKey=[vehicleKey(vehicle),String(id),String(selected?.shapeId||'')].join('|');
+  const newRouteKey=[vehicleKey(vehicle),String(id),String(selected?.shapeId||''),String(trips?.length||0),String(stops?.length||0)].join('|');
   if(wtpCourseMapLayer&&wtpCourseMapLayer._wtpRouteKey===newRouteKey){wtpActiveCourseVehicle=vehicleKey(vehicle);wtpRefreshCourseStopTimes();return;}
   const color=vehicle.kind===2?'#ec0000':'#820082';
-  const points=selected?.shape||null;
+  let points=selected?.shape||null;
+  // Kierunek GTFS jest weryfikowany kolejnością słupków kursu.
+  // Dla dwukierunkowego shape odwracamy geometrię, a nie obracamy same groty.
+  if(points&&selected?.named?.trip?.stops?.length>=2){
+   const list=selected.named.trip.stops;
+   const first=list[0],last=list[list.length-1];
+   const a=[Number(first[2]),Number(first[3])],b=[Number(last[2]),Number(last[3])];
+   if(a.every(Number.isFinite)&&b.every(Number.isFinite)){
+    const normal=geoDistance(a[0],a[1],points[0][0],points[0][1])+geoDistance(b[0],b[1],points.at(-1)[0],points.at(-1)[1]);
+    const reverse=geoDistance(a[0],a[1],points.at(-1)[0],points.at(-1)[1])+geoDistance(b[0],b[1],points[0][0],points[0][1]);
+    if(reverse+100<normal)points=points.slice().reverse();
+   }
+  }
   const group=L.layerGroup();
   wtpActiveCourseVehicle=vehicleKey(vehicle);
   wtpActiveCourseStopMarkers=[];
@@ -1959,18 +2084,25 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
     fillColor:onRequest?'#fff':color,fillOpacity:1,pane:'stopsPane'});
    const poleName=String(stop.slupek||stop.stop_no||stop.nr_slupka||stop.stop_number||'').trim();
    const official=Array.isArray(stops)?stops.find(r=>{const p=stopCoordinates(r);return p&&geoDistance(lat,lon,p[0],p[1])<7;}):null;
-   const routeName=String(stop.name||stop.nazwa||wtpStopGroupName(official||{})||'Przystanek');
+   const mappedIndex=selected?.named?.mapping?.[i];
+   const mappedStop=Number.isInteger(mappedIndex)&&mappedIndex>=0?selected.named.trip?.stops?.[mappedIndex]:null;
+   const routeName=String((stop.name||stop.nazwa||wtpStopGroupName(official||{})||wtpResolveEtaStopName(stop,mappedStop,trips)));
+   // Ta sama potwierdzona nazwa w mapie i panelu kursu.
+   const listName=document.querySelector('#vehicleBody .route-stop[data-route-stop-index="'+i+'"] .route-stop-name');
+   if(listName&&routeName&&routeName!=='Nieustalona nazwa przystanku')listName.textContent=routeName;
    const info=wtpCourseStopDisplay.get(i);
    // v139: wartości czasu są odczytywane dynamicznie; nie utrwalamy 'Za 4 min' w HTML.
    const timeLine=info&&Number.isFinite(info.expectedMinutes)
-    ?'<span class="wtp-course-stop-eta" data-expected-minutes="'+info.expectedMinutes+'" data-planned="'+escapeHTML(info.planned)+'" data-expected="'+escapeHTML(info.expected)+'" data-delayed="'+(info.delayed?'1':'0')+'" data-estimated="'+(info.estimated?'1':'0')+'"></span>':'';
+    ?'<span class="wtp-course-stop-eta" data-expected-minutes="'+info.expectedMinutes+'" data-planned="'+escapeHTML(info.planned)+'" data-expected="'+escapeHTML(info.expected)+'" data-delayed="'+(info.delayed?'1':'0')+'" data-delta="'+(Number(info.deltaMinutes)||0)+'" data-estimated="'+(info.estimated?'1':'0')+'"></span>':'';
    marker.bindTooltip('<span class="wtp-course-stop-title">'+escapeHTML(routeName+(poleName?' '+poleName:''))+'</span>'+timeLine,
-    {direction:'top',permanent:true,className:'wtp-stop-tooltip wtp-course-stop-name '+(vehicle.kind===2?'wtp-course-tram':'wtp-course-bus')});
+    {direction:'top',permanent:true,sticky:false,interactive:false,offset:L.point(0,-9),className:'wtp-stop-tooltip wtp-course-stop-name '+(vehicle.kind===2?'wtp-course-tram':'wtp-course-bus')});
    marker.on('click',()=>{
     const row=document.querySelector('#vehicleBody .route-stop[data-route-stop-index="'+i+'"]');
     row?.scrollIntoView({block:'nearest',behavior:'smooth'});
     wtpFocusRouteStop(i,row);
    });
+   // Leaflet keeps tooltip anchored to the circleMarker geographic position.
+   // Recompute on zoom/pan via Leaflet; no pixel-positioned HTML overlays.
    marker.addTo(group);
    wtpActiveCourseStopMarkers.push({index:i,marker,coords:[lat,lon]});
   };
@@ -2020,6 +2152,68 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
      if(found)coords=stopCoordinates(found);
     }
    }
+   // Gdy dopasowanie dynamiczne odrzuci pojedynczy słupek, szukaj
+   // jego jednoznacznego identyfikatora w danych GTFS tego samego kursu.
+   if(!coords&&catalog?.stops){
+    const sid=String(stop.stop_id??stop.stopId??stop.stop_code??'').trim();
+    if(sid&&catalog.stops[sid])coords=catalog.stops[sid];
+   }
+   // Wersja awaryjna: ten sam zespół i numer słupka z GTFS.
+   // Nie wybieraj przystanku wyłącznie po podobnej nazwie.
+   if(!coords&&Array.isArray(trips)&&catalog?.stops){
+    const nm=String(stop.name||stop.nazwa||'').trim().toLocaleLowerCase('pl');
+    const pole=String(stop.slupek||stop.stop_no||stop.nr_slupka||stop.stop_number||'').trim();
+    if(nm&&pole){
+     const matches=[];
+     for(const trip of trips)for(const st of trip.stops||[]){
+      const name=String(st[1]||'').trim().toLocaleLowerCase('pl');
+      const sid=String(st[0]??'');
+      if(name===nm&&sid.endsWith(pole)&&catalog.stops[sid])matches.push(catalog.stops[sid]);
+     }
+     if(matches.length){
+      const first=matches[0];
+      if(matches.every(c=>geoDistance(first[0],first[1],c[0],c[1])<8))coords=first;
+     }
+    }
+   }
+   // Ostateczna lokalizacja: słupek z pełnej listy GTFS dla tej linii.
+   // Wykorzystujemy jednocześnie nazwę, numer słupka i rzeczywiste GPS,
+   // nigdy samą nazwę zespołu ani sztuczny punkt na linii.
+   if(!coords&&Array.isArray(trips)){
+    const nm=String(stop.name||stop.nazwa||'').trim().toLocaleLowerCase('pl');
+    const pole=String(stop.slupek||stop.stop_no||stop.nr_slupka||stop.stop_number||'').trim();
+    const found=[];
+    for(const trip of trips){
+     for(const st of trip.stops||[]){
+      const name=String(st[1]||'').trim().toLocaleLowerCase('pl');
+      const id=String(st[0]??'');
+      const lat=Number(st[2]),lon=Number(st[3]);
+      if(name===nm&&pole&&id.endsWith(pole)&&Number.isFinite(lat)&&Number.isFinite(lon)&&lat>49&&lat<55&&lon>13&&lon<25)found.push([lat,lon]);
+     }
+    }
+    if(found.length&&found.every(c=>geoDistance(c[0],c[1],found[0][0],found[0][1])<12))coords=found[0];
+   }
+   // ETA podaje współrzędne słupka wprost; jeśli jest jednoznaczny
+   // identyfikator i pozycja w Warszawie, zachowaj go bez odrzucania.
+   if(!coords&&eta?.status==='ok'&&Array.isArray(eta.stops)){
+    const sid=String(stop.stop_id??stop.stopId??'');
+    const candidates=eta.stops.filter(x=>sid&&String(x.stop_id??x.stopId??'')===sid);
+    if(candidates.length===1){
+     const lat=Number(candidates[0].lat),lon=Number(candidates[0].lon);
+     if(Number.isFinite(lat)&&Number.isFinite(lon)&&lat>49&&lat<55&&lon>13&&lon<25)coords=[lat,lon];
+    }
+   }
+   // Nie pokazuj słupka o błędnej nazwie / numerze tylko dlatego,
+   // że algorytm dopasował sąsiedni przystanek GTFS.
+   if(coords&&Array.isArray(stops)&&stops.length){
+    const wanted=String(stop.name||stop.nazwa||'').trim().toLocaleLowerCase('pl');
+    const pole=String(stop.slupek||stop.stop_no||stop.nr_slupka||stop.stop_number||'').trim();
+    const correct=stops.find(r=>wtpStopGroupName(r).toLocaleLowerCase('pl')===wanted&&String(value(r,'slupek')||'').trim()===pole);
+    if(correct){
+     const officialCoords=stopCoordinates(correct);
+     if(officialCoords)coords=officialCoords;
+    }
+   }
    addStop(i,coords);
   });
   if(!selected)console.info('[WTP v140] Wyświetlono wyłącznie potwierdzone przystanki — brak poprawnego shape_id.');
@@ -2030,6 +2224,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
   const previous=wtpCourseMapLayer;
   wtpCourseMapLayer=group;
   if(previous&&map.hasLayer(previous))map.removeLayer(previous);
+  wtpScheduleCourseLabelLayout();
  }catch(e){console.warn('Geometria kursu:',e.message)}
 }
 // v139: odświeżanie zegara bez ponownego tworzenia markerów i całej trasy.
@@ -2044,23 +2239,32 @@ function wtpRefreshCourseStopTimes(){
   const expected=Number(el.dataset.expectedMinutes);
   if(!Number.isFinite(expected))continue;
   const status=wtpCourseStopStatus(item.index,item.coords,expected);
-  if(status.passed){
-   if(wtpCourseMapLayer.hasLayer(item.marker))wtpCourseMapLayer.removeLayer(item.marker);
-   continue;
-  }
+  // v151: minięty przystanek zachowuje kropkę ORAZ nazwę na mapie.
+  item.marker.options.wtpPassed=!!status.passed;
+  // Kropki przystanków nie zmieniają koloru po minięciu.
+  tooltip?.classList.toggle('wtp-map-stop-passed',!!status.passed);
   const diff=expected-now;
   const mins=Math.max(0,Math.ceil(diff));
   const planned=el.dataset.planned||'';
   const actual=el.dataset.expected||'';
   const delayed=el.dataset.delayed==='1';
+  const delta=Number(el.dataset.delta||0);
+  el.classList.toggle('wtp-early',delayed&&delta<0);
+  el.classList.toggle('wtp-late',delayed&&delta>0);
   const onTime=status.gpsFresh&&!delayed;
-  const text=status.approaching?'<span class="wtp-arrival-flash" aria-label="Pojazd blisko przystanku">&gt;&gt;&gt;</span>':
+  const firstStop=item.index===0;
+  const soon=diff>0&&diff<1;
+  const text=status.passed?'Minięty':
+   (firstStop&&status.approaching)?
+    (diff>1?'Za '+mins+' min':soon?'<span class="wtp-arrival-flash" aria-label="Odjazd za mniej niż minutę">Za &lt;1 min</span>': 'Odjazd opóźniony'):
+   status.approaching?'<span class="wtp-arrival-flash" aria-label="Pojazd blisko przystanku">&gt;&gt;&gt;</span>':
    (diff<=0?'Za chwilę':'Za '+mins+' min');
-  const clock=delayed?'<s>'+escapeHTML(planned)+'</s> <b>'+escapeHTML(actual)+'</b>':
+  const clock=delayed?'<s>'+escapeHTML(planned)+'</s> <b class="'+(delta<0?'wtp-time-early':'wtp-time-late')+'">'+escapeHTML(actual)+'</b>':
    '<span class="'+(onTime?'wtp-on-time':'')+'">'+escapeHTML(actual)+'</span>';
   const html=text+' · '+clock;
   if(el.innerHTML!==html)el.innerHTML=html;
  }
+  wtpScheduleCourseLabelLayout();
 }
 
 function wtpFocusRouteStop(index,row){
@@ -2259,7 +2463,7 @@ async function openStopPanel(z,n,name,color){
  }catch(e){if(serial===stopPaneRequest)status.textContent='Nie udało się pobrać linii: '+e.message}
 }
 
-window.addEventListener('DOMContentLoaded',()=>{const mobileToggle=$('mobileFilters');if(mobileToggle){mobileToggle.onclick=()=>{const panel=document.querySelector('#mapa > aside');const open=panel?.classList.toggle('wtp-mobile-open');mobileToggle.setAttribute('aria-expanded',String(!!open));mobileToggle.textContent=open?'Zamknij filtry':'Filtry mapy';setTimeout(()=>map?.invalidateSize(),100);};}if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);map.createPane('stopsPane');map.getPane('stopsPane').style.zIndex='410';map.createPane('vehiclesPane');map.getPane('vehiclesPane').style.zIndex='650';L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{wtpUpdateZoomVisibility();renderStopMarkers();draw()});map.on('zoomend',()=>{wtpUpdateZoomVisibility();renderStopMarkers();wtpUpdateCourseLabelZoom()});wtpUpdateZoomVisibility();map.on('click',()=>{if(!$('vehiclePanel').hidden){stopPaneRequest++;vehiclePanelRequest++;$('vehiclePanel').hidden=true;focusedVehicle=null;wtpSelectedVehicleOnly=false;wtpClearCourseMap();renderStopMarkers();hoveredStopLine='';draw();}})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;stopPaneRequest++;hoveredStopLine='';pinnedStopLine='';pinnedStopVehicle=null;$('vehiclePanel').hidden=true;focusedVehicle=null;wtpSelectedVehicleOnly=false;wtpClearCourseMap();renderStopMarkers();draw()};$('refresh').onclick=refresh;$('showStops').checked=true;$('showStops').onchange=toggleStopMap;toggleStopMap();for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(!document.hidden)wtpRefreshCourseStopTimes()},15000);setInterval(()=>{if(PROXY && !document.hidden){refresh();wtpRefreshCourseStopTimes()}},window.matchMedia('(max-width:700px)').matches?15000:8000)});
+window.addEventListener('DOMContentLoaded',()=>{const mobileToggle=$('mobileFilters');if(mobileToggle){mobileToggle.onclick=()=>{const panel=document.querySelector('#mapa > aside');const open=panel?.classList.toggle('wtp-mobile-open');mobileToggle.setAttribute('aria-expanded',String(!!open));mobileToggle.textContent=open?'Zamknij filtry':'Filtry mapy';setTimeout(()=>map?.invalidateSize(),100);};}if(typeof L!=='undefined'){map=L.map('map').setView([52.2297,21.0122],11);map.createPane('stopsPane');map.getPane('stopsPane').style.zIndex='410';map.createPane('vehiclesPane');map.getPane('vehiclesPane').style.zIndex='650';L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);layer=L.layerGroup().addTo(map);stopLayer=L.layerGroup().addTo(map);map.on('moveend',()=>{wtpUpdateZoomVisibility();renderStopMarkers();draw()});map.on('zoomend',()=>{wtpUpdateZoomVisibility();renderStopMarkers();wtpUpdateCourseLabelZoom();wtpScheduleCourseLabelLayout()});map.on('moveend',wtpScheduleCourseLabelLayout);map.on('resize',wtpScheduleCourseLabelLayout);wtpUpdateZoomVisibility();map.on('click',()=>{if(!$('vehiclePanel').hidden){stopPaneRequest++;vehiclePanelRequest++;$('vehiclePanel').hidden=true;focusedVehicle=null;wtpSelectedVehicleOnly=false;wtpClearCourseMap();renderStopMarkers();hoveredStopLine='';draw();}})}else{$('status').textContent='Nie udało się załadować biblioteki mapy Leaflet.'}document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));window.addEventListener('popstate',()=>setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false));setTab(location.hash==='#odjazdy'?'odjazdy':'mapa',false);$('closeVehicle').onclick=()=>{vehiclePanelRequest++;stopPaneRequest++;hoveredStopLine='';pinnedStopLine='';pinnedStopVehicle=null;$('vehiclePanel').hidden=true;focusedVehicle=null;wtpSelectedVehicleOnly=false;wtpClearCourseMap();renderStopMarkers();draw()};$('refresh').onclick=refresh;$('showStops').checked=true;$('showStops').onchange=toggleStopMap;toggleStopMap();for(const id of ['line','bus','tram'])$(id).addEventListener(id==='line'?'input':'change',draw);$('find').onclick=searchStops;$('stop').onkeydown=e=>{if(e.key==='Enter')searchStops()};if(PROXY){publishVehicles();$('status').textContent='Łączenie z API Warszawy…';refresh()}else $('status').textContent='Brak adresu Workera w config.js.';setInterval(()=>{if(!document.hidden)wtpRefreshCourseStopTimes()},15000);setInterval(()=>{if(PROXY && !document.hidden){refresh();wtpRefreshCourseStopTimes()}},window.matchMedia('(max-width:700px)').matches?15000:8000)});
 
 // Trasa wymaga kolejności przystanków z wiarygodnego źródła.
 // /route jest opcjonalnym rozszerzeniem Workera, nie częścią dotychczasowych 4 endpointów.
@@ -2301,5 +2505,18 @@ function selectedVehicleKind(line){
  return n===2?'tram':'bus';
 }
 // v100: usuń trasę po zamknięciu panelu, także gdy panel jest zamykany innym przyciskiem.
-const wtpPanelObserver=new MutationObserver(()=>{if($('vehiclePanel')?.hidden)wtpClearCourseMap()});
+const wtpPanelObserver=new MutationObserver(()=>{if($('vehiclePanel')?.hidden){wtpClearCourseMap();wtpLabelConnectors?.remove();wtpLabelConnectors=null;}});
 if($('vehiclePanel'))wtpPanelObserver.observe($('vehiclePanel'),{attributes:true,attributeFilter:['hidden']});
+
+
+// v149: ręczne przesuwanie górnej krawędzi panelu rozkładu.
+function wtpInstallPanelResize(){
+ const panel=document.getElementById('vehiclePanel');if(!panel||panel.querySelector('.wtp-panel-grip'))return;
+ const grip=document.createElement('div');grip.className='wtp-panel-grip';grip.title='Przeciągnij, aby zmienić wysokość rozkładu';grip.setAttribute('role','separator');grip.setAttribute('aria-label','Zmień wysokość panelu rozkładu');
+ panel.prepend(grip);let startY=0,startH=0;
+ grip.addEventListener('pointerdown',e=>{if(e.button!==0)return;startY=e.clientY;startH=panel.getBoundingClientRect().height;grip.setPointerCapture(e.pointerId);e.preventDefault();});
+ grip.addEventListener('pointermove',e=>{if(!grip.hasPointerCapture(e.pointerId))return;const max=Math.max(180,window.innerHeight-36);const height=Math.max(140,Math.min(max,startH+startY-e.clientY));panel.style.height=height+'px';panel.style.maxHeight=max+'px';map?.invalidateSize();});
+ grip.addEventListener('pointerup',e=>{if(grip.hasPointerCapture(e.pointerId))grip.releasePointerCapture(e.pointerId);});
+ grip.addEventListener('pointercancel',e=>{if(grip.hasPointerCapture(e.pointerId))grip.releasePointerCapture(e.pointerId);});
+}
+window.addEventListener('DOMContentLoaded',wtpInstallPanelResize);
