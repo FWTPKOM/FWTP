@@ -1,4 +1,4 @@
-// WTP LIVE — WERSJA: v151 — dynamiczne etykiety, minięte przystanki, nazwy ETA
+// WTP LIVE — WERSJA: v158 — niezależne daty ETA/GTFS, dopasowanie wariantów i GPS
 // WTP LIVE — WERSJA: 150
 // WTP LIVE v63 – walidacja świeżości GPS, aktualności GTFS i bezpieczne dopasowanie kursu.
 const $=id=>document.getElementById(id);
@@ -560,7 +560,7 @@ async function etaMatchVehicle(v,gtfsTrips=[]){
  const line=String(v.Lines||'').trim(),brigade=normalizeBrigade(v.Brigade);
  if(!line||!brigade)throw Error('Brak linii lub brygady');
  const [health,response]=await Promise.all([etaGet('health'),etaGet('courses',{line,limit:5000})]);
- if(!health.ok||etaDay(health.metadata?.date)!==todayWarsaw())throw Error('Nieaktualna baza ETA: '+(health.metadata?.date||'brak'));
+ if(!health.ok||!Number.isFinite(Number(health.courses))||Number(health.courses)<1)throw Error('Baza ETA niedostępna lub pusta');
  const courses=(response.courses||[]).filter(c=>normalizeBrigade(c.brigade)===brigade);
  if(!courses.length)throw Error('Brak kursów ETA tej brygady');
  const stamp=gpsMs(v.Time),now=nowWarsaw(Number.isFinite(stamp)?new Date(stamp):new Date());
@@ -586,7 +586,7 @@ async function etaMatchVehicle(v,gtfsTrips=[]){
 }
 // Najbliższy odcinek polilinii przystanków dla danego kursu.
 function etaSpatialFit(choice,v,trips){
- const named=etaNameMatch(choice.etaStops,trips,choice.course);
+ const named=wtpCompleteEtaMapping(choice.etaStops,etaNameMatch(choice.etaStops,trips,choice.course));
  if(!named||!Number.isFinite(Number(v.Lat))||!Number.isFinite(Number(v.Lon)))return null;
  const points=[];
  for(let i=0;i<choice.etaStops.length;i++){
@@ -681,8 +681,14 @@ function etaNameMatch(etaStops,gtfsTrips,course){
   const eTimes=eta.map(s=>s._time);
   const a=eTimes.find(Number.isFinite),z=[...eTimes].reverse().find(Number.isFinite);
   if(!Number.isFinite(a)||!Number.isFinite(z))continue;
-  const startGap=etaTimeNear(a,ts[0]),endGap=etaTimeNear(z,ts.at(-1));
-  if(startGap>8||endGap>12)continue;
+  // v158: porownuj przebieg i CZASY WZGLEDNE. GTFS moze pochodzic
+  // z wczoraj i miec inne godziny odjazdu tego samego wariantu.
+  const eBase=a, gBase=ts[0];
+  const eRel=eTimes.map(t=>Number.isFinite(t)?t-eBase:NaN);
+  const gRel=ts.map(t=>Number.isFinite(t)?t-gBase:NaN);
+  const durationGap=Math.abs((z-a)-(ts.at(-1)-ts[0]));
+  if(durationGap>Math.max(8,Math.ceil((z-a)*.18)))continue;
+  const startGap=0,endGap=durationGap;
   // Dynamiczne wyrównanie list przystanków. Wymagamy zgodności godzin
   // i zachowania kolejności, aby nie podpisać kursu obcą trasą.
   const n=eta.length,m=ss.length;
@@ -694,7 +700,7 @@ function etaNameMatch(etaStops,gtfsTrips,course){
   for(let j=1;j<=m;j++){dp[0][j]=j*skip;back[0][j]=2}
   for(let i=1;i<=n;i++)for(let j=1;j<=m;j++){
    const et=eTimes[i-1],gt=ts[j-1];
-   const delta=Number.isFinite(et)?etaTimeNear(et,gt):10;
+   const delta=Number.isFinite(eRel[i-1])&&Number.isFinite(gRel[j-1])?Math.abs(eRel[i-1]-gRel[j-1]):10;
    const same=dp[i-1][j-1]+Math.min(18,delta)*1.8;
    const del=dp[i-1][j]+skip,ins=dp[i][j-1]+skip;
    if(same<=del&&same<=ins){dp[i][j]=same;back[i][j]=0}
@@ -703,7 +709,7 @@ function etaNameMatch(etaStops,gtfsTrips,course){
   }
   const mapping=new Array(n).fill(-1);let i=n,j=m,matched=0,errors=0;
   while(i>0||j>0){const op=back[i][j];if(i>0&&j>0&&op===0){
-   const delta=etaTimeNear(eTimes[i-1],ts[j-1]);
+   const delta=Math.abs(eRel[i-1]-gRel[j-1]);
    if(delta<=2){mapping[i-1]=j-1;matched++;errors+=delta}
    i--;j--;
   }else if(i>0&&(j===0||op===1))i--;else j--}
@@ -715,7 +721,16 @@ function etaNameMatch(etaStops,gtfsTrips,course){
  candidates.sort((a,b)=>a.score-b.score);
  // Jeżeli dwa różne przebiegi pasują równie dobrze, nie zgadujemy nazw.
  if(candidates.length>1 && candidates[1].score-candidates[0].score<3 &&
-   candidates[0].trip.stops.map(s=>s[0]).join()!==candidates[1].trip.stops.map(s=>s[0]).join())return null;
+   candidates[0].trip.stops.map(s=>s[0]).join()!==candidates[1].trip.stops.map(s=>s[0]).join()){
+  // Różne numery słupków nie wykluczają identycznych nazw w tym samym porządku.
+  // Nie odrzucaj całej listy, jeżeli każdy z konkurencyjnych przebiegów
+  // przypisuje dokładnie te same nazwy do pozycji ETA.
+  const signature=c=>eta.map((_,i)=>{
+   const j=c.mapping[i];return j>=0?String(c.trip.stops[j]?.[1]||'').trim():'';
+  }).join('\u0001');
+  const best=signature(candidates[0]);
+  if(candidates.filter(c=>c.score-candidates[0].score<3).some(c=>signature(c)!==best))return null;
+ }
  return candidates[0]||null;
 }
 // v151: ETA stop_id is an internal ID, not a stop name. Never display it as a name.
@@ -746,8 +761,62 @@ function wtpResolveEtaStopName(stop, matchedStop, tripList){
  return 'Nieustalona nazwa przystanku';
 }
 function stopsGlobalForEtaNames(){return typeof stops!=='undefined'&&Array.isArray(stops)?stops:[];}
+// v156: uzupełniaj wyłącznie jednoznaczne słupki z tego samego wariantu.
+// Luki w wyrównaniu godzin nie oznaczają automatycznie innego przystanku.
+function wtpCompleteEtaMapping(etaStops,matched){
+ if(!matched)return null;
+ const mapping=matched.mapping.slice(),gtfs=matched.trip.stops||[];
+ const eta=etaMonotonicStops(etaStops);
+ const candidates=[];
+ for(let i=0;i<mapping.length;i++){
+  if(mapping[i]>=0)continue;
+  let left=i-1,right=i+1;
+  while(left>=0&&mapping[left]<0)left--;
+  while(right<mapping.length&&mapping[right]<0)right++;
+  const low=left>=0?mapping[left]+1:0;
+  const high=right<mapping.length?mapping[right]-1:gtfs.length-1;
+  if(low>high)continue;
+  const t=eta[i]._time;
+  if(!Number.isFinite(t))continue;
+  const anchor=mapping.findIndex(x=>x>=0);
+  if(anchor<0)continue;
+  const eAnchor=eta[anchor]._time,gAnchor=minutes(gtfs[mapping[anchor]]?.[4]);
+  if(!Number.isFinite(eAnchor)||!Number.isFinite(gAnchor))continue;
+  const viable=[];
+  for(let j=low;j<=high;j++){
+   const gt=minutes(gtfs[j]?.[4]);
+   const gap=Math.abs((t-eAnchor)-(gt-gAnchor));
+   if(Number.isFinite(gap)&&gap<=1.1)viable.push({j,gap});
+  }
+  viable.sort((a,b)=>a.gap-b.gap);
+  // Dwa przystanki o tej samej godzinie: rozstrzygaj tylko gdy oba
+  // mają identyczną nazwę; nie wybieraj przypadkowego słupka.
+  if(viable.length===1)mapping[i]=viable[0].j;
+  else if(viable.length>1){
+   const names=new Set(viable.map(x=>String(gtfs[x.j]?.[1]||'').trim()));
+   if(names.size===1&&[...names][0].length>0)mapping[i]=viable[0].j;
+  }
+ }
+ return {...matched,mapping};
+}
+function wtpOfficialNameAtCoords(coords){
+ if(!Array.isArray(coords)||coords.length<2||!Array.isArray(stops)||!stops.length)return '';
+ const lat=Number(coords[0]),lon=Number(coords[1]);
+ if(!Number.isFinite(lat)||!Number.isFinite(lon))return '';
+ const matches=[];
+ for(const row of stops){
+  const p=stopCoordinates(row);
+  if(!p||Math.abs(p[0]-lat)>.00013||Math.abs(p[1]-lon)>.0002)continue;
+  const d=geoDistance(lat,lon,p[0],p[1]);
+  if(d<=10){const name=wtpStopGroupName(row);if(name)matches.push({name,d});}
+ }
+ if(!matches.length)return '';
+ matches.sort((a,b)=>a.d-b.d);
+ const nearest=matches.filter(x=>x.d<=Math.max(3,matches[0].d+2));
+ return nearest.every(x=>x.name===nearest[0].name)?nearest[0].name:'';
+}
 function etaNamesForCourse(stops,gtfsTrips,course){
- const matched=etaNameMatch(stops,gtfsTrips,course);
+ const matched=wtpCompleteEtaMapping(stops,etaNameMatch(stops,gtfsTrips,course));
  return {matched:!!matched,mapping:matched?.mapping,trip:matched?.trip,names:stops.map((s,i)=>{
   const j=matched?.mapping[i];
   return wtpResolveEtaStopName(s,j>=0?matched.trip.stops[j]:null,gtfsTrips);
@@ -758,7 +827,7 @@ function etaNamesForCourse(stops,gtfsTrips,course){
 const TERMINAL_RADIUS_M=90;
 const activeCourseByVehicle=new Map();
 function coursePosition(choice,trips,v){
- const named=etaNameMatch(choice.etaStops,trips,choice.course);
+ const named=wtpCompleteEtaMapping(choice.etaStops,etaNameMatch(choice.etaStops,trips,choice.course));
  if(!named)return null;
  const coords=named.trip.stops;
  let nearest={distance:Infinity,index:-1};
@@ -813,7 +882,7 @@ function routeProgressFromTrace(geo,v){
 }
 
 function etaGpsObservations(choice,v,trips){
- const named=etaNameMatch(choice.etaStops,trips,choice.course);
+ const named=wtpCompleteEtaMapping(choice.etaStops,etaNameMatch(choice.etaStops,trips,choice.course));
  if(!named)return {named:null,near:null,points:[]};
  const points=[];
  for(let i=0;i<choice.etaStops.length;i++){
@@ -1217,7 +1286,13 @@ function renderEtaRoute(match,v,body,gtfsTrips=[]){
  });
  // v76: ustalaj położenie na ODCINKU między kolejnymi słupkami, nie na podstawie
  // samego najbliższego punktu (przy powtórzonych nazwach jest to niejednoznaczne).
- const geoPoints=prediction.geo?.points||[];
+ let geoPoints=prediction.geo?.points||[];
+ // v156: geometria przystanków z narysowanego kursu może uzupełnić
+ // brakujące współrzędne ETA, ale nigdy nie zgadujemy z samego czasu.
+ if(geoPoints.length<2&&wtpRouteStopCoords.size>=2){
+  geoPoints=[...wtpRouteStopCoords.entries()].map(([i,c])=>({i,lat:Number(c[0]),lon:Number(c[1]),time:etaServiceMinutes(choice.etaStops[i]?.departure||choice.etaStops[i]?.arrival)}))
+   .filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon)).sort((a,b)=>a.i-b.i);
+ }
  const gpsLat=Number(v.Lat),gpsLon=Number(v.Lon);
  const gpsFresh=Number.isFinite(gpsMs(v.Time))&&Math.abs(Date.now()-gpsMs(v.Time))<90000;
  let location=null;
@@ -1469,7 +1544,7 @@ function wtpApplyServerState(body,data,choice){
   if(delta>720)delta-=1440;if(delta< -720)delta+=1440;
   if(delta<0)real.classList.add('wtp-time-early');
   else if(delta>0)real.classList.add('wtp-time-late');
-  else real.classList.add('wtp-on-time');
+  else if(actual)real.classList.add('wtp-on-time');
   cell.append(real);cell.title=actual?'Przejazd oszacowany z zapisanej historii GPS':'Prognoza GPS zapisana na serwerze';
   if(actual)row.classList.add('wtp-server-passed','passed');
   changed++;
@@ -1484,8 +1559,9 @@ function wtpPreferServerCourse(match,data){
  const cid=wtpStateCourseId(data);
  if(!cid||!match?.selected)return;
  const state=data?.state||data?.tracker_state||{};
- const last=Number(state.last_stamp||0);
- if(last && Math.abs(Date.now()-last)>180000)return;
+ const rawLast=Number(state.last_stamp??state.updated_stamp??0);
+ const last=rawLast>0&&rawLast<1e11?rawLast*1000:rawLast;
+ if(!last||Math.abs(Date.now()-last)>180000)return;
  const choices=[match.selected,...(match.alternatives||[])];
  const candidate=choices.find(c=>String(c.course?.course_id)===cid);
  if(candidate){match.selected=candidate;match.alternatives=choices.filter(c=>c!==candidate);}
@@ -1514,7 +1590,7 @@ function wtpCourseStopStatus(index,coords,expected){
  // indeksu wyliczonego raz przy otwieraniu panelu.
  const passedByGPS=wtpGpsPassedStop(index,v,gpsFresh);
  const pastTime=Number.isFinite(expected)&&expected<now-1;
- return {distance,gpsFresh,passed:passedByGPS||(!near&&pastTime),approaching:near&&!passedByGPS};
+ return {distance,gpsFresh,passed:passedByGPS,approaching:near&&!passedByGPS};
 }
 function wtpGpsPassedStop(index,v,fresh){
  if(!fresh||!Array.isArray(wtpActiveCourseStopMarkers)||wtpActiveCourseStopMarkers.length<2)return false;
@@ -1946,7 +2022,7 @@ function wtpPatternMatch(catalog,etaStops,etaGeometry){
 }
 function wtpChooseShape(catalog,choice,trips,vehicle,eta){
  if(!catalog?.shapes)return null;
- const named=choice?.etaStops?.length&&trips?.length?etaNameMatch(choice.etaStops,trips,choice.course):null;
+ const named=choice?.etaStops?.length&&trips?.length?wtpCompleteEtaMapping(choice.etaStops,etaNameMatch(choice.etaStops,trips,choice.course)):null;
  const trip=named?.trip||null;
  const tripId=String(trip?.trip_id??trip?.tripId??trip?.id??'');
  const confirmedId=trip?.shape_id||(tripId?catalog.trip_shapes?.[tripId]:null);
@@ -2086,7 +2162,7 @@ async function wtpShowCourseMap(match,vehicle,serial,trips=[]){
    const official=Array.isArray(stops)?stops.find(r=>{const p=stopCoordinates(r);return p&&geoDistance(lat,lon,p[0],p[1])<7;}):null;
    const mappedIndex=selected?.named?.mapping?.[i];
    const mappedStop=Number.isInteger(mappedIndex)&&mappedIndex>=0?selected.named.trip?.stops?.[mappedIndex]:null;
-   const routeName=String((stop.name||stop.nazwa||wtpStopGroupName(official||{})||wtpResolveEtaStopName(stop,mappedStop,trips)));
+   const routeName=String((stop.name||stop.nazwa||wtpStopGroupName(official||{})||wtpOfficialNameAtCoords([lat,lon])||wtpResolveEtaStopName(stop,mappedStop,trips)));
    // Ta sama potwierdzona nazwa w mapie i panelu kursu.
    const listName=document.querySelector('#vehicleBody .route-stop[data-route-stop-index="'+i+'"] .route-stop-name');
    if(listName&&routeName&&routeName!=='Nieustalona nazwa przystanku')listName.textContent=routeName;
@@ -2297,7 +2373,7 @@ async function openVehiclePanel(v,options={}){
  $('vehicleHeading').textContent=`${line} · ${v.kind===2?'Tramwaj':'Autobus'} · brygada ${brigade} · tabor ${number}`;
  wtpClearCourseMap();
  const body=$('vehicleBody');body.replaceChildren();
- const keepScroll=Number.isFinite(options.preserveScroll)?options.preserveScroll:null;
+ const keepScroll=Number.isFinite(options.keepScroll)?options.keepScroll:(Number.isFinite(options.preserveScroll)?options.preserveScroll:null);
  const restoreScroll=()=>{if(keepScroll!==null)body.scrollTop=keepScroll};
  const cacheKey=vehicleKey(v);
  const ready=etaPanelReady.get(cacheKey);
@@ -2314,7 +2390,12 @@ async function openVehiclePanel(v,options={}){
   const gpsFetch=fetchServerGps(v).catch(e=>{console.warn('Historia GPS:',e.message);return null});
   const cached=etaPanelMatches.get(cacheKey);
   const matchPromise=cached&&Date.now()-cached.at<45000?Promise.resolve(cached.match):etaMatchVehicle(v);
-  const tripsPromise=ready&&Date.now()-ready.at<45000?Promise.resolve(ready.trips):loadGtfs(line).then(data=>data.date===todayWarsaw()?(data.trips||[]):[]).catch(e=>{console.warn('GTFS: brak nazw przystanków',e.message);return []});
+  // v158: dzienny plik GTFS bywa starszy od ETA. Nadal zawiera oficjalne
+  // nazwy i wspolrzedne, ale NIE wolno uzywac jego godzin jako rozkladu ETA.
+  const tripsPromise=ready&&Date.now()-ready.at<45000?Promise.resolve(ready.trips):loadGtfs(line).then(data=>{
+   if(data.date!==todayWarsaw())console.warn('[WTP v158] GTFS z innego dnia: wykorzystuje wyłącznie nazwy, słupki i geometrię; godziny pochodzą z ETA',data.date);
+   return data.trips||[];
+  }).catch(e=>{console.warn('GTFS: brak nazw przystanków',e.message);return []});
   // v94: żądanie stanu serwera NIE blokuje pierwszego wyświetlenia trasy.
   const matched=await matchPromise;
   if(serial!==vehiclePanelRequest||panel.hidden)return;
@@ -2327,8 +2408,9 @@ async function openVehiclePanel(v,options={}){
   const redraw=()=>{
    if(serial!==vehiclePanelRequest||panel.hidden)return;
    chooseLiveEtaCourse(matched,v,fullTrips);
-   // Stan serwera moze byc opozniony; nie nadpisuj dopasowania GPS starym kursem.
-   if(serverState && !matched.gpsVerified)wtpPreferServerCourse(matched,serverState);
+   // v158: serwerowy identyfikator kursu jest mocniejszy niz samo
+   // dopasowanie po czasie. Weryfikacja swiezosci jest w funkcji ponizej.
+   if(serverState)wtpPreferServerCourse(matched,serverState);
    const position=body.scrollTop;renderEtaRoute(matched,v,body,fullTrips);body.scrollTop=keepScroll!==null?keepScroll:position;
    void wtpShowCourseMap(matched,v,serial,fullTrips);
    wtpApplyServerState(body,serverState,matched.selected);
