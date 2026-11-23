@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WTP LIVE v187 — WTP LIVE — administrator tras v185</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:"Arial Narrow",Arial,sans-serif;background:#edf0f2;color:#20252b}
+header{height:56px;background:#343e46;color:white;display:flex;align-items:center;justify-content:space-between;padding:0 22px}
+main{display:grid;grid-template-columns:390px 1fr;height:calc(100vh - 56px)}
+aside{padding:17px;overflow:auto;background:white;border-right:1px solid #d9dee2}#map{height:100%;width:100%}
+label{display:block;font-weight:bold;margin:12px 0 4px}input,select,button{font:inherit;padding:9px;border:1px solid #cbd1d6;border-radius:6px;width:100%}
+button{cursor:pointer;background:#820082;color:white;border:0;margin:5px 0;font-weight:bold}
+button.secondary{background:#56616a}button.danger{background:#a12a39}
+.row{display:flex;gap:8px}.row>*{flex:1}
+#status{padding:10px;background:#f3f4f6;border-radius:6px;white-space:pre-wrap;line-height:1.4}
+small{color:#64707c}#stopList{max-height:260px;overflow:auto;border:1px solid #d9dee2;border-radius:6px;margin:8px 0 12px}
+.stop-row{display:flex;align-items:center;gap:8px;padding:7px 9px;border-bottom:1px solid #edf0f2;cursor:pointer;font-size:14px}
+.stop-row:hover{background:#f2e9f4}.stop-row:last-child{border-bottom:0}.stop-n{color:#687783;font-size:12px;min-width:20px}
+.stop-num{color:#697684;margin-left:auto;font-size:12px;white-space:nowrap}
+#variantInfo{font-size:13px;color:#4b5963;line-height:1.45;margin:8px 0}
+#editHelp{font-size:12px;color:#596570;line-height:1.4}
+.point-icon{background:#fff;border:2px solid #820082;border-radius:50%;width:12px;height:12px}
+</style></head>
+<body><header><strong>WTP LIVE · ADMINISTRATOR TRAS · v185</strong><span>Geometria wariantów GTFS</span></header>
+<main><aside>
+<label>Linia</label><div class="row"><input id="line" value="176" placeholder="176"><button id="load">Wczytaj</button></div>
+<label>Wariant / shape_id</label><select id="shape"></select>
+<div id="variantInfo">Wybierz wariant, aby zobaczyć opis.</div>
+<label>Przystanki wariantu</label><div id="stopList"></div>
+<label>Token administratora</label><input id="token" type="password" autocomplete="off" placeholder="Token z Mikrusa">
+<div class="row"><button id="edit">Edytuj trasę</button><button class="secondary" id="undo">Cofnij</button></div>
+<div class="row"><button class="secondary" id="add">Dodaj punkt</button><button class="secondary" id="remove">Usuń punkt</button></div>
+<button id="roadSelect" class="secondary">Wybierz punkty kontrolne trasy</button>
+<button id="roadFit">Dopasuj trasę przez wybrane punkty</button>
+<small>Włącz wybór, a następnie klikaj dowolną liczbę punktów kontrolnych na trasie (minimum dwa). Zaznaczone punkty będą odwiedzane zgodnie z kolejnością przejazdu. Kliknij zaznaczony punkt ponownie, aby go odznaczyć. Router poprowadzi trasę przez wszystkie wybrane punkty. Sprawdź wynik przed zapisem.</small>
+<button class="secondary" id="previewGTFS">Pokaż oryginalną trasę GTFS (bez zapisu)</button>
+<button id="save">Zapisz na Mikrusie</button>
+<button class="danger" id="restore">Usuń poprawkę odcinka</button>
+<p id="status">Wybierz linię i wczytaj warianty. Następnie kliknij „Edytuj trasę”.</p>
+<small>Przeciągaj okrągłe uchwyty. Dodawanie punktu: kliknij „Dodaj punkt”, a następnie kliknij bezpośrednio wybrany odcinek fioletowej linii między dwoma punktami. Następnie kliknij DOWOLNE miejsce mapy — tam zostanie dodany punkt, zachowując kolejność między wybranymi końcami odcinka. Usuwanie: wybierz „Usuń punkt” i kliknij uchwyt. Zapisywane są wyłącznie zmienione odcinki, niezależnie od shape_id. Pozostała geometria pochodzi z GTFS.</small>
+</aside><div id="map"></div></main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $=x=>document.getElementById(x);
+const map=L.map('map').setView([52.29,21.02],12);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+const API='http://127.0.0.1:8000',original=new Map();
+const EMBEDDED_176={"3:653":{"from":"Choszczówka","to":"Metro Bródno","stops":[{"id":"111601","name":"Choszczówka","lat":52.355499,"lon":20.982328},{"id":"111501","name":"Raciborska","lat":52.353151,"lon":20.984354},{"id":"147101","name":"Brzezińska","lat":52.351583,"lon":20.981196},{"id":"111401","name":"Polnych Kwiatów","lat":52.349868,"lon":20.977711},{"id":"157401","name":"Starego Dębu","lat":52.347933,"lon":20.978459},{"id":"110101","name":"Parowozowa","lat":52.345235,"lon":20.982534},{"id":"110001","name":"Insurekcji","lat":52.341515,"lon":20.98843},{"id":"110501","name":"Ołówkowa","lat":52.338677,"lon":20.992465},{"id":"121801","name":"Sadkowska","lat":52.33624,"lon":20.98895},{"id":"110403","name":"PKP Płudy","lat":52.335056,"lon":20.986378},{"id":"109901","name":"Zyndrama z Maszkowic","lat":52.327291,"lon":20.991049},{"id":"109801","name":"Smugowa","lat":52.324397,"lon":20.993429},{"id":"109701","name":"Marcelin","lat":52.319208,"lon":20.997197},{"id":"109601","name":"Os. Marywilska","lat":52.315861,"lon":20.999731},{"id":"109501","name":"PKP Żerań","lat":52.313755,"lon":21.001456},{"id":"109401","name":"Marywilska - Las","lat":52.30876,"lon":21.00537},{"id":"109301","name":"Daniszewska","lat":52.306737,"lon":21.00689},{"id":"109201","name":"Fabryka Pomp","lat":52.303011,"lon":21.009646},{"id":"125901","name":"Chłodnia","lat":52.299775,"lon":21.011773},{"id":"116201","name":"Pelcowizna","lat":52.294651,"lon":21.015636},{"id":"115804","name":"Bazyliańska","lat":52.291498,"lon":21.019597},{"id":"116102","name":"Św. Hieronima","lat":52.29255,"lon":21.023297},{"id":"108514","name":"Metro Bródno","lat":52.29345,"lon":21.028093},{"id":"108515","name":"Metro Bródno","lat":52.293448,"lon":21.02609}],"count":54},"3:652":{"from":"Metro Bródno","to":"Choszczówka","stops":[{"id":"108515","name":"Metro Bródno","lat":52.293448,"lon":21.02609},{"id":"116101","name":"Św. Hieronima","lat":52.292292,"lon":21.021912},{"id":"115803","name":"Bazyliańska","lat":52.29192,"lon":21.018121},{"id":"116202","name":"Pelcowizna","lat":52.295407,"lon":21.015593},{"id":"125902","name":"Chłodnia","lat":52.300905,"lon":21.011504},{"id":"109202","name":"Fabryka Pomp","lat":52.303942,"lon":21.009157},{"id":"109302","name":"Daniszewska","lat":52.306604,"lon":21.007096},{"id":"109402","name":"Marywilska - Las","lat":52.309456,"lon":21.004936},{"id":"109502","name":"PKP Żerań","lat":52.313943,"lon":21.001414},{"id":"109602","name":"Os. Marywilska","lat":52.316792,"lon":20.999213},{"id":"109702","name":"Marcelin","lat":52.319963,"lon":20.99684},{"id":"109802","name":"Smugowa","lat":52.325293,"lon":20.992778},{"id":"109902","name":"Zyndrama z Maszkowic","lat":52.328229,"lon":20.990393},{"id":"152702","name":"Śpiewaków","lat":52.331751,"lon":20.987494},{"id":"110406","name":"PKP Płudy","lat":52.333783,"lon":20.986367},{"id":"110404","name":"PKP Płudy","lat":52.335665,"lon":20.987527},{"id":"121802","name":"Sadkowska","lat":52.337048,"lon":20.990238},{"id":"110504","name":"Ołówkowa","lat":52.339294,"lon":20.992056},{"id":"110002","name":"Insurekcji","lat":52.341997,"lon":20.987754},{"id":"110102","name":"Parowozowa","lat":52.344928,"lon":20.98311},{"id":"157402","name":"Starego Dębu","lat":52.348467,"lon":20.978204},{"id":"111402","name":"Polnych Kwiatów","lat":52.350016,"lon":20.978147},{"id":"147102","name":"Brzezińska","lat":52.352152,"lon":20.982981},{"id":"111601","name":"Choszczówka","lat":52.355499,"lon":20.982328}],"count":56},"3:654":{"from":"Metro Bródno","to":"Marcelin","stops":[{"id":"108515","name":"Metro Bródno","lat":52.293448,"lon":21.02609},{"id":"116101","name":"Św. Hieronima","lat":52.292292,"lon":21.021912},{"id":"115803","name":"Bazyliańska","lat":52.29192,"lon":21.018121},{"id":"116202","name":"Pelcowizna","lat":52.295407,"lon":21.015593},{"id":"125902","name":"Chłodnia","lat":52.300905,"lon":21.011504},{"id":"109202","name":"Fabryka Pomp","lat":52.303942,"lon":21.009157},{"id":"109302","name":"Daniszewska","lat":52.306604,"lon":21.007096},{"id":"109402","name":"Marywilska - Las","lat":52.309456,"lon":21.004936},{"id":"109502","name":"PKP Żerań","lat":52.313943,"lon":21.001414},{"id":"109602","name":"Os. Marywilska","lat":52.316792,"lon":20.999213},{"id":"109705","name":"Marcelin","lat":52.319459,"lon":20.997756}],"count":24},"3:651":{"from":"Marcelin","to":"Metro Bródno","stops":[{"id":"109705","name":"Marcelin","lat":52.319459,"lon":20.997756},{"id":"109704","name":"Marcelin","lat":52.317872,"lon":20.999058},{"id":"109601","name":"Os. Marywilska","lat":52.315861,"lon":20.999731},{"id":"109501","name":"PKP Żerań","lat":52.313755,"lon":21.001456},{"id":"109401","name":"Marywilska - Las","lat":52.30876,"lon":21.00537},{"id":"109301","name":"Daniszewska","lat":52.306737,"lon":21.00689},{"id":"109201","name":"Fabryka Pomp","lat":52.303011,"lon":21.009646},{"id":"125901","name":"Chłodnia","lat":52.299775,"lon":21.011773},{"id":"116201","name":"Pelcowizna","lat":52.294651,"lon":21.015636},{"id":"115804","name":"Bazyliańska","lat":52.291498,"lon":21.019597},{"id":"116102","name":"Św. Hieronima","lat":52.29255,"lon":21.023297},{"id":"108514","name":"Metro Bródno","lat":52.29345,"lon":21.028093},{"id":"108515","name":"Metro Bródno","lat":52.293448,"lon":21.02609}],"count":24},"3:656":{"from":"Marcelin","to":"Metro Bródno","stops":[{"id":"109705","name":"Marcelin","lat":52.319459,"lon":20.997756},{"id":"109704","name":"Marcelin","lat":52.317872,"lon":20.999058},{"id":"109601","name":"Os. Marywilska","lat":52.315861,"lon":20.999731},{"id":"109501","name":"PKP Żerań","lat":52.313755,"lon":21.001456},{"id":"109401","name":"Marywilska - Las","lat":52.30876,"lon":21.00537},{"id":"109301","name":"Daniszewska","lat":52.306737,"lon":21.00689},{"id":"109201","name":"Fabryka Pomp","lat":52.303011,"lon":21.009646},{"id":"125901","name":"Chłodnia","lat":52.299775,"lon":21.011773},{"id":"116201","name":"Pelcowizna","lat":52.294651,"lon":21.015636},{"id":"115804","name":"Bazyliańska","lat":52.291498,"lon":21.019597},{"id":"116102","name":"Św. Hieronima","lat":52.29255,"lon":21.023297},{"id":"108514","name":"Metro Bródno","lat":52.29345,"lon":21.028093}],"count":1},"3:655":{"from":"Choszczówka","to":"Metro Bródno","stops":[{"id":"111601","name":"Choszczówka","lat":52.355499,"lon":20.982328},{"id":"111501","name":"Raciborska","lat":52.353151,"lon":20.984354},{"id":"147101","name":"Brzezińska","lat":52.351583,"lon":20.981196},{"id":"111401","name":"Polnych Kwiatów","lat":52.349868,"lon":20.977711},{"id":"157401","name":"Starego Dębu","lat":52.347933,"lon":20.978459},{"id":"110101","name":"Parowozowa","lat":52.345235,"lon":20.982534},{"id":"110001","name":"Insurekcji","lat":52.341515,"lon":20.98843},{"id":"110501","name":"Ołówkowa","lat":52.338677,"lon":20.992465},{"id":"121801","name":"Sadkowska","lat":52.33624,"lon":20.98895},{"id":"110403","name":"PKP Płudy","lat":52.335056,"lon":20.986378},{"id":"109901","name":"Zyndrama z Maszkowic","lat":52.327291,"lon":20.991049},{"id":"109801","name":"Smugowa","lat":52.324397,"lon":20.993429},{"id":"109701","name":"Marcelin","lat":52.319208,"lon":20.997197},{"id":"109601","name":"Os. Marywilska","lat":52.315861,"lon":20.999731},{"id":"109501","name":"PKP Żerań","lat":52.313755,"lon":21.001456},{"id":"109401","name":"Marywilska - Las","lat":52.30876,"lon":21.00537},{"id":"109301","name":"Daniszewska","lat":52.306737,"lon":21.00689},{"id":"109201","name":"Fabryka Pomp","lat":52.303011,"lon":21.009646},{"id":"125901","name":"Chłodnia","lat":52.299775,"lon":21.011773},{"id":"116201","name":"Pelcowizna","lat":52.294651,"lon":21.015636},{"id":"115804","name":"Bazyliańska","lat":52.291498,"lon":21.019597},{"id":"116102","name":"Św. Hieronima","lat":52.29255,"lon":21.023297},{"id":"108514","name":"Metro Bródno","lat":52.29345,"lon":21.028093}],"count":1}};
+let variantMeta={};let stopMarkers=[];let directionMarkers=[];let editing=false;
+let catalog=null,points=[],lineLayer=null,handles=[],segmentHitLayers=[],history=[],mode='move';
+let roadSelection=[],routingBusy=false,addSegmentIndex=null;
+let persistentPatches=[],loadedLine="";
+function roadMessage(msg){info(msg);}
+function routeLength(pts){let sum=0;for(let i=1;i<pts.length;i++){
+ const a=pts[i-1],b=pts[i],lat=(a[0]+b[0])/2*Math.PI/180;
+ sum+=Math.hypot((b[0]-a[0])*111195,(b[1]-a[1])*111195*Math.cos(lat));
+ }return sum;}
+function selectRoadPoint(index){
+ const pos=roadSelection.indexOf(index);
+ if(pos>=0)roadSelection.splice(pos,1);
+ else roadSelection.push(index);
+ roadSelection.sort((a,b)=>a-b);
+ draw();
+ roadMessage('Wybrano '+roadSelection.length+' punktów kontrolnych'+(roadSelection.length>=2?' (od '+(roadSelection[0]+1)+' do '+(roadSelection.at(-1)+1)+'). Kliknij „Dopasuj trasę”.':'. Zaznacz minimum dwa.'));
+}
+async function fitSelectedRoad(){
+ if(routingBusy)return;
+ if(roadSelection.length<2){roadMessage('Zaznacz co najmniej dwa punkty kontrolne na trasie.');return;}
+ const anchors=roadSelection.map(i=>points[i].slice());
+ const start=roadSelection[0],end=roadSelection.at(-1);
+ if(start===end||end>=points.length)return;
+ const section=points.slice(start,end+1);
+ // Długie trasy dzielimy na paczki po maksymalnie 12 punktów,
+ // z zachowaniem wspólnego punktu na granicy paczek.
+ const chunks=[];
+ for(let i=0;i<anchors.length-1;i+=11)chunks.push(anchors.slice(i,Math.min(i+12,anchors.length)));
+ routingBusy=true;$('roadFit').disabled=true;
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),90000);
+ try{
+  const road=[];
+  for(let i=0;i<chunks.length;i++){
+   const chunk=chunks[i];
+   roadMessage('Wyznaczanie przejazdu po ulicach OSM: część '+(i+1)+'/'+chunks.length+'…');
+   const url='https://router.project-osrm.org/route/v1/driving/'+chunk.map(p=>p[1].toFixed(6)+','+p[0].toFixed(6)).join(';')+'?overview=full&geometries=geojson&steps=false&continue_straight=true';
+   const response=await fetch(url,{signal:controller.signal});
+   if(!response.ok)throw Error('OSRM HTTP '+response.status);
+   const data=await response.json();
+   if(data.code!=='Ok'||!data.routes?.length)throw Error('Router nie znalazł przejazdu dla części '+(i+1)+'.');
+   const part=data.routes[0].geometry?.coordinates?.map(p=>[p[1],p[0]])||[];
+   if(part.length<2)throw Error('Router zwrócił zbyt mało punktów.');
+   if(road.length&&part.length)part.shift();
+   road.push(...part);
+   if(road.length>18000)throw Error('Zbyt wiele punktów trasy — wybierz krótszy fragment.');
+  }
+  const oldLength=routeLength(section),newLength=routeLength(road);
+  if(newLength>Math.max(3000,oldLength*4))throw Error('Router proponuje zbyt długi objazd — wybierz krótszy fragment.');
+  if(!confirm('Wybrano '+anchors.length+' punktów kontrolnych.\nNowa trasa: '+(newLength/1000).toFixed(2)+' km; poprzednia: '+(oldLength/1000).toFixed(2)+' km.\n\nZastąpić odcinek między pierwszym a ostatnim punktem?\nSprawdź przejazd, zwłaszcza pętle i drogi tylko dla autobusów.'))return;
+  snapshot();points.splice(start,end-start+1,...road);roadSelection=[];mode='move';editing=false;$('edit').textContent='Edytuj trasę';draw();
+  map.fitBounds(L.polyline(road).getBounds(),{padding:[35,35]});
+  roadMessage('Dopasowano trasę przez '+anchors.length+' punktów kontrolnych ('+road.length+' punktów geometrii). Sprawdź wynik i zapisz na Mikrusie.');
+ }catch(e){roadMessage('Nie zmieniono trasy: '+e.message);}
+ finally{clearTimeout(timer);routingBusy=false;$('roadFit').disabled=false;}
+}
+
+const info=x=>$('status').textContent=x;
+function clearLayers(arr){arr.forEach(x=>map.removeLayer(x));arr.length=0;}
+function renderStops(){
+ clearLayers(stopMarkers);
+ const m=variantMeta[$('shape').value];const list=$('stopList');list.replaceChildren();
+ if(!m){$('variantInfo').textContent='Brak danych o przystankach dla tego wariantu.';return;}
+ const first=m.stops[0],last=m.stops[m.stops.length-1];
+ $('variantInfo').textContent=`${m.from} → ${m.to} · ${m.stops.length} przystanków · ${m.count} kursów w dostarczonym rozkładzie`;
+ m.stops.forEach((s,i)=>{
+  const row=document.createElement('div');row.className='stop-row';
+  const n=document.createElement('span');n.className='stop-n';n.textContent=i+1+'.';
+  const name=document.createElement('span');name.textContent=s.name;
+  const num=document.createElement('span');num.className='stop-num';num.textContent=s.id.slice(-2)+' · '+s.id;
+  row.append(n,name,num);row.onclick=()=>map.setView([s.lat,s.lon],Math.max(16,map.getZoom()));list.appendChild(row);
+  const terminal=i===0||i===m.stops.length-1;
+  const marker=L.circleMarker([s.lat,s.lon],{radius:terminal?7:4,color:terminal?'#7f0085':'#344b58',weight:2,fillColor:'#fff',fillOpacity:1,interactive:true}).addTo(map);
+  marker.bindTooltip(`${s.name} ${s.id.slice(-2)}${terminal?i===0?' · START':' · KONIEC':''}`);
+  marker.on('click',()=>{row.scrollIntoView({block:'nearest'});});stopMarkers.push(marker);
+ });
+}
+function draw(){
+ if(lineLayer)map.removeLayer(lineLayer);
+ clearLayers(handles);clearLayers(directionMarkers);clearLayers(segmentHitLayers);
+ lineLayer=L.polyline(points,{color:'#820082',weight:5,interactive:mode!=='add'}).addTo(map);
+ if(editing&&mode==='add'){
+  // Każdy odcinek jest oddzielnym celem kliknięcia. Nie wyszukujemy najbliższego punktu.
+  for(let i=0;i<points.length-1;i++){
+   const segment=L.polyline([points[i],points[i+1]],{color:addSegmentIndex===i?'#ffbf00':'#820082',opacity:addSegmentIndex===i?.42:0,weight:20,interactive:true,bubblingMouseEvents:false}).addTo(map);
+   segment.on('mouseover',()=>segment.setStyle({opacity:.32,color:'#ffbf00'}));
+   segment.on('mouseout',()=>segment.setStyle({opacity:addSegmentIndex===i?.42:0,color:addSegmentIndex===i?'#ffbf00':'#820082'}));
+   segment.on('click',e=>{
+    L.DomEvent.stopPropagation(e);
+    addSegmentIndex=i;
+    draw();
+    info('Wybrano odcinek między punktami '+(i+1)+' i '+(i+2)+'. TERAZ kliknij dowolne miejsce mapy, gdzie ma znaleźć się NOWY punkt. Nie musi leżeć na trasie.');
+   });
+   segmentHitLayers.push(segment);
+  }
+ }
+ // Kierunek od pierwszego do ostatniego punktu; strzałki wyświetlane niezależnie od uchwytów.
+ if(points.length>2){
+  const every=Math.max(1,Math.floor(points.length/7));
+  for(let i=every;i<points.length-1;i+=every){
+   const a=map.latLngToLayerPoint(points[Math.max(0,i-1)]),b=map.latLngToLayerPoint(points[Math.min(points.length-1,i+1)]);
+   const angle=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
+   const marker=L.marker(points[i],{interactive:false,icon:L.divIcon({className:'',html:`<div style="color:#fff;text-shadow:0 0 3px #620062,0 0 3px #620062;font-size:16px;transform:rotate(${angle}deg)">➜</div>`,iconSize:[20,20],iconAnchor:[10,10]})}).addTo(map);
+   directionMarkers.push(marker);
+  }
+ }
+ // Uchwytów nie pokazujemy, dopóki użytkownik nie włączy edycji.
+ if(editing&&mode!=='add'){
+  const bounds=map.getBounds().pad(.15),zoom=map.getZoom();
+  const step=zoom>=16?1:zoom>=14?3:Math.max(5,Math.ceil(points.length/65));
+  points.forEach((p,i)=>{
+   if(i!==0&&i!==points.length-1&&i%step!==0&&!roadSelection.includes(i))return;
+   if(!bounds.contains(p))return;
+   const drag=L.marker(p,{draggable:mode==='move',icon:L.divIcon({className:'',html:`<div style="background:${roadSelection.includes(i)?'#f1bd00':'#fff'};border:2px solid #820082;border-radius:50%;width:12px;height:12px"></div>`,iconSize:[12,12],iconAnchor:[6,6]})}).addTo(map);
+   drag.on('dragstart',()=>snapshot());
+   drag.on('dragend',()=>{const ll=drag.getLatLng();points[i]=[ll.lat,ll.lng];draw();});
+   drag.on('click',e=>{L.DomEvent.stopPropagation(e);if(mode==='road'){selectRoadPoint(i);}else if(mode==='remove'&&points.length>2){snapshot();points.splice(i,1);draw();}});
+   handles.push(drag);
+  });
+ }
+ info('Linia: '+$('line').value+' | wariant: '+$('shape').value+' | punkty: '+points.length+' | '+(editing?'EDYCJA: '+mode:'PODGLĄD'));
+}
+function snapshot(){history.push(points.map(p=>p.slice()));if(history.length>30)history.shift();}
+function distSeg(p,a,b){
+ const k=Math.cos(p[0]*Math.PI/180),ax=a[1]*k,ay=a[0],bx=b[1]*k,by=b[0],px=p[1]*k,py=p[0];
+ const dx=bx-ax,dy=by-ay,t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/(dx*dx+dy*dy||1)));
+ return (px-ax-t*dx)**2+(py-ay-t*dy)**2;
+}
+async function fetchJson(url,options={}){
+ const r=await fetch(url,{...options,cache:'no-store'});
+ const data=await r.json().catch(()=>({detail:'Błąd odpowiedzi API'}));
+ if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:'HTTP '+r.status);
+ return data;
+}
+async function load(){
+ try{
+  const line=$('line').value.trim();
+  if(!/^[A-Za-z0-9_.-]{1,30}$/.test(line))throw Error('Nieprawidłowy numer linii');
+  const r=await fetch('gtfs/shapes/'+encodeURIComponent(line.replaceAll('/','_'))+'.json',{cache:'no-store'});
+  if(!r.ok)throw Error('Brak gtfs/shapes/'+line+'.json (HTTP '+r.status+')');
+  catalog=await r.json();
+  const shapes=catalog.shapes||{};
+  const ids=Object.keys(shapes);
+  if(!ids.length)throw Error('Plik GTFS nie zawiera obiektu shapes z geometrią wariantów');
+  let saved={shapes:{}},apiWarning='';
+  try {const patchData=await fetchJson(API+'/route-segment-patches?line='+encodeURIComponent(line));persistentPatches=patchData.patches||[];loadedLine=line;}
+  catch(e){persistentPatches=[];loadedLine='';apiWarning='Nie można odczytać trwałych poprawek: '+e.message;} 
+   try { saved=await fetchJson(API+'/route-overrides?line='+encodeURIComponent(line)); }
+   catch(e){ apiWarning='Nie udało się odczytać poprawek z Mikrusa ('+e.message+'). Wyświetlam oryginalną geometrię GTFS. Sprawdź tunel SSH i API przed zapisem.'; }
+   // Katalog geometrii zawiera same punkty. Opisy pobieramy z osobnego katalogu kursów.
+   variantMeta=line==='176'?EMBEDDED_176:{};
+   try{
+    const tr=await fetch('gtfs/trips/'+encodeURIComponent(line)+'.json',{cache:'no-cache'});
+    if(tr.ok){const td=await tr.json();if(Array.isArray(td.trips)){
+      const by={};for(const t of td.trips){if(!t.shape_id||!Array.isArray(t.stops)||!t.stops.length)continue;
+       const z=by[t.shape_id]||(by[t.shape_id]={count:0,trip:t});z.count++;
+       if(t.stops.length>z.trip.stops.length)z.trip=t;
+      }
+      variantMeta={};for(const [id,z] of Object.entries(by)){
+       const s=z.trip.stops;variantMeta[id]={from:s[0][1],to:s[s.length-1][1],count:z.count,
+        stops:s.map(x=>({id:x[0],name:x[1],lat:x[2],lon:x[3]}))};
+      }
+    }}
+   }catch(_e){}
+  original.clear();
+  $('shape').innerHTML='';
+  for(const id of ids){
+   const opt=document.createElement('option');opt.value=id;const m=variantMeta[id];opt.textContent=id+(m?' · '+m.from+' → '+m.to:'')+(saved.shapes?.[id]?' · POPRAWIONY':'');$('shape').appendChild(opt);
+   original.set(id,{base:shapes[id],saved:saved.shapes?.[id]});
+  }
+  choose();info(apiWarning || 'Wczytano '+ids.length+' wariantów. Domyślnie używana jest geometria GTFS; zapisane ręczne poprawki mają pierwszeństwo tylko dla swojego wariantu.');
+ }catch(e){info('Nie udało się wczytać wariantów: '+e.message+'\nSprawdź plik gtfs/shapes/'+$('line').value.trim()+'.json w folderze WTP-LIVE.');}
+}
+function choose(){
+ const item=original.get($('shape').value);if(!item)return;
+ points=applyPersistentPatches(item.base.map(p=>[Number(p[0]),Number(p[1])]),persistentPatches);item.loaded=points.map(p=>p.slice());history=[];roadSelection=[];addSegmentIndex=null;mode='move';editing=false;draw();renderStops();
+ if(points.length)map.fitBounds(lineLayer.getBounds(),{padding:[30,30]});
+}
+map.on('click',e=>{
+ if(!editing||mode!=='add'||addSegmentIndex===null)return;
+ const i=addSegmentIndex;
+ if(i<0||i>=points.length-1)return;
+ snapshot();points.splice(i+1,0,[e.latlng.lat,e.latlng.lng]);
+ addSegmentIndex=null;mode='move';draw();
+ info('Dodano punkt w WYBRANYM miejscu mapy, między punktami '+(i+1)+' i '+(i+2)+'. Możesz go przeciągać lub dodać kolejny.');
+});
+$('load').onclick=load;$('shape').onchange=choose;
+$('previewGTFS').onclick=()=>{
+ const item=original.get($('shape').value);
+ if(!item){info('Najpierw wczytaj linię i wybierz wariant.');return;}
+ if(!confirm('Pokazać oryginalną geometrię GTFS? Niezapisane zmiany w edytorze zostaną utracone. Zapis na Mikrusie nie zostanie zmieniony.'))return;
+ points=item.base.map(p=>[Number(p[0]),Number(p[1])]);history=[];roadSelection=[];addSegmentIndex=null;editing=false;mode='move';draw();
+ if(points.length)map.fitBounds(lineLayer.getBounds(),{padding:[30,30]});
+ info('Podgląd oryginalnej trasy GTFS. Nie zapisano żadnych zmian. Aby usunąć poprawkę na serwerze, użyj „Usuń poprawkę odcinka”.');
+};
+$('roadSelect').onclick=()=>{editing=true;mode='road';roadSelection=[];$('edit').textContent='Zakończ edycję';draw();roadMessage('Zaznacz minimum dwa punkty kontrolne. Możesz zaznaczyć więcej punktów, by wymusić przejazd przez konkretne ulice.');};
+$('roadFit').onclick=fitSelectedRoad;
+
+// v185: zapisz zaznaczony fragment jako trwałą poprawkę niezależną od shape_id.
+const persistentSaveButton=document.createElement('button');
+persistentSaveButton.id='savePermanent';
+persistentSaveButton.textContent='Zapisz poprawiony odcinek na stałe';
+persistentSaveButton.style.cssText='width:100%;margin:9px 0;background:#006b66;color:white';
+$('roadFit').insertAdjacentElement('afterend',persistentSaveButton);
+$('edit').onclick=()=>{editing=!editing;mode='move';$('edit').textContent=editing?'Zakończ edycję':'Edytuj trasę';draw();};
+$('add').onclick=()=>{editing=true;mode='add';addSegmentIndex=null;$('edit').textContent='Zakończ edycję';draw();info('KROK 1: kliknij odcinek fioletowej linii. KROK 2: kliknij DOWOLNE miejsce mapy, w którym chcesz wstawić punkt.');};
+$('remove').onclick=()=>{editing=true;mode='remove';$('edit').textContent='Zakończ edycję';draw();};
+$('undo').onclick=()=>{if(history.length){points=history.pop();roadSelection=[];draw();}};
+map.on('zoomend moveend',()=>{if(editing)draw();});
+// v188: geometria GTFS + wyłącznie lokalne poprawki odcinków.
+function metres(a,b){return Math.hypot((a[0]-b[0])*111195,(a[1]-b[1])*111195*Math.cos((a[0]+b[0])*Math.PI/360));}
+function applyPersistentPatches(base,patches){
+ let result=base.map(p=>p.slice());
+ for(const patch of patches){
+  const segment=patch.points;
+  if(!Array.isArray(segment)||segment.length<2)continue;
+  const candidates=[];
+  for(let i=0;i<result.length;i++)if(metres(result[i],segment[0])<=35)candidates.push(i);
+  let best=null;
+  for(const a of candidates){
+   for(let b=a+1;b<result.length;b++){
+    const endDist=metres(result[b],segment.at(-1));
+    if(endDist>35)continue;
+    const score=metres(result[a],segment[0])+endDist;
+    if(!best||score<best.score)best={a,b,score};
+   }
+  }
+  if(!best)continue; // nie modyfikuj niepasujących wariantów ani kierunku przeciwnego
+  result.splice(best.a,best.b-best.a+1,...segment.map(p=>p.slice()));
+ }
+ return result;
+}
+function changedSegment(before,after){
+ // Najpierw znajdź niezmienione punkty wspólne, także po dodawaniu/usuwaniu punktów.
+ let first=0;
+ while(first<before.length&&first<after.length&&metres(before[first],after[first])<0.05)first++;
+ if(first===before.length&&first===after.length)return null;
+ let tail=0;
+ while(tail<before.length-first&&tail<after.length-first&&metres(before[before.length-1-tail],after[after.length-1-tail])<0.05)tail++;
+ // Jeżeli przesunięto punkt końcowy, zachowaj pierwotną kotwicę, gdy leży blisko.
+ let result=after.map(p=>p.slice());
+ if(first===0){
+  if(metres(before[0],result[0])>35)throw Error('Początek zmienionego odcinka przesunięto o ponad 35 m. Zapisz cały wariant przyciskiem „Zapisz na Mikrusie” albo pozostaw punkt graniczny bez zmian.');
+  result[0]=before[0].slice();first=1;
+ }
+ if(tail===0){
+  if(metres(before.at(-1),result.at(-1))>35)throw Error('Koniec zmienionego odcinka przesunięto o ponad 35 m. Zapisz cały wariant przyciskiem „Zapisz na Mikrusie” albo pozostaw punkt graniczny bez zmian.');
+  result[result.length-1]=before.at(-1).slice();tail=1;
+ }
+ const left=Math.max(0,first-1),right=result.length-tail;
+ if(right<left||right>=result.length)throw Error('Nie udało się ustalić dwóch kotwic poprawki.');
+ return result.slice(left,right+1);
+}
+async function savePatch(segment){
+ const line=$('line').value.trim(),token=$('token').value;
+ if(!token)throw Error('Podaj token administratora.');
+ if(loadedLine!==line)throw Error('Nie wczytano aktualnych poprawek tej linii. Wczytaj ponownie.');
+ return fetchJson(API+'/admin/route-segment-patches/'+encodeURIComponent(line),{
+  method:'POST',headers:{'Content-Type':'application/json','X-Admin-Token':token},
+  body:JSON.stringify({points:segment})
+ });
+}
+async function saveFullVariant(){
+ const line=$('line').value.trim(),id=$('shape').value,token=$('token').value;
+ if(!token)throw Error('Podaj token administratora.');
+ if(points.length<2)throw Error('Trasa musi mieć minimum dwa punkty.');
+ const r=await fetchJson(API+'/admin/route-overrides/'+encodeURIComponent(line)+'/'+encodeURIComponent(id),{
+  method:'PUT',headers:{'Content-Type':'application/json','X-Admin-Token':token},
+  body:JSON.stringify({points})
+ });
+ const item=original.get(id);item.saved=points.map(p=>p.slice());item.loaded=points.map(p=>p.slice());
+ info('Zapisano cały wariant '+id+' na Mikrusie ('+r.points+' punktów).');
+}
+$('save').onclick=async()=>{
+ try{await saveFullVariant();}catch(e){info('Nie zapisano wariantu: '+e.message);}
+};
+persistentSaveButton.onclick=async()=>{
+ try{
+  const item=original.get($('shape').value);
+  if(!item)throw Error('Wybierz wariant.');
+  const segment=changedSegment(item.loaded,points);
+  if(!segment){info('Brak nowych zmian do zapisania.');return;}
+  if(!confirm('Zapisać poprawiony odcinek ('+segment.length+' punktów) na stałe dla tej linii, niezależnie od shape_id?'))return;
+  const r=await savePatch(segment);
+  persistentPatches.push({id:r.id,points:segment});
+  item.loaded=points.map(p=>p.slice());
+  info('Zapisano trwały odcinek #'+r.id+' ('+r.points+' punktów).');
+ }catch(e){info('Nie zapisano trwałego odcinka: '+e.message);}
+};
+$('restore').onclick=async()=>{
+ try{
+  const token=$('token').value,line=$('line').value.trim();
+  if(!token)throw Error('Podaj token administratora.');
+  if(!persistentPatches.length){info('Brak trwałych poprawek odcinków tej linii.');return;}
+  const ids=prompt('Podaj ID poprawki do usunięcia. Dostępne: '+persistentPatches.map(p=>p.id).join(', '));
+  if(ids===null)return;
+  const id=Number(ids);
+  if(!persistentPatches.some(p=>p.id===id))throw Error('Nieznany identyfikator poprawki.');
+  await fetchJson(API+'/admin/route-segment-patches/'+encodeURIComponent(line)+'/'+id,{
+   method:'DELETE',headers:{'X-Admin-Token':token}
+  });
+  persistentPatches=persistentPatches.filter(p=>p.id!==id);
+  choose();info('Usunięto poprawkę #'+id+'. Przywrócono odpowiedni fragment GTFS.');
+ }catch(e){info('Błąd: '+e.message);}
+};
+</script></body></html>
