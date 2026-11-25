@@ -1,6 +1,6 @@
 
 #!/usr/bin/env python3
-# WTP LIVE ETA API — WERSJA: 189 (trwałe poprawki odcinków; API v67 zachowane)
+# WTP LIVE ETA API — WERSJA: 198 (trwałe poprawki odcinków; API v67 zachowane)
 import os
 import json
 import threading
@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Query
 
 DB_PATH = os.environ.get("ETA_DB_PATH", "/opt/wtp-live/data/eta_v2.db")
 TZ = ZoneInfo("Europe/Warsaw")
-app = FastAPI(title="WTP LIVE ETA", version="1.189")
+app = FastAPI(title="WTP LIVE ETA", version="1.200")
 
 @contextmanager
 def database():
@@ -179,7 +179,7 @@ def _eta_dictionary_enrich(result):
         pass
     finally:con.close()
 
-def stop_data(db, course_id):
+def _stop_data_uncached(db, course_id):
     result = rows(db, """SELECT seq,stop_id,arrival,departure,payload
                        FROM course_stops WHERE course_id=? ORDER BY seq""", (course_id,))
     index = _odcinki_index(db)
@@ -224,6 +224,22 @@ def stop_data(db, course_id):
     _eta_dictionary_enrich(result)
     return result
 
+# Bounded cache, invalidated by daily database or dictionary replacement.
+from functools import lru_cache
+
+def _file_signature(path):
+    try:
+        st=os.stat(path); return (st.st_ino,st.st_size,st.st_mtime_ns)
+    except OSError: return None
+
+@lru_cache(maxsize=4096)
+def _cached_stops(signature, dictionary_signature, course_id):
+    with database() as db:
+        return _stop_data_uncached(db, course_id)
+
+def stop_data(db, course_id):
+    return _cached_stops(_file_signature(DB_PATH), _file_signature(ETA_DICTIONARY_DB), str(course_id))
+
 @app.get("/health")
 def health():
     with database() as db:
@@ -231,7 +247,7 @@ def health():
         metadata = rows(db, "SELECT key,value FROM metadata WHERE key IN ('date','version')")
         return {"ok": True, "courses": count,
                 "metadata": {r["key"]: r["value"] for r in metadata},
-                "api_version": 186}
+                "api_version": 200}
 
 @app.get("/lines")
 def lines():
@@ -258,7 +274,7 @@ def service_date(at: str | None = None) -> str:
 def courses(line: str = Query(min_length=1, max_length=30),
             brigade: str | None = Query(default=None, max_length=30),
             limit: int = Query(default=100, ge=1, le=5000),
-            at: str | None = None):
+            at: str | None = None, bundle: str | None = Query(default=None, max_length=200)):
     service_day = service_date(at)
     sql = """SELECT c.course_id,c.task_id,c.schedule_id,c.brigade,
                     c.departure,b.line_name AS line
@@ -272,6 +288,34 @@ def courses(line: str = Query(min_length=1, max_length=30),
         params.append(brigade.strip())
     sql += " ORDER BY c.departure LIMIT ?"
     params.append(limit)
+    if bundle == "network":
+        return _network_manifest(service_day)
+    if bundle == "prepared":
+        return _prepared_line(line, service_day, brigade)
+    if bundle == "live":
+        return _live_line_bundle(line, service_day)
+    if bundle and bundle.startswith('g:'):
+        ids = list(dict.fromkeys(bundle[2:].split(',')))
+        if len(ids)>8 or any(not re.fullmatch(r'\d{1,20}', x) for x in ids):
+            raise HTTPException(400, 'Invalid geometry bundle')
+        result = {}
+        with database() as db:
+            allowed = [cid for cid in ids if db.execute('SELECT 1 FROM courses c JOIN boards b ON b.schedule_id=c.schedule_id WHERE c.course_id=? AND b.line_name=? LIMIT 1',(cid,line)).fetchone()]
+        for cid in allowed:
+            try: result[cid] = course_geometry(cid)
+            except HTTPException: continue
+        return {'geometries':result}
+    if bundle:
+        ids = list(dict.fromkeys(bundle.split(',')))
+        if len(ids)>10 or any(not re.fullmatch(r'\d{1,20}', x) for x in ids):
+            raise HTTPException(400, 'Invalid bundle')
+        result = {}
+        with database() as db:
+            for cid in ids:
+                if not db.execute('SELECT 1 FROM courses c JOIN boards b ON b.schedule_id=c.schedule_id WHERE c.course_id=? AND b.line_name=? LIMIT 1',(cid,line)).fetchone():
+                    continue
+                result[cid] = {'stops': {'stops': stop_data(db,cid)}}
+        return {'bundle': result}
     with database() as db:
         return {"line":line,"brigade":brigade,"courses":rows(db,sql,params)}
 
@@ -754,3 +798,152 @@ def delete_route_segment_patch(line: str, patch_id: int, x_admin_token: str | No
             cur=db.execute('UPDATE route_segment_patches SET enabled=0,updated_at=CURRENT_TIMESTAMP WHERE id=? AND line=? AND enabled=1',(patch_id,line))
             db.commit()
     return {'ok':True,'disabled':bool(cur.rowcount)}
+
+
+# v282: shared line snapshot, one request for all brigades.
+from functools import lru_cache
+@lru_cache(maxsize=96)
+def _live_line_cached(signature, dictionary_signature, line, day, minute):
+    with database() as db:
+        records = rows(db, """SELECT c.course_id,c.task_id,c.schedule_id,c.brigade,c.departure,b.line_name AS line
+            FROM courses c JOIN boards b ON b.schedule_id=c.schedule_id WHERE b.line_name=?
+            AND (b.valid_from IS NULL OR b.valid_from='' OR b.valid_from<=?)
+            AND (b.valid_to IS NULL OR b.valid_to='' OR b.valid_to>=?) ORDER BY c.departure""", (line,day,day))
+        groups = defaultdict(list)
+        for c in records:
+            t=seconds(c['departure'])
+            if t is not None: groups[str(c['brigade'])].append((t/60,c))
+        selected={}
+        for group in groups.values():
+            near=sorted(group,key=lambda x:min(abs(minute+d-x[0]-35) for d in (-1440,0,1440)))[:6]
+            future=sorted((x for x in group if x[0]>=minute-5),key=lambda x:x[0])[:4]
+            for _,c in near+future: selected[str(c['course_id'])]=c
+        details={cid:{'stops':stop_data(db,cid)} for cid in selected}
+        return {'line':line,'courses':records,'details':details,'minute':minute}
+
+def _live_line_bundle(line,day):
+    now=datetime.now(TZ)
+    minute=now.hour*60+now.minute
+    return _live_line_cached(_file_signature(DB_PATH),_file_signature(ETA_DICTIONARY_DB),line,day,minute//5*5)
+
+
+# v285: independent server-side preparation, covering every scheduled line.
+import time
+import logging
+_prepared = {}
+_prepared_revision = None
+_prepared_lock = threading.Lock()
+_prepare_stop = threading.Event()
+from pathlib import Path
+import hashlib
+_CACHE_ROOT = Path(os.getenv('WTP_PREPARED_CACHE', '/opt/wtp-live/data/prepared-v288'))
+def _cache_folder(day, signature):
+    return _CACHE_ROOT / hashlib.sha256(repr((day, signature)).encode()).hexdigest()
+def _cache_file(folder, line):
+    return folder / (hashlib.sha256(line.encode()).hexdigest() + '.json')
+
+
+def _network_manifest(day):
+    with database() as db:
+        lines = [str(r[0]) for r in db.execute("""SELECT DISTINCT line_name FROM boards WHERE line_name IS NOT NULL AND line_name!='' AND (valid_from IS NULL OR valid_from='' OR valid_from<=?) AND (valid_to IS NULL OR valid_to='' OR valid_to>=?) ORDER BY line_name""", (day,day))]
+    with _prepared_lock:
+        ready = [line for line in lines if line in _prepared and _prepared[line][0] == day]
+    signature = (_file_signature(DB_PATH), _file_signature(ETA_DICTIONARY_DB), _file_signature(OVERRIDE_DB))
+    folder = _cache_folder(day, signature)
+    ready = [line for line in lines if line in ready or _cache_file(folder, line).is_file()]
+    return {'day':day,'lines':lines,'ready':ready,'revision':str((day, signature))}
+
+def _prepared_line(line, day, brigade=None):
+    if brigade is not None:
+        signature = (_file_signature(DB_PATH), _file_signature(ETA_DICTIONARY_DB), _file_signature(OVERRIDE_DB))
+        target = _cache_file(_cache_folder(day, signature), line)
+        if not target.is_file():
+            raise HTTPException(503, 'Line preparation pending')
+        with target.open(encoding='utf-8') as stream:
+            pack = json.load(stream)
+        def norm(value):
+            return re.sub(r'^0+(?=\d)', '', str(value or '').strip()).upper()
+        records = [c for c in pack['courses'] if norm(c.get('brigade')) == norm(brigade)]
+        ids = {str(c['course_id']) for c in records}
+        refs = {k:v for k,v in pack['geometry_refs'].items() if k in ids}
+        geom_ids = set(refs.values())
+        return {'line':line,'courses':records,'details':{k:v for k,v in pack['details'].items() if k in ids},'geometry_refs':refs,'geometries':{k:v for k,v in pack['geometries'].items() if k in geom_ids},'overrides':pack['overrides']}
+
+    with _prepared_lock:
+        hit = _prepared.get(line)
+    if hit and hit[0] == day:
+        from fastapi.responses import Response
+        from fastapi.responses import FileResponse
+        return FileResponse(hit[2],media_type='application/json')
+    signature = (_file_signature(DB_PATH), _file_signature(ETA_DICTIONARY_DB), _file_signature(OVERRIDE_DB))
+    target = _cache_file(_cache_folder(day, signature), line)
+    if target.is_file():
+        from fastapi.responses import FileResponse
+        return FileResponse(target, media_type="application/json")
+    raise HTTPException(503, 'Line preparation pending')
+
+def _prepare_network():
+    global _prepared, _prepared_revision
+    # Static data is built once per database generation, not every GPS poll.
+    while not _prepare_stop.is_set():
+        try:
+            day = service_date(None)
+            signature = (_file_signature(DB_PATH), _file_signature(ETA_DICTIONARY_DB), _file_signature(OVERRIDE_DB))
+            pending = {}
+            folder = _cache_folder(day, signature)
+            folder.mkdir(parents=True, exist_ok=True)
+            expected = _network_manifest(day)['lines']
+            for line in expected:
+                if _prepare_stop.is_set(): return
+                with _prepared_lock:
+                    old = _prepared.get(line)
+                if old and old[:2] == (day, signature):
+                    pending[line] = old
+                    continue
+                target = _cache_file(folder, line)
+                if target.is_file():
+                    pending[line] = (day, signature, str(target))
+                    continue
+                try:
+                    with database() as db:
+                        records = rows(db, """SELECT c.course_id,c.task_id,c.schedule_id,c.brigade,c.departure,b.line_name AS line FROM courses c JOIN boards b ON b.schedule_id=c.schedule_id WHERE b.line_name=? AND (b.valid_from IS NULL OR b.valid_from='' OR b.valid_from<=?) AND (b.valid_to IS NULL OR b.valid_to='' OR b.valid_to>=?) ORDER BY c.departure""", (line,day,day))
+                        details, geometries, refs, keys = {}, {}, {}, {}
+                        for c in records:
+                            if _prepare_stop.is_set(): return
+                            cid = str(c['course_id'])
+                            st = _stop_data_uncached(db,cid)
+                            details[cid] = {'stops':st}
+                            key = tuple((str(x.get('id_wariantu','')),str(x.get('stop_id','')),str(x.get('seq',''))) for x in st)
+                            if key not in keys:
+                                try: geom = course_geometry(cid)
+                                except HTTPException: geom = {'status':'no_geometry','points':[],'stops':[]}
+                                keys[key] = cid
+                                geometries[cid] = geom
+                            refs[cid] = keys[key]
+                    result = {'line':line,'courses':records,'details':details,'geometries':geometries,'geometry_refs':refs,'overrides':route_overrides(line)}
+                    # Serialized snapshots avoid repeated FastAPI traversal and retain less RAM.
+                    from fastapi.responses import Response
+                    payload = json.dumps(result,ensure_ascii=False,separators=(',',':')).encode('utf-8')
+                    tmp = target.with_suffix('.tmp')
+                    tmp.write_bytes(payload)
+                    os.replace(tmp, target)
+                    pending[line] = (day,signature,str(target))
+                except Exception:
+                    logging.exception('WTP preparation failed for %s',line)
+                if _prepare_stop.wait(.01): return
+            if expected and len(pending) == len(expected) and signature == (_file_signature(DB_PATH), _file_signature(ETA_DICTIONARY_DB), _file_signature(OVERRIDE_DB)):
+                with _prepared_lock:
+                    _prepared = pending
+                    _prepared_revision = (day, signature)
+        except Exception:
+            logging.exception('WTP network preparation failed')
+        _prepare_stop.wait(15)
+
+@app.on_event('startup')
+def start_network_preparation():
+    _prepare_stop.clear()
+    threading.Thread(target=_prepare_network, daemon=True, name='wtp-network-preparation').start()
+
+@app.on_event('shutdown')
+def stop_network_preparation():
+    _prepare_stop.set()

@@ -1,6 +1,6 @@
-// WTP LIVE — WERSJA: 52 — ETA segment patches
+// WTP LIVE — WERSJA: 55 — ETA segment patches
 
-const VERSION=52;
+const VERSION=56;
 
 
 
@@ -636,6 +636,25 @@ function stopsOutput(raw){return normalizedPortalRows(raw).map(r=>{
 
 
 
+const gpsInflight=new Map();
+const gpsLocalSnapshots=new Map();
+async function refreshGpsSnapshot(env,type){
+ if(gpsInflight.has(type))return gpsInflight.get(type);
+ const task=(async()=>{
+  const data=await newPortalGps(env,type);
+  if(data.result.length)gpsLocalSnapshots.set(type,{at:Date.now(),data});
+  if(env.GPS_HISTORY && data.result.length){try{await env.GPS_HISTORY.put(`live-snapshot:${type}`,JSON.stringify({at:Date.now(),data}),{expirationTtl:900})}catch(e){console.error('GPS snapshot:',String(e))}}
+  return data;
+ })();
+ gpsInflight.set(type,task);
+ try{return await task}finally{gpsInflight.delete(type)}
+}
+async function readGpsSnapshot(env,type){
+ const local=gpsLocalSnapshots.get(type);
+ if(local&&Date.now()-local.at<600000)return local;
+ try{const x=await env.GPS_HISTORY?.get(`live-snapshot:${type}`,'json');if(x?.data?.result?.length && Date.now()-x.at<600000)return x}catch(e){}
+ return null;
+}
 async function cityRoute(env,ctx,route,url){
 
 
@@ -652,7 +671,10 @@ async function cityRoute(env,ctx,route,url){
 
 
 
-  const data=await newPortalGps(env,type);
+  const cached=await readGpsSnapshot(env,type);
+  const update=async()=>{const data=await refreshGpsSnapshot(env,type);await Promise.allSettled([ingest(env,type,data.result,'new-api'),sendGpsHistory(env,type,data.result)]);return data};
+  if(cached){if(Date.now()-cached.at>2000)ctx.waitUntil(update().catch(e=>console.error('GPS refresh:',String(e))));return respond(cached.data)}
+  const data=await refreshGpsSnapshot(env,type);
 
 
 
@@ -840,7 +862,7 @@ async function etaProxy(env,url){
 
 
 
-     redirect:'manual',signal:AbortSignal.timeout(12000),cf:{cacheTtl:0,cacheEverything:false}
+     redirect:'manual',signal:AbortSignal.timeout(url.searchParams.get('bundle')==='prepared'?60000:12000),cf:{cacheTtl:0,cacheEverything:false}
 
 
 
@@ -860,11 +882,12 @@ async function etaProxy(env,url){
 
 
 
-   const body=await res.text();
+   if(url.searchParams.get('bundle')==='prepared')return new Response(res.body,{status:res.status,headers:{...CORS,'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'}});
+ const body=await res.text();
 
 
 
-   if(body.length>3000000)return respond({error:'Odpowiedz ETA zbyt duza'},502);
+   if(url.searchParams.get('bundle')!=='prepared' && body.length>3000000)return respond({error:'Odpowiedz ETA zbyt duza'},502);
 
 
 
@@ -1040,7 +1063,7 @@ export default {
 
 
 
-   try{const data=await newPortalGps(env,type);await Promise.allSettled([ingest(env,type,data.result,'cron-new-api'),sendGpsHistory(env,type,data.result)]);}
+   try{const data=await refreshGpsSnapshot(env,type);await Promise.allSettled([ingest(env,type,data.result,'cron-new-api'),sendGpsHistory(env,type,data.result)]);}
 
 
 

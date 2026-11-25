@@ -1,4 +1,4 @@
-# WTP LIVE ETA BRIDGE — WERSJA 3.7
+# WTP LIVE ETA BRIDGE — WERSJA 3.9
 import os, secrets, urllib.error, urllib.request, sqlite3, time, math, threading
 from fastapi import FastAPI, Header, HTTPException, Request, Query
 from fastapi.responses import Response
@@ -16,8 +16,8 @@ def bridge(path:str,request:Request,x_bridge_token:str|None=Header(default=None)
         raise HTTPException(404,'Not found')
     url=os.environ.get('ETA_BACKEND_URL','http://127.0.0.1:8000').rstrip('/')+'/'+path+('?' + str(request.url.query) if request.url.query else '')
     try:
-        with urllib.request.urlopen(url,timeout=20) as r:
-            return Response(content=r.read(2000000),status_code=r.status,media_type='application/json',headers={'Cache-Control':'no-store'})
+        with urllib.request.urlopen(url,timeout=65) as r:
+            return Response(content=r.read(),status_code=r.status,media_type='application/json',headers={'Cache-Control':'no-store'})
     except urllib.error.HTTPError as e:
         return Response(content=e.read(100000),status_code=e.code,media_type='application/json')
     except Exception:

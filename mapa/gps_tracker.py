@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# WTP LIVE GPS TRACKER v226 — GPS observations -> server-side assignments/events/predictions
+# WTP LIVE GPS TRACKER v2.2 — GPS observations -> server-side assignments/events/predictions
 # No external dependencies. Uses SQLite ETA geometry and GPS history.
 import os, sqlite3, json, time, math, logging, signal
 from datetime import datetime
@@ -13,11 +13,10 @@ ETA=os.getenv('ETA_DB_PATH','/opt/wtp-live/data/eta_v2.db')
 GPS=os.getenv('WTP_GPS_DB','/opt/wtp-live/data/gps_history.db')
 CACHE=os.getenv('WTP_ETA_CACHE','/opt/wtp-live/data/eta_tracker_cache_v19.pkl')
 CACHE_MAX_AGE=int(os.getenv('WTP_ETA_CACHE_MAX_AGE','1800'))
-INTERVAL=int(os.getenv('GPS_TRACKER_INTERVAL','15'))
-# WTP LIVE v226 — terminal GPS confirmation 5 s, departure delay forecast while stationary.
+INTERVAL=int(os.getenv('GPS_TRACKER_INTERVAL','2'))
 # GPS evidence thresholds for changing to a successor course.
 SWITCH_EARLY_SECONDS=int(os.getenv('GPS_SWITCH_EARLY_SECONDS','180'))  # retained for compatibility
-SWITCH_CONFIRM_MS=5000
+SWITCH_CONFIRM_MS=int(os.getenv('GPS_SWITCH_CONFIRM_MS','20000'))
 SWITCH_MIN_METRES=float(os.getenv('GPS_SWITCH_MIN_METRES','0'))  # terminal dwell confirms switch; movement is optional
 MATCH_WINDOW_MS=int(os.getenv('GPS_MATCH_WINDOW_MS','240000'))
 MATCH_MIN_OBSERVATIONS=int(os.getenv('GPS_MATCH_MIN_OBSERVATIONS','3'))
@@ -306,6 +305,32 @@ def record_heading(db,kind,vehicle,stamp,lat,lon):
         last_stamp=excluded.last_stamp,lat=excluded.lat,lon=excluded.lon''',
         (kind,vehicle,bearing,moved,stamp,lat,lon))
 
+def route_heading(tt,course,point):
+    """Direction from the assigned ETA variant; valid even while stopped."""
+    if not course or point is None:return None
+    pts=tt.shapes.get(course['variant'],[])
+    if len(pts)<2:return None
+    i=max(0,min(int(point),len(pts)-1))
+    origin=pts[i]
+    # Prefer the forward tangent, but ignore nearly coincident GPS graph nodes.
+    for j in range(i+1,min(len(pts),i+16)):
+        if dist(origin[1],origin[2],pts[j][1],pts[j][2])>=12:
+            return bearing_between(origin[1],origin[2],pts[j][1],pts[j][2])
+    for j in range(i-1,max(-1,i-16),-1):
+        if dist(pts[j][1],pts[j][2],origin[1],origin[2])>=12:
+            return bearing_between(pts[j][1],pts[j][2],origin[1],origin[2])
+    return None
+
+def persist_route_heading(db,tt,kind,vehicle,course,point,stamp,metres):
+    """Keep the route-based arrow on the server; never infer '?' from a stop."""
+    if metres>65:return
+    direction=route_heading(tt,course,point)
+    if direction is None:return
+    # Do not replace GPS observation coordinates or its last movement timestamp.
+    db.execute("""UPDATE vehicle_headings SET bearing=?
+                  WHERE type=? AND vehicle=? AND last_stamp=?""",
+               (direction,kind,vehicle,stamp))
+
 def recent_track(db, kind, vehicle, stamp, line, brigade):
     """Chronological recent GPS fixes for the same vehicle and duty."""
     data=db.execute("""SELECT stamp,lat,lon FROM observations
@@ -377,8 +402,7 @@ def process(db,tt,obs,state):
         terminal=old_pts[last_stop] if 0<=last_stop<len(old_pts) else None
         terminal_distance=dist(lat,lon,terminal[1],terminal[2]) if terminal else 1e9
         at_end=(progress>=max(0,last_stop-8) or
-                (progress>=max(0,last_stop-35) and terminal_distance<75) or
-                (terminal_distance<=35 and progress>=max(0,last_stop-90)))
+                (progress>=max(0,last_stop-35) and terminal_distance<75))
         # Confirm arrival at the old terminal, not timetable departure of successor.
         # Allow long layovers; switch into a WAITING course without claiming departure.
         possible=[]
@@ -391,10 +415,9 @@ def process(db,tt,obs,state):
                 if first_mapped and next_pts:
                     start_point=next_pts[first_mapped['point']]
                     start_distance=dist(lat,lon,start_point[1],start_point[2])
-                    # The previous course's terminal is the arrival evidence.
-                    # The next course may start at a different platform; its
-                    # start location must not block the five-second handoff.
-                    possible=[(start_distance,next_course,(first_mapped['point'],start_distance))]
+                    # A terminal can also be an interchange: demand spatial match.
+                    if start_distance<=90:
+                        possible=[(start_distance,next_course,(first_mapped['point'],start_distance))]
         if possible:
             best=possible[0]
             switch_candidate=best[1]['id']
@@ -405,22 +428,17 @@ def process(db,tt,obs,state):
                 switch_since=stamp;switch_lat=lat;switch_lon=lon
             # Confirm a terminal dwell; requiring 75m movement here prevented
             # course changes while a bus waited at the terminus.
-            # Switch only after confirmed arrival at the previous terminal, independent of successor schedule.
+            # Do not switch hours before the next scheduled departure.
+            local_s=(stamp-midnight_ms(stamp))/1000
+            next_start=best[1]['start']
             if (stamp-switch_since>=SWITCH_CONFIRM_MS
+                    and local_s>=next_start-600
                     and (SWITCH_MIN_METRES<=0 or
                          (switch_lat is not None and switch_lon is not None
                           and dist(switch_lat,switch_lon,lat,lon)>=SWITCH_MIN_METRES))):
                 db.execute('''UPDATE vehicle_courses SET end_stamp=? WHERE type=? AND vehicle=?
                     AND course_id=? AND end_stamp IS NULL''',(stamp,kind,vehicle,current['id']))
                 current=best[1];nearest=best[2];progress=-1
-                # A late arrival at the terminus already implies a late
-                # earliest possible departure for the successor course.
-                # This is a forecast, not a confirmed GPS departure.
-                first=next((s for s in current['stops'] if s['departure'] is not None),None)
-                if first is not None:
-                    scheduled=midnight_ms(stamp)+first['departure']*1000
-                    inherited_delay=max(0,stamp-scheduled)
-                    update_predictions(db,kind,vehicle,current,-1,stamp,inherited_delay)
                 state=None
                 switch_candidate=None;switch_since=None
                 switch_lat=None;switch_lon=None
@@ -452,6 +470,8 @@ def process(db,tt,obs,state):
         point,metres=nearest
         # Prevent GPS jitter from rewinding the stop sequence.
         progress=max(progress,point)
+        # Persist ETA route direction independently of any open browser tab.
+        persist_route_heading(db,tt,kind,vehicle,current,point,stamp,metres)
         close=[s for s in current['stops'] if s['point'] is not None and abs(s['point']-point)<=3]
         close.sort(key=lambda s:abs(s['point']-point))
         near=close[0] if close and metres<=45 else None
@@ -464,19 +484,19 @@ def process(db,tt,obs,state):
                 VALUES(?,?,?,?,?,?,?,?,?,?)''',(kind,vehicle,line,brigade,current['id'],near['seq'],near['id'],'arrival',stamp,'gps_geofence'))
         elif not near and prev_seq is not None:
             previous=next((s for s in current['stops'] if s['seq']==prev_seq),None)
-            if previous and since and stamp-since>=5000:
+            # Departure needs spatial evidence *beyond* the stop, not just
+            # leaving a 45 m geofence or the scheduled departure time.
+            stop_point=previous['point'] if previous else None
+            route_pts=tt.shapes.get(current['variant'],[])
+            beyond=False
+            if stop_point is not None and point>stop_point and point<len(route_pts):
+                beyond=(dist(route_pts[stop_point][1],route_pts[stop_point][2],
+                             route_pts[point][1],route_pts[point][2])>=45)
+            if previous and since and stamp-since>=5000 and beyond and metres<=65:
                 db.execute('''INSERT OR IGNORE INTO stop_events(type,vehicle,line,brigade,course_id,stop_seq,stop_id,event,stamp,source)
                     VALUES(?,?,?,?,?,?,?,?,?,?)''',(kind,vehicle,line,brigade,current['id'],previous['seq'],previous['id'],'departure',stamp,'gps_geofence'))
-            prev_seq=None;since=None
-        # Predict delay before departure if the vehicle is already at its
-        # first stop after a late arrival. Never mark this as an actual departure.
-        first=next((s for s in current['stops'] if s['departure'] is not None and s['point'] is not None),None)
-        waiting_at_origin=bool(first and progress<=first['point']+5 and
-                               dist(lat,lon,tt.shapes[current['variant']][first['point']][1],
-                                    tt.shapes[current['variant']][first['point']][2])<=70)
-        if waiting_at_origin:
-            scheduled=midnight_ms(stamp)+first['departure']*1000
-            update_predictions(db,kind,vehicle,current,-1,stamp,max(0,stamp-scheduled))
+            if beyond and metres<=65:
+                prev_seq=None;since=None
         # Estimate delay by interpolating scheduled time between adjacent mapped stops.
         mapped=[s for s in current['stops'] if s['point'] is not None and s['arrival'] is not None]
         before=max((s for s in mapped if s['point']<=progress),key=lambda s:s['point'],default=None)
@@ -489,7 +509,7 @@ def process(db,tt,obs,state):
                 sched=before['arrival']+frac*(after['arrival']-before['arrival'])
         elif before:sched=before['arrival']
         # While waiting for the scheduled start, do not fabricate a delay.
-        if sched is not None and not waiting_at_origin:
+        if sched is not None and not (stamp < midnight_ms(stamp)+current['start']*1000 and progress<=max(5, (current['stops'][0]['point'] if current['stops'] and current['stops'][0]['point'] is not None else 0)+5)):
             elapsed=(stamp-midnight_ms(stamp))/1000
             delay=max(-600000,min(3600000,int((elapsed-sched)*1000)))
             update_predictions(db,kind,vehicle,current,progress,stamp,delay)
@@ -524,8 +544,8 @@ def run():
             if not tt.ready:
                 time.sleep(INTERVAL)
                 continue
-            # Replay unprocessed history after downtime (up to 48h).
-            cutoff=int(time.time()*1000)-172800000
+            # Prioritize live observations; older raw history remains in SQLite.
+            cutoff=int(time.time()*1000)-120000
             observations=db.execute('''SELECT o.type,o.vehicle,o.line,o.brigade,o.stamp,o.lat,o.lon
                 FROM observations o LEFT JOIN tracker_state s ON s.type=o.type AND s.vehicle=o.vehicle
                 WHERE o.stamp>? AND o.stamp>COALESCE(s.last_stamp,0)
